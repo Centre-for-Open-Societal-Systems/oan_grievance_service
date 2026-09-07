@@ -22,7 +22,7 @@ container, never on the Windows host.
 | Database | MariaDB | 11.8 |
 | Cache / queue | Redis | alpine (two instances) |
 | App | `oan_grievance_service` | 0.0.1 |
-| Module | Grievance Management | 12 doctypes, 6 roles |
+| Modules | 6, split by FSD area | 22 doctypes, 6 roles |
 
 The app itself ships no server, no ORM and no migration engine. Frappe supplies all
 three. See `ARCHITECTURE` notes or the published architecture diagram for how the layers
@@ -329,41 +329,61 @@ set up.
 
 ## 7. What the app contains
 
-One module, **Grievance Management**, holding twelve doctypes drawn from section 5 of the
-Functional Specification Document v1.3 D3.
+Twenty-two doctypes across six modules, split along the FSD's own functional
+decomposition rather than one flat module. Moving a doctype between modules after
+deployment means a patch on every site, so the split is worth getting right early.
 
-| Doctype | Purpose |
-| --- | --- |
-| Grievance | The core ticket |
-| Submitter Profile | Farmer, cooperative, FPO, NGO and Woreda/Kebele identity |
-| Grievance Response | Immutable department reply |
-| Grievance Status History | From/to status audit trail |
-| Grievance Routing Rule | Category, type, area and provider to department |
-| Grievance Department | Email account, head, senior and nodal officer |
-| Grievance SLA Configuration | Per category and type, in days |
-| Grievance Notification Log | The notification matrix events |
-| Grievance Escalation Log | Level, trigger and stakeholders notified |
-| Grievance RBAC Assignment | Region, department and category scope |
-| Grievance Reassignment Request | The L2 approval flow |
-| Grievance Access Audit Event | Scope evaluated, allow or deny |
+| Module | Doctypes | FSD area |
+| --- | --- | --- |
+| Grievance Management | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request | FR-02/04/05/06 — the case and its lifecycle |
+| Grievance Masters | Service Category, Grievance Type, Region, Woreda, Grievance Department, Submitter Profile | 3.2.2, 3.11.8, Appendix A — reference data |
+| Grievance SLA | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Escalation Log | FR-07, 3.11.7 — windows, deferrals, escalation |
+| Grievance Notification | Grievance Notification Config, Grievance Notification Log, Grievance Response Template | FR-08, Appendix C — matrix and templates |
+| Grievance Routing | Grievance Routing Rule, Grievance Reassignment Request | FR-03, 3.3.1 — routing and reassignment |
+| Grievance Access Control | Grievance RBAC Assignment, Grievance Access Audit Event | FR-01, 3.1.1, FR-10 — scope and audit |
+
+`grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
+dashboard charts and the FR-11.1 workspace, since those are cross-module views.
 
 Six roles are created on install: Farmer, Assisted-Submissions, L1 Nodal Officer,
 L2 Senior Nodal Officer, Department Head and OAN Administrator-ATI. The Farmer role has
 desk access disabled, since farmers reach the system through the portal.
 
+### Application layers
+
+| Path | Holds |
+| --- | --- |
+| `api/v1/` | The versioned public contract. Breaking changes ship as `api/v2/` alongside; see `api/__init__.py` for the policy |
+| `services/` | Domain logic: routing, SLA, lifecycle, notifications, audit |
+| `permissions.py` | FR-01 deny-by-default RBAC query conditions |
+| `tasks.py` | FR-07 scheduled jobs, wired in `hooks.py` |
+| `setup/install.py` | Seed data: roles, categories, regions, the Appendix C events |
+
 ### Known incomplete work
 
-`grievance.py` contains two stubs that deliberately raise `NotImplementedError`. Each
-depends on a contradiction in the specification that has not been resolved:
+Not built yet: the portal pages (`www/` and `templates/pages/` are empty — FR-11.5
+submit wizard), SMS gateway wiring (integration point marked in
+`services/notifications.py`), Amharic translations (3.11.8), and Fayda ID
+authentication (FR-01), which is expected from `oan_auth_service`. This app covers
+authorization, not authentication.
 
-- **`start_sla()`** — section 4.2 starts the SLA clock at assignment, while use case
-  UC-04 computes the breach from creation date. The two diverge whenever a grievance
-  waits in the manual routing queue.
-- **`apply_routing()`** — blocked on the same decision.
+### Two specification conflicts, resolved
 
-The ticket-number abbreviation rule is also a documented assumption. The specification's
-own example code `AGRN` matches none of its five service categories, so the mapping in
-`CATEGORY_CODES` needs confirming against the OAN registry before go-live.
+Both are implemented and both are reversible without a code change. They are recorded
+here because the FSD contradicts itself and the call was made during the build.
+
+- **SLA clock start.** FSD 4.2 starts the timer at assignment; UC-04 computes the breach
+  from creation date. These diverge for any grievance waiting in the manual routing
+  queue. Implemented per 4.2, since 1.3 defines the SLA as the time an *assigned* agency
+  must act. Switch with the `grievance_sla_clock_start` site config key.
+- **Reassignment SLA.** FSD 3.3.1 requires a configured policy and says it "shall not be
+  implicit"; Appendix D-2 hardcodes a reset. Implemented as the explicit `sla_treatment`
+  field on the reassignment request; unset means the clock continues.
+
+The ticket-number segment codes are a documented assumption. The specification's own
+example code `AGRN` matches none of its five service categories, so the codes seeded on
+the Region, Woreda and Service Category masters need confirming against the OAN registry
+before go-live.
 
 ---
 
