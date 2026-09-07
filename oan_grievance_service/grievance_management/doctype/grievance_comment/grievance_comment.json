@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-MSG-{######}",
+ "creation": "2026-09-03 19:13:21.324701",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "comment_type",
+  "is_internal",
+  "col_comment_author",
+  "author_user",
+  "author_submitter",
+  "created_on",
+  "sec_body",
+  "body"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1
+  },
+  {
+   "fieldname": "comment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "Note\nMessage to Submitter\nSubmitter Reply\nInformation Request\nInformation Response",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "FSD 3.11.4: internal notes are not visible to the submitter",
+   "fieldname": "is_internal",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Internal Only"
+  },
+  {
+   "fieldname": "col_comment_author",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "author_user",
+   "fieldtype": "Link",
+   "label": "Author (Staff)",
+   "options": "User"
+  },
+  {
+   "fieldname": "author_submitter",
+   "fieldtype": "Link",
+   "label": "Author (Submitter)",
+   "options": "Submitter Profile"
+  },
+  {
+   "fieldname": "created_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Created On",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_body",
+   "fieldtype": "Section Break",
+   "label": "Body"
+  },
+  {
+   "fieldname": "body",
+   "fieldtype": "Text",
+   "label": "Body",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:21.324701",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Comment",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

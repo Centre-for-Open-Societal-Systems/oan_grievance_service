@@ -1,0 +1,102 @@
+app_name = "oan_grievance_service"
+app_title = "Grievance Management"
+app_publisher = "COSS - Centre for Open Societal Systems"
+app_description = "OpenAgriNet Ethiopia Grievance Management Module: multi-channel grievance intake, routing, SLA tracking and escalation"
+app_email = "nikky@prevoyancesolutions.com"
+app_license = "mit"
+
+# Apps
+# ------------------
+
+add_to_apps_screen = [
+	{
+		"name": "oan_grievance_service",
+		"title": "Grievance Management",
+		"route": "/app/grievance",
+	}
+]
+
+# Installation
+# ------------------
+# FSD Appendix F roles, 3.2.2 categories, 3.11.8 regions and the Appendix C
+# notification matrix are seeded so a fresh site comes up usable.
+
+after_install = "oan_grievance_service.setup.install.after_install"
+after_migrate = "oan_grievance_service.setup.install.after_migrate"
+
+# Permissions
+# ------------------
+# FSD 3.1.1 deny-by-default RBAC. The query condition filters list views, reports and
+# the API uniformly; has_permission mirrors it for a single document.
+
+permission_query_conditions = {
+	"Grievance": "oan_grievance_service.permissions.grievance_query_conditions",
+}
+
+has_permission = {
+	"Grievance": "oan_grievance_service.permissions.has_grievance_permission",
+}
+
+# Document Events
+# ------------------
+# FSD 4.1 step 7 routes on submission. FSD 3.5 advances the lifecycle when a
+# structured response is filed. FSD 3.3.1 gates reassignment on L2 approval.
+# FR-10 records every read of a case.
+
+doc_events = {
+	"Grievance": {
+		"after_insert": "oan_grievance_service.services.hooks_handlers.grievance_after_insert",
+		"onload": "oan_grievance_service.services.audit.on_grievance_view",
+	},
+	"Grievance Response": {
+		"after_insert": "oan_grievance_service.services.hooks_handlers.response_after_insert",
+	},
+	"Grievance Reassignment Request": {
+		"on_update": "oan_grievance_service.services.hooks_handlers.reassignment_on_update",
+	},
+	"Grievance SLA Deferral": {
+		"on_update": "oan_grievance_service.services.hooks_handlers.deferral_on_update",
+	},
+	"Grievance Anonymity Request": {
+		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
+	},
+}
+
+# Scheduled Tasks
+# ------------------
+# FSD 4.3: a background process monitors open grievances against their SLA deadlines.
+# FSD 7 requires the batch to complete within 30 minutes.
+
+scheduler_events = {
+	"hourly": [
+		"oan_grievance_service.tasks.send_sla_reminders",
+		"oan_grievance_service.tasks.escalate_breached",
+		"oan_grievance_service.tasks.dispatch_notifications",
+	],
+	"daily": [
+		"oan_grievance_service.tasks.auto_close_expired",
+	],
+}
+
+# Fixtures
+# ------------------
+# Configuration that must travel with the app rather than be re-keyed per site.
+
+fixtures = [
+	{"dt": "Role", "filters": [["name", "in", [
+		"Farmer",
+		"Assisted-Submissions",
+		"L1 Nodal Officer",
+		"L2 Senior Nodal Officer",
+		"Department Head",
+		"OAN Administrator-ATI",
+	]]]},
+]
+
+# Portal
+# ------------------
+# FSD 3.2.1 lists the web portal as a channel open to all submitter types.
+
+website_route_rules = [
+	{"from_route": "/grievance/track/<path:ticket>", "to_route": "grievance-track"},
+]

@@ -1,0 +1,141 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-RULE-{####}",
+ "creation": "2026-09-03 18:15:03.088556",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_precedence",
+  "active",
+  "service_category",
+  "grievance_type",
+  "col_rule_area",
+  "region",
+  "zone",
+  "woreda",
+  "kebele",
+  "service_provider",
+  "sec_target",
+  "assigned_dept",
+  "priority"
+ ],
+ "fields": [
+  {
+   "description": "FSD section 5: the lower value is evaluated first",
+   "fieldname": "rule_precedence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Rule Precedence",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "label": "Service Category",
+   "options": "Service Category"
+  },
+  {
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "label": "Grievance Type",
+   "options": "Grievance Type"
+  },
+  {
+   "fieldname": "col_rule_area",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Link",
+   "label": "Region",
+   "options": "Region"
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone"
+  },
+  {
+   "fieldname": "woreda",
+   "fieldtype": "Link",
+   "label": "Woreda",
+   "options": "Woreda"
+  },
+  {
+   "fieldname": "kebele",
+   "fieldtype": "Data",
+   "label": "Kebele"
+  },
+  {
+   "fieldname": "service_provider",
+   "fieldtype": "Data",
+   "label": "Service Provider"
+  },
+  {
+   "fieldname": "sec_target",
+   "fieldtype": "Section Break",
+   "label": "Routing Target"
+  },
+  {
+   "fieldname": "assigned_dept",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assigned Department",
+   "options": "Grievance Department",
+   "reqd": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "\nLow\nMedium\nHigh"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:26.716641",
+ "modified_by": "Administrator",
+ "module": "Grievance Routing",
+ "name": "Grievance Routing Rule",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

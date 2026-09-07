@@ -1,0 +1,144 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-DEFER-{#####}",
+ "creation": "2026-09-03 19:13:18.207920",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "status",
+  "additional_days",
+  "col_defer_req",
+  "requested_by",
+  "requested_at",
+  "sec_justification",
+  "justification",
+  "sec_approval",
+  "approver",
+  "decided_at",
+  "col_defer_dec",
+  "decision_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected"
+  },
+  {
+   "description": "FSD 3.11.7: capped by the global maximum deferral days, default 30",
+   "fieldname": "additional_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Additional Days",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_defer_req",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "requested_at",
+   "fieldtype": "Datetime",
+   "label": "Requested At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_justification",
+   "fieldtype": "Section Break",
+   "label": "Justification"
+  },
+  {
+   "description": "FSD 3.11.7: an L1 officer requesting a deferral must give at least 20 characters",
+   "fieldname": "justification",
+   "fieldtype": "Small Text",
+   "label": "Justification",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_approval",
+   "fieldtype": "Section Break",
+   "label": "Approval"
+  },
+  {
+   "description": "FSD 3.11.7: requires L2 approval unless policy permits self-approval",
+   "fieldname": "approver",
+   "fieldtype": "Link",
+   "label": "Approver (L2)",
+   "options": "User"
+  },
+  {
+   "fieldname": "decided_at",
+   "fieldtype": "Datetime",
+   "label": "Decided At"
+  },
+  {
+   "fieldname": "col_defer_dec",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:18.207920",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance SLA Deferral",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
