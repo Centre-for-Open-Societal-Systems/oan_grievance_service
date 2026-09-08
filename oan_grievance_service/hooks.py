@@ -2,7 +2,7 @@ app_name = "oan_grievance_service"
 app_title = "Grievance Management"
 app_publisher = "COSS - Centre for Open Societal Systems"
 app_description = "OpenAgriNet Ethiopia Grievance Management Module: multi-channel grievance intake, routing, SLA tracking and escalation"
-app_email = "nikky@prevoyancesolutions.com"
+app_email = "admin@openagrinet.org"
 app_license = "mit"
 
 # Apps
