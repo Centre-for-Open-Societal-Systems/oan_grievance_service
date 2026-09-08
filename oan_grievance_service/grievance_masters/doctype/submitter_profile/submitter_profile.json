@@ -1,0 +1,217 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:SUB-{#####}",
+ "creation": "2026-09-03 18:15:00.900165",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "submitter_type",
+  "submitter_name",
+  "fayda_id",
+  "org_reg_number",
+  "col_contact",
+  "contact_mobile",
+  "contact_email",
+  "active",
+  "sec_area",
+  "region",
+  "zone",
+  "col_area",
+  "woreda",
+  "kebele",
+  "sec_rep",
+  "authorized_rep_name",
+  "authorized_rep_fayda_id",
+  "col_rep",
+  "member_count",
+  "area_covered",
+  "sec_farmer",
+  "farmer_id",
+  "land_parcel_reference",
+  "col_farmer",
+  "crop_type",
+  "service_provider"
+ ],
+ "fields": [
+  {
+   "fieldname": "submitter_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Submitter Type",
+   "options": "Individual Farmer\nCooperative\nFPO\nNGO\nWoreda/Kebele Body\nDevelopment Agent",
+   "reqd": 1
+  },
+  {
+   "fieldname": "submitter_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Submitter / Organization Name",
+   "reqd": 1
+  },
+  {
+   "description": "FSD 3.1: primary identity for individual submitters",
+   "fieldname": "fayda_id",
+   "fieldtype": "Data",
+   "label": "Fayda ID"
+  },
+  {
+   "fieldname": "org_reg_number",
+   "fieldtype": "Data",
+   "label": "Organization Registration Number"
+  },
+  {
+   "fieldname": "col_contact",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Ethiopia country code +251 per FSD 3.11.8",
+   "fieldname": "contact_mobile",
+   "fieldtype": "Data",
+   "label": "Contact Mobile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "sec_area",
+   "fieldtype": "Section Break",
+   "label": "Geographic Area"
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Region",
+   "options": "Region",
+   "reqd": 1
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone"
+  },
+  {
+   "fieldname": "col_area",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "woreda",
+   "fieldtype": "Link",
+   "label": "Woreda",
+   "options": "Woreda"
+  },
+  {
+   "fieldname": "kebele",
+   "fieldtype": "Data",
+   "label": "Kebele"
+  },
+  {
+   "fieldname": "sec_rep",
+   "fieldtype": "Section Break",
+   "label": "Authorized Representative"
+  },
+  {
+   "fieldname": "authorized_rep_name",
+   "fieldtype": "Data",
+   "label": "Authorized Representative Name"
+  },
+  {
+   "fieldname": "authorized_rep_fayda_id",
+   "fieldtype": "Data",
+   "label": "Representative Fayda ID"
+  },
+  {
+   "fieldname": "col_rep",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "member_count",
+   "fieldtype": "Int",
+   "label": "Member / Affected Count"
+  },
+  {
+   "fieldname": "area_covered",
+   "fieldtype": "Data",
+   "label": "Area Covered"
+  },
+  {
+   "fieldname": "sec_farmer",
+   "fieldtype": "Section Break",
+   "label": "Farmer Context"
+  },
+  {
+   "fieldname": "farmer_id",
+   "fieldtype": "Data",
+   "label": "Farmer ID"
+  },
+  {
+   "fieldname": "land_parcel_reference",
+   "fieldtype": "Data",
+   "label": "Land Parcel Reference"
+  },
+  {
+   "fieldname": "col_farmer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "crop_type",
+   "fieldtype": "Data",
+   "label": "Crop Type"
+  },
+  {
+   "fieldname": "service_provider",
+   "fieldtype": "Data",
+   "label": "Associated Service Provider"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:29.184153",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Submitter Profile",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "submitter_name"
+}

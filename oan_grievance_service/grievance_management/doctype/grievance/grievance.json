@@ -1,0 +1,507 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-03 18:15:03.596772",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "ticket_number",
+  "status",
+  "priority",
+  "col_flags",
+  "escalated",
+  "escalation_level",
+  "submission_channel",
+  "sec_submitter",
+  "submitter_type",
+  "submitter",
+  "submitter_name",
+  "col_submitter_contact",
+  "contact_mobile",
+  "contact_email",
+  "assisted_by_officer",
+  "sec_anonymity",
+  "is_anonymous",
+  "anonymity_status",
+  "col_anonymity",
+  "anonymity_approved_by",
+  "sec_area",
+  "region",
+  "zone",
+  "col_area",
+  "woreda",
+  "kebele",
+  "sec_classification",
+  "service_category",
+  "grievance_type",
+  "col_classification",
+  "associated_service_provider",
+  "sec_detail",
+  "description",
+  "desired_outcome",
+  "sec_assignment",
+  "assigned_dept",
+  "assigned_to",
+  "col_assignment",
+  "routed_automatically",
+  "routing_rule",
+  "sec_sla",
+  "sla_days",
+  "sla_start_at",
+  "sla_due_date",
+  "col_sla",
+  "reminder_50_sent",
+  "reminder_80_sent",
+  "sla_deferred_days",
+  "sec_closure",
+  "confirmation_deadline",
+  "reopen_count",
+  "col_closure",
+  "satisfaction_rating",
+  "satisfaction_comments",
+  "closure_reason"
+ ],
+ "fields": [
+  {
+   "description": "FSD 3.2.3: REGION-WOREDA-CATEGORY-SEQUENCE, e.g. OROM-BISH-AGRN-12345",
+   "fieldname": "ticket_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ticket Number",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "default": "Submitted",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
+   "reqd": 1
+  },
+  {
+   "default": "Medium",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh"
+  },
+  {
+   "fieldname": "col_flags",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "FSD 3.4: overlay flag, does not replace the lifecycle status",
+   "fieldname": "escalated",
+   "fieldtype": "Check",
+   "label": "Escalated"
+  },
+  {
+   "fieldname": "escalation_level",
+   "fieldtype": "Int",
+   "label": "Escalation Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "submission_channel",
+   "fieldtype": "Select",
+   "label": "Submission Channel",
+   "options": "Mobile App\nWeb Portal\nMobile Call\nIVR Helpline\nDevelopment Agent Assisted",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_submitter",
+   "fieldtype": "Section Break",
+   "label": "Submitter"
+  },
+  {
+   "fieldname": "submitter_type",
+   "fieldtype": "Select",
+   "label": "Submitter Type",
+   "options": "Individual Farmer\nCooperative\nFPO\nNGO\nWoreda/Kebele Body\nDevelopment Agent",
+   "reqd": 1
+  },
+  {
+   "fieldname": "submitter",
+   "fieldtype": "Link",
+   "label": "Submitter Profile",
+   "options": "Submitter Profile"
+  },
+  {
+   "fieldname": "submitter_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Submitter / Organization Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_submitter_contact",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_mobile",
+   "fieldtype": "Data",
+   "label": "Contact Mobile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email"
+  },
+  {
+   "description": "FSD 2.2: officer ID retained for audit; the farmer remains primary owner",
+   "fieldname": "assisted_by_officer",
+   "fieldtype": "Link",
+   "label": "Assisted By (Development Agent)",
+   "options": "User"
+  },
+  {
+   "fieldname": "sec_anonymity",
+   "fieldtype": "Section Break",
+   "label": "Anonymity"
+  },
+  {
+   "default": "0",
+   "description": "FSD 9.2: absent from the section 5 data model, added for the approval workflow",
+   "fieldname": "is_anonymous",
+   "fieldtype": "Check",
+   "label": "Anonymous Submission"
+  },
+  {
+   "depends_on": "is_anonymous",
+   "fieldname": "anonymity_status",
+   "fieldtype": "Select",
+   "label": "Anonymity Status",
+   "options": "\nNot Requested\nPending Approval\nApproved\nDisclosure Requested\nRejected"
+  },
+  {
+   "fieldname": "col_anonymity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "is_anonymous",
+   "fieldname": "anonymity_approved_by",
+   "fieldtype": "Link",
+   "label": "Anonymity Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_area",
+   "fieldtype": "Section Break",
+   "label": "Geographic Area"
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Region",
+   "options": "Region",
+   "reqd": 1
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone"
+  },
+  {
+   "fieldname": "col_area",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "woreda",
+   "fieldtype": "Link",
+   "label": "Woreda",
+   "options": "Woreda",
+   "reqd": 1
+  },
+  {
+   "fieldname": "kebele",
+   "fieldtype": "Data",
+   "label": "Kebele"
+  },
+  {
+   "fieldname": "sec_classification",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Category",
+   "options": "Service Category",
+   "reqd": 1
+  },
+  {
+   "description": "FSD 3.2.2: loaded per category. No master entity is defined in FSD section 5.",
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "label": "Grievance Type",
+   "options": "Grievance Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_classification",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "FSD 3.2.2: pre-filled from the OAN registry when available",
+   "fieldname": "associated_service_provider",
+   "fieldtype": "Data",
+   "label": "Associated Service Provider"
+  },
+  {
+   "fieldname": "sec_detail",
+   "fieldtype": "Section Break",
+   "label": "Grievance Detail"
+  },
+  {
+   "description": "FSD 3.2.2: minimum 20 characters",
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "desired_outcome",
+   "fieldtype": "Small Text",
+   "label": "Desired Outcome"
+  },
+  {
+   "fieldname": "sec_assignment",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "assigned_dept",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Assigned Department",
+   "options": "Grievance Department"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Assigned Officer",
+   "options": "User"
+  },
+  {
+   "fieldname": "col_assignment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "FSD 3.3: false means the case entered the nodal officer manual queue",
+   "fieldname": "routed_automatically",
+   "fieldtype": "Check",
+   "label": "Routed Automatically",
+   "read_only": 1
+  },
+  {
+   "fieldname": "routing_rule",
+   "fieldtype": "Link",
+   "label": "Matched Routing Rule",
+   "options": "Grievance Routing Rule",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_sla",
+   "fieldtype": "Section Break",
+   "label": "SLA Tracking"
+  },
+  {
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "label": "SLA Days",
+   "read_only": 1
+  },
+  {
+   "description": "UNRESOLVED: FSD 4.2 starts the clock at assignment, UC-04 uses the creation date",
+   "fieldname": "sla_start_at",
+   "fieldtype": "Datetime",
+   "label": "SLA Start",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sla_due_date",
+   "fieldtype": "Datetime",
+   "label": "SLA Due Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_sla",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "FSD section 5 places this on SLA Configuration; it is per-grievance state",
+   "fieldname": "reminder_50_sent",
+   "fieldtype": "Check",
+   "label": "50% Reminder Sent",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "reminder_80_sent",
+   "fieldtype": "Check",
+   "label": "80% Reminder Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sla_deferred_days",
+   "fieldtype": "Int",
+   "label": "SLA Deferred Days",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_closure",
+   "fieldtype": "Section Break",
+   "label": "Closure and Feedback"
+  },
+  {
+   "description": "FSD 3.6: configurable window, default 7 days",
+   "fieldname": "confirmation_deadline",
+   "fieldtype": "Datetime",
+   "label": "Confirmation Deadline",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reopen_count",
+   "fieldtype": "Int",
+   "label": "Reopen Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_closure",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "FSD 3.6 requires this; it is absent from the section 5 data model",
+   "fieldname": "satisfaction_rating",
+   "fieldtype": "Int",
+   "label": "Satisfaction Rating (1-5)"
+  },
+  {
+   "fieldname": "satisfaction_comments",
+   "fieldtype": "Small Text",
+   "label": "Satisfaction Comments"
+  },
+  {
+   "fieldname": "closure_reason",
+   "fieldtype": "Small Text",
+   "label": "Closure Reason",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "max_attachments": 5,
+ "modified": "2026-09-03 19:13:24.197198",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "L1 Nodal Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "L2 Senior Nodal Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Department Head",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farmer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Assisted-Submissions",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ticket_number",
+ "track_changes": 1
+}

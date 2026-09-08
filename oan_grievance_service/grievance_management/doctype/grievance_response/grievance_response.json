@@ -1,0 +1,219 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-RESP-{#####}",
+ "creation": "2026-09-03 18:15:04.364179",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "response_sequence_no",
+  "response_date",
+  "col_resp_meta",
+  "response_type",
+  "responded_by",
+  "proposed_close_date",
+  "sec_body",
+  "action_taken",
+  "resolution_summary",
+  "internal_notes",
+  "sec_audit",
+  "prior_status",
+  "new_status",
+  "col_audit",
+  "ip_address",
+  "notification_sent",
+  "notification_sent_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1
+  },
+  {
+   "description": "FSD D-3: sequential number of this response for the grievance",
+   "fieldname": "response_sequence_no",
+   "fieldtype": "Int",
+   "label": "Response Sequence No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Response Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_resp_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "FSD D-2: determines the next workflow step",
+   "fieldname": "response_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Response Type",
+   "options": "Resolved\nPartially Resolved\nReferred to another dept\nRequires further info",
+   "reqd": 1
+  },
+  {
+   "fieldname": "responded_by",
+   "fieldtype": "Link",
+   "label": "Responded By",
+   "options": "User",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "proposed_close_date",
+   "fieldtype": "Date",
+   "label": "Proposed Closure Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_body",
+   "fieldtype": "Section Break",
+   "label": "Response"
+  },
+  {
+   "description": "FSD D-1: maximum 500 characters",
+   "fieldname": "action_taken",
+   "fieldtype": "Small Text",
+   "label": "Action Taken",
+   "reqd": 1
+  },
+  {
+   "fieldname": "resolution_summary",
+   "fieldtype": "Text Editor",
+   "label": "Resolution Summary",
+   "reqd": 1
+  },
+  {
+   "description": "FSD D-4: not visible to the submitter",
+   "fieldname": "internal_notes",
+   "fieldtype": "Text",
+   "label": "Internal Notes"
+  },
+  {
+   "fieldname": "sec_audit",
+   "fieldtype": "Section Break",
+   "label": "Audit"
+  },
+  {
+   "fieldname": "prior_status",
+   "fieldtype": "Data",
+   "label": "Prior Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_status",
+   "fieldtype": "Data",
+   "label": "New Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_audit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "FSD D-4: visible to nodal officer and admin only",
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "notification_sent",
+   "fieldtype": "Check",
+   "label": "Notification Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notification_sent_at",
+   "fieldtype": "Datetime",
+   "label": "Notification Sent At",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 18:15:04.364179",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Response",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "L1 Nodal Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "L2 Senior Nodal Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Department Head",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-DUP-{#####}",
+ "creation": "2026-09-03 19:13:20.076403",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "duplicate_of",
+  "detected_at",
+  "col_dup",
+  "detection_method",
+  "similarity_score",
+  "is_confirmed",
+  "confirmed_by",
+  "sec_just",
+  "submitter_justification"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1
+  },
+  {
+   "fieldname": "duplicate_of",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Duplicate Of",
+   "options": "Grievance",
+   "reqd": 1
+  },
+  {
+   "fieldname": "detected_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Detected At"
+  },
+  {
+   "fieldname": "col_dup",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "FSD 3.2.3: compares submitter identity, grievance type and temporal proximity",
+   "fieldname": "detection_method",
+   "fieldtype": "Select",
+   "label": "Detection Method",
+   "options": "Identity + Type + Time Proximity\nManual"
+  },
+  {
+   "fieldname": "similarity_score",
+   "fieldtype": "Float",
+   "label": "Similarity Score"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_confirmed",
+   "fieldtype": "Check",
+   "label": "Confirmed Duplicate"
+  },
+  {
+   "fieldname": "confirmed_by",
+   "fieldtype": "Link",
+   "label": "Confirmed By",
+   "options": "User"
+  },
+  {
+   "fieldname": "sec_just",
+   "fieldtype": "Section Break",
+   "label": "Submitter Justification"
+  },
+  {
+   "description": "FSD E3: the submitter may link to the existing grievance or proceed with justification",
+   "fieldname": "submitter_justification",
+   "fieldtype": "Small Text",
+   "label": "Submitter Justification"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:20.076403",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Duplicate",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

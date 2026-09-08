@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-SLA-{####}",
+ "creation": "2026-09-03 18:15:05.854115",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "service_category",
+  "grievance_type",
+  "sla_days",
+  "active",
+  "col_sla_esc",
+  "auto_escalation_threshold",
+  "top_level_authority",
+  "notify_on_submit",
+  "sec_deferral",
+  "max_deferral_days",
+  "deferral_requires_l2_approval"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Service Category",
+   "options": "Service Category",
+   "reqd": 1
+  },
+  {
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance Type",
+   "options": "Grievance Type"
+  },
+  {
+   "description": "FSD 3.7: expected response time in days",
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "SLA Days",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "col_sla_esc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "100",
+   "fieldname": "auto_escalation_threshold",
+   "fieldtype": "Int",
+   "label": "Auto Escalation Threshold (%)"
+  },
+  {
+   "description": "FSD 3.7: notified on second-level (2x SLA) breach",
+   "fieldname": "top_level_authority",
+   "fieldtype": "Link",
+   "label": "Top Level Authority",
+   "options": "User"
+  },
+  {
+   "default": "1",
+   "fieldname": "notify_on_submit",
+   "fieldtype": "Check",
+   "label": "Notify On Submit"
+  },
+  {
+   "fieldname": "sec_deferral",
+   "fieldtype": "Section Break",
+   "label": "Deferral Policy"
+  },
+  {
+   "default": "30",
+   "description": "FSD 3.11.7: the global default maximum is 30",
+   "fieldname": "max_deferral_days",
+   "fieldtype": "Int",
+   "label": "Maximum Deferral Days"
+  },
+  {
+   "default": "1",
+   "fieldname": "deferral_requires_l2_approval",
+   "fieldtype": "Check",
+   "label": "Deferral Requires L2 Approval"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-03 19:13:27.860923",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance SLA Configuration",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "OAN Administrator-ATI",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
