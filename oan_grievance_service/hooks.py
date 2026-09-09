@@ -8,6 +8,8 @@ app_license = "mit"
 # Apps
 # ------------------
 
+required_apps = ["oan_auth_service"]
+
 add_to_apps_screen = [
 	{
 		"name": "oan_grievance_service",
