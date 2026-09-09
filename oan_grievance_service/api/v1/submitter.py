@@ -2,8 +2,8 @@
 
 import frappe
 from frappe import _
-
 from oan_auth_service.api.utils import handle_api_errors, require_role
+
 from oan_grievance_service.api import version_meta
 
 from . import VERSION
@@ -58,7 +58,9 @@ def me():
 
 	name = frappe.db.get_value("Submitter Profile", {"user": user}, "name")
 	if not name:
-		frappe.throw(_("No submitter profile associated with your user account."), title=_("Profile Not Found"))
+		frappe.throw(
+			_("No submitter profile associated with your user account."), title=_("Profile Not Found")
+		)
 
 	doc = frappe.get_doc("Submitter Profile", name)
 	return envelope(
@@ -81,4 +83,3 @@ def me():
 def envelope(data):
 	"""Wrap response data with the API version metadata."""
 	return {"meta": version_meta(VERSION), "data": data}
-

@@ -189,6 +189,7 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		with configured_keys(), override_conf(jwt_self_registerable_roles=["Grievance Submitter"]):
 			import random
+
 			uid = frappe.generate_hash(length=6)
 			phone = "+251911" + "".join(random.choices("0123456789", k=6))
 			email = f"farmer_e2e_{uid}@example.com"
@@ -231,7 +232,3 @@ class TestSubmitterProfile(FrappeTestCase):
 						if frappe.db.exists("Contact", c):
 							frappe.delete_doc("Contact", c, force=True, ignore_permissions=True)
 					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
-
-
-
-

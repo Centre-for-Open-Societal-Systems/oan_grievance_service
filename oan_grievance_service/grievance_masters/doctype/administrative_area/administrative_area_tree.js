@@ -10,8 +10,8 @@ frappe.treeview_settings["Administrative Area"] = {
 			fieldname: "is_active",
 			fieldtype: "Check",
 			label: __("Active"),
-			default: 1
-		}
+			default: 1,
+		},
 	],
 	fields: [
 		{ fieldtype: "Data", fieldname: "area_name", label: __("Area Name"), reqd: true },
@@ -22,8 +22,8 @@ frappe.treeview_settings["Administrative Area"] = {
 			label: __("Area Type"),
 			options: "Country\nRegion\nZone\nWoreda\nKebele\nVillage\nOther",
 			default: "Region",
-			reqd: true
+			reqd: true,
 		},
-		{ fieldtype: "Check", fieldname: "is_group", label: __("Is Group") }
-	]
+		{ fieldtype: "Check", fieldname: "is_group", label: __("Is Group") },
+	],
 };

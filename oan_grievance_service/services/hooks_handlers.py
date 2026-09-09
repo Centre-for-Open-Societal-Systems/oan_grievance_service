@@ -194,17 +194,10 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 	)
 
 	contact_mobile = (
-		kwargs.get("contact_mobile")
-		or kwargs.get("phone_number")
-		or user_doc.mobile_no
-		or ""
+		kwargs.get("contact_mobile") or kwargs.get("phone_number") or user_doc.mobile_no or ""
 	).strip()
 
-	contact_email = (
-		kwargs.get("contact_email")
-		or kwargs.get("email")
-		or ""
-	).strip() or None
+	contact_email = (kwargs.get("contact_email") or kwargs.get("email") or "").strip() or None
 
 	if not contact_email and user_doc.email and not user_doc.email.endswith("@id.openagrinet.internal"):
 		contact_email = user_doc.email
@@ -233,9 +226,9 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 		profile = frappe.get_doc("Submitter Profile", existing_name)
 		if profile.user and profile.user != user_doc.name:
 			frappe.throw(
-				_("A Submitter Profile with dedupe key '{0}' is already registered under another account.").format(
-					dedupe_key
-				),
+				_(
+					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
+				).format(dedupe_key),
 				frappe.DuplicateEntryError,
 			)
 		profile.user = user_doc.name
@@ -269,4 +262,3 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 		profile.insert(ignore_permissions=True)
 
 	return profile
-

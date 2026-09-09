@@ -332,14 +332,14 @@ Twenty-two doctypes across six modules, split along the FSD's own functional
 decomposition rather than one flat module. Moving a doctype between modules after
 deployment means a patch on every site, so the split is worth getting right early.
 
-| Module                   | Doctypes                                                                                                                     | FSD area                                       |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request | FR-02/04/05/06 — the case and its lifecycle    |
+| Module                   | Doctypes                                                                                                                        | FSD area                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request    | FR-02/04/05/06 — the case and its lifecycle    |
 | Grievance Masters        | Service Category, Grievance Type, Administrative Area, Grievance Department, Submitter Profile, Submitter Type, Submission Type | 3.2.2, 3.11.8, Appendix A — reference data     |
-| Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Escalation Log                                                | FR-07, 3.11.7 — windows, deferrals, escalation |
-| Grievance Notification   | Grievance Notification Config, Grievance Notification Log, Grievance Response Template                                       | FR-08, Appendix C — matrix and templates       |
-| Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                       | FR-03, 3.3.1 — routing and reassignment        |
-| Grievance Access Control | Grievance RBAC Assignment, Grievance Access Audit Event                                                                      | FR-01, 3.1.1, FR-10 — scope and audit          |
+| Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Escalation Log                                                   | FR-07, 3.11.7 — windows, deferrals, escalation |
+| Grievance Notification   | Grievance Notification Config, Grievance Notification Log, Grievance Response Template                                          | FR-08, Appendix C — matrix and templates       |
+| Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                          | FR-03, 3.3.1 — routing and reassignment        |
+| Grievance Access Control | Grievance RBAC Assignment, Grievance Access Audit Event                                                                         | FR-01, 3.1.1, FR-10 — scope and audit          |
 
 `grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
 dashboard charts and the FR-11.1 workspace, since those are cross-module views.
@@ -358,7 +358,7 @@ covers every filing actor, distinguished by `submitter_type` rather than by role
 | `services/`        | Domain logic: routing, SLA, lifecycle, notifications, audit                                                       |
 | `permissions.py`   | FR-01 deny-by-default RBAC query conditions                                                                       |
 | `tasks.py`         | FR-07 scheduled jobs, wired in `hooks.py`                                                                         |
-| `setup/install.py` | Seed data: roles, categories, the Appendix C events                                                              |
+| `setup/install.py` | Seed data: roles, categories, the Appendix C events                                                               |
 
 ### Known incomplete work
 

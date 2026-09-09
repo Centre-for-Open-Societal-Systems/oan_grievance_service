@@ -58,9 +58,9 @@ class TestGrievance(FrappeTestCase):
 
 		# Ensure masters
 		if not frappe.db.exists("Submitter Type", "Individual Farmer"):
-			frappe.get_doc({"doctype": "Submitter Type", "type_name": "Individual Farmer", "code": "IND"}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc(
+				{"doctype": "Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+			).insert(ignore_permissions=True)
 
 		if not frappe.db.exists("Service Category", "Inputs"):
 			frappe.get_doc(
@@ -184,6 +184,10 @@ class TestGrievance(FrappeTestCase):
 			if g and frappe.db.exists("Grievance", g.name):
 				frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
 			if frappe.db.exists("Grievance Routing Rule", broad_rule.name):
-				frappe.delete_doc("Grievance Routing Rule", broad_rule.name, force=True, ignore_permissions=True)
+				frappe.delete_doc(
+					"Grievance Routing Rule", broad_rule.name, force=True, ignore_permissions=True
+				)
 			if frappe.db.exists("Grievance Routing Rule", specific_rule.name):
-				frappe.delete_doc("Grievance Routing Rule", specific_rule.name, force=True, ignore_permissions=True)
+				frappe.delete_doc(
+					"Grievance Routing Rule", specific_rule.name, force=True, ignore_permissions=True
+				)

@@ -145,7 +145,7 @@ def dispatch_queued(limit=100):
 			if row.channel == "Email" and "@" in (row.recipient or ""):
 				frappe.sendmail(
 					recipients=[row.recipient],
-					subject=f"Grievance update",
+					subject="Grievance update",
 					message=row.message,
 					delayed=True,
 				)

@@ -94,4 +94,3 @@ def build_dedupe_key(scheme, value):
 	if scheme not in valid_schemes:
 		frappe.throw(_("Unknown identity scheme {0}.").format(scheme))
 	return f"{scheme}:{(value or '').strip()}"
-

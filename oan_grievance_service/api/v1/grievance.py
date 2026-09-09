@@ -8,8 +8,8 @@ service layer so the audit trail and notifications cannot be bypassed.
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
-
 from oan_auth_service.api.utils import handle_api_errors, require_role
+
 from oan_grievance_service.api import version_meta
 from oan_grievance_service.services import audit, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C

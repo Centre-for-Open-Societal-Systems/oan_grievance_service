@@ -32,7 +32,10 @@ def find_matching_rule(grievance):
 	case_lft = grievance.get("area_lft")
 	case_rgt = None
 	if case_area and case_lft is None:
-		case_lft, case_rgt = frappe.db.get_value("Administrative Area", case_area, ["lft", "rgt"]) or (None, None)
+		case_lft, case_rgt = frappe.db.get_value("Administrative Area", case_area, ["lft", "rgt"]) or (
+			None,
+			None,
+		)
 	elif case_area and case_lft is not None:
 		case_rgt = frappe.db.get_value("Administrative Area", case_area, "rgt")
 
@@ -75,7 +78,9 @@ def find_matching_rule(grievance):
 			if not case_area or case_lft is None:
 				matched = False
 			else:
-				rule_lft, rule_rgt = frappe.db.get_value("Administrative Area", rule_area, ["lft", "rgt"]) or (None, None)
+				rule_lft, rule_rgt = frappe.db.get_value(
+					"Administrative Area", rule_area, ["lft", "rgt"]
+				) or (None, None)
 				if rule_lft is None or rule_rgt is None:
 					matched = False
 				elif not (rule_lft <= int(case_lft) and rule_rgt >= int(case_rgt or case_lft)):

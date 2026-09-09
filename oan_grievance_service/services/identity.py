@@ -1,6 +1,7 @@
+from dataclasses import dataclass
+
 import frappe
 from frappe import _
-from dataclasses import dataclass
 
 # Identity schemes, matching the dedupe_key prefixes.
 SCHEME_FAYDA = "fayda"
@@ -109,6 +110,3 @@ def derive_dedupe_key(
 		return f"{SCHEME_PHONE}:{phone}"
 
 	return None
-
-
-

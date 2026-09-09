@@ -56,7 +56,9 @@ class Grievance(Document):
 		area = frappe.get_doc("Administrative Area", self.administrative_area)
 		if area.is_group:
 			frappe.throw(
-				_("Grievances can only be attached to an operational leaf Administrative Area (not a group)."),
+				_(
+					"Grievances can only be attached to an operational leaf Administrative Area (not a group)."
+				),
 				title=_("Invalid Administrative Area"),
 			)
 

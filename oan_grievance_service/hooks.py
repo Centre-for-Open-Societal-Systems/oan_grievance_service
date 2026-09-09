@@ -103,9 +103,7 @@ fixtures = [
 # -----------------------------
 # Integrates with oan_auth_service to initialize domain profiles upon user registration.
 
-on_user_registered = [
-	"oan_grievance_service.services.hooks_handlers.on_user_registered"
-]
+on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
 
 # Portal
 # ------------------
@@ -114,4 +112,3 @@ on_user_registered = [
 website_route_rules = [
 	{"from_route": "/grievance/track/<path:ticket>", "to_route": "grievance-track"},
 ]
-
