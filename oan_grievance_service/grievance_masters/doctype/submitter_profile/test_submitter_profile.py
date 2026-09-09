@@ -1,9 +1,235 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
-# import frappe
+import frappe
 from frappe.tests.utils import FrappeTestCase
+
+from oan_grievance_service.grievance_masters.doctype.submitter_profile.submitter_profile import (
+	build_dedupe_key,
+	split_dedupe_key,
+)
 
 
 class TestSubmitterProfile(FrappeTestCase):
-	pass
+	def test_dedupe_key_helpers(self):
+		self.assertEqual(build_dedupe_key("fayda", "123456"), "fayda:123456")
+		self.assertEqual(build_dedupe_key("phone", "+251911000000"), "phone:+251911000000")
+		self.assertEqual(split_dedupe_key("fayda:123456"), ("fayda", "123456"))
+		self.assertEqual(split_dedupe_key("phone:+251911000000"), ("phone", "+251911000000"))
+		self.assertEqual(split_dedupe_key("invalid"), (None, None))
+
+	def test_derive_dedupe_key_automatic_resolution(self):
+		from oan_grievance_service.services.identity import derive_dedupe_key
+
+		# Farmer with Fayda ID
+		self.assertEqual(
+			derive_dedupe_key("Individual Farmer", mobile="+251911000000", fayda_id="123456789012"),
+			"fayda:123456789012",
+		)
+		# Farmer without Fayda ID (falls back to phone)
+		self.assertEqual(
+			derive_dedupe_key("Individual Farmer", mobile="+251911000000"),
+			"phone:+251911000000",
+		)
+		# Cooperative with registration number
+		self.assertEqual(
+			derive_dedupe_key("Cooperative", mobile="+251911000000", registration_number="COOP-REG-100"),
+			"org:COOP-REG-100",
+		)
+		# Cooperative without registration number raises ValidationError
+		with self.assertRaises(frappe.ValidationError):
+			derive_dedupe_key("Cooperative", mobile="+251911000000")
+
+	def test_profile_dedupe_key_generation(self):
+		profile = frappe.new_doc("Submitter Profile")
+		profile.submitter_type = "Individual Farmer"
+		profile.submitter_name = "Test Farmer"
+		profile.contact_mobile = "+251911223344"
+		profile.region = "Oromia"
+		profile.validate()
+
+		self.assertEqual(profile.dedupe_key, "phone:+251911223344")
+		self.assertEqual(profile.identity_scheme, "phone")
+		self.assertEqual(profile.identity_value, "+251911223344")
+
+	def test_profile_custom_fayda_dedupe_key(self):
+		profile = frappe.new_doc("Submitter Profile")
+		profile.submitter_type = "Individual Farmer"
+		profile.submitter_name = "Test Farmer"
+		profile.contact_mobile = "+251911223344"
+		profile.dedupe_key = "fayda:FAYDA-98765"
+		profile.region = "Oromia"
+		profile.validate()
+
+		self.assertEqual(profile.dedupe_key, "fayda:FAYDA-98765")
+		self.assertEqual(profile.identity_scheme, "fayda")
+		self.assertEqual(profile.identity_value, "FAYDA-98765")
+
+	def test_on_user_registered_creates_individual_farmer_profile(self):
+		from oan_grievance_service.services.hooks_handlers import on_user_registered
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_farmer_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "Abebe",
+				"last_name": "Bikila",
+				"mobile_no": "+251911887766",
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			profile = on_user_registered(
+				user_doc=user,
+				role="Grievance Submitter",
+				roles=["Grievance Submitter"],
+				submitter_type="Individual Farmer",
+				preferred_language="am",
+				region="Oromia",
+			)
+
+			self.assertIsNotNone(profile)
+			self.assertEqual(profile.user, user.name)
+			self.assertEqual(profile.submitter_type, "Individual Farmer")
+			self.assertEqual(profile.submitter_name, "Abebe Bikila")
+			self.assertEqual(profile.contact_mobile, "+251911887766")
+			self.assertEqual(profile.preferred_language, "am")
+			self.assertEqual(profile.region, "Oromia")
+			self.assertEqual(profile.dedupe_key, "phone:+251911887766")
+		finally:
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_on_user_registered_creates_cooperative_profile_with_org_key(self):
+		from oan_grievance_service.services.hooks_handlers import on_user_registered
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_coop_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "Oromia Seed",
+				"last_name": "Coop",
+				"mobile_no": "+251911998877",
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			profile = on_user_registered(
+				user_doc=user,
+				role="Grievance Submitter",
+				roles=["Grievance Submitter"],
+				submitter_type="Cooperative",
+				registration_number="COOP-REG-987",
+				administrative_unit="Bishoftu",
+			)
+
+			self.assertIsNotNone(profile)
+			self.assertEqual(profile.user, user.name)
+			self.assertEqual(profile.submitter_type, "Cooperative")
+			self.assertEqual(profile.dedupe_key, "org:COOP-REG-987")
+			self.assertEqual(profile.administrative_unit, "Bishoftu")
+		finally:
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_on_user_registered_cooperative_without_reg_number_fails(self):
+		from oan_grievance_service.services.hooks_handlers import on_user_registered
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_coop_fail_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "No Reg",
+				"last_name": "Coop",
+				"mobile_no": "+251911998811",
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			with self.assertRaises(frappe.ValidationError):
+				on_user_registered(
+					user_doc=user,
+					role="Grievance Submitter",
+					roles=["Grievance Submitter"],
+					submitter_type="Cooperative",
+				)
+		finally:
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_on_user_registered_ignored_for_other_roles(self):
+		from oan_grievance_service.services.hooks_handlers import on_user_registered
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_officer_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "Grievance",
+				"last_name": "Officer",
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			profile = on_user_registered(
+				user_doc=user,
+				role="Grievance Officer",
+				roles=["Grievance Officer"],
+				submitter_type="Individual Farmer",
+			)
+
+			self.assertIsNone(profile)
+			self.assertFalse(frappe.db.exists("Submitter Profile", {"user": user.name}))
+		finally:
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_end_to_end_auth_registration_creates_submitter_profile(self):
+		from oan_auth_service.api.v1.auth import register_user
+		from oan_auth_service.tests.utils import configured_keys, override_conf
+
+		with configured_keys(), override_conf(jwt_self_registerable_roles=["Grievance Submitter"]):
+			import random
+			phone = "+251911" + "".join(random.choices("0123456789", k=6))
+			email = f"farmer_e2e_{frappe.generate_hash(length=6)}@example.com"
+			res = register_user(
+				email=email,
+				password="SecurePassword123!",
+				full_name="Fatuma Roba",
+				phone_number=phone,
+				role="Grievance Submitter",
+				submitter_type="Individual Farmer",
+				fayda_id="FAYDA-ET-77",
+				region="Oromia",
+				preferred_language="am",
+			)
+
+			self.assertEqual(res["status"], "success")
+			user_id = res["data"]["user"]
+
+			try:
+				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
+				self.assertTrue(bool(profile_name))
+
+				profile = frappe.get_doc("Submitter Profile", profile_name)
+				self.assertEqual(profile.submitter_name, "Fatuma Roba")
+				self.assertEqual(profile.contact_mobile, phone)
+				self.assertEqual(profile.region, "Oromia")
+				self.assertEqual(profile.preferred_language, "am")
+				self.assertEqual(profile.dedupe_key, "fayda:FAYDA-ET-77")
+			finally:
+				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
+				if profile_name:
+					frappe.delete_doc("Submitter Profile", profile_name, force=True, ignore_permissions=True)
+				if frappe.db.exists("User", user_id):
+					frappe.db.delete("OAN User Refresh Token", {"user": user_id})
+					contacts = frappe.get_all(
+						"Dynamic Link", filters={"link_doctype": "User", "link_name": user_id}, pluck="parent"
+					)
+					for c in contacts:
+						if frappe.db.exists("Contact", c):
+							frappe.delete_doc("Contact", c, force=True, ignore_permissions=True)
+					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
+
+
+
+

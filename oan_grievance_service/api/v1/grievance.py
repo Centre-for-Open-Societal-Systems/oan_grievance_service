@@ -10,8 +10,8 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from oan_grievance_service.api import version_meta
-from oan_grievance_service.services import audit, constants as C
-from oan_grievance_service.services import lifecycle, routing, sla
+from oan_grievance_service.services import audit, lifecycle, routing, sla
+from oan_grievance_service.services import constants as C
 
 from . import VERSION
 
@@ -33,8 +33,17 @@ def submit(**kwargs):
 	"""
 	from oan_grievance_service.services import notifications
 
-	required = ("submitter_type", "submitter_name", "contact_mobile", "submission_channel",
-	            "region", "woreda", "service_category", "grievance_type", "description")
+	required = (
+		"submitter_type",
+		"submitter_name",
+		"contact_mobile",
+		"submission_channel",
+		"region",
+		"woreda",
+		"service_category",
+		"grievance_type",
+		"description",
+	)
 	missing = [field for field in required if not kwargs.get(field)]
 	if missing:
 		frappe.throw(
@@ -63,14 +72,16 @@ def submit(**kwargs):
 	rule = routing.apply_routing(doc)
 	doc.reload()
 
-	return envelope({
-		"ticket_number": doc.ticket_number,
-		"status": doc.status,
-		"assigned_department": doc.assigned_dept,
-		"auto_routed": bool(rule),
-		"sla_due_date": doc.sla_due_date,
-		"possible_duplicates": [d.duplicate_of for d in duplicates],
-	})
+	return envelope(
+		{
+			"ticket_number": doc.ticket_number,
+			"status": doc.status,
+			"assigned_department": doc.assigned_dept,
+			"auto_routed": bool(rule),
+			"sla_due_date": doc.sla_due_date,
+			"possible_duplicates": [d.duplicate_of for d in duplicates],
+		}
+	)
 
 
 def detect_duplicates(grievance, window_days=7):
@@ -116,16 +127,18 @@ def track(ticket_number):
 	doc = frappe.get_doc("Grievance", name)
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=name)
 
-	return envelope({
-		"ticket_number": doc.ticket_number,
-		"status": doc.status,
-		"escalated": bool(doc.escalated),
-		"department": doc.assigned_dept,
-		"sla_due_date": doc.sla_due_date,
-		"sla_consumed_percent": sla.consumed_percent(doc),
-		"confirmation_deadline": doc.confirmation_deadline,
-		"submitted_on": doc.creation,
-	})
+	return envelope(
+		{
+			"ticket_number": doc.ticket_number,
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"department": doc.assigned_dept,
+			"sla_due_date": doc.sla_due_date,
+			"sla_consumed_percent": sla.consumed_percent(doc),
+			"confirmation_deadline": doc.confirmation_deadline,
+			"submitted_on": doc.creation,
+		}
+	)
 
 
 @frappe.whitelist()

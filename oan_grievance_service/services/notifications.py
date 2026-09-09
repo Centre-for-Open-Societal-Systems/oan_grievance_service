@@ -149,7 +149,8 @@ def dispatch_queued(limit=100):
 				)
 			# SMS: FSD section 6 names an external gateway. Integration point.
 			frappe.db.set_value(
-				"Grievance Notification Log", row.name,
+				"Grievance Notification Log",
+				row.name,
 				{"status": "Sent", "sent_at": now_datetime()},
 				update_modified=False,
 			)
@@ -159,7 +160,10 @@ def dispatch_queued(limit=100):
 				message=frappe.get_traceback(),
 			)
 			frappe.db.set_value(
-				"Grievance Notification Log", row.name, "status", "Failed",
+				"Grievance Notification Log",
+				row.name,
+				"status",
+				"Failed",
 				update_modified=False,
 			)
 

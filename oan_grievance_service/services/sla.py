@@ -95,11 +95,13 @@ def extend_for_deferral(grievance, additional_days):
 	if not grievance.sla_due_date:
 		return
 	grievance.db_set(
-		"sla_due_date", add_days(get_datetime(grievance.sla_due_date), additional_days),
+		"sla_due_date",
+		add_days(get_datetime(grievance.sla_due_date), additional_days),
 		update_modified=False,
 	)
 	grievance.db_set(
-		"sla_deferred_days", (grievance.sla_deferred_days or 0) + additional_days,
+		"sla_deferred_days",
+		(grievance.sla_deferred_days or 0) + additional_days,
 		update_modified=False,
 	)
 	# The window moved, so the old reminders are no longer the right ones to suppress.
@@ -150,9 +152,7 @@ def escalate(grievance, level, trigger, reason=None, escalated_by=None):
 
 def already_escalated_at(grievance_name, level):
 	return bool(
-		frappe.db.exists(
-			"Grievance Escalation Log", {"grievance": grievance_name, "escalation_level": level}
-		)
+		frappe.db.exists("Grievance Escalation Log", {"grievance": grievance_name, "escalation_level": level})
 	)
 
 
