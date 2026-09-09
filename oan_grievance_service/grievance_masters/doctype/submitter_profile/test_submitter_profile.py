@@ -232,3 +232,47 @@ class TestSubmitterProfile(FrappeTestCase):
 						if frappe.db.exists("Contact", c):
 							frappe.delete_doc("Contact", c, force=True, ignore_permissions=True)
 					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
+
+	def test_submitter_me_endpoint_returns_decomposed_variables(self):
+		from oan_grievance_service.api.v1.submitter import me
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_me_farmer_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "Derartu",
+				"last_name": "Tulu",
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		profile = frappe.get_doc(
+			{
+				"doctype": "Submitter Profile",
+				"user": user.name,
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Derartu Tulu",
+				"contact_mobile": "+251911445566",
+				"dedupe_key": "fayda:FAYDA-DT-12345",
+				"administrative_unit": "Bekoji",
+				"preferred_language": "am",
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			frappe.set_user(user.name)
+			res = me()
+			self.assertIn("data", res)
+			data = res["data"]
+			self.assertEqual(data["profile_id"], profile.name)
+			self.assertEqual(data["identity_scheme"], "fayda")
+			self.assertEqual(data["identity_value"], "FAYDA-DT-12345")
+			self.assertEqual(data["fayda_id"], "FAYDA-DT-12345")
+			self.assertIsNone(data["registration_number"])
+			self.assertEqual(data["submitter_name"], "Derartu Tulu")
+			self.assertEqual(data["contact_mobile"], "+251911445566")
+			self.assertEqual(data["administrative_unit"], "Bekoji")
+		finally:
+			frappe.set_user("Administrator")
+			frappe.delete_doc("Submitter Profile", profile.name, force=True, ignore_permissions=True)
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)

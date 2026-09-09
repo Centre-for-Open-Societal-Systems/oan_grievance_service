@@ -244,7 +244,8 @@ def seed_all():
 		"submission_types": seed_submission_types(),
 		"notifications": seed_notification_configs(),
 	}
-	frappe.db.commit()
+	# Explicit commit after running setup seed data in after_install/after_migrate hook
+	frappe.db.commit()  # nosemgrep
 	return created
 
 

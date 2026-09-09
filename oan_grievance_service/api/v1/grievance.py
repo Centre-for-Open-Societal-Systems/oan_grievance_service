@@ -130,7 +130,7 @@ def detect_duplicates(grievance, window_days=7):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def track(ticket_number):
+def track(ticket_number: str):
 	"""Submitter-facing status lookup for the portal and IVR."""
 	name = frappe.db.get_value("Grievance", {"ticket_number": ticket_number}, "name")
 	if not name:
@@ -156,7 +156,7 @@ def track(ticket_number):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def confirm(ticket_number, rating=None, comments=None):
+def confirm(ticket_number: str, rating: int | str | None = None, comments: str | None = None):
 	"""FSD 3.6 / UC-03: the submitter confirms the resolution."""
 	doc = _load(ticket_number)
 	if doc.status != C.PENDING_SUBMITTER:
@@ -174,7 +174,7 @@ def confirm(ticket_number, rating=None, comments=None):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def reopen(ticket_number, reason):
+def reopen(ticket_number: str, reason: str):
 	"""FSD 3.6: reopen with a mandatory reason."""
 	doc = _load(ticket_number)
 	lifecycle.reopen(doc, reason)
@@ -184,7 +184,7 @@ def reopen(ticket_number, reason):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def escalate(ticket_number, reason):
+def escalate(ticket_number: str, reason: str):
 	"""FSD 3.7: the submitter escalates once the SLA window has elapsed."""
 	doc = _load(ticket_number)
 	sla.manual_escalate(doc, reason, by_submitter=True)
@@ -194,7 +194,7 @@ def escalate(ticket_number, reason):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def reply(ticket_number, body):
+def reply(ticket_number: str, body: str):
 	"""FSD Appendix C: the submitter answers a More Info Needed request."""
 	doc = _load(ticket_number)
 	lifecycle.submitter_replies(doc, body)

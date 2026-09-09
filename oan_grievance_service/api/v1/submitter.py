@@ -63,10 +63,16 @@ def me():
 		)
 
 	doc = frappe.get_doc("Submitter Profile", name)
+	scheme = doc.identity_scheme
+	ident_val = doc.identity_value
+
 	return envelope(
 		{
 			"profile_id": doc.name,
-			"dedupe_key": doc.dedupe_key,
+			"identity_scheme": scheme,
+			"identity_value": ident_val,
+			"fayda_id": ident_val if scheme == "fayda" else None,
+			"registration_number": ident_val if scheme == "org" else None,
 			"submitter_type": doc.submitter_type,
 			"submitter_name": doc.submitter_name,
 			"contact_mobile": doc.contact_mobile,
