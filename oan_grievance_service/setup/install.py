@@ -62,7 +62,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"Immediately on save",
 		"Your grievance {{ ticket_number }} has been received under {{ service_category }}. "
-		"Expected response by {{ sla_due_date }}.",
+		+ "Expected response by {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
@@ -71,7 +71,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"On validation",
 		"A similar grievance already exists. Reference {{ ticket_number }}. "
-		"You may link to it or proceed with justification.",
+		+ "You may link to it or proceed with justification.",
 	),
 	(
 		C.EVENT_ASSIGNED_AUTO,
@@ -80,7 +80,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"On auto-routing match",
 		"Grievance {{ ticket_number }} ({{ service_category }} / {{ grievance_type }}) has been "
-		"assigned to {{ department }}. SLA deadline {{ sla_due_date }}.",
+		+ "assigned to {{ department }}. SLA deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_ASSIGNED_MANUAL,
@@ -89,7 +89,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"On nodal officer assignment",
 		"Grievance {{ ticket_number }} has been assigned to {{ department }} by the nodal officer. "
-		"SLA deadline {{ sla_due_date }}.",
+		+ "SLA deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_STATUS_IN_PROGRESS,
@@ -106,7 +106,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"Officer sets More Info Needed",
 		"Additional information is needed for grievance {{ ticket_number }}. "
-		"Please respond via the portal.",
+		+ "Please respond via the portal.",
 	),
 	(
 		C.EVENT_SUBMITTER_RESPONDED,
@@ -123,7 +123,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"Officer submits response",
 		"A response has been issued on grievance {{ ticket_number }}. "
-		"Please confirm or reopen within the confirmation window.",
+		+ "Please confirm or reopen within the confirmation window.",
 	),
 	(
 		C.EVENT_CONFIRMATION_WINDOW,
@@ -132,7 +132,7 @@ NOTIFICATION_EVENTS = [
 		"SMS",
 		"Response submitted",
 		"Grievance {{ ticket_number }} is awaiting your confirmation. "
-		"Confirm or reopen before the window closes.",
+		+ "Confirm or reopen before the window closes.",
 	),
 	(
 		C.EVENT_CONFIRMED,
@@ -140,7 +140,8 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		"SMS + Email",
 		"Submitter confirms",
-		"Grievance {{ ticket_number }} has been marked resolved. " "Please rate your experience from 1 to 5.",
+		"Grievance {{ ticket_number }} has been marked resolved. "
+		+ "Please rate your experience from 1 to 5.",
 	),
 	(
 		C.EVENT_REOPENED,
@@ -172,7 +173,7 @@ NOTIFICATION_EVENTS = [
 		"Assigned Officer",
 		"Email",
 		"Scheduled job at 50% SLA elapsed",
-		"Grievance {{ ticket_number }} has reached 50% of its SLA window. " "Deadline {{ sla_due_date }}.",
+		"Grievance {{ ticket_number }} has reached 50% of its SLA window. " + "Deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_SLA_REMINDER_80,
@@ -197,7 +198,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"SLA deadline passed",
 		"Grievance {{ ticket_number }} has breached its SLA and has been escalated. "
-		"Immediate action is required.",
+		+ "Immediate action is required.",
 	),
 	(
 		C.EVENT_SLA_BREACH_L2,
@@ -206,7 +207,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"2x SLA deadline passed",
 		"Grievance {{ ticket_number }} has breached twice its SLA window and is escalated "
-		"to second level.",
+		+ "to second level.",
 	),
 	(
 		C.EVENT_MANUAL_ESCALATION,
