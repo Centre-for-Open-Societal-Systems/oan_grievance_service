@@ -5,6 +5,9 @@ usable rather than empty: the three capability roles, the five service categorie
 3.2.2, the Ethiopian regions from 3.11.8, and the full Appendix C notification matrix.
 """
 
+import gzip
+import os
+
 import frappe
 
 from oan_grievance_service.services import constants as C
@@ -243,10 +246,30 @@ def seed_all():
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
 		"notifications": seed_notification_configs(),
+		"administrative_areas": seed_administrative_areas(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
 	return created
+
+
+def seed_administrative_areas():
+	"""Seed pre-calculated Ethiopian administrative area tree (21,028 nodes) from SQL seed if empty."""
+	if frappe.db.count("Administrative Area") > 0:
+		return 0
+
+	sql_path = os.path.join(os.path.dirname(__file__), "data", "ethiopia_administrative_areas.sql.gz")
+	if not os.path.exists(sql_path):
+		return 0
+
+	with gzip.open(sql_path, "rt", encoding="utf-8") as f:
+		sql_content = f.read()
+
+	statements = [s.strip() for s in sql_content.split(";\n") if s.strip() and not s.strip().startswith("--")]
+	for statement in statements:
+		frappe.db.sql(statement)  # nosemgrep
+
+	return frappe.db.count("Administrative Area")
 
 
 def seed_roles():

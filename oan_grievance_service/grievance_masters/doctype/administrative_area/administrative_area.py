@@ -8,6 +8,17 @@ from frappe.utils.nestedset import NestedSet
 class AdministrativeArea(NestedSet):
 	nsm_parent_field = "parent_administrative_area"
 
+	def autoname(self):
+		if getattr(self, "name", None):
+			return
+		self.set_tree_metadata()
+		if self.path_code:
+			self.name = self.path_code
+		elif self.code and self.parent_administrative_area:
+			self.name = f"{self.parent_administrative_area}.{self.code}"
+		else:
+			self.name = self.area_name
+
 	def validate(self):
 		self.set_tree_metadata()
 

@@ -11,7 +11,8 @@ from oan_grievance_service.services import routing
 class TestGrievance(FrappeTestCase):
 	def setUp(self):
 		# Setup tree: Country -> Region -> Woreda (leaf)
-		if not frappe.db.exists("Administrative Area", "Tree Root Country"):
+		root_name = frappe.db.get_value("Administrative Area", {"area_name": "Tree Root Country"}, "name")
+		if not root_name:
 			self.root_area = frappe.get_doc(
 				{
 					"doctype": "Administrative Area",
@@ -22,9 +23,10 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.root_area = frappe.get_doc("Administrative Area", "Tree Root Country")
+			self.root_area = frappe.get_doc("Administrative Area", root_name)
 
-		if not frappe.db.exists("Administrative Area", "Tree Test Region"):
+		region_name = frappe.db.get_value("Administrative Area", {"area_name": "Tree Test Region"}, "name")
+		if not region_name:
 			self.region_area = frappe.get_doc(
 				{
 					"doctype": "Administrative Area",
@@ -36,9 +38,12 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.region_area = frappe.get_doc("Administrative Area", "Tree Test Region")
+			self.region_area = frappe.get_doc("Administrative Area", region_name)
 
-		if not frappe.db.exists("Administrative Area", "Tree Test Woreda Leaf"):
+		woreda_name = frappe.db.get_value(
+			"Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
+		)
+		if not woreda_name:
 			self.woreda_leaf = frappe.get_doc(
 				{
 					"doctype": "Administrative Area",
@@ -50,7 +55,7 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.woreda_leaf = frappe.get_doc("Administrative Area", "Tree Test Woreda Leaf")
+			self.woreda_leaf = frappe.get_doc("Administrative Area", woreda_name)
 
 		self.root_area.reload()
 		self.region_area.reload()
