@@ -1,0 +1,443 @@
+{
+	"info": {
+		"_postman_id": "8f5a2d1e-3c7b-419a-9e2d-4b8c1a7d6e5f",
+		"name": "OAN Grievance Service API",
+		"description": "Postman collection for OpenAgriNet Grievance Management Module v1 API endpoints covering submitter profile lookups, grievance intake & submission, tracking, reply, escalation, resolution confirmation, and reopen flows.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "ticket_number",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "submitter_type",
+			"value": "Individual Farmer",
+			"type": "string"
+		},
+		{
+			"key": "submitter_name",
+			"value": "Abebe Bikila",
+			"type": "string"
+		},
+		{
+			"key": "contact_mobile",
+			"value": "+251911887766",
+			"type": "string"
+		},
+		{
+			"key": "submission_channel",
+			"value": "Mobile App",
+			"type": "string"
+		},
+		{
+			"key": "administrative_area",
+			"value": "kebele-ET140108101008",
+			"type": "string"
+		},
+		{
+			"key": "service_category",
+			"value": "Inputs",
+			"type": "string"
+		},
+		{
+			"key": "grievance_type",
+			"value": "Fertilizer Shortage",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Submitter Profiles",
+			"item": [
+				{
+					"name": "1. Get Submitter Options",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Options returned with submitter types and languages\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.expect(data).to.have.property(\"submitter_types\");",
+									"    pm.expect(data).to.have.property(\"preferred_languages\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.submitter.options",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.submitter.options"
+							]
+						},
+						"description": "Retrieves reference dropdown data for submitters including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.) and supported languages."
+					},
+					"response": []
+				},
+				{
+					"name": "2. Get Current Submitter Profile (Me)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Current profile contains identity details\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.expect(data).to.have.property(\"profile_id\");",
+									"    pm.expect(data).to.have.property(\"submitter_name\");",
+									"    pm.expect(data).to.have.property(\"identity_scheme\");",
+									"    pm.expect(data).to.have.property(\"identity_value\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.submitter.me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.submitter.me"
+							]
+						},
+						"description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Grievance Operations",
+			"item": [
+				{
+					"name": "3. Submit Grievance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.expect(data).to.have.property(\"ticket_number\");",
+									"    pm.expect(data).to.have.property(\"status\");",
+									"    ",
+									"    if (data.ticket_number) {",
+									"        pm.collectionVariables.set(\"ticket_number\", data.ticket_number);",
+									"        if (pm.environment.name) {",
+									"            pm.environment.set(\"ticket_number\", data.ticket_number);",
+									"        }",
+									"        console.log(\"[Post-response] Saved ticket_number:\", data.ticket_number);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n    \"details\": \"Submitted via mobile app with receipt reference.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.submit",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.submit"
+							]
+						},
+						"description": "FSD 4.1: Submits a new grievance. Validates required fields, snapshots administrative path code, executes nearest-ancestor routing, generates ticket number, queues acknowledgement notification, and returns ticket summary."
+					},
+					"response": []
+				},
+				{
+					"name": "4. Track Grievance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Tracking summary contains ticket and SLA metrics\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.expect(data).to.have.property(\"ticket_number\");",
+									"    pm.expect(data).to.have.property(\"status\");",
+									"    pm.expect(data).to.have.property(\"sla_due_date\");",
+									"    pm.expect(data).to.have.property(\"sla_consumed_percent\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.track?ticket_number={{ticket_number}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.track"
+							],
+							"query": [
+								{
+									"key": "ticket_number",
+									"value": "{{ticket_number}}"
+								}
+							]
+						},
+						"description": "Submitter-facing tracking lookup for the portal, mobile app, and IVR. Returns current status, assigned department, SLA deadline, consumed SLA percentage, and confirmation window."
+					},
+					"response": []
+				},
+				{
+					"name": "5. Reply to More Info Request",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Additional fertilizer receipt voucher reference is VR-2026-9912 attached for verification.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.reply",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.reply"
+							]
+						},
+						"description": "FSD Appendix C: Allows the submitter to answer a 'More Information Needed' request from the handling officer."
+					},
+					"response": []
+				},
+				{
+					"name": "6. Escalate Grievance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"SLA window elapsed without preliminary response or status update from the department.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.escalate",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.escalate"
+							]
+						},
+						"description": "FSD 3.7: Allows the submitter to trigger a manual escalation once the SLA window has expired."
+					},
+					"response": []
+				},
+				{
+					"name": "7. Confirm Resolution",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Grievance status marked Closed\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.expect(data.status).to.eql(\"Closed\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.confirm",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.confirm"
+							]
+						},
+						"description": "FSD 3.6 / UC-03: The submitter confirms the resolution provided by the officer, submitting an optional 1-5 satisfaction rating and comments, transitioning the case to Closed."
+					},
+					"response": []
+				},
+				{
+					"name": "8. Reopen Grievance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.reopen",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.reopen"
+							]
+						},
+						"description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
