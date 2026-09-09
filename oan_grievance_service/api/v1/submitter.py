@@ -77,7 +77,9 @@ def me():
 			"submitter_name": doc.submitter_name,
 			"contact_mobile": doc.contact_mobile,
 			"contact_email": doc.contact_email,
-			"preferred_language": doc.preferred_language,
+			# Language lives on the User record, not the profile, so submitters and staff
+			# resolve it the same way.
+			"preferred_language": frappe.db.get_value("User", user, "language"),
 			"administrative_area": getattr(doc, "administrative_area", None),
 			"administrative_unit": doc.administrative_unit,
 			"active": doc.active,

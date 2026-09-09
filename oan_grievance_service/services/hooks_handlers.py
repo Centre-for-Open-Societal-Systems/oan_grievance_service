@@ -202,6 +202,12 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 	if not contact_email and user_doc.email and not user_doc.email.endswith("@id.openagrinet.internal"):
 		contact_email = user_doc.email
 
+	# Notification language belongs on the User record, the one identity primitive shared by
+	# submitters and staff. Guarded because a bench need not have the Language record seeded.
+	preferred_language = kwargs.get("preferred_language")
+	if preferred_language and frappe.db.exists("Language", preferred_language):
+		user_doc.db_set("language", preferred_language, update_modified=False)
+
 	# Automatically derive dedupe_key from inputs (fayda_id, registration_number, farmer_id, phone, etc.)
 	dedupe_key = identity.derive_dedupe_key(
 		submitter_type=submitter_type,
@@ -238,8 +244,6 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 			profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
-		if kwargs.get("preferred_language"):
-			profile.preferred_language = kwargs.get("preferred_language")
 		admin_area = kwargs.get("administrative_area") or kwargs.get("region")
 		if admin_area:
 			profile.administrative_area = admin_area
@@ -254,7 +258,6 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 		profile.contact_mobile = contact_mobile
 		profile.contact_email = contact_email
 		profile.dedupe_key = dedupe_key
-		profile.preferred_language = kwargs.get("preferred_language") or "am"
 		profile.administrative_area = kwargs.get("administrative_area") or kwargs.get("region")
 		profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
 		profile.active = 1

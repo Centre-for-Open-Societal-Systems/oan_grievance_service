@@ -14,7 +14,6 @@
   "col_contact",
   "contact_mobile",
   "contact_email",
-  "preferred_language",
   "active",
   "is_blocked",
   "blocked_reason",
@@ -68,14 +67,6 @@
    "fieldname": "contact_email",
    "fieldtype": "Data",
    "label": "Contact Email"
-  },
-  {
-   "default": "am",
-   "description": "Chooses which template translation every notification is sent in. Needed on the party record because scheduled reminders fire with no session or channel context to infer it from.",
-   "fieldname": "preferred_language",
-   "fieldtype": "Select",
-   "label": "Preferred Language",
-   "options": "am\nen"
   },
   {
    "default": "1",

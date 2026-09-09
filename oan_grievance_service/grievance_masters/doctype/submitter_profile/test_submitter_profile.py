@@ -94,7 +94,6 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(profile.submitter_type, "Individual Farmer")
 			self.assertEqual(profile.submitter_name, "Abebe Bikila")
 			self.assertEqual(profile.contact_mobile, "+251911887766")
-			self.assertEqual(profile.preferred_language, "am")
 			self.assertEqual(profile.administrative_unit, "Bishoftu")
 			self.assertEqual(profile.dedupe_key, "phone:+251911887766")
 		finally:
@@ -217,7 +216,6 @@ class TestSubmitterProfile(FrappeTestCase):
 				self.assertEqual(profile.submitter_name, f"Fatuma Roba {uid}")
 				self.assertEqual(profile.contact_mobile, phone)
 				self.assertEqual(profile.administrative_unit, "Bishoftu")
-				self.assertEqual(profile.preferred_language, "am")
 				self.assertEqual(profile.dedupe_key, f"fayda:{fayda_id}")
 			finally:
 				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
@@ -255,7 +253,6 @@ class TestSubmitterProfile(FrappeTestCase):
 				"contact_mobile": "+251911445566",
 				"dedupe_key": "fayda:FAYDA-DT-12345",
 				"administrative_unit": "Bekoji",
-				"preferred_language": "am",
 			}
 		).insert(ignore_permissions=True)
 
