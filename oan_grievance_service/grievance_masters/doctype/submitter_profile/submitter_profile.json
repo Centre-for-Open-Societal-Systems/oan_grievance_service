@@ -19,7 +19,7 @@
   "is_blocked",
   "blocked_reason",
   "sec_area",
-  "region",
+  "administrative_area",
   "administrative_unit"
  ],
  "fields": [
@@ -104,11 +104,11 @@
    "label": "Administrative Scope"
   },
   {
-   "fieldname": "region",
+   "fieldname": "administrative_area",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Region",
-   "options": "Region"
+   "label": "Administrative Area",
+   "options": "Administrative Area"
   },
   {
    "description": "The administrative body or unit this submitter represents.",
@@ -171,6 +171,22 @@
    "share": 1,
    "submit": 0,
    "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Submitter",
+   "share": 1,
+   "submit": 0,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

@@ -33,24 +33,6 @@ SERVICE_CATEGORIES = [
 	("Markets", "MRKT", 5),
 ]
 
-# FSD 3.11.8: Ethiopian administrative regions.
-REGIONS = [
-	("Oromia", "OROM"),
-	("Amhara", "AMHA"),
-	("Somali", "SOMA"),
-	("Tigray", "TIGR"),
-	("Afar", "AFAR"),
-	("Sidama", "SIDA"),
-	("Benishangul-Gumuz", "BENI"),
-	("Gambela", "GAMB"),
-	("Harari", "HARA"),
-	("Central Ethiopia", "CENT"),
-	("South Ethiopia", "SOUT"),
-	("South West Ethiopia", "SWES"),
-	("Addis Ababa", "ADDI"),
-	("Dire Dawa", "DIRE"),
-]
-
 # Submitter Types master
 SUBMITTER_TYPES = [
 	("Individual Farmer", "IND"),
@@ -257,7 +239,6 @@ def seed_all():
 	created = {
 		"roles": seed_roles(),
 		"categories": seed_categories(),
-		"regions": seed_regions(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
 		"notifications": seed_notification_configs(),
@@ -292,18 +273,6 @@ def seed_categories():
 				"is_active": 1,
 			}
 		).insert(ignore_permissions=True)
-		made.append(name)
-	return made
-
-
-def seed_regions():
-	made = []
-	for name, code in REGIONS:
-		if frappe.db.exists("Region", name):
-			continue
-		frappe.get_doc({"doctype": "Region", "region_name": name, "code": code, "is_active": 1}).insert(
-			ignore_permissions=True
-		)
 		made.append(name)
 	return made
 

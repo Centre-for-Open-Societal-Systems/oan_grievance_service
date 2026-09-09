@@ -335,7 +335,7 @@ deployment means a patch on every site, so the split is worth getting right earl
 | Module                   | Doctypes                                                                                                                     | FSD area                                       |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request | FR-02/04/05/06 — the case and its lifecycle    |
-| Grievance Masters        | Service Category, Grievance Type, Region, Woreda, Grievance Department, Submitter Profile, Submitter Type, Submission Type | 3.2.2, 3.11.8, Appendix A — reference data     |
+| Grievance Masters        | Service Category, Grievance Type, Administrative Area, Grievance Department, Submitter Profile, Submitter Type, Submission Type | 3.2.2, 3.11.8, Appendix A — reference data     |
 | Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Escalation Log                                                | FR-07, 3.11.7 — windows, deferrals, escalation |
 | Grievance Notification   | Grievance Notification Config, Grievance Notification Log, Grievance Response Template                                       | FR-08, Appendix C — matrix and templates       |
 | Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                       | FR-03, 3.3.1 — routing and reassignment        |
@@ -358,7 +358,7 @@ covers every filing actor, distinguished by `submitter_type` rather than by role
 | `services/`        | Domain logic: routing, SLA, lifecycle, notifications, audit                                                       |
 | `permissions.py`   | FR-01 deny-by-default RBAC query conditions                                                                       |
 | `tasks.py`         | FR-07 scheduled jobs, wired in `hooks.py`                                                                         |
-| `setup/install.py` | Seed data: roles, categories, regions, the Appendix C events                                                      |
+| `setup/install.py` | Seed data: roles, categories, the Appendix C events                                                              |
 
 ### Known incomplete work
 
@@ -383,7 +383,7 @@ here because the FSD contradicts itself and the call was made during the build.
 
 The ticket-number segment codes are a documented assumption. The specification's own
 example code `AGRN` matches none of its five service categories, so the codes seeded on
-the Region, Woreda and Service Category masters need confirming against the OAN registry
+the Administrative Area and Service Category masters need confirming against the OAN registry
 before go-live.
 
 ---

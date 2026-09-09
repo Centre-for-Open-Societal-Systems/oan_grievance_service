@@ -9,11 +9,20 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from oan_auth_service.api.utils import handle_api_errors, require_role
 from oan_grievance_service.api import version_meta
 from oan_grievance_service.services import audit, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C
 
 from . import VERSION
+
+ALLOWED_GRIEVANCE_ROLES = [
+	"Grievance Submitter",
+	"Grievance Officer",
+	"Grievance Admin",
+	"System Manager",
+	"Administrator",
+]
 
 CHANNELS = (
 	"Mobile App",
@@ -25,6 +34,8 @@ CHANNELS = (
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def submit(**kwargs):
 	"""FSD 4.1: validate, generate the ticket, acknowledge, then route.
 
@@ -38,8 +49,7 @@ def submit(**kwargs):
 		"submitter_name",
 		"contact_mobile",
 		"submission_channel",
-		"region",
-		"woreda",
+		"administrative_area",
 		"service_category",
 		"grievance_type",
 		"description",
@@ -118,6 +128,8 @@ def detect_duplicates(grievance, window_days=7):
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def track(ticket_number):
 	"""Submitter-facing status lookup for the portal and IVR."""
 	name = frappe.db.get_value("Grievance", {"ticket_number": ticket_number}, "name")
@@ -142,6 +154,8 @@ def track(ticket_number):
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def confirm(ticket_number, rating=None, comments=None):
 	"""FSD 3.6 / UC-03: the submitter confirms the resolution."""
 	doc = _load(ticket_number)
@@ -158,6 +172,8 @@ def confirm(ticket_number, rating=None, comments=None):
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def reopen(ticket_number, reason):
 	"""FSD 3.6: reopen with a mandatory reason."""
 	doc = _load(ticket_number)
@@ -166,6 +182,8 @@ def reopen(ticket_number, reason):
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def escalate(ticket_number, reason):
 	"""FSD 3.7: the submitter escalates once the SLA window has elapsed."""
 	doc = _load(ticket_number)
@@ -174,6 +192,8 @@ def escalate(ticket_number, reason):
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def reply(ticket_number, body):
 	"""FSD Appendix C: the submitter answers a More Info Needed request."""
 	doc = _load(ticket_number)

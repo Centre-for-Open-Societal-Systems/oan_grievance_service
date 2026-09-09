@@ -45,7 +45,7 @@ class TestSubmitterProfile(FrappeTestCase):
 		profile.submitter_type = "Individual Farmer"
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
-		profile.region = "Oromia"
+		profile.administrative_unit = "Bishoftu"
 		profile.validate()
 
 		self.assertEqual(profile.dedupe_key, "phone:+251911223344")
@@ -58,7 +58,7 @@ class TestSubmitterProfile(FrappeTestCase):
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
 		profile.dedupe_key = "fayda:FAYDA-98765"
-		profile.region = "Oromia"
+		profile.administrative_unit = "Bishoftu"
 		profile.validate()
 
 		self.assertEqual(profile.dedupe_key, "fayda:FAYDA-98765")
@@ -86,7 +86,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				roles=["Grievance Submitter"],
 				submitter_type="Individual Farmer",
 				preferred_language="am",
-				region="Oromia",
+				administrative_unit="Bishoftu",
 			)
 
 			self.assertIsNotNone(profile)
@@ -95,7 +95,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(profile.submitter_name, "Abebe Bikila")
 			self.assertEqual(profile.contact_mobile, "+251911887766")
 			self.assertEqual(profile.preferred_language, "am")
-			self.assertEqual(profile.region, "Oromia")
+			self.assertEqual(profile.administrative_unit, "Bishoftu")
 			self.assertEqual(profile.dedupe_key, "phone:+251911887766")
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
@@ -189,17 +189,19 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		with configured_keys(), override_conf(jwt_self_registerable_roles=["Grievance Submitter"]):
 			import random
+			uid = frappe.generate_hash(length=6)
 			phone = "+251911" + "".join(random.choices("0123456789", k=6))
-			email = f"farmer_e2e_{frappe.generate_hash(length=6)}@example.com"
+			email = f"farmer_e2e_{uid}@example.com"
+			fayda_id = f"FAYDA-ET-{uid}"
 			res = register_user(
 				email=email,
 				password="SecurePassword123!",
-				full_name="Fatuma Roba",
+				full_name=f"Fatuma Roba {uid}",
 				phone_number=phone,
 				role="Grievance Submitter",
 				submitter_type="Individual Farmer",
-				fayda_id="FAYDA-ET-77",
-				region="Oromia",
+				fayda_id=fayda_id,
+				administrative_unit="Bishoftu",
 				preferred_language="am",
 			)
 
@@ -211,11 +213,11 @@ class TestSubmitterProfile(FrappeTestCase):
 				self.assertTrue(bool(profile_name))
 
 				profile = frappe.get_doc("Submitter Profile", profile_name)
-				self.assertEqual(profile.submitter_name, "Fatuma Roba")
+				self.assertEqual(profile.submitter_name, f"Fatuma Roba {uid}")
 				self.assertEqual(profile.contact_mobile, phone)
-				self.assertEqual(profile.region, "Oromia")
+				self.assertEqual(profile.administrative_unit, "Bishoftu")
 				self.assertEqual(profile.preferred_language, "am")
-				self.assertEqual(profile.dedupe_key, "fayda:FAYDA-ET-77")
+				self.assertEqual(profile.dedupe_key, f"fayda:{fayda_id}")
 			finally:
 				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
 				if profile_name:

@@ -11,7 +11,7 @@
   "role",
   "active",
   "col_scope",
-  "region_scope",
+  "administrative_area_scope",
   "department_scope",
   "category_scope",
   "sec_validity",
@@ -49,10 +49,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Single value at scaffold stage; FSD 3.1.1 implies a multi-value scope",
-   "fieldname": "region_scope",
-   "fieldtype": "Data",
-   "label": "Region Scope"
+   "description": "Scoping tree node. Officer can access all grievances in this sub-tree (interval containment).",
+   "fieldname": "administrative_area_scope",
+   "fieldtype": "Link",
+   "label": "Administrative Area Scope",
+   "options": "Administrative Area"
   },
   {
    "fieldname": "department_scope",

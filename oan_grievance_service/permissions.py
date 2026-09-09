@@ -49,7 +49,7 @@ def active_scopes(user=None):
 			["effective_to", "is", "not set"],
 			["effective_to", ">=", today],
 		],
-		fields=["role", "region_scope", "department_scope", "category_scope"],
+		fields=["role", "administrative_area_scope", "department_scope", "category_scope"],
 	)
 
 
@@ -70,8 +70,7 @@ def _submitter_profiles(user):
 def grievance_query_conditions(user=None):
 	"""SQL appended to every Grievance list query. Deny-by-default.
 
-	Returns a condition string. An empty string means unrestricted; a false condition
-	means the user sees nothing, which is the default for a user with no scope.
+	Uses O(1) Nested Set tree interval containment (`area_lft BETWEEN scope_lft AND scope_rgt`).
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -93,14 +92,24 @@ def grievance_query_conditions(user=None):
 	if ROLE_OFFICER in roles:
 		scope_clauses = []
 		for scope in active_scopes(user):
-			parts = [f"`tabGrievance`.assigned_to = {frappe.db.escape(user)}"]
+			parts = []
 			if scope.department_scope:
-				parts = [f"`tabGrievance`.assigned_dept = {frappe.db.escape(scope.department_scope)}"]
-			if scope.region_scope:
-				parts.append(f"`tabGrievance`.region = {frappe.db.escape(scope.region_scope)}")
+				parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(scope.department_scope)}")
 			if scope.category_scope:
 				parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(scope.category_scope)}")
-			scope_clauses.append("(" + " and ".join(parts) + ")")
+			if scope.administrative_area_scope:
+				area_lft, area_rgt = frappe.db.get_value(
+					"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
+				) or (None, None)
+				if area_lft is not None and area_rgt is not None:
+					parts.append(
+						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
+					)
+
+			if parts:
+				scope_clauses.append("(" + " and ".join(parts) + ")")
+			else:
+				scope_clauses.append("1 = 1")
 
 		# An assigned case is always visible to its own officer.
 		scope_clauses.append(f"`tabGrievance`.assigned_to = {frappe.db.escape(user)}")
@@ -122,9 +131,6 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if ROLE_SUBMITTER in roles:
 		owns = bool(doc.submitter) and doc.submitter in _submitter_profiles(user)
 		if owns or doc.assisted_by_officer == user:
-			# FSD Appendix F: a submitter may read and respond, never assign or
-			# configure - and may only respond while the case is actually waiting on
-			# them. Outside those states the case belongs to the officer.
 			if ptype == "read":
 				return True
 			return ptype == "write" and doc.status in SUBMITTER_WRITABLE_STATUSES
@@ -135,13 +141,23 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if doc.assigned_to == user:
 		return True
 
+	case_lft = getattr(doc, "area_lft", None)
+	if case_lft is None and getattr(doc, "administrative_area", None):
+		case_lft = frappe.db.get_value("Administrative Area", doc.administrative_area, "lft")
+
 	for scope in active_scopes(user):
 		if scope.department_scope and doc.assigned_dept != scope.department_scope:
 			continue
-		if scope.region_scope and doc.region != scope.region_scope:
-			continue
 		if scope.category_scope and doc.service_category != scope.category_scope:
 			continue
+		if scope.administrative_area_scope:
+			scope_lft, scope_rgt = frappe.db.get_value(
+				"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
+			) or (None, None)
+			if scope_lft is not None and scope_rgt is not None:
+				if case_lft is None or not (scope_lft <= int(case_lft) <= scope_rgt):
+					continue
+
 		# FSD 3.1.1: scope grants visibility; editing still needs the case assigned.
 		return True if ptype == "read" else doc.assigned_to == user
 

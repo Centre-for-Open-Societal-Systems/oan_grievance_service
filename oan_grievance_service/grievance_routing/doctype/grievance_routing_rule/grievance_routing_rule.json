@@ -12,10 +12,7 @@
   "service_category",
   "grievance_type",
   "col_rule_area",
-  "region",
-  "zone",
-  "woreda",
-  "kebele",
+  "administrative_area",
   "service_provider",
   "sec_target",
   "assigned_dept",
@@ -54,26 +51,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "region",
+   "description": "Tree node constraint. Rule matches grievances in this area or any of its sub-tree descendants.",
+   "fieldname": "administrative_area",
    "fieldtype": "Link",
-   "label": "Region",
-   "options": "Region"
-  },
-  {
-   "fieldname": "zone",
-   "fieldtype": "Data",
-   "label": "Zone"
-  },
-  {
-   "fieldname": "woreda",
-   "fieldtype": "Link",
-   "label": "Woreda",
-   "options": "Woreda"
-  },
-  {
-   "fieldname": "kebele",
-   "fieldtype": "Data",
-   "label": "Kebele"
+   "label": "Administrative Area",
+   "options": "Administrative Area"
   },
   {
    "fieldname": "service_provider",
