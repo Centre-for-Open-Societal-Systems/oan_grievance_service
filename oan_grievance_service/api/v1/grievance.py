@@ -8,13 +8,10 @@ service layer so the audit trail and notifications cannot be bypassed.
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
-from oan_auth_service.api.utils import handle_api_errors, require_role
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
-from oan_grievance_service.api import version_meta
 from oan_grievance_service.services import audit, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C
-
-from . import VERSION
 
 ALLOWED_GRIEVANCE_ROLES = [
 	"Grievance Submitter",
@@ -82,15 +79,16 @@ def submit(**kwargs):
 	rule = routing.apply_routing(doc)
 	doc.reload()
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"ticket_number": doc.ticket_number,
 			"status": doc.status,
 			"assigned_department": doc.assigned_dept,
 			"auto_routed": bool(rule),
 			"sla_due_date": doc.sla_due_date,
 			"possible_duplicates": [d.duplicate_of for d in duplicates],
-		}
+		},
+		message=_("Grievance submitted successfully"),
 	)
 
 
@@ -139,8 +137,8 @@ def track(ticket_number: str):
 	doc = frappe.get_doc("Grievance", name)
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=name)
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"ticket_number": doc.ticket_number,
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
@@ -149,7 +147,8 @@ def track(ticket_number: str):
 			"sla_consumed_percent": sla.consumed_percent(doc),
 			"confirmation_deadline": doc.confirmation_deadline,
 			"submitted_on": doc.creation,
-		}
+		},
+		message=_("Grievance status retrieved successfully"),
 	)
 
 
@@ -168,7 +167,10 @@ def confirm(ticket_number: str, rating: int | str | None = None, comments: str |
 		doc.db_set("satisfaction_comments", comments, update_modified=False)
 
 	lifecycle.confirm_resolution(doc)
-	return envelope({"ticket_number": doc.ticket_number, "status": C.CLOSED})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": C.CLOSED},
+		message=_("Resolution confirmed successfully"),
+	)
 
 
 @frappe.whitelist()
@@ -178,7 +180,10 @@ def reopen(ticket_number: str, reason: str):
 	"""FSD 3.6: reopen with a mandatory reason."""
 	doc = _load(ticket_number)
 	lifecycle.reopen(doc, reason)
-	return envelope({"ticket_number": doc.ticket_number, "status": doc.status})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": doc.status},
+		message=_("Grievance reopened successfully"),
+	)
 
 
 @frappe.whitelist()
@@ -188,7 +193,10 @@ def escalate(ticket_number: str, reason: str):
 	"""FSD 3.7: the submitter escalates once the SLA window has elapsed."""
 	doc = _load(ticket_number)
 	sla.manual_escalate(doc, reason, by_submitter=True)
-	return envelope({"ticket_number": doc.ticket_number, "escalated": True})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "escalated": True},
+		message=_("Grievance escalated successfully"),
+	)
 
 
 @frappe.whitelist()
@@ -198,13 +206,10 @@ def reply(ticket_number: str, body: str):
 	"""FSD Appendix C: the submitter answers a More Info Needed request."""
 	doc = _load(ticket_number)
 	lifecycle.submitter_replies(doc, body)
-	return envelope({"ticket_number": doc.ticket_number, "status": doc.status})
-
-
-def envelope(data):
-	"""Every v1 response carries the contract version it was served under, so a
-	support ticket can name the contract rather than guess at it."""
-	return {"meta": version_meta(VERSION), "data": data}
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": doc.status},
+		message=_("Reply submitted successfully"),
+	)
 
 
 def _load(ticket_number):

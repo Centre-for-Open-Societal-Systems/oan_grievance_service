@@ -11,7 +11,7 @@ This document defines the architectural conventions, decorator pipeline, request
    - Additive, backward-compatible fields remain in `v1`.
    - Breaking changes (field renaming, type changes, narrowing constraints) require opening a new version package (e.g. `v2/`).
    - Never modify or break an existing released version.
-3. **Consistent Response Envelopes:** Every endpoint must wrap its output in a standard `envelope()` containing version metadata (`meta`) and the payload (`data`).
+3. **Consistent Response Envelopes:** Every endpoint returns standard responses via `success_response()`, with version metadata (`meta`) automatically attached by `@handle_api_errors`.
 4. **Auditable & Non-Bypassing:** All operations that mutate DocType state must route through standard Frappe document methods or service hooks so workflow guards, timeline logs, and status history are preserved.
 
 ---
@@ -93,36 +93,38 @@ class SubmitGrievanceRequest(BaseModel):
 
 ---
 
-## 5. Response Format & The Standard Envelope
+## 5. Response Format & Standard Envelopes
 
-All successful responses **MUST** use the `envelope()` helper.
+All successful responses **MUST** use the `success_response()` helper from `oan_auth_service.api.utils`. `@handle_api_errors` automatically resolves and attaches the `meta` block directly from `api/__init__.py`.
 
 ```python
-from oan_grievance_service.api import version_meta
-from . import VERSION
+from oan_auth_service.api.utils import handle_api_errors, success_response
 
-def envelope(data: dict | list) -> dict:
-	"""Wrap response data with the API version metadata."""
-	return {
-		"meta": version_meta(VERSION),
-		"data": data,
-	}
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@handle_api_errors
+def options():
+	# ...
+	return success_response(
+		data=data,
+		message=_("Options fetched successfully"),
+	)
 ```
 
-### Standard Response Payload
+### Standard Success Response Payload
 
 ```json
 {
+  "status": "success",
+  "message": "Options fetched successfully",
+  "data": {
+    "submitter_types": [ ... ],
+    "submission_types": [ ... ]
+  },
   "meta": {
     "api_version": "v1",
     "status": "current"
   },
-  "data": {
-    "ticket_number": "OROM-BISH-INP-00001",
-    "status": "Submitted",
-    "assigned_department": "Agriculture Office",
-    "sla_due_date": "2026-09-17 17:00:00"
-  }
+  "request_id": "8fa1e19d-b4ef-4bbd-9866-9dc7bc5fec1b"
 }
 ```
 
@@ -188,12 +190,9 @@ Here is a full, production-ready template to use when creating a new API file:
 import frappe
 from frappe import _
 from pydantic import BaseModel, Field
-from oan_auth_service.api.utils import handle_api_errors, require_role, validate_request
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
 
-from oan_grievance_service.api import version_meta
 from oan_grievance_service.services import your_service_module
-
-from . import VERSION
 
 ALLOWED_ROLES = [
 	"Grievance Submitter",
@@ -237,19 +236,15 @@ def perform_action(**kwargs):
 	# 2. Invoke Service Layer
 	result = your_service_module.process_action(doc.name, reason=reason)
 
-	# 3. Return Enveloped Data
-	return envelope(
-		{
+	# 3. Return Standard Response
+	return success_response(
+		data={
 			"ticket_number": ticket_number,
 			"status": result.status,
 			"updated_at": frappe.utils.now_datetime(),
-		}
+		},
+		message=_("Action performed successfully"),
 	)
-
-
-def envelope(data):
-	"""Wrap response data with the API version metadata."""
-	return {"meta": version_meta(VERSION), "data": data}
 ```
 
 ---

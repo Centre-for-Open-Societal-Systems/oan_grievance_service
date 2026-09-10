@@ -1,11 +1,7 @@
 """Administrative Area cascading lookup and search endpoints for mobile apps, web wizards and public registration."""
 
 import frappe
-from oan_auth_service.api.utils import handle_api_errors
-
-from oan_grievance_service.api import version_meta
-
-from . import VERSION
+from oan_auth_service.api.utils import handle_api_errors, success_response
 
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
@@ -44,7 +40,7 @@ def get_areas(
 
 	# Mode 4: Ancestor chain for breadcrumb rendering
 	if ancestors_of:
-		return envelope(get_ancestors(ancestors_of))
+		return success_response(data=get_ancestors(ancestors_of))
 
 	filters = [["is_active", "=", 1]]
 
@@ -84,8 +80,8 @@ def get_areas(
 		ignore_permissions=True,
 	)
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"areas": areas,
 			"count": len(areas),
 			"parent": parent,
@@ -128,8 +124,3 @@ def get_ancestors(area_id_or_path):
 		},
 		"breadcrumbs": ancestors,
 	}
-
-
-def envelope(data):
-	"""Wrap response data with the API version metadata."""
-	return {"meta": version_meta(VERSION), "data": data}

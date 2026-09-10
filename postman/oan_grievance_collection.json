@@ -161,8 +161,12 @@
 									"    pm.expect(data).to.have.property(\"submitter_types\");",
 									"    pm.expect(data).to.have.property(\"submission_types\");",
 									"    pm.expect(data).to.have.property(\"preferred_languages\");",
+									"    pm.expect(data).to.have.property(\"service_categories\");",
+									"    pm.expect(data).to.have.property(\"grievance_types\");",
 									"    pm.expect(Array.isArray(data.submitter_types)).to.be.true;",
 									"    pm.expect(Array.isArray(data.submission_types)).to.be.true;",
+									"    pm.expect(Array.isArray(data.service_categories)).to.be.true;",
+									"    pm.expect(Array.isArray(data.grievance_types)).to.be.true;",
 									"});"
 								],
 								"type": "text/javascript"
@@ -186,7 +190,7 @@
 								"oan_grievance_service.api.v1.submitter.options"
 							]
 						},
-						"description": "Public reference endpoint reachable without authentication. Retrieves dropdown data for submitter registration forms, including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.) and supported languages."
+						"description": "Public reference endpoint reachable without authentication. Retrieves dropdown data for submitters, intake forms and public wizards, including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.), intake channels, supported languages, country phone extensions (ISD codes), grievance lifecycle statuses, service categories, and grievance types."
 					},
 					"response": []
 				},

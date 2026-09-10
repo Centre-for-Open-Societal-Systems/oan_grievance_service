@@ -279,3 +279,120 @@ class TestSubmitterProfile(FrappeTestCase):
 			frappe.set_user("Administrator")
 			frappe.delete_doc("Submitter Profile", profile.name, force=True, ignore_permissions=True)
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_submitter_options_returns_phone_extensions(self):
+		from oan_grievance_service.api.v1.submitter import options
+
+		res = options()
+		self.assertIn("data", res)
+		data = res["data"]
+		self.assertIn("phone_extensions", data)
+		extensions = data["phone_extensions"]
+		self.assertTrue(len(extensions) > 0)
+
+		# Ensure Ethiopia is first
+		self.assertEqual(extensions[0]["country"], "Ethiopia")
+		self.assertEqual(extensions[0]["isd"], "+251")
+		self.assertEqual(extensions[0]["code"], "ET")
+
+		# Ensure statuses are returned
+		self.assertIn("statuses", data)
+		status_names = [s["status"] for s in data["statuses"]]
+		self.assertIn("Submitted", status_names)
+		self.assertIn("Assigned", status_names)
+		self.assertIn("In Progress", status_names)
+		self.assertIn("Resolved", status_names)
+		self.assertIn("Closed", status_names)
+		self.assertIn("Rejected", status_names)
+
+		# Ensure service categories and grievance types are returned
+		self.assertIn("service_categories", data)
+		category_names = [c["category_name"] for c in data["service_categories"]]
+		self.assertIn("Inputs", category_names)
+		self.assertIn("grievance_types", data)
+
+	def test_submitter_options_filtering_parameters(self):
+		from oan_grievance_service.api.v1.submitter import options
+
+		# 1. Base jurisdiction: Ethiopia
+		res = options()
+		phones = res["data"]["phone_extensions"]
+		self.assertEqual(len(phones), 1)
+		self.assertEqual(phones[0]["country"], "Ethiopia")
+		self.assertEqual(phones[0]["code"], "ET")
+		self.assertEqual(phones[0]["isd"], "+251")
+
+		# 2. Add second jurisdiction country (Kenya) to Administrative Area
+		kenya_area = frappe.get_doc(
+			{
+				"doctype": "Administrative Area",
+				"area_name": "Kenya",
+				"code": "KEN",
+				"level_name": "Country",
+				"country": "Kenya",
+				"is_active": 1,
+				"is_group": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		# 3. Add test Grievance Types for category filtering test
+		if not frappe.db.exists("Service Category", "Inputs"):
+			frappe.get_doc(
+				{"doctype": "Service Category", "category_name": "Inputs", "code": "INPT", "is_active": 1}
+			).insert(ignore_permissions=True)
+		if not frappe.db.exists("Service Category", "Credit"):
+			frappe.get_doc(
+				{"doctype": "Service Category", "category_name": "Credit", "code": "CRDT", "is_active": 1}
+			).insert(ignore_permissions=True)
+
+		gtype_inputs = frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": "Test Input Shortage",
+				"service_category": "Inputs",
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		gtype_credit = frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": "Test Credit Delay",
+				"service_category": "Credit",
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			res_multi = options()
+			countries = [p["country"] for p in res_multi["data"]["phone_extensions"]]
+			self.assertIn("Ethiopia", countries)
+			self.assertIn("Kenya", countries)
+
+			# Exact country filter
+			res_ken = options(country="KE")
+			phones_ken = res_ken["data"]["phone_extensions"]
+			self.assertEqual(len(phones_ken), 1)
+			self.assertEqual(phones_ken[0]["code"], "KE")
+			self.assertEqual(phones_ken[0]["isd"], "+254")
+
+			# Search filter
+			res_search = options(search_country="ken")
+			phones_search = res_search["data"]["phone_extensions"]
+			self.assertEqual(len(phones_search), 1)
+			self.assertEqual(phones_search[0]["country"], "Kenya")
+
+			# Service Category filter on grievance types
+			res_cat = options(service_category="Inputs")
+			gtype_cats = {gt["service_category"] for gt in res_cat["data"]["grievance_types"]}
+			self.assertEqual(gtype_cats, {"Inputs"})
+		finally:
+			frappe.delete_doc("Administrative Area", kenya_area.name, force=True, ignore_permissions=True)
+			frappe.delete_doc("Grievance Type", gtype_inputs.name, force=True, ignore_permissions=True)
+			frappe.delete_doc("Grievance Type", gtype_credit.name, force=True, ignore_permissions=True)
+
+		# 4. Omit phone extensions
+		res_no_phones = options(include_phone_extensions=False)
+		self.assertNotIn("phone_extensions", res_no_phones["data"])
+		self.assertIn("submitter_types", res_no_phones["data"])
+		self.assertIn("service_categories", res_no_phones["data"])
