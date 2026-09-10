@@ -8,9 +8,15 @@ from oan_grievance_service.api import version_meta
 from . import VERSION
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
-def get_areas(parent=None, level_name=None, search=None, ancestors_of=None, limit=100):
+def get_areas(
+	parent: str | None = None,
+	level_name: str | None = None,
+	search: str | None = None,
+	ancestors_of: str | None = None,
+	limit: int = 100,
+):
 	"""Public endpoint to fetch administrative areas for cascading dropdowns and searches.
 
 	Query Modes:

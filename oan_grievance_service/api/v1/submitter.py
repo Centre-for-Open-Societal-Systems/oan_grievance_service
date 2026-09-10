@@ -17,7 +17,7 @@ ALLOWED_SUBMITTER_ROLES = [
 ]
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def options():
 	"""Dropdown options and reference data needed for submitters and public registration.

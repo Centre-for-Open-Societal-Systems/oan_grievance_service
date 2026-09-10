@@ -132,7 +132,8 @@ def envelope(data: dict | list) -> dict:
 
 1. **Authenticated by Default:** Requests hitting `/api/method/oan_grievance_service.*` are validated via JWT tokens handled by `oan_auth_service`.
 2. **Public Routes (Unauthenticated):** If an endpoint must be accessible without a login or token (e.g. dropdown lookups, public search):
-   - Add `@frappe.whitelist(allow_guest=True)` to the endpoint function.
+   - Add `@frappe.whitelist(allow_guest=True)` with the `# nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method` annotation.
+   - Ensure all parameters on whitelisted functions have **explicit type hints** (e.g., `parent: str | None = None, limit: int = 100`).
    - **Explicitly register the endpoint path** in `oan_grievance_service/api/middleware.py`:
 
 ```python
