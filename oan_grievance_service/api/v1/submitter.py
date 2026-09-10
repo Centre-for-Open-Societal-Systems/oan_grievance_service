@@ -17,14 +17,14 @@ ALLOWED_SUBMITTER_ROLES = [
 ]
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)
 @handle_api_errors
-@require_role(ALLOWED_SUBMITTER_ROLES)
 def options():
-	"""Dropdown options and reference data needed for submitters.
+	"""Dropdown options and reference data needed for submitters and public registration.
 
 	Returns:
 	    submitter_types: Active submitter types (e.g. Individual Farmer, DA, Cooperative, NGO, etc.)
+	    submission_types: Active intake channels (e.g. Mobile App, Web Portal, etc.)
 	    preferred_languages: Supported notification languages
 	"""
 	submitter_types = frappe.get_all(
@@ -32,6 +32,15 @@ def options():
 		filters={"is_active": 1},
 		fields=["name as type_name", "code", "description"],
 		order_by="name asc",
+		ignore_permissions=True,
+	)
+
+	submission_types = frappe.get_all(
+		"Submission Type",
+		filters={"is_active": 1},
+		fields=["name as type_name", "code", "description"],
+		order_by="name asc",
+		ignore_permissions=True,
 	)
 
 	preferred_languages = [
@@ -42,6 +51,7 @@ def options():
 	return envelope(
 		{
 			"submitter_types": submitter_types,
+			"submission_types": submission_types,
 			"preferred_languages": preferred_languages,
 		}
 	)

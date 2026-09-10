@@ -66,15 +66,18 @@ class TestSubmitterProfile(FrappeTestCase):
 		self.assertEqual(profile.identity_value, "FAYDA-98765")
 
 	def test_on_user_registered_creates_individual_farmer_profile(self):
+		import random
+
 		from oan_grievance_service.services.hooks_handlers import on_user_registered
 
+		random_mobile = f"+25191{random.randint(1000000, 9999999)}"
 		user = frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": f"test_farmer_{frappe.generate_hash(length=6)}@example.com",
 				"first_name": "Abebe",
 				"last_name": "Bikila",
-				"mobile_no": "+251911887766",
+				"mobile_no": random_mobile,
 				"roles": [{"role": "Grievance Submitter"}],
 			}
 		).insert(ignore_permissions=True)
@@ -93,22 +96,25 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(profile.user, user.name)
 			self.assertEqual(profile.submitter_type, "Individual Farmer")
 			self.assertEqual(profile.submitter_name, "Abebe Bikila")
-			self.assertEqual(profile.contact_mobile, "+251911887766")
+			self.assertEqual(profile.contact_mobile, random_mobile)
 			self.assertEqual(profile.administrative_unit, "Bishoftu")
-			self.assertEqual(profile.dedupe_key, "phone:+251911887766")
+			self.assertEqual(profile.dedupe_key, f"phone:{random_mobile}")
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
 	def test_on_user_registered_creates_cooperative_profile_with_org_key(self):
+		import random
+
 		from oan_grievance_service.services.hooks_handlers import on_user_registered
 
+		random_mobile = f"+25191{random.randint(1000000, 9999999)}"
 		user = frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": f"test_coop_{frappe.generate_hash(length=6)}@example.com",
 				"first_name": "Oromia Seed",
 				"last_name": "Coop",
-				"mobile_no": "+251911998877",
+				"mobile_no": random_mobile,
 				"roles": [{"role": "Grievance Submitter"}],
 			}
 		).insert(ignore_permissions=True)

@@ -60,3 +60,25 @@ class TestAdministrativeArea(FrappeTestCase):
 		self.assertGreater(root.rgt, child1.rgt)
 		self.assertLess(child1.lft, child2.lft)
 		self.assertGreater(child1.rgt, child2.rgt)
+
+	def test_get_areas_endpoint(self):
+		from oan_grievance_service.api.v1.administrative_area import get_areas
+
+		# Default root view returns regions
+		res = get_areas()
+		self.assertIn("data", res)
+		self.assertIn("areas", res["data"])
+		self.assertGreaterEqual(res["data"]["count"], 1)
+
+		# Cascading drilldown with parent
+		res_child = get_areas(parent="region-ET14")
+		self.assertIn("data", res_child)
+		self.assertGreaterEqual(res_child["data"]["count"], 1)
+		for area in res_child["data"]["areas"]:
+			self.assertEqual(area["parent_administrative_area"], "region-ET14")
+
+		# Ancestor breadcrumbs lookup
+		res_ancestors = get_areas(ancestors_of="region-ET14")
+		self.assertIn("data", res_ancestors)
+		self.assertIn("breadcrumbs", res_ancestors["data"])
+		self.assertGreaterEqual(len(res_ancestors["data"]["breadcrumbs"]), 1)
