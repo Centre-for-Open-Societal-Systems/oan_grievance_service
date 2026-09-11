@@ -146,7 +146,7 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 			{
 				"doctype": "Notification",
 				"name": f"Grievance: Test {recipient_role} ({channel})",
-				"subject": "Test",
+				"subject": '{{ _("Test") }}',
 				"document_type": "Grievance",
 				"event": "Method",
 				"method": EVENT,
@@ -265,7 +265,7 @@ class TestNotificationTranslatability(FrappeTestCase):
 			{
 				"doctype": "Notification",
 				"name": f"Grievance: Translatability {frappe.generate_hash(length=6)}",
-				"subject": "Test",
+				"subject": '{{ _("Test") }}',
 				"document_type": "Grievance",
 				"event": "Method",
 				"method": "translatability_probe",
