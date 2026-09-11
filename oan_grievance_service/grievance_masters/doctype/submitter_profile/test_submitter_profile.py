@@ -295,21 +295,18 @@ class TestSubmitterProfile(FrappeTestCase):
 		self.assertEqual(extensions[0]["isd"], "+251")
 		self.assertEqual(extensions[0]["code"], "ET")
 
-		# Ensure statuses are returned
-		self.assertIn("statuses", data)
-		status_names = [s["status"] for s in data["statuses"]]
-		self.assertIn("Submitted", status_names)
-		self.assertIn("Assigned", status_names)
-		self.assertIn("In Progress", status_names)
-		self.assertIn("Resolved", status_names)
-		self.assertIn("Closed", status_names)
-		self.assertIn("Rejected", status_names)
-
-		# Ensure service categories and grievance types are returned
+		# Ensure public fields are returned
+		self.assertIn("submitter_types", data)
+		self.assertIn("submission_types", data)
+		self.assertIn("preferred_languages", data)
 		self.assertIn("service_categories", data)
 		category_names = [c["category_name"] for c in data["service_categories"]]
 		self.assertIn("Inputs", category_names)
 		self.assertIn("grievance_types", data)
+
+		# Ensure staff-only fields are NOT in public options
+		self.assertNotIn("statuses", data)
+		self.assertNotIn("departments", data)
 
 	def test_submitter_options_filtering_parameters(self):
 		from oan_grievance_service.api.v1.submitter import options
