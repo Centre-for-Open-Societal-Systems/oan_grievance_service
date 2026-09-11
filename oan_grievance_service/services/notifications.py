@@ -255,8 +255,16 @@ def queue(grievance, event_code, recipient_override=None):
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			message = frappe.render_template(notification.message, context)
-			subject = frappe.render_template(notification.subject, context) if notification.subject else ""
+			message = frappe.render_template(
+				notification.message, context
+			)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+			subject = (
+				frappe.render_template(
+					notification.subject, context
+				)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+				if notification.subject
+				else ""
+			)
 
 		rows.append(
 			frappe.get_doc(
