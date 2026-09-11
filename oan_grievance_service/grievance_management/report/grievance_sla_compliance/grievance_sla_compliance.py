@@ -103,7 +103,7 @@ def get_data(filters):
 				"grievance": ["in", [g.name for g in grievances]] if grievances else ["in", [""]],
 				"to_status": ["in", [C.RESOLVED, C.CLOSED]],
 			},
-			fields=["grievance", "min(timestamp) as closed_at"],
+			fields=["grievance", {"MIN": "timestamp", "as": "closed_at"}],
 			group_by="grievance",
 			as_list=True,
 		)
