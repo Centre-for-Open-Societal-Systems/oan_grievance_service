@@ -165,7 +165,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 	4. Populates general contact and submitter-type-specific fields.
 	5. Creates or updates and links the Submitter Profile record to the User.
 	"""
-	from oan_grievance_service.grievance_masters.doctype.submitter_profile.submitter_profile import (
+	from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 		build_dedupe_key,
 	)
 	from oan_grievance_service.services import identity
@@ -180,7 +180,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 
 	submitter_type = (kwargs.get("submitter_type") or "Individual Farmer").strip()
 
-	if not frappe.db.exists("Submitter Type", submitter_type):
+	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
 		frappe.throw(
 			_("Submitter Type '{0}' does not exist.").format(submitter_type),
 			frappe.ValidationError,
@@ -227,9 +227,9 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 		)
 
 	# Check if a Submitter Profile already exists with this dedupe_key
-	existing_name = frappe.db.get_value("Submitter Profile", {"dedupe_key": dedupe_key}, "name")
+	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
 	if existing_name:
-		profile = frappe.get_doc("Submitter Profile", existing_name)
+		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
 		if profile.user and profile.user != user_doc.name:
 			frappe.throw(
 				_(
@@ -251,7 +251,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 			profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
 		profile.save(ignore_permissions=True)
 	else:
-		profile = frappe.new_doc("Submitter Profile")
+		profile = frappe.new_doc("Grievance Submitter Profile")
 		profile.user = user_doc.name
 		profile.submitter_type = submitter_type
 		profile.submitter_name = submitter_name

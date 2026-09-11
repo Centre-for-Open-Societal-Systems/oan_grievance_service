@@ -15,11 +15,13 @@ from oan_grievance_service.services import routing
 class TestGrievance(FrappeTestCase):
 	def setUp(self):
 		# Setup tree: Country -> Region -> Woreda (leaf)
-		root_name = frappe.db.get_value("Administrative Area", {"area_name": "Tree Root Country"}, "name")
+		root_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Tree Root Country"}, "name"
+		)
 		if not root_name:
 			self.root_area = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Tree Root Country",
 					"level_name": "Country",
 					"code": "TRC",
@@ -27,13 +29,15 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.root_area = frappe.get_doc("Administrative Area", root_name)
+			self.root_area = frappe.get_doc("Grievance Administrative Area", root_name)
 
-		region_name = frappe.db.get_value("Administrative Area", {"area_name": "Tree Test Region"}, "name")
+		region_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Tree Test Region"}, "name"
+		)
 		if not region_name:
 			self.region_area = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Tree Test Region",
 					"level_name": "Region",
 					"code": "TTR",
@@ -42,15 +46,15 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.region_area = frappe.get_doc("Administrative Area", region_name)
+			self.region_area = frappe.get_doc("Grievance Administrative Area", region_name)
 
 		woreda_name = frappe.db.get_value(
-			"Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
+			"Grievance Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
 		)
 		if not woreda_name:
 			self.woreda_leaf = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Tree Test Woreda Leaf",
 					"level_name": "Woreda",
 					"code": "TTW",
@@ -59,21 +63,26 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.woreda_leaf = frappe.get_doc("Administrative Area", woreda_name)
+			self.woreda_leaf = frappe.get_doc("Grievance Administrative Area", woreda_name)
 
 		self.root_area.reload()
 		self.region_area.reload()
 		self.woreda_leaf.reload()
 
 		# Ensure masters
-		if not frappe.db.exists("Submitter Type", "Individual Farmer"):
+		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
-				{"doctype": "Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
 			).insert(ignore_permissions=True)
 
-		if not frappe.db.exists("Service Category", "Inputs"):
+		if not frappe.db.exists("Grievance Service Category", "Inputs"):
 			frappe.get_doc(
-				{"doctype": "Service Category", "category_name": "Inputs", "code": "INPT", "is_active": 1}
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Inputs",
+					"code": "INPT",
+					"is_active": 1,
+				}
 			).insert(ignore_permissions=True)
 
 		existing_gtype = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
@@ -211,9 +220,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	"""
 
 	def setUp(self):
-		if not frappe.db.exists("Submitter Type", "Individual Farmer"):
+		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
-				{"doctype": "Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
 			).insert(ignore_permissions=True)
 
 		self.owner_user = self._user("owner.ownership@example.com", ["Grievance Submitter"])
@@ -243,7 +252,7 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	def _profile(self, user, name, mobile):
 		profile = frappe.get_doc(
 			{
-				"doctype": "Submitter Profile",
+				"doctype": "Grievance Submitter Profile",
 				"submitter_type": "Individual Farmer",
 				"submitter_name": name,
 				"contact_mobile": mobile,
@@ -251,7 +260,11 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(
-			frappe.delete_doc, "Submitter Profile", profile.name, force=True, ignore_permissions=True
+			frappe.delete_doc,
+			"Grievance Submitter Profile",
+			profile.name,
+			force=True,
+			ignore_permissions=True,
 		)
 		return profile
 
@@ -286,7 +299,7 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 			_resolve_submitter_identity({})
 
 	def test_blocked_profile_cannot_file(self):
-		frappe.db.set_value("Submitter Profile", self.owner_profile.name, "is_blocked", 1)
+		frappe.db.set_value("Grievance Submitter Profile", self.owner_profile.name, "is_blocked", 1)
 		frappe.set_user(self.owner_user)
 
 		with self.assertRaises(frappe.ValidationError):
@@ -323,9 +336,14 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 class TestGrievanceStaffOptions(FrappeTestCase):
 	def setUp(self):
-		if not frappe.db.exists("Service Category", "Inputs"):
+		if not frappe.db.exists("Grievance Service Category", "Inputs"):
 			frappe.get_doc(
-				{"doctype": "Service Category", "category_name": "Inputs", "code": "INPT", "is_active": 1}
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Inputs",
+					"code": "INPT",
+					"is_active": 1,
+				}
 			).insert(ignore_permissions=True)
 
 		if not frappe.db.exists("Grievance Department", "Test Agri Dept"):
@@ -393,17 +411,24 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertIn("In Progress", status_names)
 		self.assertIn("Closed", status_names)
 
-		# Validate priorities, categories and channels
-		self.assertIn("priorities", data)
-		self.assertEqual(data["priorities"], ["Low", "Medium", "High"])
+		# Validate categories and channels
 		self.assertIn("service_categories", data)
 		self.assertIn("grievance_types", data)
 		self.assertIn("submission_channels", data)
 
-	def test_submitter_cannot_access_staff_options(self):
+	def test_submitter_can_access_options(self):
 		from oan_grievance_service.api.v1.grievance import options
 
 		frappe.set_user(self.submitter_user.name)
+		res = options()
+		self.assertEqual(res.get("status"), "success")
+		self.assertIn("data", res)
+		self.assertIn("service_categories", res["data"])
+
+	def test_unauthorized_user_cannot_access_options(self):
+		from oan_grievance_service.api.v1.grievance import options
+
+		frappe.set_user("Guest")
 		res = options()
 		self.assertEqual(res.get("status"), "error")
 		self.assertEqual(res.get("code"), "PERMISSION_DENIED")

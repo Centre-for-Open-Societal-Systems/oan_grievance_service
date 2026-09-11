@@ -8,7 +8,6 @@
  "field_order": [
   "ticket_number",
   "status",
-  "priority",
   "col_flags",
   "escalated",
   "escalation_level",
@@ -50,7 +49,9 @@
   "sla_days",
   "sla_start_at",
   "sla_due_date",
+  "on_hold_since",
   "col_sla",
+  "total_hold_time",
   "reminder_50_sent",
   "reminder_80_sent",
   "sla_deferred_days",
@@ -81,15 +82,6 @@
    "label": "Status",
    "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
    "reqd": 1
-  },
-  {
-   "default": "Medium",
-   "fieldname": "priority",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Priority",
-   "options": "Low\nMedium\nHigh"
   },
   {
    "fieldname": "col_flags",
@@ -123,15 +115,15 @@
   {
    "fieldname": "submitter_type",
    "fieldtype": "Link",
-   "label": "Submitter Type",
-   "options": "Submitter Type",
+   "label": "Grievance Submitter Type",
+   "options": "Grievance Submitter Type",
    "reqd": 1
   },
   {
    "fieldname": "submitter",
    "fieldtype": "Link",
-   "label": "Submitter Profile",
-   "options": "Submitter Profile"
+   "label": "Grievance Submitter Profile",
+   "options": "Grievance Submitter Profile"
   },
   {
    "fieldname": "submitter_name",
@@ -204,8 +196,8 @@
    "fieldtype": "Link",
    "ignore_user_permissions": 1,
    "in_standard_filter": 1,
-   "label": "Administrative Area",
-   "options": "Administrative Area",
+   "label": "Grievance Administrative Area",
+   "options": "Grievance Administrative Area",
    "reqd": 1
   },
   {
@@ -244,8 +236,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Service Category",
-   "options": "Service Category",
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
    "reqd": 1
   },
   {
@@ -347,8 +339,22 @@
    "read_only": 1
   },
   {
+   "description": "Set while the clock is paused awaiting the submitter. Null means the clock is running.",
+   "fieldname": "on_hold_since",
+   "fieldtype": "Datetime",
+   "label": "On Hold Since",
+   "read_only": 1
+  },
+  {
    "fieldname": "col_sla",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "Banked hold time, excluded from SLA consumption. The due date is shifted by each hold on resume.",
+   "fieldname": "total_hold_time",
+   "fieldtype": "Duration",
+   "label": "Total Hold Time",
+   "read_only": 1
   },
   {
    "default": "0",

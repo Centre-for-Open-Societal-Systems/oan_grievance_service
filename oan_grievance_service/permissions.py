@@ -38,25 +38,27 @@ def active_scopes(user=None):
 	"""The user's live RBAC assignments, honouring the effective date window."""
 	user = user or frappe.session.user
 	today = frappe.utils.today()
-	return frappe.get_all(
-		"Grievance RBAC Assignment",
-		filters={
-			"user": user,
-			"active": 1,
-			"effective_from": ["<=", today],
-		},
-		or_filters=[
-			["effective_to", "is", "not set"],
-			["effective_to", ">=", today],
-		],
-		fields=[
-			"administrative_area_scope",
-			"department_scope",
-			"category_scope",
-			"role_level",
-			"is_primary",
-		],
-	)
+	query = """
+		SELECT
+			p.name AS assignment_name,
+			p.administrative_area_scope,
+			p.department_scope,
+			p.category_scope,
+			c.role_level,
+			c.is_primary,
+			c.max_open_cases
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		WHERE c.user = %(user)s
+		  AND c.active = 1
+		  AND p.active = 1
+		  AND p.effective_from <= %(today)s
+		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+	"""
+	try:
+		return frappe.db.sql(query, {"user": user, "today": today}, as_dict=True)
+	except Exception:
+		return []
 
 
 def find_officer_by_role_level(role_level, department=None, administrative_area=None):
@@ -66,43 +68,49 @@ def find_officer_by_role_level(role_level, department=None, administrative_area=
 	(NULL for nodal officers who cover all departments in an area), and primary post priority.
 	"""
 	today = frappe.utils.today()
-	assignments = frappe.get_all(
-		"Grievance RBAC Assignment",
-		filters={
-			"active": 1,
-			"role_level": role_level,
-			"effective_from": ["<=", today],
-		},
-		or_filters=[
-			["effective_to", "is", "not set"],
-			["effective_to", ">=", today],
-		],
-		fields=["user", "administrative_area_scope", "department_scope", "is_primary"],
-		order_by="is_primary desc, modified desc",
-	)
-	if not assignments:
+	query = """
+		SELECT
+			c.user,
+			c.is_primary,
+			p.administrative_area_scope,
+			p.department_scope
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		WHERE c.role_level = %(role_level)s
+		  AND c.active = 1
+		  AND p.active = 1
+		  AND p.effective_from <= %(today)s
+		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+		ORDER BY c.is_primary DESC, p.modified DESC
+	"""
+	try:
+		officers = frappe.db.sql(query, {"role_level": role_level, "today": today}, as_dict=True)
+	except Exception:
+		officers = []
+
+	if not officers:
 		return None
 
 	target_lft = None
 	if administrative_area:
-		target_lft = frappe.db.get_value("Administrative Area", administrative_area, "lft")
+		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
 
-	for a in assignments:
+	for o in officers:
 		# Department filter: if assignment specifies a department, it must match.
-		if department and a.department_scope and a.department_scope != department:
+		if department and o.department_scope and o.department_scope != department:
 			continue
 		# Area filter: if assignment specifies an area, target area must be in its subtree.
-		if target_lft is not None and a.administrative_area_scope:
+		if target_lft is not None and o.administrative_area_scope:
 			area_info = frappe.db.get_value(
-				"Administrative Area",
-				a.administrative_area_scope,
+				"Grievance Administrative Area",
+				o.administrative_area_scope,
 				["lft", "rgt"],
 				as_dict=True,
 			)
 			if area_info and area_info.lft is not None and area_info.rgt is not None:
 				if not (area_info.lft <= int(target_lft) <= area_info.rgt):
 					continue
-		return a.user
+		return o.user
 
 	return None
 
@@ -121,7 +129,7 @@ def area_bounds(scopes):
 	return {
 		a.name: (a.lft, a.rgt)
 		for a in frappe.get_all(
-			"Administrative Area",
+			"Grievance Administrative Area",
 			filters={"name": ["in", list(names)]},
 			fields=["name", "lft", "rgt"],
 		)
@@ -140,7 +148,7 @@ def _submitter_profiles(user):
 	so changing a contact email cannot transfer someone else's cases, and two profiles
 	sharing an address do not both match.
 	"""
-	return frappe.get_all("Submitter Profile", filters={"user": user}, pluck="name")
+	return frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name")
 
 
 def grievance_query_conditions(user=None):
@@ -219,7 +227,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 	case_lft = getattr(doc, "area_lft", None)
 	if case_lft is None and getattr(doc, "administrative_area", None):
-		case_lft = frappe.db.get_value("Administrative Area", doc.administrative_area, "lft")
+		case_lft = frappe.db.get_value("Grievance Administrative Area", doc.administrative_area, "lft")
 
 	scopes = active_scopes(user)
 	bounds = area_bounds(scopes)

@@ -8,13 +8,18 @@
  "engine": "InnoDB",
  "field_order": [
   "service_category",
-  "grievance_type",
   "sla_days",
   "active",
   "col_sla_esc",
   "auto_escalation_threshold",
   "top_level_authority",
   "notify_on_submit",
+  "sec_milestones",
+  "first_response_hours",
+  "update_cadence_hours",
+  "col_milestones",
+  "remand_execution_hours",
+  "appeal_window_days",
   "sec_deferral",
   "max_deferral_days",
   "deferral_requires_l2_approval"
@@ -24,16 +29,9 @@
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Service Category",
-   "options": "Service Category",
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
    "reqd": 1
-  },
-  {
-   "fieldname": "grievance_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Grievance Type",
-   "options": "Grievance Type"
   },
   {
    "description": "FSD 3.7: expected response time in days",
@@ -71,6 +69,43 @@
    "fieldname": "notify_on_submit",
    "fieldtype": "Check",
    "label": "Notify On Submit"
+  },
+  {
+   "fieldname": "sec_milestones",
+   "fieldtype": "Section Break",
+   "label": "Milestone Durations & Cadence"
+  },
+  {
+   "default": "4",
+   "description": "Initial triage & first response deadline in hours",
+   "fieldname": "first_response_hours",
+   "fieldtype": "Int",
+   "label": "First Response Due (Hours)"
+  },
+  {
+   "default": "48",
+   "description": "Mandatory citizen progress update cadence in hours",
+   "fieldname": "update_cadence_hours",
+   "fieldtype": "Int",
+   "label": "Periodic Update Cadence (Hours)"
+  },
+  {
+   "fieldname": "col_milestones",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "24",
+   "description": "Fast-track execution timer for supervisor remand directives in hours",
+   "fieldname": "remand_execution_hours",
+   "fieldtype": "Int",
+   "label": "Supervisor Remand Execution (Hours)"
+  },
+  {
+   "default": "15",
+   "description": "Post-resolution citizen objection & appeal window in days",
+   "fieldname": "appeal_window_days",
+   "fieldtype": "Int",
+   "label": "Appeal Window (Days)"
   },
   {
    "fieldname": "sec_deferral",

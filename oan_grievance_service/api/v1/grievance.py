@@ -70,7 +70,7 @@ def _resolve_submitter_identity(kwargs):
 		profile_name = kwargs.get("submitter")
 		identity = {"submitter": profile_name, "assisted_by_officer": user}
 	else:
-		profile_name = frappe.db.get_value("Submitter Profile", {"user": user}, "name")
+		profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
 		if not profile_name:
 			frappe.throw(
 				_("No submitter profile associated with your user account."),
@@ -89,7 +89,7 @@ def _resolve_submitter_identity(kwargs):
 		return identity
 
 	profile = frappe.db.get_value(
-		"Submitter Profile",
+		"Grievance Submitter Profile",
 		profile_name,
 		["submitter_type", "submitter_name", "contact_mobile", "contact_email", "active", "is_blocked"],
 		as_dict=True,
@@ -339,12 +339,12 @@ def get_status_options() -> list[dict]:
 
 @frappe.whitelist()
 @handle_api_errors
-@require_role(list(STAFF_ROLES))
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def options(service_category: str | None = None):
-	"""Management options for grievance officers and admins.
+	"""Management and lookup options for submitters, grievance officers and admins.
 
-	Returns reference lists for case management, triage, and filtering,
-	including departments, lifecycle statuses, priorities, categories, and types.
+	Returns reference lists for case filing, management, triage, and filtering,
+	including departments, lifecycle statuses, categories, and types.
 
 	Args:
 	    service_category (str, optional): Filter grievance types by a specific service category (e.g. 'Inputs').
@@ -352,7 +352,6 @@ def options(service_category: str | None = None):
 	Returns:
 	    departments: Active grievance departments
 	    statuses: Grievance lifecycle statuses with metadata
-	    priorities: Standard priority levels (Low, Medium, High)
 	    service_categories: Active service categories
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
@@ -366,7 +365,7 @@ def options(service_category: str | None = None):
 	)
 
 	service_categories = frappe.get_all(
-		"Service Category",
+		"Grievance Service Category",
 		filters={"is_active": 1},
 		fields=["name as category_name", "code", "sort_order"],
 		order_by="sort_order asc, name asc",
@@ -388,10 +387,9 @@ def options(service_category: str | None = None):
 	data = {
 		"departments": departments,
 		"statuses": get_status_options(),
-		"priorities": ["Low", "Medium", "High"],
 		"service_categories": service_categories,
 		"grievance_types": grievance_types,
 		"submission_channels": list(CHANNELS),
 	}
 
-	return success_response(data=data, message=_("Staff options fetched successfully"))
+	return success_response(data=data, message=_("Grievance options fetched successfully"))

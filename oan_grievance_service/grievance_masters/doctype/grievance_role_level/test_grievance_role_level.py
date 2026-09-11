@@ -87,17 +87,33 @@ class TestGrievanceRoleLevel(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		if not frappe.db.exists("Grievance Department", "Test Role Dept"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": "Test Role Dept",
+					"email_account": "test_role_dept@example.com",
+					"active": 1,
+				}
+			).insert(ignore_permissions=True)
+
 		assignment = frappe.get_doc(
 			{
 				"doctype": "Grievance RBAC Assignment",
-				"user": test_user,
-				"role_level": "nodal_officer",
-				"is_primary": 1,
+				"department_scope": "Test Role Dept",
 				"active": 1,
 				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": test_user,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
 			}
 		).insert(ignore_permissions=True)
 
-		self.assertEqual(assignment.role_level, "nodal_officer")
-		resolved = find_officer_by_role_level("nodal_officer")
+		self.assertEqual(assignment.officers[0].role_level, "nodal_officer")
+		resolved = find_officer_by_role_level("nodal_officer", department="Test Role Dept")
 		self.assertEqual(resolved, test_user)

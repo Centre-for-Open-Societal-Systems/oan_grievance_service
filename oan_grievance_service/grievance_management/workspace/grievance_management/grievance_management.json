@@ -113,16 +113,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance Escalation Log",
-   "link_count": 0,
-   "link_to": "Grievance Escalation Log",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Administration",
    "link_count": 5,
    "link_type": "DocType",
@@ -132,9 +122,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Service Category",
+   "label": "Grievance Service Category",
    "link_count": 0,
-   "link_to": "Service Category",
+   "link_to": "Grievance Service Category",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -201,9 +191,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Administrative Area",
+   "label": "Grievance Administrative Area",
    "link_count": 0,
-   "link_to": "Administrative Area",
+   "link_to": "Grievance Administrative Area",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -211,9 +201,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Submitter Profile",
+   "label": "Grievance Submitter Profile",
    "link_count": 0,
-   "link_to": "Submitter Profile",
+   "link_to": "Grievance Submitter Profile",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

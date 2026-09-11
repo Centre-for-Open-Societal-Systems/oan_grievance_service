@@ -5,7 +5,7 @@ import frappe
 from frappe.utils.nestedset import NestedSet
 
 
-class AdministrativeArea(NestedSet):
+class GrievanceAdministrativeArea(NestedSet):
 	nsm_parent_field = "parent_administrative_area"
 
 	def autoname(self):
@@ -34,7 +34,7 @@ class AdministrativeArea(NestedSet):
 				self.path_code = self.code or self.area_name
 			return
 
-		parent = frappe.get_doc("Administrative Area", self.parent_administrative_area)
+		parent = frappe.get_doc("Grievance Administrative Area", self.parent_administrative_area)
 		self.depth = (parent.depth or 0) + 1
 
 		# Derive country if not set
@@ -53,7 +53,7 @@ class AdministrativeArea(NestedSet):
 
 
 def on_doctype_update():
-	frappe.db.add_index("Administrative Area", ["lft"])
-	frappe.db.add_index("Administrative Area", ["rgt"])
-	frappe.db.add_index("Administrative Area", ["path_code"])
-	frappe.db.add_index("Administrative Area", ["depth"])
+	frappe.db.add_index("Grievance Administrative Area", ["lft"])
+	frappe.db.add_index("Grievance Administrative Area", ["rgt"])
+	frappe.db.add_index("Grievance Administrative Area", ["path_code"])
+	frappe.db.add_index("Grievance Administrative Area", ["depth"])

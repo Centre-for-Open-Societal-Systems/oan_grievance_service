@@ -1,13 +1,13 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:submission_type_name",
+ "autoname": "field:type_name",
  "creation": "2026-09-08 16:20:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "submission_type_name",
+  "type_name",
   "code",
   "col_type",
   "is_active",
@@ -15,10 +15,10 @@
  ],
  "fields": [
   {
-   "fieldname": "submission_type_name",
+   "fieldname": "type_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Submission Type Name",
+   "label": "Submitter Type Name",
    "reqd": 1,
    "unique": 1
   },
@@ -51,7 +51,7 @@
  "modified": "2026-09-08 16:20:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
- "name": "Submission Type",
+ "name": "Grievance Submitter Type",
  "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
@@ -121,5 +121,5 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "submission_type_name"
+ "title_field": "type_name"
 }

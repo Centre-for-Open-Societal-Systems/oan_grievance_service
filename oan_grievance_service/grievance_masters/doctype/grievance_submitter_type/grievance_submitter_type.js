@@ -1,8 +1,6 @@
 // Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 // For license information, please see license.txt
 
-// frappe.ui.form.on("Submitter Profile", {
-// 	refresh(frm) {
-
-// 	},
-// });
+frappe.ui.form.on("Grievance Submitter Type", {
+	// refresh(frm) {}
+});

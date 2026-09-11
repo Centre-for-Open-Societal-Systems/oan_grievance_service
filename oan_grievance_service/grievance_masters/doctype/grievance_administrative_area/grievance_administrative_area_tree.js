@@ -1,4 +1,4 @@
-frappe.treeview_settings["Administrative Area"] = {
+frappe.treeview_settings["Grievance Administrative Area"] = {
 	breadcrumbs: "Grievance Management",
 	title: __("Administrative Area Tree"),
 	get_tree_nodes: "frappe.desk.treeview.get_children",

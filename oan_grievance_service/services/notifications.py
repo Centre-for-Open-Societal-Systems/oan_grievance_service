@@ -126,7 +126,7 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		# submitter is a Link to Submitter Profile, so the User is one hop away. Fall
 		# back to the contact snapshot for submitters who never registered a User.
 		if grievance.submitter:
-			user = frappe.db.get_value("Submitter Profile", grievance.submitter, "user")
+			user = frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user")
 			if user:
 				return user
 		return grievance.contact_mobile or grievance.contact_email

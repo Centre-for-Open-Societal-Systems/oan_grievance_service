@@ -18,7 +18,7 @@ decision can be reversed without a code change.
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, get_datetime, now_datetime
+from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
 
 from oan_grievance_service.services import constants as C
 
@@ -30,33 +30,27 @@ def clock_start_mode():
 	return frappe.conf.get("grievance_sla_clock_start") or CLOCK_START_ASSIGNMENT
 
 
-def resolve_policy(service_category, grievance_type=None):
-	"""Most-specific-first: an exact grievance type beats the category default."""
-	if grievance_type:
-		exact = frappe.get_all(
-			"Grievance SLA Configuration",
-			filters={
-				"service_category": service_category,
-				"grievance_type": grievance_type,
-				"active": 1,
-			},
-			fields=["name", "sla_days", "top_level_authority", "auto_escalation_threshold"],
-			limit=1,
-		)
-		if exact:
-			return exact[0]
-
-	default = frappe.get_all(
+def resolve_policy(service_category):
+	"""One policy per service category. Grievance type does not narrow the SLA."""
+	policy = frappe.get_all(
 		"Grievance SLA Configuration",
 		filters={
 			"service_category": service_category,
-			"grievance_type": ["is", "not set"],
 			"active": 1,
 		},
-		fields=["name", "sla_days", "top_level_authority", "auto_escalation_threshold"],
+		fields=[
+			"name",
+			"sla_days",
+			"top_level_authority",
+			"auto_escalation_threshold",
+			"first_response_hours",
+			"update_cadence_hours",
+			"remand_execution_hours",
+			"appeal_window_days",
+		],
 		limit=1,
 	)
-	return default[0] if default else None
+	return policy[0] if policy else None
 
 
 def start_clock(grievance):
@@ -64,7 +58,7 @@ def start_clock(grievance):
 	if grievance.sla_due_date:
 		return
 
-	policy = resolve_policy(grievance.service_category, grievance.grievance_type)
+	policy = resolve_policy(grievance.service_category)
 	if not policy or not policy.sla_days:
 		return
 
@@ -78,16 +72,67 @@ def start_clock(grievance):
 	grievance.db_set("sla_due_date", add_days(started, policy.sla_days), update_modified=False)
 
 
+def paused_statuses():
+	configured = frappe.conf.get("grievance_sla_paused_statuses")
+	return frozenset(configured) if configured else C.SLA_PAUSED_STATUSES
+
+
+def open_hold_seconds(grievance):
+	"""Seconds in the hold that is still running. Zero when the clock is not paused."""
+	if not grievance.on_hold_since:
+		return 0
+	return max(0, int((now_datetime() - get_datetime(grievance.on_hold_since)).total_seconds()))
+
+
+def pause_clock(grievance):
+	"""Stamp the start of a hold. Idempotent — pausing an already-held case is a no-op."""
+	if not grievance.sla_due_date or grievance.on_hold_since:
+		return
+	grievance.db_set("on_hold_since", now_datetime(), update_modified=False)
+
+
+def resume_clock(grievance):
+	"""Bank the hold and push the deadline out by the same amount.
+
+	Spec section 2: two writes total per hold — one on pause, one here. The reminder flags
+	are deliberately left alone, because consumed percentage is unchanged across a resume:
+	the window and the elapsed time both move by the hold duration.
+	"""
+	if not grievance.on_hold_since:
+		return
+
+	held = open_hold_seconds(grievance)
+	grievance.db_set("total_hold_time", (grievance.total_hold_time or 0) + held, update_modified=False)
+	grievance.db_set("on_hold_since", None, update_modified=False)
+
+	if held and grievance.sla_due_date:
+		grievance.db_set(
+			"sla_due_date",
+			add_to_date(get_datetime(grievance.sla_due_date), seconds=held),
+			update_modified=False,
+		)
+	return held
+
+
 def consumed_percent(grievance):
-	"""FSD 3.11.4: the SLA tracker's consumed percentage."""
+	"""FSD 3.11.4: the SLA tracker's consumed percentage, excluding hold time.
+
+	`sla_due_date` has already been pushed out by every banked hold, so subtracting the
+	bank from both sides recovers the original window and the time actually spent with the
+	department. An open hold is subtracted from the elapsed side only, because the due date
+	does not move until the case resumes.
+	"""
 	if not (grievance.sla_start_at and grievance.sla_due_date):
 		return 0
 	start = get_datetime(grievance.sla_start_at)
 	due = get_datetime(grievance.sla_due_date)
-	window = (due - start).total_seconds()
+	banked = grievance.total_hold_time or 0
+
+	window = (due - start).total_seconds() - banked
 	if window <= 0:
 		return 100
-	elapsed = (now_datetime() - start).total_seconds()
+
+	elapsed = (now_datetime() - start).total_seconds() - banked - open_hold_seconds(grievance)
 	return max(0, min(round(elapsed / window * 100), 999))
 
 
@@ -117,10 +162,61 @@ ESCALATION_ROLE_LEVELS = {
 }
 
 
-def escalate(grievance, level, trigger, reason=None, escalated_by=None):
-	"""FSD 3.7: set the overlay flag, raise priority, log, and notify.
+def get_officer_supervisor(user, department=None, administrative_area=None):
+	"""Find direct supervisor (reports_to) configured on the officer's RBAC assignment."""
+	if not user:
+		return None
+
+	today = frappe.utils.today()
+	query = """
+		SELECT c.reports_to, p.department_scope, p.administrative_area_scope
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		WHERE c.user = %(user)s
+		  AND c.active = 1
+		  AND p.active = 1
+		  AND p.effective_from <= %(today)s
+		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+		  AND c.reports_to IS NOT NULL
+		  AND c.reports_to != ''
+		ORDER BY c.is_primary DESC, p.modified DESC
+	"""
+	try:
+		rows = frappe.db.sql(query, {"user": user, "today": today}, as_dict=True)
+	except Exception:
+		return None
+
+	if not rows:
+		return None
+
+	target_lft = None
+	if administrative_area:
+		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
+
+	for r in rows:
+		if department and r.department_scope and r.department_scope != department:
+			continue
+		if target_lft is not None and r.administrative_area_scope:
+			area_bounds = frappe.db.get_value(
+				"Grievance Administrative Area", r.administrative_area_scope, ["lft", "rgt"], as_dict=True
+			)
+			if area_bounds and area_bounds.lft is not None and area_bounds.rgt is not None:
+				if not (area_bounds.lft <= int(target_lft) <= area_bounds.rgt):
+					continue
+		return r.reports_to
+
+	return rows[0].reports_to
+
+
+def escalate(grievance, level, trigger, reason=None, escalated_by=None, reassign=True):
+	"""FSD 3.7 & Docs: escalate along reporting chain, set flag, and notify.
 
 	Escalated is a flag, never a status, so the lifecycle stage is left untouched.
+	Target resolution order:
+	1. Direct supervisor from officer's reports_to in RBAC assignment (for L1)
+	2. Policy top_level_authority (if level == 'L2' and configured)
+	3. Dynamic RBAC role_level lookup (find_officer_by_role_level)
+	4. Grievance Department fallback
 	"""
 	from oan_grievance_service.permissions import find_officer_by_role_level
 	from oan_grievance_service.services import notifications
@@ -128,8 +224,17 @@ def escalate(grievance, level, trigger, reason=None, escalated_by=None):
 	if already_escalated_at(grievance.name, level):
 		return None
 
-	policy = resolve_policy(grievance.service_category, grievance.grievance_type)
-	target = policy.top_level_authority if (level == "L2" and policy and policy.top_level_authority) else None
+	target = None
+	if level == "L1" and grievance.assigned_to:
+		target = get_officer_supervisor(
+			grievance.assigned_to,
+			department=grievance.assigned_dept,
+			administrative_area=grievance.administrative_area,
+		)
+
+	policy = resolve_policy(grievance.service_category)
+	if not target and level == "L2" and policy and policy.top_level_authority:
+		target = policy.top_level_authority
 
 	if not target:
 		role_level = ESCALATION_ROLE_LEVELS.get(level, "nodal_officer")
@@ -145,34 +250,23 @@ def escalate(grievance, level, trigger, reason=None, escalated_by=None):
 			"Grievance Department", grievance.assigned_dept, dept_field
 		) or frappe.db.get_value("Grievance Department", grievance.assigned_dept, "head_of_dept")
 
-	log = frappe.get_doc(
-		{
-			"doctype": "Grievance Escalation Log",
-			"grievance": grievance.name,
-			"escalation_level": level,
-			"triggered_at": now_datetime(),
-			"triggered_by": trigger,
-			"reason": reason,
-			"notified_stakeholders": target or "",
-		}
-	).insert(ignore_permissions=True)
-
 	grievance.db_set("escalated", 1, update_modified=False)
 	grievance.db_set("escalation_level", 2 if level == "L2" else 1, update_modified=False)
-	grievance.db_set("priority", "High", update_modified=False)
+
+	if reassign and target and target != grievance.assigned_to:
+		grievance.db_set("assigned_to", target, update_modified=False)
 
 	notifications.queue(
 		grievance,
 		C.EVENT_SLA_BREACH_L2 if level == "L2" else C.EVENT_SLA_BREACH_L1,
 		recipient_override=target,
 	)
-	return log
+	return True
 
 
 def already_escalated_at(grievance_name, level):
-	return bool(
-		frappe.db.exists("Grievance Escalation Log", {"grievance": grievance_name, "escalation_level": level})
-	)
+	event = C.EVENT_SLA_BREACH_L2 if level == "L2" else C.EVENT_SLA_BREACH_L1
+	return bool(frappe.db.exists("Grievance Notification Log", {"grievance": grievance_name, "event": event}))
 
 
 def clear_escalation(grievance):
@@ -180,13 +274,7 @@ def clear_escalation(grievance):
 	if not grievance.escalated:
 		return
 	grievance.db_set("escalated", 0, update_modified=False)
-	frappe.db.set_value(
-		"Grievance Escalation Log",
-		{"grievance": grievance.name, "resolved_at": ["is", "not set"]},
-		"resolved_at",
-		now_datetime(),
-		update_modified=False,
-	)
+	grievance.db_set("escalation_level", 0, update_modified=False)
 
 
 def manual_escalate(grievance, reason, by_submitter=True):

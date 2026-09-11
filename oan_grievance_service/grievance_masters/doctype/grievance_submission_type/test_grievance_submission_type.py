@@ -7,10 +7,10 @@ from frappe.tests.utils import FrappeTestCase
 
 class TestSubmissionType(FrappeTestCase):
 	def test_submission_type_creation(self):
-		if not frappe.db.exists("Submission Type", "Web Portal"):
+		if not frappe.db.exists("Grievance Submission Type", "Web Portal"):
 			doc = frappe.get_doc(
 				{
-					"doctype": "Submission Type",
+					"doctype": "Grievance Submission Type",
 					"submission_type_name": "Web Portal",
 					"code": "WEB",
 					"is_active": 1,

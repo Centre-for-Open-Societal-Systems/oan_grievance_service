@@ -36,9 +36,11 @@ Three related rules, each of which removed something from an earlier draft of th
 
 ### Scope pairs: `(category_id, grievance_type_id)`
 
-`workflows`, `sla_policies` and `response_templates` all bind to a category, a specific grievance type within it, or both. Since `grievance_types.category_id` already names the parent, the pair is redundant whenever the type is set — but the column is kept in all three, because a null type is what expresses "the whole category", and resolution is most-specific-first.
+`workflows` binds to a category, a specific grievance type within it, or both. Since `grievance_types.category_id` already names the parent, the pair is redundant whenever the type is set — but the column is kept, because a null type is what expresses "the whole category", and resolution is most-specific-first.
 
-The redundancy is made safe rather than removed: each table carries `CHECK (grievance_type_id IS NULL OR category_id = (SELECT category_id FROM grievance_types WHERE id = grievance_type_id))`, enforced by trigger where a subquery in a `CHECK` is not allowed. Written once here rather than three times below.
+The redundancy is made safe rather than removed: the table carries `CHECK (grievance_type_id IS NULL OR category_id = (SELECT category_id FROM grievance_types WHERE id = grievance_type_id))`, enforced by trigger where a subquery in a `CHECK` is not allowed.
+
+**`sla_policies` and `response_templates` no longer use the pair.** Both previously carried `grievance_type_id` and resolved most-specific-first; both were reduced to a plain category key. That leaves `workflows` as the only table where a grievance type narrows configuration — everywhere else the type is classification on the case record, not a configuration dimension. Note that this is a deliberate departure from the FSD, which names the SLA Configuration entity as _(category, grievance type, SLA days)_; the consequence is recorded under `sla_policies` below.
 
 ### Design principle: events vs. state
 
@@ -752,13 +754,14 @@ What is left is the clock itself: when it started, when it is due, and how long 
 
 ### `sla_policies`
 
-One row per category, matching the Administration → SLA Configuration UI. The FSD's SLA Configuration entity is _(category, grievance type, SLA days)_, so the key is both — a `NULL` `grievance_type_id` is the category-wide default and a specific type overrides it.
+One row per category, matching the Administration → SLA Configuration UI. The key is the category alone.
+
+**This departs from the FSD, knowingly.** The FSD's SLA Configuration entity is _(category, grievance type, SLA days)_, and an earlier implementation honoured it: `resolve_policy()` looked for an exact-type row and fell back to the category default. That was removed along with the type's other configuration roles. The cost is that every grievance type within a category now shares one deadline, so a category mixing urgent and routine issues can only be served by splitting it into two categories — which changes the taxonomy the submitter sees. If acceptance testing holds this to the FSD wording, restoring it means re-adding `grievance_type_id` here and reinstating the two-step lookup; nothing else depends on the change.
 
 | Column                 | Type        | Key                               | Description                                                                                 |
 | ---------------------- | ----------- | --------------------------------- | ------------------------------------------------------------------------------------------- |
 | `id`                   | uuid        | PK                                |                                                                                             |
 | `category_id`          | uuid        | FK → `service_categories.id`, UQ¹ |                                                                                             |
-| `grievance_type_id`    | uuid        | FK → `grievance_types.id`, UQ¹    | Null = the default for every type in the category; a row with a type set beats it           |
 | `department_id`        | uuid        | FK → `departments.id`             | Owning department for this category                                                         |
 | `sla_days`             | int         |                                   | 10 or 14 in current config; must be > 0                                                     |
 | `calendar_id`          | uuid        | FK → `business_calendars.id`      | Working calendar the clock advances against. Null = `global_sla_policy.default_calendar_id` |
@@ -769,9 +772,9 @@ One row per category, matching the Administration → SLA Configuration UI. The 
 | `updated_at`           | timestamptz |                                   |                                                                                             |
 | `updated_by`           | uuid        | FK → `users.id`                   |                                                                                             |
 
-¹ Unique per `(category_id, grievance_type_id)`. As with `category_assignments`, Postgres treats nulls as distinct, so add a partial unique index on `category_id WHERE grievance_type_id IS NULL` to guarantee a single category-wide default.
+¹ Unique on `category_id` — one active policy per category, so resolution is a single indexed lookup with no fallback step.
 
-Resolution is most-specific-first: exact type, then category default. If SLA later needs to vary by priority too, extend the key rather than adding a second table.
+If SLA later needs to vary by priority, extend the key rather than adding a second table.
 
 ### `global_sla_policy`
 
@@ -899,6 +902,8 @@ Category → department routing (Administration → Category Assignments).
 
 ¹ Unique per `(category_id, administrative_area_id)`. Closest matching ancestor node is resolved via nested set interval containment: `WHERE a.lft <= :case_lft AND a.rgt >= :case_rgt ORDER BY (a.rgt - a.lft) ASC LIMIT 1`.
 
+**Routing and access scope on category, not grievance type.** The routing key deliberately stops at `(category, administrative area)`; there is no `grievance_type_id` here, and the scope pair described in §1 does not apply to this table. An earlier implementation carried `grievance_type` on `Grievance Routing Rule` and `grievance_type_scope` on `Grievance RBAC Assignment`, and both were removed: department, area and category already discriminate every routing decision the org chart actually makes, no seeded rule ever constrained the type, and on the access side the column was read but never applied to a permission filter — so a type-scoped assignment silently granted the whole category, which is the worse kind of dead configuration. `sla_policies` keeps its `grievance_type_id` because the FSD names the SLA entity as _(category, grievance type, SLA days)_ and resolution time genuinely varies within a category; routing destination does not. Should a department ever need to split one category's cases by type, add the column back here rather than reviving the RBAC scope — visibility and destination are different questions.
+
 ### `category_assignment_officers`
 
 Which officers staff a given routing rule.
@@ -925,8 +930,7 @@ Pre-written response bodies, managed under Administration. Templates are a produ
 | `id`                 | uuid        | PK                               |                                                                  |
 | `code`               | varchar(16) | UQ                               | `RT-001`                                                         |
 | `title`              | text        |                                  | "Seed Quality — Lab Testing Initiated"                           |
-| `category_id`        | uuid        | FK → `service_categories.id`, IX |                                                                  |
-| `grievance_type_id`  | uuid        | FK → `grievance_types.id`        | The template's subcategory                                       |
+| `category_id`        | uuid        | FK → `service_categories.id`, IX | The template's scope; templates are offered per category         |
 | `outcome`            | enum        |                                  | Resolved / Partially Resolved / Referred / Requires further info |
 | `action_taken`       | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
 | `resolution_summary` | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
@@ -1281,7 +1285,7 @@ This rule has no exceptions in the schema. `workflow_states` and `workflow_trans
 
 **Anonymity key custody.** The design now seals the identity rather than masking it (§5), which leaves one question that is organisational rather than technical: **who holds the unsealing key, and what is the process for using it?** A key the application can use unilaterally provides no protection against the application. Options run from a KMS role granted only to a named audit service, through dual control requiring two officers, to keys held by an external oversight body. The schema supports all three; the choice determines whether anonymity is a real guarantee or a policy promise, and it belongs to whoever is accountable for that promise.
 
-**Service-provider routing.** FR-03 evaluates routing on "the associated service provider", but a provider is only `grievances.facility_name` — free text, so it cannot be routed on, joined to, or reported against. Closing this means a `service_providers` table and a wider routing key on `category_assignments` (category, grievance type, administrative area, provider) with most-specific-wins resolution. Deferred, not rejected.
+**Service-provider routing.** FR-03 evaluates routing on "the associated service provider", but a provider is only `grievances.facility_name` — free text, so it cannot be routed on, joined to, or reported against. Closing this means a `service_providers` table and a wider routing key on `category_assignments` (category, administrative area, provider) with most-specific-wins resolution. Deferred, not rejected.
 
 **A read model for search, and whether it lives outside Postgres.** Officer search over grievance text is currently unspecified, and the systems this schema borrows from all separate it from the write path — Zammad and DIGIT both index into Elasticsearch and serve inbox and search from there, leaving the relational tables to handle writes. The cheaper answer here is a `tsvector` column on `grievances`, generated from title, description and reference number, with a GIN index and Amharic handled by the `simple` configuration plus trigram matching; it stays transactional, needs no second system to operate, and is enough for keyword search over a few million rows. Elasticsearch becomes worth its operational cost only if faceted search, relevance ranking or cross-entity search is actually required — and if it is, the consumer already exists in outline: it subscribes to `outbox_events` like any other, which is precisely why the outbox was worth building before anything needed it.
 

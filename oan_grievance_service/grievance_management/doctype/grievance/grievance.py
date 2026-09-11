@@ -36,9 +36,9 @@ class Grievance(Document):
 		"""Build the ticket number: AREA-CATEGORY-SEQUENCE."""
 		area_code = "GEN"
 		if self.administrative_area:
-			area_code = segment("Administrative Area", self.administrative_area)
+			area_code = segment("Grievance Administrative Area", self.administrative_area)
 
-		cat_code = segment("Service Category", self.service_category)
+		cat_code = segment("Grievance Service Category", self.service_category)
 		prefix = f"{area_code}-{cat_code}"
 		self.name = f"{prefix}-{getseries(prefix + '-', 5)}"
 		self.ticket_number = self.name
@@ -53,7 +53,7 @@ class Grievance(Document):
 		if not self.administrative_area:
 			return
 
-		area = frappe.get_doc("Administrative Area", self.administrative_area)
+		area = frappe.get_doc("Grievance Administrative Area", self.administrative_area)
 		if area.is_group:
 			frappe.throw(
 				_(

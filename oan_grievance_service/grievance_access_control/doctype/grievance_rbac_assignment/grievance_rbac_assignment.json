@@ -7,46 +7,59 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "user",
-  "role_level",
-  "is_primary",
-  "active",
-  "col_scope",
-  "administrative_area_scope",
   "department_scope",
   "category_scope",
+  "col_scope",
+  "administrative_area_scope",
+  "routing_strategy",
+  "active",
   "sec_validity",
   "effective_from",
   "effective_to",
   "col_validity",
-  "assigned_by"
+  "assigned_by",
+  "sec_officers",
+  "officers"
  ],
  "fields": [
   {
-   "fieldname": "user",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "User",
-   "options": "User",
-   "reqd": 1
-  },
-  {
-   "description": "Escalation rung: nodal_officer, senior_nodal_officer, department_head",
-   "fieldname": "role_level",
+   "fieldname": "department_scope",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Role Level",
-   "options": "Grievance Role Level",
+   "label": "Department Scope",
+   "options": "Grievance Department",
    "reqd": 1
   },
   {
-   "default": "1",
-   "description": "1 = Permanent primary post, 0 = Acting / Dual Charge / Coverage",
-   "fieldname": "is_primary",
-   "fieldtype": "Check",
+   "fieldname": "category_scope",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Primary Assignment"
+   "in_standard_filter": 1,
+   "label": "Category Scope",
+   "options": "Grievance Service Category"
+  },
+  {
+   "fieldname": "col_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Scoping tree node. Rule applies to grievances in this area or any of its sub-tree descendants.",
+   "fieldname": "administrative_area_scope",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Administrative Area Scope",
+   "options": "Grievance Administrative Area"
+  },
+  {
+   "default": "Primary First",
+   "description": "How an officer is picked under auto-routing: Primary First, Round Robin, or Least Loaded.",
+   "fieldname": "routing_strategy",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Routing Strategy",
+   "options": "Primary First\nRound Robin\nLeast Loaded"
   },
   {
    "default": "1",
@@ -54,29 +67,6 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Active"
-  },
-  {
-   "fieldname": "col_scope",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Scoping tree node. Officer can access all grievances in this sub-tree (interval containment).",
-   "fieldname": "administrative_area_scope",
-   "fieldtype": "Link",
-   "label": "Administrative Area Scope",
-   "options": "Administrative Area"
-  },
-  {
-   "fieldname": "department_scope",
-   "fieldtype": "Link",
-   "label": "Department Scope",
-   "options": "Grievance Department"
-  },
-  {
-   "fieldname": "category_scope",
-   "fieldtype": "Link",
-   "label": "Category Scope",
-   "options": "Service Category"
   },
   {
    "fieldname": "sec_validity",
@@ -104,12 +94,24 @@
    "label": "Assigned By",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "sec_officers",
+   "fieldtype": "Section Break",
+   "label": "Assigned Officers"
+  },
+  {
+   "description": "Roster of officers staffing this desk / assignment scope.",
+   "fieldname": "officers",
+   "fieldtype": "Table",
+   "label": "Officers",
+   "options": "Grievance RBAC Assignment Officer"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:29.766163",
+ "modified": "2026-09-11 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance RBAC Assignment",
@@ -136,6 +138,21 @@
    "read": 1,
    "write": 1,
    "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
    "delete": 0,
    "submit": 0,
    "cancel": 0,

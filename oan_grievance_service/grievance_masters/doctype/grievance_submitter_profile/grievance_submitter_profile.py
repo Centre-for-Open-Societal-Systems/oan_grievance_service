@@ -8,7 +8,7 @@ from frappe.model.document import Document
 from oan_grievance_service.services import identity
 
 
-class SubmitterProfile(Document):
+class GrievanceSubmitterProfile(Document):
 	def validate(self):
 		self.validate_required_identity()
 		self.set_dedupe_key()

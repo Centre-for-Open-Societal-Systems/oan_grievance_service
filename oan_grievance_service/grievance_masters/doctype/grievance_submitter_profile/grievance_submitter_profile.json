@@ -26,8 +26,8 @@
    "fieldname": "submitter_type",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Submitter Type",
-   "options": "Submitter Type",
+   "label": "Grievance Submitter Type",
+   "options": "Grievance Submitter Type",
    "reqd": 1
   },
   {
@@ -98,8 +98,8 @@
    "fieldname": "administrative_area",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Administrative Area",
-   "options": "Administrative Area"
+   "label": "Grievance Administrative Area",
+   "options": "Grievance Administrative Area"
   },
   {
    "description": "The administrative body or unit this submitter represents.",
@@ -114,7 +114,7 @@
  "modified": "2026-09-08 16:15:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
- "name": "Submitter Profile",
+ "name": "Grievance Submitter Profile",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [

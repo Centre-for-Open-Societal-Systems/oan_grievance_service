@@ -1,8 +1,6 @@
 // Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 // For license information, please see license.txt
 
-// frappe.ui.form.on("Grievance Escalation Log", {
-// 	refresh(frm) {
-
-// 	},
-// });
+frappe.ui.form.on("Grievance Administrative Area", {
+	refresh: function (frm) {},
+});

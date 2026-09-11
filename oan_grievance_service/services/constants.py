@@ -25,6 +25,12 @@ OPEN_STATUSES = (
 
 TERMINAL_STATUSES = (CLOSED, REJECTED)
 
+# The states in which the SLA clock is paused because the case is waiting on the
+# submitter, not on the department. Resolves the EC-006 / DeferSLAPopup conflict recorded
+# in database-schema.md: the answer is configuration, and this is the seed value. Override
+# per site with the `grievance_sla_paused_statuses` config key.
+SLA_PAUSED_STATUSES = frozenset({MORE_INFO_NEEDED, PENDING_SUBMITTER})
+
 # FSD 3.4: the only legal moves. Anything not listed here is refused.
 ALLOWED_TRANSITIONS = {
 	SUBMITTED: {ASSIGNED, REJECTED},

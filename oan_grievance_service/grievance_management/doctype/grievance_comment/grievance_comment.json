@@ -56,7 +56,7 @@
    "fieldname": "author_submitter",
    "fieldtype": "Link",
    "label": "Author (Submitter)",
-   "options": "Submitter Profile"
+   "options": "Grievance Submitter Profile"
   },
   {
    "fieldname": "created_on",

@@ -1,6 +1,6 @@
 """FR-03 Routing and Assignment with Nearest-Ancestor Administrative Area matching.
 
-Auto-routing rules consider service category, grievance type, administrative area (tree hierarchy)
+Auto-routing rules consider service category, administrative area (tree hierarchy)
 and associated service provider. Where a rule matches, the grievance is assigned and the
 status advances to Assigned. Where none matches, it stays Submitted and sits in the
 nodal officer's manual queue.
@@ -12,7 +12,6 @@ from oan_grievance_service.services import constants as C
 
 MATCH_FIELDS = (
 	("service_category", "service_category"),
-	("grievance_type", "grievance_type"),
 	("service_provider", "associated_service_provider"),
 )
 
@@ -21,7 +20,7 @@ def find_matching_rule(grievance):
 	"""Return the winning Grievance Routing Rule, or None for the manual queue.
 
 	Uses Nearest-Ancestor resolution for administrative_area:
-	A rule matches when its category, type, and provider match (or are unconstrained),
+	A rule matches when its category and provider match (or are unconstrained),
 	and its administrative_area is an ancestor or exact match of the grievance's area.
 	Among matching rules:
 	1. Explicit rule_precedence (lower is evaluated first)
@@ -32,12 +31,14 @@ def find_matching_rule(grievance):
 	case_lft = grievance.get("area_lft")
 	case_rgt = None
 	if case_area and case_lft is None:
-		case_lft, case_rgt = frappe.db.get_value("Administrative Area", case_area, ["lft", "rgt"]) or (
+		case_lft, case_rgt = frappe.db.get_value(
+			"Grievance Administrative Area", case_area, ["lft", "rgt"]
+		) or (
 			None,
 			None,
 		)
 	elif case_area and case_lft is not None:
-		case_rgt = frappe.db.get_value("Administrative Area", case_area, "rgt")
+		case_rgt = frappe.db.get_value("Grievance Administrative Area", case_area, "rgt")
 
 	rules = frappe.get_all(
 		"Grievance Routing Rule",
@@ -46,7 +47,6 @@ def find_matching_rule(grievance):
 			"name",
 			"rule_precedence",
 			"assigned_dept",
-			"priority",
 			"administrative_area",
 			*[rule_field for rule_field, _ in MATCH_FIELDS],
 		],
@@ -79,7 +79,7 @@ def find_matching_rule(grievance):
 				matched = False
 			else:
 				rule_lft, rule_rgt = frappe.db.get_value(
-					"Administrative Area", rule_area, ["lft", "rgt"]
+					"Grievance Administrative Area", rule_area, ["lft", "rgt"]
 				) or (None, None)
 				if rule_lft is None or rule_rgt is None:
 					matched = False
@@ -98,16 +98,166 @@ def find_matching_rule(grievance):
 	return candidates[0][3]
 
 
+def find_matching_assignment(grievance):
+	"""Return the winning Grievance RBAC Assignment (Desk), or None.
+
+	Uses Nearest-Ancestor resolution for administrative_area_scope:
+	Matches when category and type match (or are unconstrained), and area is in subtree.
+	"""
+	case_area = grievance.get("administrative_area")
+	case_lft = grievance.get("area_lft")
+	case_rgt = None
+	if case_area and case_lft is None:
+		case_lft, case_rgt = frappe.db.get_value(
+			"Grievance Administrative Area", case_area, ["lft", "rgt"]
+		) or (
+			None,
+			None,
+		)
+	elif case_area and case_lft is not None:
+		case_rgt = frappe.db.get_value("Grievance Administrative Area", case_area, "rgt")
+
+	today = frappe.utils.today()
+	assignments = frappe.get_all(
+		"Grievance RBAC Assignment",
+		filters={
+			"active": 1,
+			"effective_from": ["<=", today],
+		},
+		or_filters=[
+			["effective_to", "is", "not set"],
+			["effective_to", ">=", today],
+		],
+		fields=[
+			"name",
+			"department_scope",
+			"category_scope",
+			"administrative_area_scope",
+			"routing_strategy",
+		],
+	)
+
+	candidates = []
+	for a in assignments:
+		specificity = 0
+		matched = True
+
+		if a.category_scope:
+			specificity += 1
+			if a.category_scope != grievance.get("service_category"):
+				matched = False
+		if not matched:
+			continue
+
+		rule_area = a.administrative_area_scope
+		area_span = 999999999
+		if rule_area:
+			specificity += 1
+			if not case_area or case_lft is None:
+				matched = False
+			else:
+				rule_lft, rule_rgt = frappe.db.get_value(
+					"Grievance Administrative Area", rule_area, ["lft", "rgt"]
+				) or (None, None)
+				if rule_lft is None or rule_rgt is None:
+					matched = False
+				elif not (rule_lft <= int(case_lft) and rule_rgt >= int(case_rgt or case_lft)):
+					matched = False
+				else:
+					area_span = int(rule_rgt) - int(rule_lft)
+
+		if matched:
+			candidates.append((area_span, -specificity, a))
+
+	if not candidates:
+		return None
+	candidates.sort(key=lambda row: (row[0], row[1]))
+	return candidates[0][2]
+
+
+def pick_officer_by_strategy(assignment_doc):
+	"""Pick an officer from the assignment's child officers based on routing_strategy."""
+	if not assignment_doc.get("officers"):
+		return None
+
+	active_officers = [o for o in assignment_doc.officers if getattr(o, "active", 1)]
+	if not active_officers:
+		return None
+
+	strategy = getattr(assignment_doc, "routing_strategy", "Primary First") or "Primary First"
+
+	if strategy == "Round Robin":
+
+		def rr_key(o):
+			val = getattr(o, "last_assigned_at", None)
+			return (1, str(val)) if val else (0, "")
+
+		active_officers.sort(key=rr_key)
+		winner = active_officers[0]
+		winner.last_assigned_at = frappe.utils.now_datetime()
+		if winner.name:
+			frappe.db.set_value(
+				"Grievance RBAC Assignment Officer",
+				winner.name,
+				"last_assigned_at",
+				winner.last_assigned_at,
+				update_modified=False,
+			)
+		return winner.user
+
+	elif strategy == "Least Loaded":
+		scored = []
+		for o in active_officers:
+			open_count = frappe.db.count(
+				"Grievance",
+				filters={
+					"assigned_to": o.user,
+					"status": ["not in", [C.CLOSED, C.REJECTED, C.RESOLVED]],
+				},
+			)
+			max_cap = getattr(o, "max_open_cases", 0) or 0
+			at_cap = 1 if (max_cap > 0 and open_count >= max_cap) else 0
+			scored.append((at_cap, open_count, o))
+
+		scored.sort(key=lambda item: (item[0], item[1]))
+		winner = scored[0][2]
+		return winner.user
+
+	else:  # Primary First
+		active_officers.sort(key=lambda o: -int(getattr(o, "is_primary", 0) or 0))
+		return active_officers[0].user
+
+
 def apply_routing(grievance, commit_status=True):
 	"""Route a grievance. Returns the rule that matched, or None.
 
-	FSD 3.3: on a match the department is set and status advances to Assigned. With no
-	match the status stays Submitted so the case surfaces in the manual routing queue.
+	FSD 3.3 / Database Schema 8: resolves Tier 1 (department) and Tier 2 (officer) from the
+	matching Grievance RBAC Assignment desk record.
 	"""
 	from oan_grievance_service.services import lifecycle, notifications
 
-	rule = find_matching_rule(grievance)
+	assignment = find_matching_assignment(grievance)
+	if assignment:
+		doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
+		grievance.db_set("assigned_dept", doc.department_scope, update_modified=False)
+		grievance.db_set("routing_rule", doc.name, update_modified=False)
+		grievance.db_set("routed_automatically", 1, update_modified=False)
 
+		officer_user = pick_officer_by_strategy(doc)
+		if officer_user:
+			grievance.db_set("assigned_to", officer_user, update_modified=False)
+
+		if commit_status:
+			lifecycle.change_status(
+				grievance,
+				C.ASSIGNED,
+				note=f"Auto-routed by assignment {doc.name}",
+				automated=True,
+			)
+			notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
+		return doc
+
+	rule = find_matching_rule(grievance)
 	if not rule:
 		grievance.db_set("routed_automatically", 0, update_modified=False)
 		return None
@@ -115,8 +265,6 @@ def apply_routing(grievance, commit_status=True):
 	grievance.db_set("assigned_dept", rule.assigned_dept, update_modified=False)
 	grievance.db_set("routing_rule", rule.name, update_modified=False)
 	grievance.db_set("routed_automatically", 1, update_modified=False)
-	if rule.priority:
-		grievance.db_set("priority", rule.priority, update_modified=False)
 
 	if commit_status:
 		lifecycle.change_status(

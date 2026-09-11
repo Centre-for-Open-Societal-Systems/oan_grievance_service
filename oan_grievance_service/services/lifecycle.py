@@ -53,6 +53,14 @@ def change_status(grievance, to_status, note=None, reason=None, automated=False,
 	if to_status == C.ASSIGNED:
 		sla.start_clock(grievance)
 
+	# Spec sections 1-3: the clock stops while the case waits on the submitter and the
+	# deadline is pushed out by the hold when they reply.
+	paused = sla.paused_statuses()
+	if to_status in paused:
+		sla.pause_clock(grievance)
+	elif from_status in paused:
+		sla.resume_clock(grievance)
+
 	# FSD 3.6: entering Pending Submitter opens the confirmation window.
 	if to_status == C.PENDING_SUBMITTER:
 		grievance.db_set(

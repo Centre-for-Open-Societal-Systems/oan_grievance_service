@@ -4,7 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.grievance_masters.doctype.submitter_profile.submitter_profile import (
+from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	build_dedupe_key,
 	split_dedupe_key,
 )
@@ -41,7 +41,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			derive_dedupe_key("Cooperative", mobile="+251911000000")
 
 	def test_profile_dedupe_key_generation(self):
-		profile = frappe.new_doc("Submitter Profile")
+		profile = frappe.new_doc("Grievance Submitter Profile")
 		profile.submitter_type = "Individual Farmer"
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
@@ -53,7 +53,7 @@ class TestSubmitterProfile(FrappeTestCase):
 		self.assertEqual(profile.identity_value, "+251911223344")
 
 	def test_profile_custom_fayda_dedupe_key(self):
-		profile = frappe.new_doc("Submitter Profile")
+		profile = frappe.new_doc("Grievance Submitter Profile")
 		profile.submitter_type = "Individual Farmer"
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
@@ -184,7 +184,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			)
 
 			self.assertIsNone(profile)
-			self.assertFalse(frappe.db.exists("Submitter Profile", {"user": user.name}))
+			self.assertFalse(frappe.db.exists("Grievance Submitter Profile", {"user": user.name}))
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
@@ -215,18 +215,20 @@ class TestSubmitterProfile(FrappeTestCase):
 			user_id = res["data"]["user"]
 
 			try:
-				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
+				profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
 				self.assertTrue(bool(profile_name))
 
-				profile = frappe.get_doc("Submitter Profile", profile_name)
+				profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
 				self.assertEqual(profile.submitter_name, f"Fatuma Roba {uid}")
 				self.assertEqual(profile.contact_mobile, phone)
 				self.assertEqual(profile.administrative_unit, "Bishoftu")
 				self.assertEqual(profile.dedupe_key, f"fayda:{fayda_id}")
 			finally:
-				profile_name = frappe.db.get_value("Submitter Profile", {"user": user_id}, "name")
+				profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
 				if profile_name:
-					frappe.delete_doc("Submitter Profile", profile_name, force=True, ignore_permissions=True)
+					frappe.delete_doc(
+						"Grievance Submitter Profile", profile_name, force=True, ignore_permissions=True
+					)
 				if frappe.db.exists("User", user_id):
 					frappe.db.delete("OAN User Refresh Token", {"user": user_id})
 					contacts = frappe.get_all(
@@ -252,7 +254,7 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		profile = frappe.get_doc(
 			{
-				"doctype": "Submitter Profile",
+				"doctype": "Grievance Submitter Profile",
 				"user": user.name,
 				"submitter_type": "Individual Farmer",
 				"submitter_name": "Derartu Tulu",
@@ -277,7 +279,9 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(data["administrative_unit"], "Bekoji")
 		finally:
 			frappe.set_user("Administrator")
-			frappe.delete_doc("Submitter Profile", profile.name, force=True, ignore_permissions=True)
+			frappe.delete_doc(
+				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
+			)
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
 	def test_submitter_options_returns_phone_extensions(self):
@@ -322,7 +326,7 @@ class TestSubmitterProfile(FrappeTestCase):
 		# 2. Add second jurisdiction country (Kenya) to Administrative Area
 		kenya_area = frappe.get_doc(
 			{
-				"doctype": "Administrative Area",
+				"doctype": "Grievance Administrative Area",
 				"area_name": "Kenya",
 				"code": "KEN",
 				"level_name": "Country",
@@ -333,13 +337,23 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		# 3. Add test Grievance Types for category filtering test
-		if not frappe.db.exists("Service Category", "Inputs"):
+		if not frappe.db.exists("Grievance Service Category", "Inputs"):
 			frappe.get_doc(
-				{"doctype": "Service Category", "category_name": "Inputs", "code": "INPT", "is_active": 1}
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Inputs",
+					"code": "INPT",
+					"is_active": 1,
+				}
 			).insert(ignore_permissions=True)
-		if not frappe.db.exists("Service Category", "Credit"):
+		if not frappe.db.exists("Grievance Service Category", "Credit"):
 			frappe.get_doc(
-				{"doctype": "Service Category", "category_name": "Credit", "code": "CRDT", "is_active": 1}
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Credit",
+					"code": "CRDT",
+					"is_active": 1,
+				}
 			).insert(ignore_permissions=True)
 
 		gtype_inputs = frappe.get_doc(
@@ -384,7 +398,9 @@ class TestSubmitterProfile(FrappeTestCase):
 			gtype_cats = {gt["service_category"] for gt in res_cat["data"]["grievance_types"]}
 			self.assertEqual(gtype_cats, {"Inputs"})
 		finally:
-			frappe.delete_doc("Administrative Area", kenya_area.name, force=True, ignore_permissions=True)
+			frappe.delete_doc(
+				"Grievance Administrative Area", kenya_area.name, force=True, ignore_permissions=True
+			)
 			frappe.delete_doc("Grievance Type", gtype_inputs.name, force=True, ignore_permissions=True)
 			frappe.delete_doc("Grievance Type", gtype_credit.name, force=True, ignore_permissions=True)
 

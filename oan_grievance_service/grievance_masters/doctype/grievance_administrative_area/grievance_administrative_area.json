@@ -72,7 +72,7 @@
    "fieldtype": "Link",
    "ignore_user_permissions": 1,
    "label": "Parent Administrative Area",
-   "options": "Administrative Area"
+   "options": "Grievance Administrative Area"
   },
   {
    "default": "0",
@@ -135,7 +135,7 @@
    "fieldtype": "Link",
    "hidden": 1,
    "label": "Old Parent",
-   "options": "Administrative Area"
+   "options": "Grievance Administrative Area"
   }
  ],
  "grid_page_length": 50,
@@ -145,7 +145,7 @@
  "modified": "2026-09-09 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
- "name": "Administrative Area",
+ "name": "Grievance Administrative Area",
  "naming_rule": "By script",
  "nsm_parent_field": "parent_administrative_area",
  "owner": "Administrator",

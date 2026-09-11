@@ -28,6 +28,8 @@ def open_grievances_with_sla(extra_filters=None):
 			"status",
 			"sla_start_at",
 			"sla_due_date",
+			"on_hold_since",
+			"total_hold_time",
 			"reminder_50_sent",
 			"reminder_80_sent",
 			"escalated",
@@ -41,7 +43,6 @@ def open_grievances_with_sla(extra_filters=None):
 			"submitter_name",
 			"administrative_area",
 			"administrative_unit",
-			"priority",
 			"sla_days",
 		],
 	)
@@ -51,6 +52,10 @@ def send_sla_reminders():
 	"""FSD 3.7: reminders to the assigned officer at 50% and 80% of the window."""
 	sent = 0
 	for row in open_grievances_with_sla():
+		# A paused case is waiting on the submitter, so the officer has nothing to be
+		# reminded about and the deadline has not moved yet.
+		if row.on_hold_since:
+			continue
 		grievance = frappe.get_doc("Grievance", row.name)
 		percent = sla.consumed_percent(grievance)
 
@@ -73,13 +78,20 @@ def escalate_breached():
 	escalated = 0
 
 	for row in open_grievances_with_sla():
+		# Never breach a case whose clock is paused: `sla_due_date` is only pushed out on
+		# resume, so a held case would otherwise breach on time the department never had.
+		if row.on_hold_since:
+			continue
+
 		due = get_datetime(row.sla_due_date)
 		if due > now:
 			continue
 
 		grievance = frappe.get_doc("Grievance", row.name)
 		start = get_datetime(grievance.sla_start_at or grievance.creation)
-		window = (due - start).total_seconds()
+		# `due` has already absorbed every banked hold, so net it out to recover the window
+		# the department was actually given. Otherwise long holds inflate the 2x threshold.
+		window = (due - start).total_seconds() - (grievance.total_hold_time or 0)
 		double_due = due.timestamp() + window
 
 		if window > 0 and now.timestamp() >= double_due:

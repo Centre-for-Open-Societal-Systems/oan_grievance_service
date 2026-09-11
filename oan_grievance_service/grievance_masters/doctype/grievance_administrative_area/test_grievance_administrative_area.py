@@ -7,11 +7,13 @@ from frappe.tests.utils import FrappeTestCase
 
 class TestAdministrativeArea(FrappeTestCase):
 	def test_tree_structure_and_lft_rgt(self):
-		root_name = frappe.db.get_value("Administrative Area", {"area_name": "Test Country"}, "name")
+		root_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Test Country"}, "name"
+		)
 		if not root_name:
 			root = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Test Country",
 					"level_name": "Country",
 					"code": "TCT",
@@ -19,13 +21,15 @@ class TestAdministrativeArea(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			root = frappe.get_doc("Administrative Area", root_name)
+			root = frappe.get_doc("Grievance Administrative Area", root_name)
 
-		child1_name = frappe.db.get_value("Administrative Area", {"area_name": "Test Region 1"}, "name")
+		child1_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Test Region 1"}, "name"
+		)
 		if not child1_name:
 			child1 = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Test Region 1",
 					"level_name": "Region",
 					"code": "TR1",
@@ -34,13 +38,15 @@ class TestAdministrativeArea(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			child1 = frappe.get_doc("Administrative Area", child1_name)
+			child1 = frappe.get_doc("Grievance Administrative Area", child1_name)
 
-		child2_name = frappe.db.get_value("Administrative Area", {"area_name": "Test Woreda 1"}, "name")
+		child2_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Test Woreda 1"}, "name"
+		)
 		if not child2_name:
 			child2 = frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Test Woreda 1",
 					"level_name": "Woreda",
 					"code": "TW1",
@@ -49,7 +55,7 @@ class TestAdministrativeArea(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			child2 = frappe.get_doc("Administrative Area", child2_name)
+			child2 = frappe.get_doc("Grievance Administrative Area", child2_name)
 
 		root.reload()
 		child1.reload()

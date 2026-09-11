@@ -314,7 +314,7 @@ def seed_all():
 
 def seed_administrative_areas():
 	"""Seed pre-calculated Ethiopian administrative area tree (21,028 nodes) from SQL seed if empty."""
-	if frappe.db.count("Administrative Area") > 0:
+	if frappe.db.count("Grievance Administrative Area") > 0:
 		return 0
 
 	sql_path = os.path.join(os.path.dirname(__file__), "data", "ethiopia_administrative_areas.sql.gz")
@@ -328,7 +328,7 @@ def seed_administrative_areas():
 	for statement in statements:
 		frappe.db.sql(statement)  # nosemgrep
 
-	return frappe.db.count("Administrative Area")
+	return frappe.db.count("Grievance Administrative Area")
 
 
 def seed_roles():
@@ -365,11 +365,11 @@ def seed_role_levels():
 def seed_categories():
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
-		if frappe.db.exists("Service Category", name):
+		if frappe.db.exists("Grievance Service Category", name):
 			continue
 		frappe.get_doc(
 			{
-				"doctype": "Service Category",
+				"doctype": "Grievance Service Category",
 				"category_name": name,
 				"code": code,
 				"sort_order": order,
@@ -383,11 +383,11 @@ def seed_categories():
 def seed_submitter_types():
 	made = []
 	for name, code in SUBMITTER_TYPES:
-		if frappe.db.exists("Submitter Type", name):
+		if frappe.db.exists("Grievance Submitter Type", name):
 			continue
 		frappe.get_doc(
 			{
-				"doctype": "Submitter Type",
+				"doctype": "Grievance Submitter Type",
 				"type_name": name,
 				"code": code,
 				"is_active": 1,
@@ -400,11 +400,11 @@ def seed_submitter_types():
 def seed_submission_types():
 	made = []
 	for name, code in SUBMISSION_TYPES:
-		if frappe.db.exists("Submission Type", name):
+		if frappe.db.exists("Grievance Submission Type", name):
 			continue
 		frappe.get_doc(
 			{
-				"doctype": "Submission Type",
+				"doctype": "Grievance Submission Type",
 				"submission_type_name": name,
 				"code": code,
 				"is_active": 1,

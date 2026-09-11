@@ -34,14 +34,14 @@ def get_columns():
 			"label": _("Category"),
 			"fieldname": "service_category",
 			"fieldtype": "Link",
-			"options": "Service Category",
+			"options": "Grievance Service Category",
 			"width": 110,
 		},
 		{
-			"label": _("Administrative Area"),
+			"label": _("Grievance Administrative Area"),
 			"fieldname": "administrative_area",
 			"fieldtype": "Link",
-			"options": "Administrative Area",
+			"options": "Grievance Administrative Area",
 			"width": 140,
 		},
 		{
@@ -70,7 +70,7 @@ def get_data(filters):
 
 	if filters.get("administrative_area"):
 		area_lft, area_rgt = frappe.db.get_value(
-			"Administrative Area", filters.administrative_area, ["lft", "rgt"]
+			"Grievance Administrative Area", filters.administrative_area, ["lft", "rgt"]
 		) or (None, None)
 		if area_lft is not None and area_rgt is not None:
 			conditions["area_lft"] = ["between", [area_lft, area_rgt]]

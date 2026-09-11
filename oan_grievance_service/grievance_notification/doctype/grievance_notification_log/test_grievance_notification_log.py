@@ -78,17 +78,17 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 
 	def _ensure_area(self):
 		"""A leaf area. Grievance refuses to attach to a group node."""
-		if not frappe.db.exists("Submitter Type", "Individual Farmer"):
+		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
-				{"doctype": "Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
 			).insert(ignore_permissions=True)
 
-		root = frappe.db.get_value("Administrative Area", {"area_name": "Notif Root"}, "name")
+		root = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Root"}, "name")
 		if not root:
 			root = (
 				frappe.get_doc(
 					{
-						"doctype": "Administrative Area",
+						"doctype": "Grievance Administrative Area",
 						"area_name": "Notif Root",
 						"level_name": "Country",
 						"code": "NFR",
@@ -99,12 +99,12 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 				.name
 			)
 
-		leaf = frappe.db.get_value("Administrative Area", {"area_name": "Notif Woreda"}, "name")
+		leaf = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Woreda"}, "name")
 		if not leaf:
 			leaf = (
 				frappe.get_doc(
 					{
-						"doctype": "Administrative Area",
+						"doctype": "Grievance Administrative Area",
 						"area_name": "Notif Woreda",
 						"level_name": "Woreda",
 						"code": "NFW",

@@ -18,7 +18,7 @@ ALLOWED_SUBMITTER_ROLES = [
 def get_jurisdiction_countries() -> list[str]:
 	"""Get list of active country names configured in the Administrative Area tree."""
 	country_nodes = frappe.get_all(
-		"Administrative Area",
+		"Grievance Administrative Area",
 		filters={"level_name": "Country", "is_active": 1},
 		fields=["area_name", "code", "country"],
 		order_by="area_name asc",
@@ -34,7 +34,7 @@ def get_jurisdiction_countries() -> list[str]:
 
 	if not names:
 		distinct_countries = frappe.get_all(
-			"Administrative Area",
+			"Grievance Administrative Area",
 			filters={"is_active": 1, "country": ["is", "set"]},
 			distinct=True,
 			pluck="country",
@@ -121,7 +121,7 @@ def options(
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	"""
 	submitter_types = frappe.get_all(
-		"Submitter Type",
+		"Grievance Submitter Type",
 		filters={"is_active": 1},
 		fields=["name as type_name", "code", "description"],
 		order_by="name asc",
@@ -129,7 +129,7 @@ def options(
 	)
 
 	submission_types = frappe.get_all(
-		"Submission Type",
+		"Grievance Submission Type",
 		filters={"is_active": 1},
 		fields=["name as type_name", "code", "description"],
 		order_by="name asc",
@@ -142,7 +142,7 @@ def options(
 	]
 
 	service_categories = frappe.get_all(
-		"Service Category",
+		"Grievance Service Category",
 		filters={"is_active": 1},
 		fields=["name as category_name", "code", "sort_order"],
 		order_by="sort_order asc, name asc",
@@ -185,13 +185,13 @@ def me():
 	if not user or user == "Guest":
 		frappe.throw(_("Authentication required to access current profile."), title=_("Unauthorized"))
 
-	name = frappe.db.get_value("Submitter Profile", {"user": user}, "name")
+	name = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
 	if not name:
 		frappe.throw(
 			_("No submitter profile associated with your user account."), title=_("Profile Not Found")
 		)
 
-	doc = frappe.get_doc("Submitter Profile", name)
+	doc = frappe.get_doc("Grievance Submitter Profile", name)
 	scheme = doc.identity_scheme
 	ident_val = doc.identity_value
 
