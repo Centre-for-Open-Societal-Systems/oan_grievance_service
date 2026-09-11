@@ -67,8 +67,10 @@ def render(template, grievance):
 		"status": grievance.status or "",
 		"department": grievance.assigned_dept or "",
 		"sla_due_date": grievance.sla_due_date or "",
-		"region": grievance.region or "",
-		"woreda": grievance.woreda or "",
+		"administrative_area": getattr(grievance, "administrative_area", "") or "",
+		"administrative_unit": getattr(grievance, "administrative_unit", "") or "",
+		"region": getattr(grievance, "administrative_area", "") or "",
+		"woreda": getattr(grievance, "administrative_unit", "") or "",
 	}
 	rendered = template
 	for key, value in context.items():

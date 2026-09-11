@@ -8,12 +8,18 @@ service layer so the audit trail and notifications cannot be bypassed.
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
-from oan_grievance_service.api import version_meta
 from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
 from oan_grievance_service.services import constants as C
 
-from . import VERSION
+ALLOWED_GRIEVANCE_ROLES = [
+	"Grievance Submitter",
+	"Grievance Officer",
+	"Grievance Admin",
+	"System Manager",
+	"Administrator",
+]
 
 CHANNELS = (
 	"Mobile App",
@@ -25,6 +31,8 @@ CHANNELS = (
 
 
 @frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
 def submit(**kwargs):
 	"""FSD 4.1: validate, generate the ticket, acknowledge, then route.
 
@@ -38,8 +46,7 @@ def submit(**kwargs):
 		"submitter_name",
 		"contact_mobile",
 		"submission_channel",
-		"region",
-		"woreda",
+		"administrative_area",
 		"service_category",
 		"grievance_type",
 		"description",
@@ -65,32 +72,25 @@ def submit(**kwargs):
 			as_dict=True,
 		)
 		if existing:
-			return envelope(
-				{
+			return success_response(
+				data={
 					"ticket_number": existing.ticket_number,
 					"status": existing.status,
 					"duplicate_submission": True,
-				}
+				},
+				message=_("Grievance already submitted"),
 			)
 
 	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
-
-	# The zone is implied by the woreda. IVR and call-centre operators capture the
-	# woreda directly, so requiring the intermediate level would be friction with
-	# no information gained.
-	if not kwargs.get("zone"):
-		kwargs["zone"] = frappe.db.get_value("Woreda", kwargs["woreda"], "zone")
 
 	doc = frappe.new_doc("Grievance")
 	for field, value in kwargs.items():
 		if doc.meta.has_field(field):
 			doc.set(field, value)
-
 	doc.status = C.SUBMITTED
+	# FR-02 duplicate detection matches on the submitter, so a grievance without
+	# one can never be found to duplicate anything.
 	doc.submitter = submission.find_or_create_submitter(kwargs)
-	doc.area_path_code = submission.resolve_area_path(
-		region=doc.region, zone=doc.zone, woreda=doc.woreda, kebele=doc.kebele
-	)
 	submission.record_consent(doc)
 	doc.insert(ignore_permissions=True)
 
@@ -109,8 +109,8 @@ def submit(**kwargs):
 	rule = routing.apply_routing(doc)
 	doc.reload()
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"ticket_number": doc.ticket_number,
 			"status": doc.status,
 			"assigned_department": doc.assigned_dept,
@@ -120,7 +120,8 @@ def submit(**kwargs):
 			"area_path_code": doc.area_path_code,
 			"attachments": attachments,
 			"duplicate_submission": False,
-		}
+		},
+		message=_("Grievance submitted successfully"),
 	)
 
 
@@ -189,7 +190,9 @@ def detect_duplicates(grievance, window_days=7):
 
 
 @frappe.whitelist()
-def track(ticket_number):
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def track(ticket_number: str):
 	"""Submitter-facing status lookup for the portal and IVR."""
 	name = frappe.db.get_value("Grievance", {"ticket_number": ticket_number}, "name")
 	if not name:
@@ -198,8 +201,8 @@ def track(ticket_number):
 	doc = frappe.get_doc("Grievance", name)
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=name)
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"ticket_number": doc.ticket_number,
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
@@ -208,12 +211,15 @@ def track(ticket_number):
 			"sla_consumed_percent": sla.consumed_percent(doc),
 			"confirmation_deadline": doc.confirmation_deadline,
 			"submitted_on": doc.creation,
-		}
+		},
+		message=_("Grievance status retrieved successfully"),
 	)
 
 
 @frappe.whitelist()
-def confirm(ticket_number, rating=None, comments=None):
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def confirm(ticket_number: str, rating: int | str | None = None, comments: str | None = None):
 	"""FSD 3.6 / UC-03: the submitter confirms the resolution."""
 	doc = _load(ticket_number)
 	if doc.status != C.PENDING_SUBMITTER:
@@ -225,37 +231,49 @@ def confirm(ticket_number, rating=None, comments=None):
 		doc.db_set("satisfaction_comments", comments, update_modified=False)
 
 	lifecycle.confirm_resolution(doc)
-	return envelope({"ticket_number": doc.ticket_number, "status": C.CLOSED})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": C.CLOSED},
+		message=_("Resolution confirmed successfully"),
+	)
 
 
 @frappe.whitelist()
-def reopen(ticket_number, reason):
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def reopen(ticket_number: str, reason: str):
 	"""FSD 3.6: reopen with a mandatory reason."""
 	doc = _load(ticket_number)
 	lifecycle.reopen(doc, reason)
-	return envelope({"ticket_number": doc.ticket_number, "status": doc.status})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": doc.status},
+		message=_("Grievance reopened successfully"),
+	)
 
 
 @frappe.whitelist()
-def escalate(ticket_number, reason):
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def escalate(ticket_number: str, reason: str):
 	"""FSD 3.7: the submitter escalates once the SLA window has elapsed."""
 	doc = _load(ticket_number)
 	sla.manual_escalate(doc, reason, by_submitter=True)
-	return envelope({"ticket_number": doc.ticket_number, "escalated": True})
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "escalated": True},
+		message=_("Grievance escalated successfully"),
+	)
 
 
 @frappe.whitelist()
-def reply(ticket_number, body):
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def reply(ticket_number: str, body: str):
 	"""FSD Appendix C: the submitter answers a More Info Needed request."""
 	doc = _load(ticket_number)
 	lifecycle.submitter_replies(doc, body)
-	return envelope({"ticket_number": doc.ticket_number, "status": doc.status})
-
-
-def envelope(data):
-	"""Every v1 response carries the contract version it was served under, so a
-	support ticket can name the contract rather than guess at it."""
-	return {"meta": version_meta(VERSION), "data": data}
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": doc.status},
+		message=_("Reply submitted successfully"),
+	)
 
 
 def _load(ticket_number):

@@ -8,6 +8,8 @@ app_license = "mit"
 # Apps
 # ------------------
 
+required_apps = ["oan_auth_service"]
+
 add_to_apps_screen = [
 	{
 		"name": "oan_grievance_service",
@@ -68,9 +70,7 @@ doc_events = {
 	# The submission wizard caches its lookups. An administrator adding a woreda
 	# or deactivating a category must see it in the form immediately, not after
 	# the cache expires.
-	"Region": _CLEAR_LOOKUP_CACHE,
-	"Zone": _CLEAR_LOOKUP_CACHE,
-	"Woreda": _CLEAR_LOOKUP_CACHE,
+	"Administrative Area": _CLEAR_LOOKUP_CACHE,
 	"Service Category": _CLEAR_LOOKUP_CACHE,
 	"Grievance Type": _CLEAR_LOOKUP_CACHE,
 }
@@ -104,17 +104,20 @@ fixtures = [
 				"name",
 				"in",
 				[
-					"Farmer",
-					"Assisted-Submissions",
-					"L1 Nodal Officer",
-					"L2 Senior Nodal Officer",
-					"Department Head",
-					"OAN Administrator-ATI",
+					"Grievance Submitter",
+					"Grievance Officer",
+					"Grievance Admin",
 				],
 			]
 		],
 	},
 ]
+
+# Authentication & Registration
+# -----------------------------
+# Integrates with oan_auth_service to initialize domain profiles upon user registration.
+
+on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
 
 # Portal
 # ------------------

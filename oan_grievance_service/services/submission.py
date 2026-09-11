@@ -96,36 +96,6 @@ def find_or_create_submitter(payload):
 	return profile.name
 
 
-def resolve_area_path(region=None, zone=None, woreda=None, kebele=None):
-	"""The dotted location path, resolved once at submission.
-
-	Administrative divisions split -- Ethiopia's regions have done so twice in a
-	decade. The live masters answer "where is this woreda now"; this answers
-	"where was the case filed", which is the only thing that keeps a prior-period
-	SLA report reproducible after a split.
-	"""
-	if woreda:
-		path = frappe.db.get_value("Woreda", woreda, "path_code")
-		if path:
-			return f"{path}.{_slug(kebele)}" if kebele else path
-
-	if zone:
-		path = frappe.db.get_value("Zone", zone, "path_code")
-		if path:
-			return path
-
-	if region:
-		code = frappe.db.get_value("Region", region, "code")
-		if code:
-			return f"ET.{code}"
-
-	return None
-
-
-def _slug(value):
-	return re.sub(r"[^A-Za-z0-9]", "", value or "").upper()[:8] or "X"
-
-
 def attach_draft_files(draft, grievance):
 	"""Move the files uploaded against a draft onto the grievance it became.
 

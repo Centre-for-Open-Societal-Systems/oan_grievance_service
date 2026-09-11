@@ -1,22 +1,30 @@
 """Seed data created on install and refreshed on migrate.
 
 Everything here is configuration the FSD names explicitly, so a fresh site comes up
-usable rather than empty: the six roles from Appendix F, the five service categories
-from 3.2.2, the Ethiopian regions from 3.11.8, and the full Appendix C notification
-matrix.
+usable rather than empty: the three capability roles, the five service categories from
+3.2.2, the Ethiopian regions from 3.11.8, and the full Appendix C notification matrix.
 """
+
+import gzip
+import os
 
 import frappe
 
 from oan_grievance_service.services import constants as C
 
+# The three capability roles. Appendix F's L1 / L2 / Department Head were rungs of a
+# hierarchy rather than distinct capabilities, and are replaced by position in the
+# reporting chain - see .docs/sla_workflows_and_lifecycle_specification.md §10.1.
+#
+# No desk access for any role for now. Every actor - submitter, officer and admin -
+# reaches the system through the portal and the v1 API, so Desk is not part of the
+# surface being built or secured. Turning it on later is a one-line change per role,
+# but it widens the attack surface to every doctype the role holds DocPerm on, so it
+# should be a deliberate decision rather than a default.
 ROLES = [
-	("Farmer", 0),
-	("Assisted-Submissions", 1),
-	("L1 Nodal Officer", 1),
-	("L2 Senior Nodal Officer", 1),
-	("Department Head", 1),
-	("OAN Administrator-ATI", 1),
+	("Grievance Submitter", 0),
+	("Grievance Officer", 0),
+	("Grievance Admin", 0),
 ]
 
 # FSD 3.2.2. The code is the CATEGORY segment of the FSD 3.2.3 ticket number.
@@ -28,22 +36,23 @@ SERVICE_CATEGORIES = [
 	("Markets", "MRKT", 5),
 ]
 
-# FSD 3.11.8: Ethiopian administrative regions.
-REGIONS = [
-	("Oromia", "OROM"),
-	("Amhara", "AMHA"),
-	("Somali", "SOMA"),
-	("Tigray", "TIGR"),
-	("Afar", "AFAR"),
-	("Sidama", "SIDA"),
-	("Benishangul-Gumuz", "BENI"),
-	("Gambela", "GAMB"),
-	("Harari", "HARA"),
-	("Central Ethiopia", "CENT"),
-	("South Ethiopia", "SOUT"),
-	("South West Ethiopia", "SWES"),
-	("Addis Ababa", "ADDI"),
-	("Dire Dawa", "DIRE"),
+# Submitter Types master
+SUBMITTER_TYPES = [
+	("Individual Farmer", "IND"),
+	("Development Agent", "DA"),
+	("Cooperative", "COOP"),
+	("FPO", "FPO"),
+	("NGO", "NGO"),
+	("Woreda/Kebele Body", "BODY"),
+]
+
+# Submission Types / Channels master
+SUBMISSION_TYPES = [
+	("Mobile App", "APP"),
+	("Web Portal", "WEB"),
+	("Mobile Call", "CALL"),
+	("IVR Helpline", "IVR"),
+	("Development Agent Assisted", "DA"),
 ]
 
 # FSD Appendix C, the complete notification matrix.
@@ -56,7 +65,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"Immediately on save",
 		"Your grievance {{ ticket_number }} has been received under {{ service_category }}. "
-		"Expected response by {{ sla_due_date }}.",
+		+ "Expected response by {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
@@ -65,7 +74,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"On validation",
 		"A similar grievance already exists. Reference {{ ticket_number }}. "
-		"You may link to it or proceed with justification.",
+		+ "You may link to it or proceed with justification.",
 	),
 	(
 		C.EVENT_ASSIGNED_AUTO,
@@ -74,7 +83,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"On auto-routing match",
 		"Grievance {{ ticket_number }} ({{ service_category }} / {{ grievance_type }}) has been "
-		"assigned to {{ department }}. SLA deadline {{ sla_due_date }}.",
+		+ "assigned to {{ department }}. SLA deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_ASSIGNED_MANUAL,
@@ -83,7 +92,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"On nodal officer assignment",
 		"Grievance {{ ticket_number }} has been assigned to {{ department }} by the nodal officer. "
-		"SLA deadline {{ sla_due_date }}.",
+		+ "SLA deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_STATUS_IN_PROGRESS,
@@ -99,7 +108,8 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		"SMS + Email",
 		"Officer sets More Info Needed",
-		"Additional information is needed for grievance {{ ticket_number }}. Please respond via the portal.",
+		"Additional information is needed for grievance {{ ticket_number }}. "
+		+ "Please respond via the portal.",
 	),
 	(
 		C.EVENT_SUBMITTER_RESPONDED,
@@ -116,7 +126,7 @@ NOTIFICATION_EVENTS = [
 		"SMS + Email",
 		"Officer submits response",
 		"A response has been issued on grievance {{ ticket_number }}. "
-		"Please confirm or reopen within the confirmation window.",
+		+ "Please confirm or reopen within the confirmation window.",
 	),
 	(
 		C.EVENT_CONFIRMATION_WINDOW,
@@ -125,7 +135,7 @@ NOTIFICATION_EVENTS = [
 		"SMS",
 		"Response submitted",
 		"Grievance {{ ticket_number }} is awaiting your confirmation. "
-		"Confirm or reopen before the window closes.",
+		+ "Confirm or reopen before the window closes.",
 	),
 	(
 		C.EVENT_CONFIRMED,
@@ -133,7 +143,8 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		"SMS + Email",
 		"Submitter confirms",
-		"Grievance {{ ticket_number }} has been marked resolved. Please rate your experience from 1 to 5.",
+		"Grievance {{ ticket_number }} has been marked resolved. "
+		+ "Please rate your experience from 1 to 5.",
 	),
 	(
 		C.EVENT_REOPENED,
@@ -165,7 +176,7 @@ NOTIFICATION_EVENTS = [
 		"Assigned Officer",
 		"Email",
 		"Scheduled job at 50% SLA elapsed",
-		"Grievance {{ ticket_number }} has reached 50% of its SLA window. Deadline {{ sla_due_date }}.",
+		"Grievance {{ ticket_number }} has reached 50% of its SLA window. " + "Deadline {{ sla_due_date }}.",
 	),
 	(
 		C.EVENT_SLA_REMINDER_80,
@@ -190,7 +201,7 @@ NOTIFICATION_EVENTS = [
 		"Email",
 		"SLA deadline passed",
 		"Grievance {{ ticket_number }} has breached its SLA and has been escalated. "
-		"Immediate action is required.",
+		+ "Immediate action is required.",
 	),
 	(
 		C.EVENT_SLA_BREACH_L2,
@@ -198,7 +209,8 @@ NOTIFICATION_EVENTS = [
 		"Top Level Authority",
 		"Email",
 		"2x SLA deadline passed",
-		"Grievance {{ ticket_number }} has breached twice its SLA window and is escalated to second level.",
+		"Grievance {{ ticket_number }} has breached twice its SLA window and is escalated "
+		+ "to second level.",
 	),
 	(
 		C.EVENT_MANUAL_ESCALATION,
@@ -228,20 +240,36 @@ def after_migrate():
 
 
 def seed_all():
-	from oan_grievance_service.setup import locations
-
 	created = {
 		"roles": seed_roles(),
 		"categories": seed_categories(),
-		"regions": seed_regions(),
+		"submitter_types": seed_submitter_types(),
+		"submission_types": seed_submission_types(),
 		"notifications": seed_notification_configs(),
+		"administrative_areas": seed_administrative_areas(),
 	}
-	# The full Region > Zone > Woreda hierarchy, after seed_regions has created the
-	# fourteen regions by name: this backfills their P-codes and adds the levels
-	# below them.
-	locations.seed_locations()
-	frappe.db.commit()
+	# Explicit commit after running setup seed data in after_install/after_migrate hook
+	frappe.db.commit()  # nosemgrep
 	return created
+
+
+def seed_administrative_areas():
+	"""Seed pre-calculated Ethiopian administrative area tree (21,028 nodes) from SQL seed if empty."""
+	if frappe.db.count("Administrative Area") > 0:
+		return 0
+
+	sql_path = os.path.join(os.path.dirname(__file__), "data", "ethiopia_administrative_areas.sql.gz")
+	if not os.path.exists(sql_path):
+		return 0
+
+	with gzip.open(sql_path, "rt", encoding="utf-8") as f:
+		sql_content = f.read()
+
+	statements = [s.strip() for s in sql_content.split(";\n") if s.strip() and not s.strip().startswith("--")]
+	for statement in statements:
+		frappe.db.sql(statement)  # nosemgrep
+
+	return frappe.db.count("Administrative Area")
 
 
 def seed_roles():
@@ -274,14 +302,36 @@ def seed_categories():
 	return made
 
 
-def seed_regions():
+def seed_submitter_types():
 	made = []
-	for name, code in REGIONS:
-		if frappe.db.exists("Region", name):
+	for name, code in SUBMITTER_TYPES:
+		if frappe.db.exists("Submitter Type", name):
 			continue
-		frappe.get_doc({"doctype": "Region", "region_name": name, "code": code, "is_active": 1}).insert(
-			ignore_permissions=True
-		)
+		frappe.get_doc(
+			{
+				"doctype": "Submitter Type",
+				"type_name": name,
+				"code": code,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		made.append(name)
+	return made
+
+
+def seed_submission_types():
+	made = []
+	for name, code in SUBMISSION_TYPES:
+		if frappe.db.exists("Submission Type", name):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "Submission Type",
+				"submission_type_name": name,
+				"code": code,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
 		made.append(name)
 	return made
 

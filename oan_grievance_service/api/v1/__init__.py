@@ -14,13 +14,11 @@ Endpoints
     v1.grievance.escalate   FSD FR-07         escalate once the SLA has elapsed
 
     v1.submission.form_meta        FSD 3.11.5   wizard enums in one call
-    v1.submission.regions          FSD 3.2.2    location level 1
-    v1.submission.zones            FSD 3.2.2    location level 2, by region
-    v1.submission.woredas          FSD 3.2.2    location level 3, by zone
-    v1.submission.search_woredas   FSD 3.2.2    type-ahead for call centre and IVR
     v1.submission.categories       FSD 3.2.2    service categories
     v1.submission.grievance_types  FSD 3.2.2    types for one category
     v1.submission.ticket_preview   FSD 3.2.3    the ticket prefix, before submitting
+
+    v1.administrative_area.get_areas   FSD 3.2.2   the location cascade and search
 
     v1.draft.save           FSD 3.2.1 / 7      persist a partial submission
     v1.draft.load           FSD 3.2.1 / 7      resume where the wizard stopped

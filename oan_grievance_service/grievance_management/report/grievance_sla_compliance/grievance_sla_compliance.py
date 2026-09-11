@@ -37,7 +37,13 @@ def get_columns():
 			"options": "Service Category",
 			"width": 110,
 		},
-		{"label": _("Region"), "fieldname": "region", "fieldtype": "Link", "options": "Region", "width": 110},
+		{
+			"label": _("Administrative Area"),
+			"fieldname": "administrative_area",
+			"fieldtype": "Link",
+			"options": "Administrative Area",
+			"width": 140,
+		},
 		{
 			"label": _("Department"),
 			"fieldname": "assigned_dept",
@@ -56,11 +62,20 @@ def get_columns():
 
 def get_data(filters):
 	conditions = {}
-	for field in ("service_category", "region", "assigned_dept", "status"):
+	for field in ("service_category", "assigned_dept", "status"):
 		if filters.get(field):
 			conditions[field] = filters[field]
 	if filters.get("from_date") and filters.get("to_date"):
 		conditions["creation"] = ["between", [filters.from_date, filters.to_date]]
+
+	if filters.get("administrative_area"):
+		area_lft, area_rgt = frappe.db.get_value(
+			"Administrative Area", filters.administrative_area, ["lft", "rgt"]
+		) or (None, None)
+		if area_lft is not None and area_rgt is not None:
+			conditions["area_lft"] = ["between", [area_lft, area_rgt]]
+		else:
+			conditions["administrative_area"] = filters.administrative_area
 
 	grievances = frappe.get_all(
 		"Grievance",
@@ -69,7 +84,7 @@ def get_data(filters):
 			"name",
 			"ticket_number",
 			"service_category",
-			"region",
+			"administrative_area",
 			"assigned_dept",
 			"status",
 			"sla_days",
