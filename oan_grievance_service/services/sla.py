@@ -110,22 +110,40 @@ def extend_for_deferral(grievance, additional_days):
 	grievance.db_set("reminder_80_sent", 0, update_modified=False)
 
 
+ESCALATION_ROLE_LEVELS = {
+	"L1": "nodal_officer",
+	"L2": "senior_nodal_officer",
+	"L3": "department_head",
+}
+
+
 def escalate(grievance, level, trigger, reason=None, escalated_by=None):
 	"""FSD 3.7: set the overlay flag, raise priority, log, and notify.
 
 	Escalated is a flag, never a status, so the lifecycle stage is left untouched.
 	"""
+	from oan_grievance_service.permissions import find_officer_by_role_level
 	from oan_grievance_service.services import notifications
 
 	if already_escalated_at(grievance.name, level):
 		return None
 
 	policy = resolve_policy(grievance.service_category, grievance.grievance_type)
-	target = None
-	if level == "L2" and policy:
-		target = policy.top_level_authority
-	elif grievance.assigned_dept:
-		target = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "head_of_dept")
+	target = policy.top_level_authority if (level == "L2" and policy and policy.top_level_authority) else None
+
+	if not target:
+		role_level = ESCALATION_ROLE_LEVELS.get(level, "nodal_officer")
+		target = find_officer_by_role_level(
+			role_level,
+			department=grievance.assigned_dept,
+			administrative_area=grievance.administrative_area,
+		)
+
+	if not target and grievance.assigned_dept:
+		dept_field = "senior_officer" if level == "L2" else "nodal_officer"
+		target = frappe.db.get_value(
+			"Grievance Department", grievance.assigned_dept, dept_field
+		) or frappe.db.get_value("Grievance Department", grievance.assigned_dept, "head_of_dept")
 
 	log = frappe.get_doc(
 		{

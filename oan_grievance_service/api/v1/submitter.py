@@ -96,32 +96,6 @@ def get_phone_extensions(search: str | None = None, country: str | None = None) 
 	return extensions
 
 
-def get_status_options() -> list[dict]:
-	"""Retrieve grievance lifecycle status options with open/terminal metadata."""
-	from oan_grievance_service.services import constants as C
-
-	all_statuses = [
-		C.SUBMITTED,
-		C.ASSIGNED,
-		C.IN_PROGRESS,
-		C.MORE_INFO_NEEDED,
-		C.PENDING_SUBMITTER,
-		C.RESOLVED,
-		C.CLOSED,
-		C.REJECTED,
-	]
-
-	return [
-		{
-			"status": status,
-			"label": status,
-			"is_open": 1 if status in C.OPEN_STATUSES else 0,
-			"is_terminal": 1 if status in C.TERMINAL_STATUSES else 0,
-		}
-		for status in all_statuses
-	]
-
-
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def options(
@@ -143,7 +117,6 @@ def options(
 	    submission_types: Active intake channels (e.g. Mobile App, Web Portal, etc.)
 	    preferred_languages: Supported notification languages
 	    phone_extensions: Country phone extensions / dialing prefixes (ISD codes)
-	    statuses: Grievance lifecycle statuses with metadata
 	    service_categories: Active service categories (e.g. Inputs, Schemes, Payments, etc.)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	"""
@@ -192,7 +165,6 @@ def options(
 		"submitter_types": submitter_types,
 		"submission_types": submission_types,
 		"preferred_languages": preferred_languages,
-		"statuses": get_status_options(),
 		"service_categories": service_categories,
 		"grievance_types": grievance_types,
 	}

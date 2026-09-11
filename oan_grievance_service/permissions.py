@@ -49,8 +49,84 @@ def active_scopes(user=None):
 			["effective_to", "is", "not set"],
 			["effective_to", ">=", today],
 		],
-		fields=["role", "administrative_area_scope", "department_scope", "category_scope"],
+		fields=[
+			"administrative_area_scope",
+			"department_scope",
+			"category_scope",
+			"role_level",
+			"is_primary",
+		],
 	)
+
+
+def find_officer_by_role_level(role_level, department=None, administrative_area=None):
+	"""Dynamically resolve an officer user from active Grievance RBAC Assignments.
+
+	Honours role_level, geographic jurisdiction (area tree interval), line department
+	(NULL for nodal officers who cover all departments in an area), and primary post priority.
+	"""
+	today = frappe.utils.today()
+	assignments = frappe.get_all(
+		"Grievance RBAC Assignment",
+		filters={
+			"active": 1,
+			"role_level": role_level,
+			"effective_from": ["<=", today],
+		},
+		or_filters=[
+			["effective_to", "is", "not set"],
+			["effective_to", ">=", today],
+		],
+		fields=["user", "administrative_area_scope", "department_scope", "is_primary"],
+		order_by="is_primary desc, modified desc",
+	)
+	if not assignments:
+		return None
+
+	target_lft = None
+	if administrative_area:
+		target_lft = frappe.db.get_value("Administrative Area", administrative_area, "lft")
+
+	for a in assignments:
+		# Department filter: if assignment specifies a department, it must match.
+		if department and a.department_scope and a.department_scope != department:
+			continue
+		# Area filter: if assignment specifies an area, target area must be in its subtree.
+		if target_lft is not None and a.administrative_area_scope:
+			area_info = frappe.db.get_value(
+				"Administrative Area",
+				a.administrative_area_scope,
+				["lft", "rgt"],
+				as_dict=True,
+			)
+			if area_info and area_info.lft is not None and area_info.rgt is not None:
+				if not (area_info.lft <= int(target_lft) <= area_info.rgt):
+					continue
+		return a.user
+
+	return None
+
+
+def area_bounds(scopes):
+	"""Nested Set intervals for every area named by `scopes`, in one query.
+
+	Resolved live rather than denormalised onto the assignment row. Frappe's NestedSet
+	shifts `lft`/`rgt` across the tree whenever a node is inserted or moved, so a stamped
+	copy silently drifts out of the coordinate system it is compared against - and on a
+	scope row that drift widens or narrows what an officer can see.
+	"""
+	names = {s.administrative_area_scope for s in scopes if s.administrative_area_scope}
+	if not names:
+		return {}
+	return {
+		a.name: (a.lft, a.rgt)
+		for a in frappe.get_all(
+			"Administrative Area",
+			filters={"name": ["in", list(names)]},
+			fields=["name", "lft", "rgt"],
+		)
+		if a.lft is not None and a.rgt is not None
+	}
 
 
 def _quote(values):
@@ -91,16 +167,16 @@ def grievance_query_conditions(user=None):
 	# FSD 3.1.1: officers act on assigned cases within their configured scope.
 	if ROLE_OFFICER in roles:
 		scope_clauses = []
-		for scope in active_scopes(user):
+		scopes = active_scopes(user)
+		bounds = area_bounds(scopes)
+		for scope in scopes:
 			parts = []
 			if scope.department_scope:
 				parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(scope.department_scope)}")
 			if scope.category_scope:
 				parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(scope.category_scope)}")
 			if scope.administrative_area_scope:
-				area_lft, area_rgt = frappe.db.get_value(
-					"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
-				) or (None, None)
+				area_lft, area_rgt = bounds.get(scope.administrative_area_scope, (None, None))
 				if area_lft is not None and area_rgt is not None:
 					parts.append(
 						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
@@ -145,15 +221,15 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if case_lft is None and getattr(doc, "administrative_area", None):
 		case_lft = frappe.db.get_value("Administrative Area", doc.administrative_area, "lft")
 
-	for scope in active_scopes(user):
+	scopes = active_scopes(user)
+	bounds = area_bounds(scopes)
+	for scope in scopes:
 		if scope.department_scope and doc.assigned_dept != scope.department_scope:
 			continue
 		if scope.category_scope and doc.service_category != scope.category_scope:
 			continue
 		if scope.administrative_area_scope:
-			scope_lft, scope_rgt = frappe.db.get_value(
-				"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
-			) or (None, None)
+			scope_lft, scope_rgt = bounds.get(scope.administrative_area_scope, (None, None))
 			if scope_lft is not None and scope_rgt is not None:
 				if case_lft is None or not (scope_lft <= int(case_lft) <= scope_rgt):
 					continue

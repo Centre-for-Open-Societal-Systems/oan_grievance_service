@@ -8,7 +8,9 @@
  "engine": "InnoDB",
  "field_order": [
   "dept_name",
+  "short_name",
   "email_account",
+  "phone",
   "active",
   "col_officers",
   "head_of_dept",
@@ -25,12 +27,25 @@
    "unique": 1
   },
   {
+   "description": "e.g. MoA, ATI, AFI, EABC",
+   "fieldname": "short_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Short Name / Acronym"
+  },
+  {
    "description": "FSD 3.3: the assigned department is notified via this account",
    "fieldname": "email_account",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Department Email Account",
    "reqd": 1
+  },
+  {
+   "description": "Switchboard or duty phone number",
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone"
   },
   {
    "default": "1",

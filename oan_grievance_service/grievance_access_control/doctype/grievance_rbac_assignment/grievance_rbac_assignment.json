@@ -8,7 +8,8 @@
  "engine": "InnoDB",
  "field_order": [
   "user",
-  "role",
+  "role_level",
+  "is_primary",
   "active",
   "col_scope",
   "administrative_area_scope",
@@ -30,12 +31,22 @@
    "reqd": 1
   },
   {
-   "fieldname": "role",
-   "fieldtype": "Select",
+   "description": "Escalation rung: nodal_officer, senior_nodal_officer, department_head",
+   "fieldname": "role_level",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Role",
-   "options": "Grievance Submitter\nGrievance Officer\nGrievance Admin",
+   "in_standard_filter": 1,
+   "label": "Role Level",
+   "options": "Grievance Role Level",
    "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "1 = Permanent primary post, 0 = Acting / Dual Charge / Coverage",
+   "fieldname": "is_primary",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Primary Assignment"
   },
   {
    "default": "1",
