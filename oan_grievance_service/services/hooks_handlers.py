@@ -32,9 +32,7 @@ def response_after_insert(doc, method=None):
 
 	next_status = C.RESPONSE_OUTCOME_NEXT_STATUS.get(doc.response_type)
 	if next_status and next_status != grievance.status:
-		lifecycle.change_status(
-			grievance, next_status, note=f"Response {doc.name} ({doc.response_type})"
-		)
+		lifecycle.change_status(grievance, next_status, note=f"Response {doc.name} ({doc.response_type})")
 
 	doc.db_set("new_status", next_status or grievance.status, update_modified=False)
 
@@ -56,9 +54,7 @@ def reassignment_on_update(doc, method=None):
 	from oan_grievance_service.permissions import can_approve_reassignment
 
 	if doc.decision == "Pending":
-		notifications.queue(
-			frappe.get_doc("Grievance", doc.grievance), C.EVENT_REASSIGNMENT_REQUESTED
-		)
+		notifications.queue(frappe.get_doc("Grievance", doc.grievance), C.EVENT_REASSIGNMENT_REQUESTED)
 		return
 
 	if doc.get_doc_before_save() and doc.get_doc_before_save().decision != "Pending":

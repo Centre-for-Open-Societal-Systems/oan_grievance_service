@@ -63,9 +63,7 @@ def grievance_query_conditions(user=None):
 
 	# FSD 3.1.1: farmers access only their own grievances.
 	if ROLE_FARMER in roles:
-		profiles = frappe.get_all(
-			"Submitter Profile", filters={"contact_email": user}, pluck="name"
-		)
+		profiles = frappe.get_all("Submitter Profile", filters={"contact_email": user}, pluck="name")
 		if profiles:
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
 
@@ -84,9 +82,7 @@ def grievance_query_conditions(user=None):
 			if scope.region_scope:
 				parts.append(f"`tabGrievance`.region = {frappe.db.escape(scope.region_scope)}")
 			if scope.category_scope:
-				parts.append(
-					f"`tabGrievance`.service_category = {frappe.db.escape(scope.category_scope)}"
-				)
+				parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(scope.category_scope)}")
 			scope_clauses.append("(" + " and ".join(parts) + ")")
 
 		# An assigned case is always visible to its own officer.

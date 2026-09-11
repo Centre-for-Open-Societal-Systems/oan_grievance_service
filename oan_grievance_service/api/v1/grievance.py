@@ -10,8 +10,8 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from oan_grievance_service.api import version_meta
-from oan_grievance_service.services import audit, constants as C
-from oan_grievance_service.services import lifecycle, routing, sla
+from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
+from oan_grievance_service.services import constants as C
 
 from . import VERSION
 
@@ -33,8 +33,17 @@ def submit(**kwargs):
 	"""
 	from oan_grievance_service.services import notifications
 
-	required = ("submitter_type", "submitter_name", "contact_mobile", "submission_channel",
-	            "region", "woreda", "service_category", "grievance_type", "description")
+	required = (
+		"submitter_type",
+		"submitter_name",
+		"contact_mobile",
+		"submission_channel",
+		"region",
+		"woreda",
+		"service_category",
+		"grievance_type",
+		"description",
+	)
 	missing = [field for field in required if not kwargs.get(field)]
 	if missing:
 		frappe.throw(
@@ -45,13 +54,50 @@ def submit(**kwargs):
 	if kwargs["submission_channel"] not in CHANNELS:
 		frappe.throw(_("Unknown submission channel."), title=_("Invalid Channel"))
 
+	# A retry must not lodge a second case. Checked before any write, so two
+	# concurrent retries race on the unique index rather than on this read.
+	client_uuid = kwargs.get("client_submission_uuid")
+	if client_uuid:
+		existing = frappe.db.get_value(
+			"Grievance",
+			{"client_submission_uuid": client_uuid},
+			["name", "ticket_number", "status"],
+			as_dict=True,
+		)
+		if existing:
+			return envelope(
+				{
+					"ticket_number": existing.ticket_number,
+					"status": existing.status,
+					"duplicate_submission": True,
+				}
+			)
+
+	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
+
+	# The zone is implied by the woreda. IVR and call-centre operators capture the
+	# woreda directly, so requiring the intermediate level would be friction with
+	# no information gained.
+	if not kwargs.get("zone"):
+		kwargs["zone"] = frappe.db.get_value("Woreda", kwargs["woreda"], "zone")
+
 	doc = frappe.new_doc("Grievance")
 	for field, value in kwargs.items():
 		if doc.meta.has_field(field):
 			doc.set(field, value)
+
 	doc.status = C.SUBMITTED
+	doc.submitter = submission.find_or_create_submitter(kwargs)
+	doc.area_path_code = submission.resolve_area_path(
+		region=doc.region, zone=doc.zone, woreda=doc.woreda, kebele=doc.kebele
+	)
+	submission.record_consent(doc)
 	doc.insert(ignore_permissions=True)
 
+	if kwargs.get("is_anonymous"):
+		_request_anonymity(doc, kwargs.get("anonymity_justification"))
+
+	attachments = _claim_draft(kwargs.get("client_uuid"), doc)
 	duplicates = detect_duplicates(doc)
 
 	# FSD 4.1 step 6: acknowledge before routing, so the submitter always gets a ticket.
@@ -63,14 +109,50 @@ def submit(**kwargs):
 	rule = routing.apply_routing(doc)
 	doc.reload()
 
-	return envelope({
-		"ticket_number": doc.ticket_number,
-		"status": doc.status,
-		"assigned_department": doc.assigned_dept,
-		"auto_routed": bool(rule),
-		"sla_due_date": doc.sla_due_date,
-		"possible_duplicates": [d.duplicate_of for d in duplicates],
-	})
+	return envelope(
+		{
+			"ticket_number": doc.ticket_number,
+			"status": doc.status,
+			"assigned_department": doc.assigned_dept,
+			"auto_routed": bool(rule),
+			"sla_due_date": doc.sla_due_date,
+			"possible_duplicates": [d.duplicate_of for d in duplicates],
+			"area_path_code": doc.area_path_code,
+			"attachments": attachments,
+			"duplicate_submission": False,
+		}
+	)
+
+
+def _request_anonymity(doc, justification):
+	"""FSD 9.2: anonymity is requested at submission and approved separately."""
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Anonymity Request",
+			"grievance": doc.name,
+			# The request and the grievance use different vocabularies: the request
+			# is "Pending", the flag it drives on the grievance is "Pending Approval".
+			"status": "Pending",
+			"requested_at": now_datetime(),
+			"justification": justification,
+		}
+	).insert(ignore_permissions=True)
+	doc.db_set("anonymity_status", "Pending Approval", update_modified=False)
+
+
+def _claim_draft(client_uuid, doc):
+	"""Bind the draft this submission came from to the grievance it became, and
+	move any files uploaded against it."""
+	if not client_uuid:
+		return 0
+
+	draft = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	if not draft:
+		return 0
+
+	moved = submission.attach_draft_files(draft, doc.name)
+	frappe.db.set_value("Grievance Draft", draft, "submitted_as", doc.name, update_modified=False)
+	return moved
 
 
 def detect_duplicates(grievance, window_days=7):
@@ -116,16 +198,18 @@ def track(ticket_number):
 	doc = frappe.get_doc("Grievance", name)
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=name)
 
-	return envelope({
-		"ticket_number": doc.ticket_number,
-		"status": doc.status,
-		"escalated": bool(doc.escalated),
-		"department": doc.assigned_dept,
-		"sla_due_date": doc.sla_due_date,
-		"sla_consumed_percent": sla.consumed_percent(doc),
-		"confirmation_deadline": doc.confirmation_deadline,
-		"submitted_on": doc.creation,
-	})
+	return envelope(
+		{
+			"ticket_number": doc.ticket_number,
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"department": doc.assigned_dept,
+			"sla_due_date": doc.sla_due_date,
+			"sla_consumed_percent": sla.consumed_percent(doc),
+			"confirmation_deadline": doc.confirmation_deadline,
+			"submitted_on": doc.creation,
+		}
+	)
 
 
 @frappe.whitelist()

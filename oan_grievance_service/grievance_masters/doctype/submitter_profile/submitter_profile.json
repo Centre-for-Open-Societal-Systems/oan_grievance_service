@@ -98,8 +98,9 @@
   },
   {
    "fieldname": "zone",
-   "fieldtype": "Data",
-   "label": "Zone"
+   "fieldtype": "Link",
+   "label": "Zone",
+   "options": "Zone"
   },
   {
    "fieldname": "col_area",

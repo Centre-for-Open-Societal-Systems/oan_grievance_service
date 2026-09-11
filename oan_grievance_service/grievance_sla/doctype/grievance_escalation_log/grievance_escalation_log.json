@@ -13,7 +13,8 @@
   "col_esc",
   "triggered_by",
   "reason",
-  "notified_stakeholders"
+  "notified_stakeholders",
+  "resolved_at"
  ],
  "fields": [
   {
@@ -60,6 +61,13 @@
    "fieldname": "notified_stakeholders",
    "fieldtype": "Small Text",
    "label": "Notified Stakeholders"
+  },
+  {
+   "description": "Set when the escalation is stood down -- FSD 4.3 clears it once a structured response is submitted. Null while the escalation is open.",
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

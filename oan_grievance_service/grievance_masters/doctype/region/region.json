@@ -9,6 +9,7 @@
  "field_order": [
   "region_name",
   "code",
+  "pcode",
   "col_region",
   "is_active"
  ],
@@ -28,6 +29,13 @@
    "in_list_view": 1,
    "label": "Ticket Code",
    "reqd": 1
+  },
+  {
+   "description": "COD-AB admin1 P-code, e.g. ET04. The identifier to join on; administrative names repeat and disagree between source levels.",
+   "fieldname": "pcode",
+   "fieldtype": "Data",
+   "label": "P-Code",
+   "unique": 1
   },
   {
    "fieldname": "col_region",

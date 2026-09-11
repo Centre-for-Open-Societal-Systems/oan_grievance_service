@@ -23,11 +23,26 @@ def open_grievances_with_sla(extra_filters=None):
 		"Grievance",
 		filters=filters,
 		fields=[
-			"name", "ticket_number", "status", "sla_start_at", "sla_due_date",
-			"reminder_50_sent", "reminder_80_sent", "escalated", "escalation_level",
-			"assigned_dept", "assigned_to", "service_category", "grievance_type",
-			"contact_email", "contact_mobile", "submitter_name", "region", "woreda",
-			"priority", "sla_days",
+			"name",
+			"ticket_number",
+			"status",
+			"sla_start_at",
+			"sla_due_date",
+			"reminder_50_sent",
+			"reminder_80_sent",
+			"escalated",
+			"escalation_level",
+			"assigned_dept",
+			"assigned_to",
+			"service_category",
+			"grievance_type",
+			"contact_email",
+			"contact_mobile",
+			"submitter_name",
+			"region",
+			"woreda",
+			"priority",
+			"sla_days",
 		],
 	)
 
@@ -99,6 +114,14 @@ def dispatch_notifications():
 	return notifications.dispatch_queued()
 
 
+def purge_expired_drafts():
+	"""Clear abandoned submission drafts. Drafts that became grievances are kept,
+	because they are what makes a retried submit return the original ticket."""
+	from oan_grievance_service.api.v1 import draft
+
+	return draft.purge_expired_drafts()
+
+
 def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
@@ -109,3 +132,4 @@ def hourly():
 def daily():
 	"""Entry point wired to the daily scheduler event."""
 	auto_close_expired()
+	purge_expired_drafts()

@@ -43,6 +43,11 @@ has_permission = {
 # structured response is filed. FSD 3.3.1 gates reassignment on L2 approval.
 # FR-10 records every read of a case.
 
+_CLEAR_LOOKUP_CACHE = {
+	"on_update": "oan_grievance_service.api.v1.submission.clear_reference_cache",
+	"after_delete": "oan_grievance_service.api.v1.submission.clear_reference_cache",
+}
+
 doc_events = {
 	"Grievance": {
 		"after_insert": "oan_grievance_service.services.hooks_handlers.grievance_after_insert",
@@ -60,6 +65,14 @@ doc_events = {
 	"Grievance Anonymity Request": {
 		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
 	},
+	# The submission wizard caches its lookups. An administrator adding a woreda
+	# or deactivating a category must see it in the form immediately, not after
+	# the cache expires.
+	"Region": _CLEAR_LOOKUP_CACHE,
+	"Zone": _CLEAR_LOOKUP_CACHE,
+	"Woreda": _CLEAR_LOOKUP_CACHE,
+	"Service Category": _CLEAR_LOOKUP_CACHE,
+	"Grievance Type": _CLEAR_LOOKUP_CACHE,
 }
 
 # Scheduled Tasks
@@ -75,6 +88,7 @@ scheduler_events = {
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",
+		"oan_grievance_service.tasks.purge_expired_drafts",
 	],
 }
 
@@ -83,14 +97,23 @@ scheduler_events = {
 # Configuration that must travel with the app rather than be re-keyed per site.
 
 fixtures = [
-	{"dt": "Role", "filters": [["name", "in", [
-		"Farmer",
-		"Assisted-Submissions",
-		"L1 Nodal Officer",
-		"L2 Senior Nodal Officer",
-		"Department Head",
-		"OAN Administrator-ATI",
-	]]]},
+	{
+		"dt": "Role",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Farmer",
+					"Assisted-Submissions",
+					"L1 Nodal Officer",
+					"L2 Senior Nodal Officer",
+					"Department Head",
+					"OAN Administrator-ATI",
+				],
+			]
+		],
+	},
 ]
 
 # Portal

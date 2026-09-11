@@ -1,27 +1,26 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:WRD-{#####}",
- "creation": "2026-09-03 19:13:16.258906",
+ "autoname": "format:ZON-{#####}",
+ "creation": "2026-09-08 10:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "woreda_name",
+  "zone_name",
   "region",
-  "zone",
-  "col_woreda",
-  "code",
   "pcode",
+  "col_zone",
+  "code",
   "path_code",
   "is_active"
  ],
  "fields": [
   {
-   "fieldname": "woreda_name",
+   "fieldname": "zone_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Woreda Name",
+   "label": "Zone Name",
    "reqd": 1
   },
   {
@@ -33,33 +32,25 @@
    "reqd": 1
   },
   {
-   "fieldname": "zone",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Zone",
-   "options": "Zone",
-   "reqd": 1,
-   "description": "FSD 3.2.2 location hierarchy: Region > Zone > Woreda."
-  },
-  {
-   "fieldname": "col_woreda",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "FSD 3.2.3: the WOREDA segment of the ticket number, e.g. BISH",
-   "fieldname": "code",
-   "fieldtype": "Data",
-   "label": "Ticket Code"
-  },
-  {
-   "description": "COD-AB admin3 P-code, e.g. ET040620. The identifier to join on; administrative names repeat and disagree between source levels.",
+   "description": "COD-AB admin2 P-code, e.g. ET0406. The identifier to join on; zone names repeat and disagree between source levels.",
    "fieldname": "pcode",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "P-Code",
    "unique": 1
   },
   {
-   "description": "Dotted ancestry, e.g. ET.OROM.NOSH.SULU. Stable external identifier.",
+   "fieldname": "col_zone",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Short code, unique within the region. Not part of the FSD 3.2.3 ticket number today.",
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "label": "Code"
+  },
+  {
+   "description": "Dotted ancestry, e.g. ET.OROM.NOSH. Stable external identifier.",
    "fieldname": "path_code",
    "fieldtype": "Data",
    "label": "Path Code",
@@ -75,10 +66,10 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:16.258906",
+ "modified": "2026-09-08 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
- "name": "Woreda",
+ "name": "Zone",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
@@ -110,5 +101,5 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "woreda_name"
+ "title_field": "zone_name"
 }
