@@ -286,9 +286,12 @@ def reopen(ticket_number: str, reason: str):
 def escalate(ticket_number: str, reason: str):
 	"""FSD 3.7: the submitter escalates once the SLA window has elapsed."""
 	doc = _load(ticket_number)
+	# Throws when the case is already at the top of the chain, so reaching the response
+	# means it actually moved. The old code reported success either way.
 	sla.manual_escalate(doc, reason, by_submitter=True)
+	doc.reload()
 	return success_response(
-		data={"ticket_number": doc.ticket_number, "escalated": True},
+		data={"ticket_number": doc.ticket_number, "escalated": bool(doc.escalated)},
 		message=_("Grievance escalated successfully"),
 	)
 

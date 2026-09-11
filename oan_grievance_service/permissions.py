@@ -259,10 +259,46 @@ def can_approve_reassignment(user=None):
 	return bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
 
 
-def can_approve_deferral(user=None):
+def can_approve_deferral(user=None, assignee=None):
 	"""FSD 3.11.7: supervisor approval unless policy explicitly permits self-approval.
 
-	TODO(spec §10.5): same as above - should be `is_ancestor(approver, assignee)`.
+	"Supervisor" is read off the escalation chain rather than a role name: the approver
+	must sit strictly above the assigned officer, which is the same `level_order` walk
+	escalation uses. Falling back to a role check when the chain cannot place either
+	party keeps a misconfigured assignment from deadlocking every deferral.
 	"""
-	roles = set(frappe.get_roles(user or frappe.session.user))
-	return bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
+	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+		requires_supervisor_approval,
+	)
+
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	has_base_right = bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
+
+	if not has_base_right:
+		return False
+	if not requires_supervisor_approval() or roles & UNRESTRICTED_ROLES:
+		return has_base_right
+	if not assignee or assignee == user:
+		# Self-approval is exactly what the policy is there to stop.
+		return assignee != user
+
+	return _outranks(user, assignee)
+
+
+def _outranks(approver, assignee):
+	"""True when the approver sits strictly higher in the escalation chain."""
+	from oan_grievance_service.services import sla
+
+	approver_level = sla.current_level_of(approver)
+	assignee_level = sla.current_level_of(assignee)
+	if not approver_level or not assignee_level:
+		return True  # Chain cannot place them; fall back to the role check already passed.
+
+	orders = {
+		row.name: row.level_order
+		for row in frappe.get_all(
+			"Grievance Role Level", filters={"is_active": 1}, fields=["name", "level_order"]
+		)
+	}
+	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)

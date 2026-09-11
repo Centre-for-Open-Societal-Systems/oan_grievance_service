@@ -6,7 +6,7 @@ so each job filters on an indexed column and touches only the cases that need wo
 """
 
 import frappe
-from frappe.utils import get_datetime, now_datetime
+from frappe.utils import now_datetime
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle, notifications, sla
@@ -33,7 +33,6 @@ def open_grievances_with_sla(extra_filters=None):
 			"reminder_50_sent",
 			"reminder_80_sent",
 			"escalated",
-			"escalation_level",
 			"assigned_dept",
 			"assigned_to",
 			"service_category",
@@ -73,32 +72,40 @@ def send_sla_reminders():
 
 
 def escalate_breached():
-	"""FSD 3.7 / 4.3: escalate on breach, and again at 2x the window."""
-	now = now_datetime()
+	"""FSD 3.7 / 4.3: hand every overdue case one rung up the chain.
+
+	One indexed read on `next_escalation_at` rather than a scan of every open case:
+	a grievance carries its own next deadline, so the query is the schedule. Each case
+	is escalated inside its own try block, because one unroutable grievance must not
+	take the rest of the batch down with it (FSD 7's 30-minute budget assumes the run
+	completes).
+	"""
+	# Site-wide stop, one read per run. Per-category is the `auto_escalate` tick on the
+	# SLA configuration, which works by leaving `next_escalation_at` unarmed.
+	if frappe.conf.get("grievance_auto_escalation_enabled") is False:
+		return 0
+
+	due_now = frappe.get_all(
+		"Grievance",
+		filters={
+			"status": ["in", list(C.OPEN_STATUSES)],
+			"next_escalation_at": ["<=", now_datetime()],
+			"on_hold_since": ["is", "not set"],
+		},
+		pluck="name",
+	)
+
 	escalated = 0
-
-	for row in open_grievances_with_sla():
-		# Never breach a case whose clock is paused: `sla_due_date` is only pushed out on
-		# resume, so a held case would otherwise breach on time the department never had.
-		if row.on_hold_since:
-			continue
-
-		due = get_datetime(row.sla_due_date)
-		if due > now:
-			continue
-
-		grievance = frappe.get_doc("Grievance", row.name)
-		start = get_datetime(grievance.sla_start_at or grievance.creation)
-		# `due` has already absorbed every banked hold, so net it out to recover the window
-		# the department was actually given. Otherwise long holds inflate the 2x threshold.
-		window = (due - start).total_seconds() - (grievance.total_hold_time or 0)
-		double_due = due.timestamp() + window
-
-		if window > 0 and now.timestamp() >= double_due:
-			if sla.escalate(grievance, level="L2", trigger="System"):
+	for name in due_now:
+		try:
+			grievance = frappe.get_doc("Grievance", name)
+			if sla.escalate(grievance, trigger="System"):
 				escalated += 1
-		elif sla.escalate(grievance, level="L1", trigger="System"):
-			escalated += 1
+		except Exception:
+			frappe.log_error(
+				title="Grievance escalation failed",
+				message=f"{name}\n\n{frappe.get_traceback()}",
+			)
 
 	return escalated
 

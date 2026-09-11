@@ -101,3 +101,5 @@ class Grievance(Document):
 
 def on_doctype_update():
 	frappe.db.add_index("Grievance", ["area_lft"])
+	# The escalation batch selects on this alone, so it is the whole schedule.
+	frappe.db.add_index("Grievance", ["next_escalation_at"])

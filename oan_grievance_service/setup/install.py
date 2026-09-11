@@ -46,15 +46,21 @@ ROLES = [
 # separate case-officer and supervisor tiers. They are dropped here.
 #
 # Orders run in tens so a rung can be inserted between two others without renumbering.
+#
+# `escalation_hours` is how long a breached case may rest at that rung before it is
+# handed upward. It is not the SLA: `sla_days` gets a case to its first escalation, and
+# these govern the climb after that, which is why they shorten going up. The department
+# head has none, which is what makes that rung terminal.
 ROLE_LEVELS = [
-	("nodal_officer", "Nodal Officer", 10, "L1. Department-wide coordination point for grievances."),
+	("nodal_officer", "Nodal Officer", 10, 48, "L1. Department-wide coordination point for grievances."),
 	(
 		"senior_nodal_officer",
 		"Senior Nodal Officer",
 		20,
+		24,
 		"L2. Senior coordination; first rung above the nodal officer.",
 	),
-	("department_head", "Department Head", 30, "Final internal escalation rung for the department."),
+	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
 # FSD 3.2.2. The code is the CATEGORY segment of the FSD 3.2.3 ticket number.
@@ -345,7 +351,7 @@ def seed_roles():
 
 def seed_role_levels():
 	made = []
-	for code, name, order, description in ROLE_LEVELS:
+	for code, name, order, escalation_hours, description in ROLE_LEVELS:
 		if frappe.db.exists("Grievance Role Level", code):
 			continue
 		frappe.get_doc(
@@ -354,6 +360,7 @@ def seed_role_levels():
 				"level_code": code,
 				"level_name": name,
 				"level_order": order,
+				"escalation_hours": escalation_hours,
 				"description": description,
 				"is_active": 1,
 			}

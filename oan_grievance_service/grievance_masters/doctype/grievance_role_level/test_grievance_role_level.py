@@ -10,7 +10,8 @@ from oan_grievance_service.setup.install import ROLE_LEVELS, seed_role_levels
 class TestGrievanceRoleLevel(FrappeTestCase):
 	def test_seed_creates_every_fsd_level(self):
 		seed_role_levels()
-		for code, _name, _order, _desc in ROLE_LEVELS:
+		for item in ROLE_LEVELS:
+			code = item[0]
 			self.assertTrue(
 				frappe.db.exists("Grievance Role Level", code),
 				f"{code} was not seeded",

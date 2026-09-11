@@ -110,7 +110,7 @@ def deferral_on_update(doc, method=None):
 	if before and before.status != "Pending":
 		return
 
-	if not can_approve_deferral():
+	if not can_approve_deferral(assignee=frappe.db.get_value("Grievance", doc.grievance, "assigned_to")):
 		frappe.throw(
 			_("Only a supervising officer may decide a deferral."),
 			title=_("Approval Not Permitted"),
@@ -122,7 +122,11 @@ def deferral_on_update(doc, method=None):
 	if doc.status != "Approved":
 		return
 
-	max_days = frappe.conf.get("grievance_max_deferral_days") or C.DEFAULT_MAX_DEFERRAL_DAYS
+	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+		max_deferral_days,
+	)
+
+	max_days = max_deferral_days()
 	if doc.additional_days > max_days:
 		frappe.throw(
 			_("A deferral may not exceed {0} days.").format(max_days),

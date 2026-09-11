@@ -198,7 +198,13 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 						"reports_to": "sec_officer@example.com",
 						"is_primary": 1,
 						"active": 1,
-					}
+					},
+					{
+						"user": "sec_officer@example.com",
+						"role_level": "senior_nodal_officer",
+						"is_primary": 0,
+						"active": 1,
+					},
 				],
 			}
 		).insert(ignore_permissions=True)
@@ -225,10 +231,11 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-		# Escalate L1
-		res = sla.escalate(fake_g, level="L1", trigger="System", reassign=True)
-		self.assertTrue(res)
+		# One rung up: the case is handed to the nodal officer's own reports_to, and the
+		# level it now sits at is that person's, not a counter on the grievance.
+		res = sla.escalate(fake_g, trigger="System", reassign=True)
+		self.assertEqual(res, "sec_officer@example.com")
 		fake_g.reload()
 		self.assertEqual(fake_g.escalated, 1)
-		self.assertEqual(fake_g.escalation_level, 1)
 		self.assertEqual(fake_g.assigned_to, "sec_officer@example.com")
+		self.assertEqual(sla.current_level_of(fake_g.assigned_to), "senior_nodal_officer")

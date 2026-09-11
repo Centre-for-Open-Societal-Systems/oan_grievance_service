@@ -10,6 +10,7 @@
   "level_code",
   "level_name",
   "level_order",
+  "escalation_hours",
   "col_level",
   "is_active",
   "sec_detail",
@@ -41,6 +42,14 @@
    "in_list_view": 1,
    "label": "Level Order",
    "reqd": 1
+  },
+  {
+   "description": "Hours a breached grievance may rest at this level before it is reassigned to the level above. Blank or zero makes this a terminal level: a case that reaches it stops climbing.",
+   "fieldname": "escalation_hours",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Escalation Hours",
+   "non_negative": 1
   },
   {
    "fieldname": "col_level",

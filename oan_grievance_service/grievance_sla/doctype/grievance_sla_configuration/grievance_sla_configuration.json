@@ -11,18 +11,15 @@
   "sla_days",
   "active",
   "col_sla_esc",
+  "auto_escalate",
   "auto_escalation_threshold",
   "top_level_authority",
-  "notify_on_submit",
   "sec_milestones",
   "first_response_hours",
   "update_cadence_hours",
   "col_milestones",
   "remand_execution_hours",
-  "appeal_window_days",
-  "sec_deferral",
-  "max_deferral_days",
-  "deferral_requires_l2_approval"
+  "appeal_window_days"
  ],
  "fields": [
   {
@@ -52,10 +49,20 @@
    "fieldtype": "Column Break"
   },
   {
+   "default": "1",
+   "description": "Hand a breached case up the chain without anyone asking. Untick to keep the clock, the reminders and the compliance reporting exactly as they are while nobody is reassigned automatically - the submitter can still escalate by hand.",
+   "fieldname": "auto_escalate",
+   "fieldtype": "Check",
+   "label": "Auto-escalate on Breach"
+  },
+  {
    "default": "100",
+   "depends_on": "auto_escalate",
+   "description": "Share of the SLA window that must be consumed before the first escalation. 100 means at the deadline; 80 hands the case up while there is still time to save it.",
    "fieldname": "auto_escalation_threshold",
    "fieldtype": "Int",
-   "label": "Auto Escalation Threshold (%)"
+   "label": "Auto Escalation Threshold (%)",
+   "non_negative": 1
   },
   {
    "description": "FSD 3.7: notified on second-level (2x SLA) breach",
@@ -63,12 +70,6 @@
    "fieldtype": "Link",
    "label": "Top Level Authority",
    "options": "User"
-  },
-  {
-   "default": "1",
-   "fieldname": "notify_on_submit",
-   "fieldtype": "Check",
-   "label": "Notify On Submit"
   },
   {
    "fieldname": "sec_milestones",
@@ -106,24 +107,6 @@
    "fieldname": "appeal_window_days",
    "fieldtype": "Int",
    "label": "Appeal Window (Days)"
-  },
-  {
-   "fieldname": "sec_deferral",
-   "fieldtype": "Section Break",
-   "label": "Deferral Policy"
-  },
-  {
-   "default": "30",
-   "description": "FSD 3.11.7: the global default maximum is 30",
-   "fieldname": "max_deferral_days",
-   "fieldtype": "Int",
-   "label": "Maximum Deferral Days"
-  },
-  {
-   "default": "1",
-   "fieldname": "deferral_requires_l2_approval",
-   "fieldtype": "Check",
-   "label": "Deferral Requires L2 Approval"
   }
  ],
  "grid_page_length": 50,

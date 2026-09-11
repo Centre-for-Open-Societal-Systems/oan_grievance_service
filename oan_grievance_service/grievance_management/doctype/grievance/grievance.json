@@ -10,7 +10,6 @@
   "status",
   "col_flags",
   "escalated",
-  "escalation_level",
   "submission_channel",
   "sec_submitter",
   "submitter_type",
@@ -54,7 +53,7 @@
   "total_hold_time",
   "reminder_50_sent",
   "reminder_80_sent",
-  "sla_deferred_days",
+  "next_escalation_at",
   "sec_closure",
   "confirmation_deadline",
   "reopen_count",
@@ -93,12 +92,6 @@
    "fieldname": "escalated",
    "fieldtype": "Check",
    "label": "Escalated"
-  },
-  {
-   "fieldname": "escalation_level",
-   "fieldtype": "Int",
-   "label": "Escalation Level",
-   "read_only": 1
   },
   {
    "fieldname": "submission_channel",
@@ -372,9 +365,10 @@
    "read_only": 1
   },
   {
-   "fieldname": "sla_deferred_days",
-   "fieldtype": "Int",
-   "label": "SLA Deferred Days",
+   "description": "When the next escalation is due. Set to the SLA deadline when the clock starts, then pushed out by the current level's escalation hours on every reassignment upward. Empty once the case reaches a terminal level.",
+   "fieldname": "next_escalation_at",
+   "fieldtype": "Datetime",
+   "label": "Next Escalation At",
    "read_only": 1
   },
   {
