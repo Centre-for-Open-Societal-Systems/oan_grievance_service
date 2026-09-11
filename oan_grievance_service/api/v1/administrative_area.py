@@ -46,8 +46,8 @@ def get_areas(
 
 	# Resolve parent ID if a path_code was passed
 	if parent:
-		if not frappe.db.exists("Administrative Area", parent):
-			resolved = frappe.db.get_value("Administrative Area", {"path_code": parent}, "name")
+		if not frappe.db.exists("Grievance Administrative Area", parent):
+			resolved = frappe.db.get_value("Grievance Administrative Area", {"path_code": parent}, "name")
 			if resolved:
 				parent = resolved
 		filters.append(["parent_administrative_area", "=", parent])
@@ -63,7 +63,7 @@ def get_areas(
 		filters.append(["area_name", "like", search_term])
 
 	areas = frappe.get_all(
-		"Administrative Area",
+		"Grievance Administrative Area",
 		filters=filters,
 		fields=[
 			"name as area_id",
@@ -93,18 +93,18 @@ def get_areas(
 def get_ancestors(area_id_or_path):
 	"""Fetch ancestor chain from root down to the specified node."""
 	node = None
-	if frappe.db.exists("Administrative Area", area_id_or_path):
-		node = frappe.get_doc("Administrative Area", area_id_or_path)
+	if frappe.db.exists("Grievance Administrative Area", area_id_or_path):
+		node = frappe.get_doc("Grievance Administrative Area", area_id_or_path)
 	else:
-		name = frappe.db.get_value("Administrative Area", {"path_code": area_id_or_path}, "name")
+		name = frappe.db.get_value("Grievance Administrative Area", {"path_code": area_id_or_path}, "name")
 		if name:
-			node = frappe.get_doc("Administrative Area", name)
+			node = frappe.get_doc("Grievance Administrative Area", name)
 
 	if not node:
 		return {"breadcrumbs": [], "current": None}
 
 	ancestors = frappe.get_all(
-		"Administrative Area",
+		"Grievance Administrative Area",
 		filters=[
 			["lft", "<=", node.lft],
 			["rgt", ">=", node.rgt],

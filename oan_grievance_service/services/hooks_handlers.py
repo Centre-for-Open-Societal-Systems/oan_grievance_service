@@ -110,7 +110,7 @@ def deferral_on_update(doc, method=None):
 	if before and before.status != "Pending":
 		return
 
-	if not can_approve_deferral():
+	if not can_approve_deferral(assignee=frappe.db.get_value("Grievance", doc.grievance, "assigned_to")):
 		frappe.throw(
 			_("Only a supervising officer may decide a deferral."),
 			title=_("Approval Not Permitted"),
@@ -122,7 +122,11 @@ def deferral_on_update(doc, method=None):
 	if doc.status != "Approved":
 		return
 
-	max_days = frappe.conf.get("grievance_max_deferral_days") or C.DEFAULT_MAX_DEFERRAL_DAYS
+	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+		max_deferral_days,
+	)
+
+	max_days = max_deferral_days()
 	if doc.additional_days > max_days:
 		frappe.throw(
 			_("A deferral may not exceed {0} days.").format(max_days),
@@ -165,7 +169,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 	4. Populates general contact and submitter-type-specific fields.
 	5. Creates or updates and links the Submitter Profile record to the User.
 	"""
-	from oan_grievance_service.grievance_masters.doctype.submitter_profile.submitter_profile import (
+	from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 		build_dedupe_key,
 	)
 	from oan_grievance_service.services import identity
@@ -180,7 +184,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 
 	submitter_type = (kwargs.get("submitter_type") or "Individual Farmer").strip()
 
-	if not frappe.db.exists("Submitter Type", submitter_type):
+	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
 		frappe.throw(
 			_("Submitter Type '{0}' does not exist.").format(submitter_type),
 			frappe.ValidationError,
@@ -227,9 +231,9 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 		)
 
 	# Check if a Submitter Profile already exists with this dedupe_key
-	existing_name = frappe.db.get_value("Submitter Profile", {"dedupe_key": dedupe_key}, "name")
+	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
 	if existing_name:
-		profile = frappe.get_doc("Submitter Profile", existing_name)
+		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
 		if profile.user and profile.user != user_doc.name:
 			frappe.throw(
 				_(
@@ -251,7 +255,7 @@ def on_user_registered(user_doc, role=None, roles=None, **kwargs):
 			profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
 		profile.save(ignore_permissions=True)
 	else:
-		profile = frappe.new_doc("Submitter Profile")
+		profile = frappe.new_doc("Grievance Submitter Profile")
 		profile.user = user_doc.name
 		profile.submitter_type = submitter_type
 		profile.submitter_name = submitter_name

@@ -25,8 +25,8 @@
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Service Category",
-   "options": "Service Category",
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
    "reqd": 1
   },
   {

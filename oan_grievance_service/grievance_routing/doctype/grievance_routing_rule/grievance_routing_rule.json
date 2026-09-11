@@ -10,13 +10,11 @@
   "rule_precedence",
   "active",
   "service_category",
-  "grievance_type",
   "col_rule_area",
   "administrative_area",
   "service_provider",
   "sec_target",
-  "assigned_dept",
-  "priority"
+  "assigned_dept"
  ],
  "fields": [
   {
@@ -37,14 +35,8 @@
   {
    "fieldname": "service_category",
    "fieldtype": "Link",
-   "label": "Service Category",
-   "options": "Service Category"
-  },
-  {
-   "fieldname": "grievance_type",
-   "fieldtype": "Link",
-   "label": "Grievance Type",
-   "options": "Grievance Type"
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category"
   },
   {
    "fieldname": "col_rule_area",
@@ -54,8 +46,8 @@
    "description": "Tree node constraint. Rule matches grievances in this area or any of its sub-tree descendants.",
    "fieldname": "administrative_area",
    "fieldtype": "Link",
-   "label": "Administrative Area",
-   "options": "Administrative Area"
+   "label": "Grievance Administrative Area",
+   "options": "Grievance Administrative Area"
   },
   {
    "fieldname": "service_provider",
@@ -74,12 +66,6 @@
    "label": "Assigned Department",
    "options": "Grievance Department",
    "reqd": 1
-  },
-  {
-   "fieldname": "priority",
-   "fieldtype": "Select",
-   "label": "Priority",
-   "options": "\nLow\nMedium\nHigh"
   }
  ],
  "grid_page_length": 50,

@@ -12,7 +12,6 @@
   "is_active",
   "col_tmpl_scope",
   "service_category",
-  "grievance_type",
   "response_type",
   "version",
   "sec_body",
@@ -49,14 +48,8 @@
   {
    "fieldname": "service_category",
    "fieldtype": "Link",
-   "label": "Service Category",
-   "options": "Service Category"
-  },
-  {
-   "fieldname": "grievance_type",
-   "fieldtype": "Link",
-   "label": "Grievance Type",
-   "options": "Grievance Type"
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category"
   },
   {
    "fieldname": "response_type",

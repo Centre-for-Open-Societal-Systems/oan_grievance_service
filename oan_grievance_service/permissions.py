@@ -38,19 +38,103 @@ def active_scopes(user=None):
 	"""The user's live RBAC assignments, honouring the effective date window."""
 	user = user or frappe.session.user
 	today = frappe.utils.today()
-	return frappe.get_all(
-		"Grievance RBAC Assignment",
-		filters={
-			"user": user,
-			"active": 1,
-			"effective_from": ["<=", today],
-		},
-		or_filters=[
-			["effective_to", "is", "not set"],
-			["effective_to", ">=", today],
-		],
-		fields=["role", "administrative_area_scope", "department_scope", "category_scope"],
-	)
+	query = """
+		SELECT
+			p.name AS assignment_name,
+			p.administrative_area_scope,
+			p.department_scope,
+			p.category_scope,
+			c.role_level,
+			c.is_primary,
+			c.max_open_cases
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		WHERE c.user = %(user)s
+		  AND c.active = 1
+		  AND p.active = 1
+		  AND p.effective_from <= %(today)s
+		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+	"""
+	try:
+		return frappe.db.sql(query, {"user": user, "today": today}, as_dict=True)
+	except Exception:
+		return []
+
+
+def find_officer_by_role_level(role_level, department=None, administrative_area=None):
+	"""Dynamically resolve an officer user from active Grievance RBAC Assignments.
+
+	Honours role_level, geographic jurisdiction (area tree interval), line department
+	(NULL for nodal officers who cover all departments in an area), and primary post priority.
+	"""
+	today = frappe.utils.today()
+	query = """
+		SELECT
+			c.user,
+			c.is_primary,
+			p.administrative_area_scope,
+			p.department_scope
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		WHERE c.role_level = %(role_level)s
+		  AND c.active = 1
+		  AND p.active = 1
+		  AND p.effective_from <= %(today)s
+		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+		ORDER BY c.is_primary DESC, p.modified DESC
+	"""
+	try:
+		officers = frappe.db.sql(query, {"role_level": role_level, "today": today}, as_dict=True)
+	except Exception:
+		officers = []
+
+	if not officers:
+		return None
+
+	target_lft = None
+	if administrative_area:
+		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
+
+	for o in officers:
+		# Department filter: if assignment specifies a department, it must match.
+		if department and o.department_scope and o.department_scope != department:
+			continue
+		# Area filter: if assignment specifies an area, target area must be in its subtree.
+		if target_lft is not None and o.administrative_area_scope:
+			area_info = frappe.db.get_value(
+				"Grievance Administrative Area",
+				o.administrative_area_scope,
+				["lft", "rgt"],
+				as_dict=True,
+			)
+			if area_info and area_info.lft is not None and area_info.rgt is not None:
+				if not (area_info.lft <= int(target_lft) <= area_info.rgt):
+					continue
+		return o.user
+
+	return None
+
+
+def area_bounds(scopes):
+	"""Nested Set intervals for every area named by `scopes`, in one query.
+
+	Resolved live rather than denormalised onto the assignment row. Frappe's NestedSet
+	shifts `lft`/`rgt` across the tree whenever a node is inserted or moved, so a stamped
+	copy silently drifts out of the coordinate system it is compared against - and on a
+	scope row that drift widens or narrows what an officer can see.
+	"""
+	names = {s.administrative_area_scope for s in scopes if s.administrative_area_scope}
+	if not names:
+		return {}
+	return {
+		a.name: (a.lft, a.rgt)
+		for a in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"name": ["in", list(names)]},
+			fields=["name", "lft", "rgt"],
+		)
+		if a.lft is not None and a.rgt is not None
+	}
 
 
 def _quote(values):
@@ -64,7 +148,7 @@ def _submitter_profiles(user):
 	so changing a contact email cannot transfer someone else's cases, and two profiles
 	sharing an address do not both match.
 	"""
-	return frappe.get_all("Submitter Profile", filters={"user": user}, pluck="name")
+	return frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name")
 
 
 def grievance_query_conditions(user=None):
@@ -91,16 +175,16 @@ def grievance_query_conditions(user=None):
 	# FSD 3.1.1: officers act on assigned cases within their configured scope.
 	if ROLE_OFFICER in roles:
 		scope_clauses = []
-		for scope in active_scopes(user):
+		scopes = active_scopes(user)
+		bounds = area_bounds(scopes)
+		for scope in scopes:
 			parts = []
 			if scope.department_scope:
 				parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(scope.department_scope)}")
 			if scope.category_scope:
 				parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(scope.category_scope)}")
 			if scope.administrative_area_scope:
-				area_lft, area_rgt = frappe.db.get_value(
-					"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
-				) or (None, None)
+				area_lft, area_rgt = bounds.get(scope.administrative_area_scope, (None, None))
 				if area_lft is not None and area_rgt is not None:
 					parts.append(
 						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
@@ -143,17 +227,17 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 	case_lft = getattr(doc, "area_lft", None)
 	if case_lft is None and getattr(doc, "administrative_area", None):
-		case_lft = frappe.db.get_value("Administrative Area", doc.administrative_area, "lft")
+		case_lft = frappe.db.get_value("Grievance Administrative Area", doc.administrative_area, "lft")
 
-	for scope in active_scopes(user):
+	scopes = active_scopes(user)
+	bounds = area_bounds(scopes)
+	for scope in scopes:
 		if scope.department_scope and doc.assigned_dept != scope.department_scope:
 			continue
 		if scope.category_scope and doc.service_category != scope.category_scope:
 			continue
 		if scope.administrative_area_scope:
-			scope_lft, scope_rgt = frappe.db.get_value(
-				"Administrative Area", scope.administrative_area_scope, ["lft", "rgt"]
-			) or (None, None)
+			scope_lft, scope_rgt = bounds.get(scope.administrative_area_scope, (None, None))
 			if scope_lft is not None and scope_rgt is not None:
 				if case_lft is None or not (scope_lft <= int(case_lft) <= scope_rgt):
 					continue
@@ -175,10 +259,46 @@ def can_approve_reassignment(user=None):
 	return bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
 
 
-def can_approve_deferral(user=None):
+def can_approve_deferral(user=None, assignee=None):
 	"""FSD 3.11.7: supervisor approval unless policy explicitly permits self-approval.
 
-	TODO(spec §10.5): same as above - should be `is_ancestor(approver, assignee)`.
+	"Supervisor" is read off the escalation chain rather than a role name: the approver
+	must sit strictly above the assigned officer, which is the same `level_order` walk
+	escalation uses. Falling back to a role check when the chain cannot place either
+	party keeps a misconfigured assignment from deadlocking every deferral.
 	"""
-	roles = set(frappe.get_roles(user or frappe.session.user))
-	return bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
+	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+		requires_supervisor_approval,
+	)
+
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	has_base_right = bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
+
+	if not has_base_right:
+		return False
+	if not requires_supervisor_approval() or roles & UNRESTRICTED_ROLES:
+		return has_base_right
+	if not assignee or assignee == user:
+		# Self-approval is exactly what the policy is there to stop.
+		return assignee != user
+
+	return _outranks(user, assignee)
+
+
+def _outranks(approver, assignee):
+	"""True when the approver sits strictly higher in the escalation chain."""
+	from oan_grievance_service.services import sla
+
+	approver_level = sla.current_level_of(approver)
+	assignee_level = sla.current_level_of(assignee)
+	if not approver_level or not assignee_level:
+		return True  # Chain cannot place them; fall back to the role check already passed.
+
+	orders = {
+		row.name: row.level_order
+		for row in frappe.get_all(
+			"Grievance Role Level", filters={"is_active": 1}, fields=["name", "level_order"]
+		)
+	}
+	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)
