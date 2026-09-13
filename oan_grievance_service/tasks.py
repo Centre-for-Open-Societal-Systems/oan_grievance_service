@@ -122,9 +122,21 @@ def purge_expired_drafts():
 	return draft.purge_expired_drafts()
 
 
+def scan_pending_attachments():
+	"""Drain the attachment scan queue.
+
+	Nothing is served to an officer while a row is still Pending, so a backlog
+	here is a usability problem rather than a safety one.
+	"""
+	from oan_grievance_service.services import scanning
+
+	return scanning.scan_pending()
+
+
 def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
+	scan_pending_attachments()
 	escalate_breached()
 	dispatch_notifications()
 
