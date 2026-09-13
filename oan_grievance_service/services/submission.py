@@ -99,24 +99,58 @@ def find_or_create_submitter(payload):
 def attach_draft_files(draft, grievance):
 	"""Move the files uploaded against a draft onto the grievance it became.
 
-	Attachments are uploaded while the wizard is still on step 4, before any
-	Grievance row exists, so they are parented to the draft and re-parented here.
-	The File rows are updated rather than copied: re-uploading would double the
-	storage and break any URL the client is already showing.
+	Files are uploaded while the wizard is still open, before any Grievance row
+	exists, so they are parented to the draft and re-parented here. The File rows
+	are updated rather than copied: re-uploading would double the storage and
+	break any URL the client is already showing.
+
+	Each file also gets a Grievance Attachment row. Frappe's File doctype stores
+	the object but carries none of what evidence needs -- a scan verdict, a
+	content hash, or a typed link to the case -- and a download gate has to read
+	those from somewhere.
 	"""
 	files = frappe.get_all(
 		"File",
 		filters={"attached_to_doctype": "Grievance Draft", "attached_to_name": draft},
-		pluck="name",
+		fields=["name", "file_name", "file_url", "file_size", "content_hash"],
 	)
-	for name in files:
+
+	submitter = frappe.db.get_value("Grievance", grievance, "submitter")
+	for f in files:
 		frappe.db.set_value(
 			"File",
-			name,
+			f.name,
 			{"attached_to_doctype": "Grievance", "attached_to_name": grievance},
 			update_modified=False,
 		)
+		_record_attachment(grievance, f, submitter)
+
 	return len(files)
+
+
+def _record_attachment(grievance, file_row, submitter):
+	"""Register one moved file as evidence on the case.
+
+	The MIME type is left for the upload endpoint to sniff and stamp; nothing here
+	trusts the extension. `scan_status` stays Pending, which is what withholds the
+	object until a scanner has looked at it.
+	"""
+	if frappe.db.exists("Grievance Attachment", {"grievance": grievance, "file_url": file_row.file_url}):
+		return
+
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Attachment",
+			"grievance": grievance,
+			"file_name": file_row.file_name,
+			"file_url": file_row.file_url,
+			"size_bytes": file_row.file_size or 0,
+			"checksum_sha256": file_row.content_hash,
+			"uploaded_by_submitter": submitter,
+			"uploaded_by_user": None if submitter else frappe.session.user,
+			"scan_status": "Pending",
+		}
+	).insert(ignore_permissions=True)
 
 
 def record_consent(doc):
