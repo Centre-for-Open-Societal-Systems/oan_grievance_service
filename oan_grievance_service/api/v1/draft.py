@@ -24,7 +24,7 @@ DRAFT_LIFETIME_DAYS = 30
 
 
 @frappe.whitelist()
-def save(client_uuid, payload=None, step_reached=0):
+def save(client_uuid: str, payload: str | dict | None = None, step_reached: int | str = 0):
 	"""Create or overwrite the draft for `client_uuid`.
 
 	Overwrites rather than merges: the client holds the whole wizard state, so a
@@ -67,7 +67,7 @@ def save(client_uuid, payload=None, step_reached=0):
 
 
 @frappe.whitelist()
-def load(client_uuid):
+def load(client_uuid: str):
 	"""Return a saved draft so the wizard resumes where it stopped."""
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
 	if not name:
@@ -89,7 +89,7 @@ def load(client_uuid):
 
 
 @frappe.whitelist()
-def discard(client_uuid):
+def discard(client_uuid: str):
 	"""Delete a draft the submitter abandoned.
 
 	A draft already turned into a grievance is kept: it is what makes a retry of
