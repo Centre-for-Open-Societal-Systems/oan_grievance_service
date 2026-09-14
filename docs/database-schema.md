@@ -16,7 +16,7 @@ Companion documents: `docs/grievance-lifecycle.md` (state definitions) and `docs
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1. Geography             | `administrative_areas`                                                                                                                                             |
 | 2. Taxonomy              | `service_categories`, `grievance_types`, `document_types`                                                                                                          |
-| 3. Organisation          | `departments`, `users`, `roles`, `user_roles`, `grievance_officers`, `officer_assignments`, `officer_assignment_categories`                                        |
+| 3. Organisation          | `departments`, `users`, `roles`, `user_roles`, `grievance_role_levels`, `grievance_officers`, `grievance_rbac_assignments`, `grievance_rbac_assignment_categories` |
 | 4. Submitters            | `submitters`, `anonymous_requests`                                                                                                                                 |
 | 5. Core grievance        | `grievances`, `grievance_attachments`, `grievance_duplicates`                                                                                                      |
 | 6. Workflow definition   | `workflows`, `workflow_states`, `workflow_transitions`                                                                                                             |
@@ -36,9 +36,11 @@ Three related rules, each of which removed something from an earlier draft of th
 
 ### Scope pairs: `(category_id, grievance_type_id)`
 
-`workflows`, `sla_policies` and `response_templates` all bind to a category, a specific grievance type within it, or both. Since `grievance_types.category_id` already names the parent, the pair is redundant whenever the type is set — but the column is kept in all three, because a null type is what expresses "the whole category", and resolution is most-specific-first.
+`workflows` binds to a category, a specific grievance type within it, or both. Since `grievance_types.category_id` already names the parent, the pair is redundant whenever the type is set — but the column is kept, because a null type is what expresses "the whole category", and resolution is most-specific-first.
 
-The redundancy is made safe rather than removed: each table carries `CHECK (grievance_type_id IS NULL OR category_id = (SELECT category_id FROM grievance_types WHERE id = grievance_type_id))`, enforced by trigger where a subquery in a `CHECK` is not allowed. Written once here rather than three times below.
+The redundancy is made safe rather than removed: the table carries `CHECK (grievance_type_id IS NULL OR category_id = (SELECT category_id FROM grievance_types WHERE id = grievance_type_id))`, enforced by trigger where a subquery in a `CHECK` is not allowed.
+
+**`sla_policies` and `response_templates` no longer use the pair.** Both previously carried `grievance_type_id` and resolved most-specific-first; both were reduced to a plain category key. That leaves `workflows` as the only table where a grievance type narrows configuration — everywhere else the type is classification on the case record, not a configuration dimension. Note that this is a deliberate departure from the FSD, which names the SLA Configuration entity as _(category, grievance type, SLA days)_; the consequence is recorded under `sla_policies` below.
 
 ### Design principle: events vs. state
 
@@ -54,7 +56,7 @@ Closed value lists referenced by the tables below.
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `grievance_priority`   | Low, Medium, High, Critical                                                                                          | `grievances`, `sla_policies`                |
 | `submitter_type`       | individual, cooperative, ngo, woreda_kebele, development_agent                                                       | `submitters`                                |
-| `officer_level`        | L1, L2, nodal, senior_nodal                                                                                          | `users`, `global_sla_policy`                |
+| ~~`officer_level`~~    | ~~L1, L2, nodal, senior_nodal~~ — superseded by the `grievance_role_levels` master                                   | `users`, `global_sla_policy`                |
 | `staff_status`         | Active, Inactive, On Leave                                                                                           | `users`                                     |
 | `notification_channel` | SMS, Email                                                                                                           | `notification_configs`, `notification_log`  |
 | `approval_status`      | Pending, Approved, Rejected                                                                                          | `sla_deferrals`, `reassignment_requests`    |
@@ -230,33 +232,65 @@ The verifier master entity (1:1 with `users`). Stores operational profile, globa
 | `created_at`            | timestamptz |                              |                                                                              |
 | `updated_at`            | timestamptz |                              |                                                                              |
 
-### `officer_assignments`
+### `grievance_rbac_assignments`
 
 1:N child table inside `grievance_officers`. Models geographic jurisdiction, line department, domain level, and temporary/acting coverages.
 
-| Column                   | Type    | Key                                | Description                                                                    |
-| ------------------------ | ------- | ---------------------------------- | ------------------------------------------------------------------------------ |
-| `id`                     | uuid    | PK                                 |                                                                                |
-| `officer_id`             | uuid    | FK → `grievance_officers.id`, IX   | Parent officer                                                                 |
-| `administrative_area_id` | uuid    | FK → `administrative_areas.id`, IX | Scopes geographic visibility (Woreda / Region tree node)                       |
-| `area_lft`               | int     |                                    | Denormalised tree interval bounds                                              |
-| `area_rgt`               | int     |                                    |                                                                                |
-| `department_id`          | uuid    | FK → `departments.id`, IX          | Line department. **NULL for Nodal officers**                                   |
-| `role_level`             | enum    |                                    | `l1_case_officer`, `l2_supervisor`, `nodal`, `senior_nodal`, `department_head` |
-| `is_primary`             | boolean |                                    | `1` = Permanent primary post, `0` = Acting / Dual Charge / Coverage            |
-| `valid_from`             | date    |                                    | Activation start date                                                          |
-| `valid_to`               | date    |                                    | Expiration date. `NULL` = Indefinite                                           |
-| `is_active`              | boolean |                                    | Active assignment toggle                                                       |
+| Column                   | Type    | Key                                | Description                                                                  |
+| ------------------------ | ------- | ---------------------------------- | ---------------------------------------------------------------------------- |
+| `id`                     | uuid    | PK                                 |                                                                              |
+| `officer_id`             | uuid    | FK → `grievance_officers.id`, IX   | Parent officer                                                               |
+| `administrative_area_id` | uuid    | FK → `administrative_areas.id`, IX | Scopes geographic visibility (Woreda / Region tree node)                     |
+| ~~`area_lft`~~           | int     |                                    | ~~Denormalised tree interval bounds~~ — **not implemented, see note below**  |
+| ~~`area_rgt`~~           | int     |                                    |                                                                              |
+| `department_id`          | uuid    | FK → `departments.id`, IX          | Line department. **NULL for Nodal officers**                                 |
+| `role_level`             | uuid    | FK → `grievance_role_levels.id`    | Escalation rung. **Now a master, not an enum** — see `grievance_role_levels` |
+| `is_primary`             | boolean |                                    | `1` = Permanent primary post, `0` = Acting / Dual Charge / Coverage          |
+| `valid_from`             | date    |                                    | Activation start date                                                        |
+| `valid_to`               | date    |                                    | Expiration date. `NULL` = Indefinite                                         |
+| `is_active`              | boolean |                                    | Active assignment toggle                                                     |
 
-### `officer_assignment_categories`
+**`area_lft` / `area_rgt` were dropped from the implementation.** Denormalising a Nested Set interval is only safe if the copy is refreshed whenever the tree moves, and it moves often: inserting or reparenting one `administrative_areas` node shifts `lft`/`rgt` across every node to its right. A stamped copy on a _scope_ row therefore drifts out of the coordinate system it is compared against, and the drift silently widens or narrows what an officer can see — a permission change nobody authorised. `Grievance RBAC Assignment` resolves the interval live instead, batched into one query per permission check via `permissions.area_bounds()`, which costs one indexed read regardless of how many scopes an officer holds.
+
+⚠️ **The same hazard is live on `grievances.area_lft`, which _is_ stamped** (`grievance.py::set_administrative_area_metadata`) and has no rebuild hook on `administrative_areas`. Both sides of `grievance.area_lft BETWEEN scope_lft AND scope_rgt` must share one coordinate system; today one side is a snapshot and the other is live, so any insert into the area tree skews the comparison. Fixing that needs an `on_update` / `on_trash` hook on `Administrative Area` that re-stamps affected grievances — tracked separately, not part of this change.
+
+### `grievance_role_levels`
+
+The escalation rungs of FSD Appendix F, held as rows rather than as an enum. Implemented as the `Grievance Role Level` doctype.
+
+| Column        | Type    | Key | Description                                                                        |
+| ------------- | ------- | --- | ---------------------------------------------------------------------------------- |
+| `level_code`  | text    | PK  | Stable token (`nodal_officer` …). Immutable once assignments reference it          |
+| `level_name`  | text    |     | Display label, translatable                                                        |
+| `level_order` | int     | IX  | Rank in the chain; lower is more junior. Unique among active. See the caveat below |
+| `is_active`   | boolean |     | Retired rungs stay for historical rows but leave the chain                         |
+| `description` | text    |     |                                                                                    |
+
+**Why a table and not an enum.** The rungs are administrative configuration — an organisation that grows a tier should add a row, not ship a migration and a release. Holding them as records also makes `level_name` translatable and lets a retired rung go `is_active = 0` while historical assignments keep pointing at it, which an enum value cannot do.
+
+⚠️ **`level_order` is a label, not the escalation mechanism.** `sla_workflows_and_lifecycle_specification.md` §10.2 puts the actual ordering in the reporting chain — `grievance_reports_to` on `User`, walked by `chain.py::next_supervisor` — and §10.3 resolves escalation targets from that walk, not from a rank. §10.2 is explicit: _"No recursive CTE, no tree table, no denormalisation."_ So `level_order` exists to sort the list and to render the rungs in a sensible order; it must not become a second answer to "who outranks whom", or §196's warning applies to it exactly as it applies to roles-versus-levels. The §10.5 approval gate is `is_ancestor(approver, assignee)` — a chain walk — not a `level_order` comparison.
+
+**A level is not a role.** §196 already says this about `users.officer_level`, and it applies here: the three capability roles (`Grievance Submitter` / `Officer` / `Admin`) are held in `Has Role` and answer _what actions exist for you_; a level answers _where you sit in the chain_. Keeping seniority out of the role list is what stops there being two answers to "is this person a nodal officer?".
+
+**Token reconciliation — three rungs, not five.** The lists here (§57, §245) and in `verifier_management_schema_and_flow.md` §93 all carried `l1_case_officer` and `l2_supervisor` alongside the nodal rungs. Those are not rungs of this organisation. `sla_workflows_and_lifecycle_specification.md` §10.1 — the authoritative and later document — names the retired roles as `L1 Nodal Officer`, `L2 Senior Nodal Officer` and `Department Head`: the L1 / L2 prefixes **qualify Nodal Officer**, they do not name separate case-officer and supervisor tiers. The seeded set is therefore three, and maps 1:1 onto the `Grievance Department` slots the notification and SLA code already reads:
+
+| Level                  | `Grievance Department` field | `notifications.py` recipient |
+| ---------------------- | ---------------------------- | ---------------------------- |
+| `nodal_officer`        | `nodal_officer`              | `Nodal Officer`              |
+| `senior_nodal_officer` | `senior_officer`             | `Top Level Authority`        |
+| `department_head`      | `head_of_dept`               | `Department Head`            |
+
+`install.py::ROLE_LEVELS` is the single source of truth; the enum lists at §57, §245 and `verifier_management` §93 are superseded.
+
+### `grievance_rbac_assignment_categories`
 
 Specialized domain category bindings for an assignment. If empty, the officer handles **all categories** within their department and area.
 
-| Column          | Type | Key                               | Description              |
-| --------------- | ---- | --------------------------------- | ------------------------ |
-| `id`            | uuid | PK                                |                          |
-| `assignment_id` | uuid | PK, FK → `officer_assignments.id` | Parent assignment        |
-| `category_id`   | uuid | PK, FK → `service_categories.id`  | Handled service category |
+| Column          | Type | Key                                      | Description              |
+| --------------- | ---- | ---------------------------------------- | ------------------------ |
+| `id`            | uuid | PK                                       |                          |
+| `assignment_id` | uuid | PK, FK → `grievance_rbac_assignments.id` | Parent assignment        |
+| `category_id`   | uuid | PK, FK → `service_categories.id`         | Handled service category |
 
 ### `user_roles`
 
@@ -720,13 +754,14 @@ What is left is the clock itself: when it started, when it is due, and how long 
 
 ### `sla_policies`
 
-One row per category, matching the Administration → SLA Configuration UI. The FSD's SLA Configuration entity is _(category, grievance type, SLA days)_, so the key is both — a `NULL` `grievance_type_id` is the category-wide default and a specific type overrides it.
+One row per category, matching the Administration → SLA Configuration UI. The key is the category alone.
+
+**This departs from the FSD, knowingly.** The FSD's SLA Configuration entity is _(category, grievance type, SLA days)_, and an earlier implementation honoured it: `resolve_policy()` looked for an exact-type row and fell back to the category default. That was removed along with the type's other configuration roles. The cost is that every grievance type within a category now shares one deadline, so a category mixing urgent and routine issues can only be served by splitting it into two categories — which changes the taxonomy the submitter sees. If acceptance testing holds this to the FSD wording, restoring it means re-adding `grievance_type_id` here and reinstating the two-step lookup; nothing else depends on the change.
 
 | Column                 | Type        | Key                               | Description                                                                                 |
 | ---------------------- | ----------- | --------------------------------- | ------------------------------------------------------------------------------------------- |
 | `id`                   | uuid        | PK                                |                                                                                             |
 | `category_id`          | uuid        | FK → `service_categories.id`, UQ¹ |                                                                                             |
-| `grievance_type_id`    | uuid        | FK → `grievance_types.id`, UQ¹    | Null = the default for every type in the category; a row with a type set beats it           |
 | `department_id`        | uuid        | FK → `departments.id`             | Owning department for this category                                                         |
 | `sla_days`             | int         |                                   | 10 or 14 in current config; must be > 0                                                     |
 | `calendar_id`          | uuid        | FK → `business_calendars.id`      | Working calendar the clock advances against. Null = `global_sla_policy.default_calendar_id` |
@@ -737,9 +772,9 @@ One row per category, matching the Administration → SLA Configuration UI. The 
 | `updated_at`           | timestamptz |                                   |                                                                                             |
 | `updated_by`           | uuid        | FK → `users.id`                   |                                                                                             |
 
-¹ Unique per `(category_id, grievance_type_id)`. As with `category_assignments`, Postgres treats nulls as distinct, so add a partial unique index on `category_id WHERE grievance_type_id IS NULL` to guarantee a single category-wide default.
+¹ Unique on `category_id` — one active policy per category, so resolution is a single indexed lookup with no fallback step.
 
-Resolution is most-specific-first: exact type, then category default. If SLA later needs to vary by priority too, extend the key rather than adding a second table.
+If SLA later needs to vary by priority, extend the key rather than adding a second table.
 
 ### `global_sla_policy`
 
@@ -867,6 +902,8 @@ Category → department routing (Administration → Category Assignments).
 
 ¹ Unique per `(category_id, administrative_area_id)`. Closest matching ancestor node is resolved via nested set interval containment: `WHERE a.lft <= :case_lft AND a.rgt >= :case_rgt ORDER BY (a.rgt - a.lft) ASC LIMIT 1`.
 
+**Routing and access scope on category, not grievance type.** The routing key deliberately stops at `(category, administrative area)`; there is no `grievance_type_id` here, and the scope pair described in §1 does not apply to this table. An earlier implementation carried `grievance_type` on `Grievance Routing Rule` and `grievance_type_scope` on `Grievance RBAC Assignment`, and both were removed: department, area and category already discriminate every routing decision the org chart actually makes, no seeded rule ever constrained the type, and on the access side the column was read but never applied to a permission filter — so a type-scoped assignment silently granted the whole category, which is the worse kind of dead configuration. `sla_policies` keeps its `grievance_type_id` because the FSD names the SLA entity as _(category, grievance type, SLA days)_ and resolution time genuinely varies within a category; routing destination does not. Should a department ever need to split one category's cases by type, add the column back here rather than reviving the RBAC scope — visibility and destination are different questions.
+
 ### `category_assignment_officers`
 
 Which officers staff a given routing rule.
@@ -893,8 +930,7 @@ Pre-written response bodies, managed under Administration. Templates are a produ
 | `id`                 | uuid        | PK                               |                                                                  |
 | `code`               | varchar(16) | UQ                               | `RT-001`                                                         |
 | `title`              | text        |                                  | "Seed Quality — Lab Testing Initiated"                           |
-| `category_id`        | uuid        | FK → `service_categories.id`, IX |                                                                  |
-| `grievance_type_id`  | uuid        | FK → `grievance_types.id`        | The template's subcategory                                       |
+| `category_id`        | uuid        | FK → `service_categories.id`, IX | The template's scope; templates are offered per category         |
 | `outcome`            | enum        |                                  | Resolved / Partially Resolved / Referred / Requires further info |
 | `action_taken`       | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
 | `resolution_summary` | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
@@ -1106,9 +1142,10 @@ erDiagram
     roles ||--o{ user_roles : grants
     users ||--o{ user_roles : has
     users ||--o{ grievance_officers : "1:1 profile"
-    grievance_officers ||--o{ officer_assignments : holds
+    grievance_officers ||--o{ grievance_rbac_assignments : holds
+    grievance_role_levels ||--o{ grievance_rbac_assignments : ranks
     grievance_officers ||--o{ grievance_officers : "reports to (L1 to L2)"
-    administrative_areas ||--o{ officer_assignments : scopes
+    administrative_areas ||--o{ grievance_rbac_assignments : scopes
 
     submitters ||--o{ grievances : files
     grievances ||--|| grievance_sla : "clocked by"
@@ -1248,7 +1285,7 @@ This rule has no exceptions in the schema. `workflow_states` and `workflow_trans
 
 **Anonymity key custody.** The design now seals the identity rather than masking it (§5), which leaves one question that is organisational rather than technical: **who holds the unsealing key, and what is the process for using it?** A key the application can use unilaterally provides no protection against the application. Options run from a KMS role granted only to a named audit service, through dual control requiring two officers, to keys held by an external oversight body. The schema supports all three; the choice determines whether anonymity is a real guarantee or a policy promise, and it belongs to whoever is accountable for that promise.
 
-**Service-provider routing.** FR-03 evaluates routing on "the associated service provider", but a provider is only `grievances.facility_name` — free text, so it cannot be routed on, joined to, or reported against. Closing this means a `service_providers` table and a wider routing key on `category_assignments` (category, grievance type, administrative area, provider) with most-specific-wins resolution. Deferred, not rejected.
+**Service-provider routing.** FR-03 evaluates routing on "the associated service provider", but a provider is only `grievances.facility_name` — free text, so it cannot be routed on, joined to, or reported against. Closing this means a `service_providers` table and a wider routing key on `category_assignments` (category, administrative area, provider) with most-specific-wins resolution. Deferred, not rejected.
 
 **A read model for search, and whether it lives outside Postgres.** Officer search over grievance text is currently unspecified, and the systems this schema borrows from all separate it from the write path — Zammad and DIGIT both index into Elasticsearch and serve inbox and search from there, leaving the relational tables to handle writes. The cheaper answer here is a `tsvector` column on `grievances`, generated from title, description and reference number, with a GIN index and Amharic handled by the `simple` configuration plus trigram matching; it stays transactional, needs no second system to operate, and is enough for keyword search over a few million rows. Elasticsearch becomes worth its operational cost only if faceted search, relevance ranking or cross-entity search is actually required — and if it is, the consumer already exists in outline: it subscribes to `outbox_events` like any other, which is precisely why the outbox was worth building before anything needed it.
 

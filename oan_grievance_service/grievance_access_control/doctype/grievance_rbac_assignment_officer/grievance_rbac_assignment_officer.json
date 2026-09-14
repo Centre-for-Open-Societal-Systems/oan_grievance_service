@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-11 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "role_level",
+  "reports_to",
+  "is_primary",
+  "active",
+  "col_officer",
+  "max_open_cases",
+  "last_assigned_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "User",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "role_level",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Role Level",
+   "options": "Grievance Role Level",
+   "reqd": 1
+  },
+  {
+   "description": "Direct supervisor for escalation and approval workflows",
+   "fieldname": "reports_to",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Reports To",
+   "options": "User"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_primary",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Primary"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "col_officer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "0 = unlimited capacity",
+   "fieldname": "max_open_cases",
+   "fieldtype": "Int",
+   "label": "Max Open Cases"
+  },
+  {
+   "description": "Rotation cursor timestamp for round-robin assignment",
+   "fieldname": "last_assigned_at",
+   "fieldtype": "Datetime",
+   "label": "Last Assigned At",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Access Control",
+ "name": "Grievance RBAC Assignment Officer",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

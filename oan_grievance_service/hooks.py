@@ -62,6 +62,12 @@ doc_events = {
 	"Grievance Anonymity Request": {
 		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
 	},
+	# FSD 3.8: our send path renders per recipient inside print_language(), which only
+	# moves _()-marked strings, so a Grievance notification must not carry bare literal
+	# text. Extends a core doctype through the supported hook rather than editing it.
+	"Notification": {
+		"validate": "oan_grievance_service.services.notifications.validate_notification",
+	},
 }
 
 # Scheduled Tasks

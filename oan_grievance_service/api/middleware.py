@@ -1,6 +1,6 @@
 """JWT auth_hook configuration for this deployment.
 
-The validation logic itself lives in oan_core. This module exists only to bind
+The validation logic itself lives in oan_auth_service. This module exists to bind
 it to oan_grievance_service's own API namespace, exempt paths and revocation rule,
 so the shared library never needs to know this app exists.
 """
@@ -17,6 +17,14 @@ EXEMPT_PATHS: list[str] = [
 ]
 
 
-def validate_jwt_request(request=None):
-	"""Entry point registered as `auth_hooks` in hooks.py."""
-	raise NotImplementedError
+def register():
+	"""Register the oan_grievance_service namespace with oan_auth_service."""
+	try:
+		from oan_auth_service.api.middleware import register_namespace
+
+		register_namespace(API_NAMESPACE, EXEMPT_PATHS)
+	except ImportError:
+		pass
+
+
+register()

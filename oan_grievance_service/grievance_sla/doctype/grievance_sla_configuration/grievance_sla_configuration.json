@@ -8,32 +8,27 @@
  "engine": "InnoDB",
  "field_order": [
   "service_category",
-  "grievance_type",
   "sla_days",
   "active",
   "col_sla_esc",
+  "auto_escalate",
   "auto_escalation_threshold",
   "top_level_authority",
-  "notify_on_submit",
-  "sec_deferral",
-  "max_deferral_days",
-  "deferral_requires_l2_approval"
+  "sec_milestones",
+  "first_response_hours",
+  "update_cadence_hours",
+  "col_milestones",
+  "remand_execution_hours",
+  "appeal_window_days"
  ],
  "fields": [
   {
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Service Category",
-   "options": "Service Category",
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
    "reqd": 1
-  },
-  {
-   "fieldname": "grievance_type",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Grievance Type",
-   "options": "Grievance Type"
   },
   {
    "description": "FSD 3.7: expected response time in days",
@@ -54,10 +49,20 @@
    "fieldtype": "Column Break"
   },
   {
+   "default": "1",
+   "description": "Hand a breached case up the chain without anyone asking. Untick to keep the clock, the reminders and the compliance reporting exactly as they are while nobody is reassigned automatically - the submitter can still escalate by hand.",
+   "fieldname": "auto_escalate",
+   "fieldtype": "Check",
+   "label": "Auto-escalate on Breach"
+  },
+  {
    "default": "100",
+   "depends_on": "auto_escalate",
+   "description": "Share of the SLA window that must be consumed before the first escalation. 100 means at the deadline; 80 hands the case up while there is still time to save it.",
    "fieldname": "auto_escalation_threshold",
    "fieldtype": "Int",
-   "label": "Auto Escalation Threshold (%)"
+   "label": "Auto Escalation Threshold (%)",
+   "non_negative": 1
   },
   {
    "description": "FSD 3.7: notified on second-level (2x SLA) breach",
@@ -67,28 +72,41 @@
    "options": "User"
   },
   {
-   "default": "1",
-   "fieldname": "notify_on_submit",
-   "fieldtype": "Check",
-   "label": "Notify On Submit"
-  },
-  {
-   "fieldname": "sec_deferral",
+   "fieldname": "sec_milestones",
    "fieldtype": "Section Break",
-   "label": "Deferral Policy"
+   "label": "Milestone Durations & Cadence"
   },
   {
-   "default": "30",
-   "description": "FSD 3.11.7: the global default maximum is 30",
-   "fieldname": "max_deferral_days",
+   "default": "4",
+   "description": "Initial triage & first response deadline in hours",
+   "fieldname": "first_response_hours",
    "fieldtype": "Int",
-   "label": "Maximum Deferral Days"
+   "label": "First Response Due (Hours)"
   },
   {
-   "default": "1",
-   "fieldname": "deferral_requires_l2_approval",
-   "fieldtype": "Check",
-   "label": "Deferral Requires L2 Approval"
+   "default": "48",
+   "description": "Mandatory citizen progress update cadence in hours",
+   "fieldname": "update_cadence_hours",
+   "fieldtype": "Int",
+   "label": "Periodic Update Cadence (Hours)"
+  },
+  {
+   "fieldname": "col_milestones",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "24",
+   "description": "Fast-track execution timer for supervisor remand directives in hours",
+   "fieldname": "remand_execution_hours",
+   "fieldtype": "Int",
+   "label": "Supervisor Remand Execution (Hours)"
+  },
+  {
+   "default": "15",
+   "description": "Post-resolution citizen objection & appeal window in days",
+   "fieldname": "appeal_window_days",
+   "fieldtype": "Int",
+   "label": "Appeal Window (Days)"
   }
  ],
  "grid_page_length": 50,

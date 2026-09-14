@@ -1,0 +1,190 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:SUB-{#####}",
+ "creation": "2026-09-03 18:15:00.900165",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "submitter_type",
+  "submitter_name",
+  "dedupe_key",
+  "user",
+  "col_contact",
+  "contact_mobile",
+  "contact_email",
+  "active",
+  "is_blocked",
+  "blocked_reason",
+  "sec_area",
+  "administrative_area",
+  "administrative_unit"
+ ],
+ "fields": [
+  {
+   "fieldname": "submitter_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance Submitter Type",
+   "options": "Grievance Submitter Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "submitter_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Submitter / Organization Name",
+   "reqd": 1
+  },
+  {
+   "description": "Canonical, scheme-prefixed party key: fayda:<id>, org:<no> or phone:<e164>. The one indexed column party resolution and duplicate detection match on.",
+   "fieldname": "dedupe_key",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Dedupe Key",
+   "unique": 1
+  },
+  {
+   "description": "The login this profile belongs to. Ownership is resolved through this link, not through contact_email, so a changed contact address cannot transfer cases.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User Account",
+   "options": "User"
+  },
+  {
+   "fieldname": "col_contact",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Ethiopia country code +251 per FSD 3.11.8",
+   "fieldname": "contact_mobile",
+   "fieldtype": "Data",
+   "label": "Contact Mobile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "Intake aborts for a blocked party. Existing cases are unaffected.",
+   "fieldname": "is_blocked",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Blocked"
+  },
+  {
+   "depends_on": "is_blocked",
+   "fieldname": "blocked_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Block",
+   "mandatory_depends_on": "is_blocked"
+  },
+  {
+   "fieldname": "sec_area",
+   "fieldtype": "Section Break",
+   "label": "Administrative Scope"
+  },
+  {
+   "fieldname": "administrative_area",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance Administrative Area",
+   "options": "Grievance Administrative Area"
+  },
+  {
+   "description": "The administrative body or unit this submitter represents.",
+   "fieldname": "administrative_unit",
+   "fieldtype": "Data",
+   "label": "Administrative Unit"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-08 16:15:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Grievance Submitter Profile",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Submitter",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "dedupe_key,contact_mobile",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "submitter_name"
+}

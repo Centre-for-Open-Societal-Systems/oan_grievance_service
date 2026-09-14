@@ -90,7 +90,7 @@ Models the officer's geographic jurisdiction, line department, domain specializa
 - `administrative_area_id` (`uuid`, **FK → administrative_areas.id**, **IX**): Scopes geographic visibility. Setting it to a woreda grants that woreda; setting it to a region grants the entire region.
 - `area_lft` / `area_rgt` (`int`): Subtree interval bounds copied from the referenced area.
 - `department_id` (`uuid`, **FK → departments.id**, _Nullable_): Line department for Case Officers. **Must be NULL for Nodal officers**, who oversee all departments across their area.
-- `role_level` (`enum`): `l1_case_officer`, `l2_supervisor`, `nodal_officer`, `department_head`.
+- ~~`role_level` (`enum`): `l1_case_officer`, `l2_supervisor`, `nodal_officer`, `department_head`.~~ **Superseded** — now a Link to the `Grievance Role Level` master, seeded with three rungs (`nodal_officer`, `senior_nodal_officer`, `department_head`). `l1_case_officer` and `l2_supervisor` were never rungs of this organisation; see `sla_workflows_and_lifecycle_specification.md` §10.1 and `database-schema.md` §`grievance_role_levels`.
 - `is_primary` (`boolean`): `1` for permanent post, `0` for acting/temporary charge.
 - `valid_from` (`date`): Activation start date.
 - `valid_to` (`date`, _Nullable_): Expiration date. `NULL` indicates indefinite assignment.

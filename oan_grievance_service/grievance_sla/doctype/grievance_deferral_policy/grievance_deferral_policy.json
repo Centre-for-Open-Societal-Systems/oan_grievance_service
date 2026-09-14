@@ -1,0 +1,115 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-11 18:05:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sec_ceiling",
+  "max_deferral_days",
+  "col_ceiling",
+  "requires_supervisor_approval",
+  "sec_note",
+  "policy_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "sec_ceiling",
+   "fieldtype": "Section Break",
+   "label": "Deferral Policy"
+  },
+  {
+   "default": "30",
+   "description": "Maximum days any single deferral request may add to the SLA clock. A request above this is refused at approval time, not at submission, so the officer still sees what was asked for.",
+   "fieldname": "max_deferral_days",
+   "fieldtype": "Int",
+   "label": "Max SLA Deferral (Days)",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_ceiling",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "When ticked, a deferral must be decided by someone senior to the assigned officer. Untick to let the assigned officer approve their own deferral - not recommended, because it removes the only check on a case extending its own deadline.",
+   "fieldname": "requires_supervisor_approval",
+   "fieldtype": "Check",
+   "label": "Require Supervisor Approval"
+  },
+  {
+   "fieldname": "sec_note",
+   "fieldtype": "Section Break"
+  },
+  {
+   "description": "These are ceilings on what a deferral may do, not an SLA window. The windows themselves are per service category on Grievance SLA Configuration.",
+   "fieldname": "policy_note",
+   "fieldtype": "Small Text",
+   "label": "Note",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-11 18:05:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance Deferral Policy",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Grievance Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 0,
+   "export": 0,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 0,
+   "export": 0,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 0,
+   "export": 0,
+   "share": 0,
+   "print": 0,
+   "email": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
