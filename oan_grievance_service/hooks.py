@@ -91,6 +91,9 @@ scheduler_events = {
 		"oan_grievance_service.tasks.send_sla_reminders",
 		"oan_grievance_service.tasks.escalate_breached",
 		"oan_grievance_service.tasks.dispatch_notifications",
+		# Attachments land as Pending and is_servable() withholds anything not yet
+		# Clean, so without this every uploaded file stays invisible to officers.
+		"oan_grievance_service.tasks.scan_pending_attachments",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",

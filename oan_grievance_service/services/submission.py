@@ -85,10 +85,11 @@ def find_or_create_submitter(payload):
 			"submitter_name": payload.get("submitter_name"),
 			"contact_mobile": mobile,
 			"contact_email": payload.get("contact_email"),
-			"region": payload.get("region"),
-			"zone": payload.get("zone"),
-			"woreda": payload.get("woreda"),
-			"kebele": payload.get("kebele"),
+			# The four-level region/zone/woreda/kebele columns were replaced by a
+			# single link into the Administrative Area tree. Frappe drops unknown
+			# keys silently, so passing the old names looked like it worked and
+			# left every new profile with no location at all.
+			"administrative_area": payload.get("administrative_area"),
 			"active": 1,
 		}
 	)

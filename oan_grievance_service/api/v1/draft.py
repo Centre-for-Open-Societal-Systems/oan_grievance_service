@@ -15,15 +15,15 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import add_days, now_datetime
+from oan_auth_service.api.utils import handle_api_errors, success_response
 
 from oan_grievance_service.services import submission
-
-from .grievance import envelope
 
 DRAFT_LIFETIME_DAYS = 30
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@handle_api_errors
 def save(client_uuid: str, payload: str | dict | None = None, step_reached: int | str = 0):
 	"""Create or overwrite the draft for `client_uuid`.
 
@@ -56,39 +56,46 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 	doc.expires_on = add_days(now_datetime(), DRAFT_LIFETIME_DAYS)
 	doc.save(ignore_permissions=True)
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"client_uuid": doc.client_uuid,
 			"step_reached": doc.step_reached,
 			"expires_on": doc.expires_on,
 			"attachment_count": _attachment_count(doc.name),
-		}
+		},
+		message=_("Draft saved"),
 	)
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@handle_api_errors
 def load(client_uuid: str):
 	"""Return a saved draft so the wizard resumes where it stopped."""
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
 	if not name:
-		frappe.throw(_("No saved draft found."), title=_("Not Found"))
+		# DoesNotExistError rather than a bare throw: handle_api_errors reads
+		# http_status_code off the exception, and a missing draft is a 404 the client
+		# can act on -- start a fresh wizard -- not a 400 that reads like bad input.
+		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
 
 	doc = frappe.get_doc("Grievance Draft", name)
 	_assert_owner(doc)
 
-	return envelope(
-		{
+	return success_response(
+		data={
 			"client_uuid": doc.client_uuid,
 			"payload": submission.parse_payload(doc.payload),
 			"step_reached": doc.step_reached,
 			"expires_on": doc.expires_on,
 			"submitted_as": doc.submitted_as,
 			"attachment_count": _attachment_count(doc.name),
-		}
+		},
+		message=_("Draft loaded"),
 	)
 
 
-@frappe.whitelist()
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@handle_api_errors
 def discard(client_uuid: str):
 	"""Delete a draft the submitter abandoned.
 
@@ -97,7 +104,7 @@ def discard(client_uuid: str):
 	"""
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
 	if not name:
-		return envelope({"discarded": False})
+		return success_response(data={"discarded": False}, message=_("No draft to discard"))
 
 	doc = frappe.get_doc("Grievance Draft", name)
 	_assert_owner(doc)
@@ -108,7 +115,7 @@ def discard(client_uuid: str):
 		)
 
 	frappe.delete_doc("Grievance Draft", name, ignore_permissions=True, delete_permanently=True)
-	return envelope({"discarded": True})
+	return success_response(data={"discarded": True}, message=_("Draft discarded"))
 
 
 def purge_expired_drafts():

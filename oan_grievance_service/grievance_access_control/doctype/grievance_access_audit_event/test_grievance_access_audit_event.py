@@ -18,7 +18,7 @@ class TestGrievanceAccessAuditEvent(FrappeTestCase):
 				"doctype": "Grievance Access Audit Event",
 				"timestamp": frappe.utils.now_datetime(),
 				"user": "Administrator",
-				"role": "OAN Administrator-ATI",
+				"role": "Grievance Admin",
 				"action": "view_detail",
 				"decision": "Allowed",
 				"source": "test",
