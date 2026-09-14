@@ -8,6 +8,9 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle, notifications, routing, sla
 
@@ -16,6 +19,20 @@ def grievance_after_insert(doc, method=None):
 	"""FSD 4.1 steps 6-8: acknowledge, then route or queue for the nodal officer."""
 	if frappe.flags.in_install or frappe.flags.in_migrate:
 		return
+
+	# Record initial timeline event
+	user = frappe.session.user if frappe.session.user != "Guest" else None
+	GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="status_change",
+		is_internal=False,
+		body=f"Grievance submitted ({doc.ticket_number})",
+		author_submitter=doc.submitter,
+		author_user=doc.assisted_by_officer or user,
+		ref_doctype="Grievance",
+		ref_docname=doc.name,
+	)
+
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
 	routing.apply_routing(doc)
 
@@ -29,6 +46,17 @@ def response_after_insert(doc, method=None):
 	# because it is only meaningful for a request that actually reached the server.
 	if getattr(frappe.local, "request_ip", None):
 		doc.db_set("ip_address", frappe.local.request_ip, update_modified=False)
+
+	# Record formal response in unified timeline spine
+	GrievanceTimeline.record(
+		grievance=grievance.name,
+		entry_type="response",
+		is_internal=False,
+		body=doc.resolution_summary or doc.action_taken or f"Formal Response ({doc.response_type})",
+		author_user=doc.responded_by or frappe.session.user,
+		ref_doctype="Grievance Response",
+		ref_docname=doc.name,
+	)
 
 	next_status = C.RESPONSE_OUTCOME_NEXT_STATUS.get(doc.response_type)
 	if next_status and next_status != grievance.status:
@@ -87,17 +115,18 @@ def reassignment_on_update(doc, method=None):
 		grievance.db_set("reminder_80_sent", 0, update_modified=False)
 		sla.start_clock(grievance)
 
-	frappe.get_doc(
-		{
-			"doctype": "Grievance Status History",
-			"grievance": grievance.name,
-			"from_status": grievance.status,
-			"to_status": grievance.status,
-			"changed_by": frappe.session.user,
-			"timestamp": now_datetime(),
-			"notes": f"Reassigned to {doc.target_department} (SLA {doc.sla_treatment or 'Continue'})",
-		}
-	).insert(ignore_permissions=True)
+	# Record assignment event in unified timeline (not as a fake status change)
+	GrievanceTimeline.record(
+		grievance=grievance.name,
+		entry_type="assignment",
+		is_internal=False,
+		body=f"Reassigned to {doc.target_department}"
+		+ (f" ({doc.target_officer})" if doc.target_officer else "")
+		+ f" (SLA: {doc.sla_treatment or 'Continue'})",
+		author_user=frappe.session.user,
+		ref_doctype="Grievance Reassignment Request",
+		ref_docname=doc.name,
+	)
 
 
 def deferral_on_update(doc, method=None):

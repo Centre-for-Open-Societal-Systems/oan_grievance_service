@@ -1,26 +1,24 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "format:GR-HIST-{######}",
- "creation": "2026-09-03 18:15:05.023305",
+ "autoname": "format:GR-TIME-{######}",
+ "creation": "2026-09-14 12:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 0,
  "engine": "InnoDB",
  "field_order": [
   "grievance",
-  "from_status",
-  "to_status",
-  "transition",
-  "closure_type",
-  "is_automated",
-  "col_hist",
-  "changed_by",
-  "timestamp",
-  "reason",
-  "notes",
-  "sec_hash",
-  "prev_hash",
-  "row_hash"
+  "entry_type",
+  "is_internal",
+  "col_author",
+  "author_user",
+  "author_submitter",
+  "created_on",
+  "sec_body",
+  "body",
+  "sec_ref",
+  "ref_doctype",
+  "ref_docname"
  ],
  "fields": [
   {
@@ -30,89 +28,78 @@
    "in_standard_filter": 1,
    "label": "Grievance",
    "options": "Grievance",
-   "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
   {
-   "fieldname": "from_status",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "From Status",
-   "read_only": 1
-  },
-  {
-   "fieldname": "to_status",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "To Status",
-   "reqd": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "transition",
-   "fieldtype": "Data",
-   "label": "Transition Taken"
-  },
-  {
-   "fieldname": "closure_type",
+   "fieldname": "entry_type",
    "fieldtype": "Select",
-   "label": "Closure Type",
-   "options": "\nconfirmed\nauto_closed\nrejected\nreferred"
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Entry Type",
+   "options": "note\nmessage\nresponse\ninfo_request\ninfo_response\nstatus_change\nassignment\nescalation\nattachment",
+   "reqd": 1
   },
   {
    "default": "0",
-   "fieldname": "is_automated",
+   "fieldname": "is_internal",
    "fieldtype": "Check",
-   "label": "Automated Transition"
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Is Internal"
   },
   {
-   "fieldname": "col_hist",
+   "fieldname": "col_author",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "changed_by",
+   "fieldname": "author_user",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Changed By",
-   "options": "User",
-   "read_only": 1
+   "label": "Author (Staff)",
+   "options": "User"
   },
   {
-   "fieldname": "timestamp",
+   "fieldname": "author_submitter",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Author (Submitter)",
+   "options": "Grievance Submitter Profile"
+  },
+  {
+   "fieldname": "created_on",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Timestamp",
-   "reqd": 1,
-   "read_only": 1
+   "label": "Created On",
+   "reqd": 1
   },
   {
-   "fieldname": "reason",
-   "fieldtype": "Small Text",
-   "label": "Reason / Justification"
-  },
-  {
-   "fieldname": "notes",
-   "fieldtype": "Small Text",
-   "label": "Notes",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sec_hash",
+   "fieldname": "sec_body",
    "fieldtype": "Section Break",
-   "label": "Cryptographic Hash Chain"
+   "label": "Content"
   },
   {
-   "fieldname": "prev_hash",
-   "fieldtype": "Data",
-   "label": "Previous Row Hash",
-   "read_only": 1
+   "fieldname": "body",
+   "fieldtype": "Text",
+   "label": "Body / Summary",
+   "reqd": 1
   },
   {
-   "fieldname": "row_hash",
-   "fieldtype": "Data",
-   "label": "Row Hash",
-   "read_only": 1
+   "fieldname": "sec_ref",
+   "fieldtype": "Section Break",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "ref_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "ref_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference DocName",
+   "options": "ref_doctype"
   }
  ],
  "grid_page_length": 50,
@@ -121,7 +108,7 @@
  "modified": "2026-09-14 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
- "name": "Grievance Status History",
+ "name": "Grievance Timeline",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
@@ -159,7 +146,7 @@
    "role": "Grievance Officer",
    "read": 1,
    "write": 0,
-   "create": 0,
+   "create": 1,
    "delete": 0,
    "submit": 0,
    "cancel": 0,
@@ -174,7 +161,7 @@
    "role": "Grievance Submitter",
    "read": 1,
    "write": 0,
-   "create": 0,
+   "create": 1,
    "delete": 0,
    "submit": 0,
    "cancel": 0,
@@ -188,7 +175,7 @@
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,
- "sort_field": "timestamp",
+ "sort_field": "created_on",
  "sort_order": "DESC",
  "states": []
 }

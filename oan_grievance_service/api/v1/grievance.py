@@ -10,6 +10,9 @@ from frappe import _
 from frappe.utils import now_datetime
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
 from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
 from oan_grievance_service.services import constants as C
 
@@ -404,6 +407,145 @@ def reply(ticket_number: str, body: str):
 	return success_response(
 		data={"ticket_number": doc.ticket_number, "status": doc.status},
 		message=_("Reply submitted successfully"),
+	)
+
+
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def timeline(
+	ticket_number: str,
+	is_internal: bool | str | None = None,
+	limit: int | str = 20,
+	cursor: str | None = None,
+):
+	"""Retrieve chronological unified conversation and activity timeline for a grievance.
+
+	Submitters only see public entries (is_internal = 0).
+	Staff (Officers, Admins) see all entries or can filter by is_internal flag.
+	"""
+	doc = _load(ticket_number)
+	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=doc.name)
+
+	user = frappe.session.user
+	roles = set(frappe.get_roles(user))
+	is_staff = bool(roles & STAFF_ROLES)
+
+	filters = {"grievance": doc.name}
+
+	if not is_staff:
+		filters["is_internal"] = 0
+	elif is_internal is not None:
+		filters["is_internal"] = 1 if str(is_internal).lower() in ("1", "true", "yes") else 0
+
+	if cursor:
+		filters["created_on"] = ["<", cursor]
+
+	page_limit = int(limit)
+	entries = frappe.get_all(
+		"Grievance Timeline",
+		filters=filters,
+		fields=[
+			"name",
+			"entry_type",
+			"is_internal",
+			"body",
+			"author_user",
+			"author_submitter",
+			"ref_doctype",
+			"ref_docname",
+			"created_on",
+		],
+		order_by="created_on desc, name desc",
+		limit=page_limit + 1,
+	)
+
+	has_more = len(entries) > page_limit
+	if has_more:
+		entries = entries[:page_limit]
+
+	next_cursor = entries[-1]["created_on"].isoformat() if (has_more and entries) else None
+
+	for entry in entries:
+		entry["is_internal"] = bool(entry.get("is_internal"))
+		if entry["author_submitter"]:
+			entry["author_type"] = "submitter"
+			entry["author_name"] = doc.submitter_name or entry["author_submitter"]
+		elif entry["author_user"]:
+			entry["author_type"] = "officer"
+			entry["author_name"] = (
+				frappe.db.get_value("User", entry["author_user"], "full_name") or entry["author_user"]
+			)
+		else:
+			entry["author_type"] = "system"
+			entry["author_name"] = "System"
+
+	return success_response(
+		data={
+			"ticket_number": doc.ticket_number,
+			"timeline": entries,
+			"has_more": has_more,
+			"next_cursor": next_cursor,
+		},
+		message=_("Timeline retrieved successfully"),
+	)
+
+
+@frappe.whitelist()
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
+	"""Staff-only endpoint to add an internal or public note to the case timeline."""
+	doc = _load(ticket_number)
+	internal = str(is_internal).lower() not in ("0", "false", "no")
+
+	entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="note",
+		is_internal=internal,
+		body=body,
+		author_user=frappe.session.user,
+	)
+
+	return success_response(
+		data={
+			"name": entry.name,
+			"entry_type": entry.entry_type,
+			"is_internal": bool(entry.is_internal),
+			"author_type": "officer",
+			"created_on": entry.created_on,
+		},
+		message=_("Note added successfully"),
+	)
+
+
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def message(ticket_number: str, body: str):
+	"""Post a public message to the case conversation thread."""
+	doc = _load(ticket_number)
+	user = frappe.session.user
+	is_staff = bool(set(frappe.get_roles(user)) & STAFF_ROLES)
+
+	entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="message",
+		is_internal=False,
+		body=body,
+		author_user=user if is_staff else None,
+		author_submitter=doc.submitter if not is_staff else None,
+	)
+
+	return success_response(
+		data={
+			"name": entry.name,
+			"entry_type": entry.entry_type,
+			"is_internal": False,
+			"author_type": "officer" if is_staff else "submitter",
+			"created_on": entry.created_on,
+		},
+		message=_("Message posted successfully"),
 	)
 
 
