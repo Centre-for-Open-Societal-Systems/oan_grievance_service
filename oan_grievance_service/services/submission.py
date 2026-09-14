@@ -74,13 +74,13 @@ def find_or_create_submitter(payload):
 	if not mobile:
 		return None
 
-	existing = frappe.db.get_value("Submitter Profile", {"contact_mobile": mobile}, "name")
+	existing = frappe.db.get_value("Grievance Submitter Profile", {"contact_mobile": mobile}, "name")
 	if existing:
 		return existing
 
 	profile = frappe.get_doc(
 		{
-			"doctype": "Submitter Profile",
+			"doctype": "Grievance Submitter Profile",
 			"submitter_type": payload.get("submitter_type"),
 			"submitter_name": payload.get("submitter_name"),
 			"contact_mobile": mobile,

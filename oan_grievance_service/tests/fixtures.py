@@ -21,18 +21,18 @@ def a_leaf_area():
 	to be an operational leaf. The Ethiopia seed provides plenty; one is created
 	only when the seed has not been loaded, which is the case on a bare test site.
 	"""
-	existing = frappe.db.get_value("Administrative Area", {"is_group": 0, "is_active": 1}, "name")
+	existing = frappe.db.get_value("Grievance Administrative Area", {"is_group": 0, "is_active": 1}, "name")
 	if existing:
 		return existing
 
 	root = frappe.db.get_value(
-		"Administrative Area", {"parent_administrative_area": ["is", "not set"]}, "name"
+		"Grievance Administrative Area", {"parent_administrative_area": ["is", "not set"]}, "name"
 	)
 	if not root:
 		root = (
 			frappe.get_doc(
 				{
-					"doctype": "Administrative Area",
+					"doctype": "Grievance Administrative Area",
 					"area_name": "Test Country",
 					"code": "TC",
 					"level_name": "Country",
@@ -48,7 +48,7 @@ def a_leaf_area():
 	return (
 		frappe.get_doc(
 			{
-				"doctype": "Administrative Area",
+				"doctype": "Grievance Administrative Area",
 				"area_name": "Test Leaf Area",
 				"code": "TLA",
 				"level_name": "Woreda",
@@ -90,26 +90,28 @@ def a_grievance(**overrides):
 
 def a_submitter_type():
 	"""Submitter Type became a master doctype; tests should not assume a seed."""
-	existing = frappe.db.get_value("Submitter Type", {}, "name")
+	existing = frappe.db.get_value("Grievance Submitter Type", {}, "name")
 	if existing:
 		return existing
 
 	return (
-		frappe.get_doc({"doctype": "Submitter Type", "type_name": "Individual Farmer", "is_active": 1})
+		frappe.get_doc(
+			{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "is_active": 1}
+		)
 		.insert(ignore_permissions=True)
 		.name
 	)
 
 
 def a_service_category():
-	existing = frappe.db.get_value("Service Category", SEED_CATEGORY, "name")
+	existing = frappe.db.get_value("Grievance Service Category", SEED_CATEGORY, "name")
 	if existing:
 		return existing
 
 	return (
 		frappe.get_doc(
 			{
-				"doctype": "Service Category",
+				"doctype": "Grievance Service Category",
 				"category_name": SEED_CATEGORY,
 				"code": "INPT",
 				"sort_order": 1,

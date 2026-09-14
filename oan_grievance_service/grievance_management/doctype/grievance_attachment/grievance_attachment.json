@@ -67,7 +67,7 @@
    "fieldname": "uploaded_by_submitter",
    "fieldtype": "Link",
    "label": "Uploaded By (Submitter)",
-   "options": "Submitter Profile",
+   "options": "Grievance Submitter Profile",
    "read_only": 1
   },
   {

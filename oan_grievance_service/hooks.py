@@ -70,9 +70,15 @@ doc_events = {
 	# The submission wizard caches its lookups. An administrator adding a woreda
 	# or deactivating a category must see it in the form immediately, not after
 	# the cache expires.
-	"Administrative Area": _CLEAR_LOOKUP_CACHE,
-	"Service Category": _CLEAR_LOOKUP_CACHE,
+	"Grievance Administrative Area": _CLEAR_LOOKUP_CACHE,
+	"Grievance Service Category": _CLEAR_LOOKUP_CACHE,
 	"Grievance Type": _CLEAR_LOOKUP_CACHE,
+	# FSD 3.8: our send path renders per recipient inside print_language(), which only
+	# moves _()-marked strings, so a Grievance notification must not carry bare literal
+	# text. Extends a core doctype through the supported hook rather than editing it.
+	"Notification": {
+		"validate": "oan_grievance_service.services.notifications.validate_notification",
+	},
 }
 
 # Scheduled Tasks

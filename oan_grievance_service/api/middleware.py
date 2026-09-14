@@ -1,6 +1,6 @@
 """JWT auth_hook configuration for this deployment.
 
-The validation logic itself lives in oan_core. This module exists only to bind
+The validation logic itself lives in oan_auth_service. This module exists to bind
 it to oan_grievance_service's own API namespace, exempt paths and revocation rule,
 so the shared library never needs to know this app exists.
 """
@@ -14,9 +14,26 @@ API_NAMESPACE = "/api/method/oan_grievance_service."
 EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.submitter.options",
 	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
+	# The submission wizard fills its dropdowns on page load, before the submitter
+	# has registered and therefore before any token exists. Without these four the
+	# form 401s at the point a farmer opens it, having typed nothing. All four are
+	# read-only reference data -- submitter types, categories, the types under a
+	# category, and a preview of the ticket number -- and carry no personal data.
+	"/api/method/oan_grievance_service.api.v1.submission.form_meta",
+	"/api/method/oan_grievance_service.api.v1.submission.categories",
+	"/api/method/oan_grievance_service.api.v1.submission.grievance_types",
+	"/api/method/oan_grievance_service.api.v1.submission.ticket_preview",
 ]
 
 
-def validate_jwt_request(request=None):
-	"""Entry point registered as `auth_hooks` in hooks.py."""
-	raise NotImplementedError
+def register():
+	"""Register the oan_grievance_service namespace with oan_auth_service."""
+	try:
+		from oan_auth_service.api.middleware import register_namespace
+
+		register_namespace(API_NAMESPACE, EXEMPT_PATHS)
+	except ImportError:
+		pass
+
+
+register()

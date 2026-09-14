@@ -41,9 +41,9 @@ def form_meta():
 		return {
 			"submission_channels": list(CHANNELS),
 			"submitter_types": frappe.get_all(
-				"Submitter Type",
+				"Grievance Submitter Type",
 				filters={"is_active": 1}
-				if frappe.get_meta("Submitter Type").has_field("is_active")
+				if frappe.get_meta("Grievance Submitter Type").has_field("is_active")
 				else None,
 				pluck="name",
 			),
@@ -63,7 +63,7 @@ def categories():
 
 	def build():
 		return frappe.get_all(
-			"Service Category",
+			"Grievance Service Category",
 			filters={"is_active": 1},
 			fields=["name as value", "category_name as label", "code"],
 			order_by="sort_order, category_name",
@@ -104,8 +104,10 @@ def ticket_preview(administrative_area: str | None = None, service_category: str
 	insert, and showing a number here that a concurrent submission then takes
 	would be worse than showing none.
 	"""
-	area_code = segment("Administrative Area", administrative_area) if administrative_area else "GEN"
-	prefix = f"{area_code}-{segment('Service Category', service_category)}"
+	area_code = (
+		segment("Grievance Administrative Area", administrative_area) if administrative_area else "GEN"
+	)
+	prefix = f"{area_code}-{segment('Grievance Service Category', service_category)}"
 	return success_response(data={"prefix": prefix, "example": f"{prefix}-00001"})
 
 

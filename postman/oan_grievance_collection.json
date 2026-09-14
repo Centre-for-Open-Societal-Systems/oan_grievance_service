@@ -190,7 +190,7 @@
 								"oan_grievance_service.api.v1.submitter.options"
 							]
 						},
-						"description": "Public reference endpoint reachable without authentication. Retrieves dropdown data for submitters, intake forms and public wizards, including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.), intake channels, supported languages, country phone extensions (ISD codes), grievance lifecycle statuses, service categories, and grievance types."
+						"description": "Public reference endpoint reachable without authentication. Retrieves dropdown data for submitters, intake forms and public wizards, including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.), intake channels, supported languages, country phone extensions (ISD codes), service categories, and grievance types."
 					},
 					"response": []
 				},
@@ -794,6 +794,75 @@
 		{
 			"name": "Grievance Operations",
 			"item": [
+				{
+					"name": "7a. Get Grievance Management Options (Staff - Officers/Admins)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+									"if (!token) {",
+									"    console.warn(\"[Pre-request] 'access_token' is missing. Please log in as an officer or admin.\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Staff options returned with departments and statuses\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    var envelope = jsonData.message || jsonData;",
+									"    var data = envelope.data || envelope;",
+									"    pm.expect(data).to.have.property(\"departments\");",
+									"    pm.expect(data).to.have.property(\"statuses\");",
+									"    pm.expect(data).to.have.property(\"priorities\");",
+									"    pm.expect(data).to.have.property(\"service_categories\");",
+									"    pm.expect(data).to.have.property(\"grievance_types\");",
+									"    pm.expect(data).to.have.property(\"submission_channels\");",
+									"    pm.expect(Array.isArray(data.departments)).to.be.true;",
+									"    pm.expect(Array.isArray(data.statuses)).to.be.true;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.options",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.options"
+							]
+						},
+						"description": "Protected management reference endpoint for Grievance Officers and Administrators. Retrieves reference data for case triage, assignment, and status filters, including departments, lifecycle statuses with open/terminal flags, priorities, categories, grievance types, and channels."
+					},
+					"response": []
+				},
 				{
 					"name": "7. Submit Grievance",
 					"event": [
