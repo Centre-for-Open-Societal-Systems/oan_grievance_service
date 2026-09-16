@@ -9,7 +9,12 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
+from oan_auth_service.api.utils import (
+	handle_api_errors,
+	parse_multi_value,
+	require_role,
+	success_response,
+)
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -369,6 +374,28 @@ def detect_duplicates(grievance, window_days=7):
 	return rows
 
 
+def _resolve_area_filter_identifier(identifier: str) -> str:
+	"""Resolve an area identifier, path_code, code, or region area_name for filtering."""
+	if not identifier:
+		return ""
+	identifier = str(identifier).strip()
+	resolved = resolve_administrative_area(identifier)
+	if resolved:
+		return resolved
+	# Check if identifier is a Region by display area_name (e.g. 'Oromia', 'Amhara')
+	region_doc = frappe.db.get_value(
+		"Grievance Administrative Area",
+		{"area_name": identifier, "level_name": "Region"},
+		"name",
+	)
+	if region_doc:
+		return region_doc
+	# Fallback to general area_name
+	return (
+		frappe.db.get_value("Grievance Administrative Area", {"area_name": identifier}, "name") or identifier
+	)
+
+
 @route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
 @frappe.whitelist()
 @handle_api_errors
@@ -377,14 +404,16 @@ def list_grievances(
 	page: int | str = 1,
 	page_size: int | str = 20,
 	limit: int | str | None = None,
-	status: str | None = None,
-	service_category: str | None = None,
-	grievance_type: str | None = None,
-	assigned_dept: str | None = None,
-	department: str | None = None,
+	status: str | list | None = None,
+	service_category: str | list | None = None,
+	category: str | list | None = None,
+	grievance_type: str | list | None = None,
+	assigned_dept: str | list | None = None,
+	department: str | list | None = None,
 	assigned_to: str | None = None,
-	administrative_area: str | None = None,
-	submission_channel: str | None = None,
+	administrative_area: str | list | None = None,
+	region: str | list | None = None,
+	submission_channel: str | list | None = None,
 	escalated: bool | str | None = None,
 	is_escalated: bool | str | None = None,
 	is_anonymous: bool | str | None = None,
@@ -403,6 +432,9 @@ def list_grievances(
 	- Grievance Officers only see cases matching their RBAC scope (administrative area subtree,
 	  department, category) or directly assigned to them.
 	- Grievance Admins and System Managers see all cases.
+
+	Supports multi-select values (list, JSON array, or comma-separated string) for status,
+	service_category/category, administrative_area/region, grievance_type, department, and submission_channel.
 	"""
 	import math
 
@@ -413,29 +445,39 @@ def list_grievances(
 
 	filters = []
 
-	if status:
-		status_list = [s.strip() for s in status.split(",") if s.strip()]
-		if len(status_list) == 1:
-			filters.append(["status", "=", status_list[0]])
-		elif len(status_list) > 1:
-			filters.append(["status", "in", status_list])
+	status_list = parse_multi_value(status or kwargs.get("status"))
+	if len(status_list) == 1:
+		filters.append(["status", "=", status_list[0]])
+	elif len(status_list) > 1:
+		filters.append(["status", "in", status_list])
 
-	if service_category:
-		filters.append(["service_category", "=", service_category])
+	cat_list = parse_multi_value(service_category or category or kwargs.get("category"))
+	if len(cat_list) == 1:
+		filters.append(["service_category", "=", cat_list[0]])
+	elif len(cat_list) > 1:
+		filters.append(["service_category", "in", cat_list])
 
-	if grievance_type:
-		filters.append(["grievance_type", "=", grievance_type])
+	type_list = parse_multi_value(grievance_type or kwargs.get("type"))
+	if len(type_list) == 1:
+		filters.append(["grievance_type", "=", type_list[0]])
+	elif len(type_list) > 1:
+		filters.append(["grievance_type", "in", type_list])
 
-	dept = assigned_dept or department
-	if dept:
-		filters.append(["assigned_dept", "=", dept])
+	dept_list = parse_multi_value(assigned_dept or department or kwargs.get("dept"))
+	if len(dept_list) == 1:
+		filters.append(["assigned_dept", "=", dept_list[0]])
+	elif len(dept_list) > 1:
+		filters.append(["assigned_dept", "in", dept_list])
 
 	if assigned_to:
 		target_user = frappe.session.user if assigned_to == "me" else assigned_to
 		filters.append(["assigned_to", "=", target_user])
 
-	if submission_channel:
-		filters.append(["submission_channel", "=", submission_channel])
+	channel_list = parse_multi_value(submission_channel or kwargs.get("channel"))
+	if len(channel_list) == 1:
+		filters.append(["submission_channel", "=", channel_list[0]])
+	elif len(channel_list) > 1:
+		filters.append(["submission_channel", "in", channel_list])
 
 	if submitter:
 		if submitter == "me":
@@ -462,10 +504,12 @@ def list_grievances(
 	if to_date:
 		filters.append(["creation", "<=", f"{to_date} 23:59:59" if len(to_date) == 10 else to_date])
 
-	if administrative_area:
+	area_list = parse_multi_value(administrative_area or region or kwargs.get("region"))
+	if len(area_list) == 1:
+		canonical_area = _resolve_area_filter_identifier(area_list[0])
 		area_bounds = frappe.db.get_value(
 			"Grievance Administrative Area",
-			administrative_area,
+			canonical_area,
 			["lft", "rgt"],
 			as_dict=True,
 		)
@@ -473,15 +517,40 @@ def list_grievances(
 			filters.append(["area_lft", ">=", int(area_bounds.lft)])
 			filters.append(["area_lft", "<=", int(area_bounds.rgt)])
 		else:
-			filters.append(["administrative_area", "=", administrative_area])
+			filters.append(["administrative_area", "=", canonical_area])
+	elif len(area_list) > 1:
+		area_names = set()
+		for item in area_list:
+			canonical = _resolve_area_filter_identifier(item)
+			bounds = frappe.db.get_value(
+				"Grievance Administrative Area",
+				canonical,
+				["lft", "rgt", "is_group"],
+				as_dict=True,
+			)
+			if bounds and bounds.lft is not None and bounds.rgt is not None:
+				if bounds.get("is_group") or (bounds.rgt - bounds.lft > 1):
+					descendants = frappe.get_all(
+						"Grievance Administrative Area",
+						filters=[["lft", ">=", int(bounds.lft)], ["lft", "<=", int(bounds.rgt)]],
+						pluck="name",
+					)
+					area_names.update(descendants)
+				else:
+					area_names.add(canonical)
+			else:
+				area_names.add(canonical)
+		if area_names:
+			filters.append(["administrative_area", "in", list(area_names)])
 
 	or_filters = []
 	if search:
 		search_pattern = f"%{search.strip()}%"
 		or_filters = [
 			["ticket_number", "like", search_pattern],
-			["description", "like", search_pattern],
+			["name", "like", search_pattern],
 			["submitter_name", "like", search_pattern],
+			["grievance_type", "like", search_pattern],
 		]
 
 	allowed_sort_fields = {

@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "8f5a2d1e-3c7b-419a-9e2d-4b8c1a7d6e5f",
-    "name": "OAN Grievance Service API",
-    "description": "Postman collection for OpenAgriNet Grievance Management Module v1 API endpoints covering public reference metadata, authentication (Farmer & Organization registration with dedupe keys), submitter profile lookups, grievance intake & submission, tracking, reply, escalation, resolution confirmation, and reopen flows.",
+    "_postman_id": "bf085058-1f56-4563-a5e4-007519dff627",
+    "name": "OAN Grievance Service REST API",
+    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, and reopen flows.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -162,6 +162,95 @@
       "name": "Public Reference Data",
       "item": [
         {
+          "name": "0a. Service Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "pm.test(\"Health status is healthy\", function () {",
+                  "    pm.expect(data).to.have.property(\"status\");",
+                  "    pm.expect(data.status).to.eql(\"healthy\");",
+                  "    pm.expect(data.service).to.eql(\"oan_grievance_service\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance",
+                "health"
+              ]
+            },
+            "description": "Public health check verifying OAN Grievance Service is operational."
+          },
+          "response": []
+        },
+        {
+          "name": "0b. Service Ping",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "pm.test(\"Ping returns pong\", function () {",
+                  "    pm.expect(data).to.have.property(\"ping\");",
+                  "    pm.expect(data.ping).to.eql(\"pong\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance/ping",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance",
+                "ping"
+              ]
+            },
+            "description": "Uptime ping endpoint."
+          },
+          "response": []
+        },
+        {
           "name": "1. Get Submitter Options (Public)",
           "event": [
             {
@@ -210,14 +299,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.submitter.options",
+              "raw": "{{base_url}}/api/v1/submitter/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.submitter.options"
+                "v1",
+                "submitter",
+                "options"
               ]
             },
             "description": "Public reference endpoint reachable without authentication. Retrieves dropdown data for submitters, intake forms and public wizards, including active submitter types (Individual Farmer, Development Agent, Cooperative, NGO, etc.), intake channels, supported languages, country phone extensions (ISD codes), service categories, and grievance types."
@@ -270,38 +360,20 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.administrative_area.get_areas?parent=",
+              "raw": "{{base_url}}/api/v1/administrative_area/areas?parent=",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.administrative_area.get_areas"
+                "v1",
+                "administrative_area",
+                "areas"
               ],
               "query": [
                 {
                   "key": "parent",
-                  "value": "",
-                  "description": "Optional parent ID or path_code (e.g. region-ET14 or ET.ET14). If empty, returns top-level regions."
-                },
-                {
-                  "key": "level_name",
-                  "value": "",
-                  "description": "Optional level filter: Region, Zone, Woreda, Kebele",
-                  "disabled": true
-                },
-                {
-                  "key": "search",
-                  "value": "",
-                  "description": "Optional search string matching area name",
-                  "disabled": true
-                },
-                {
-                  "key": "ancestors_of",
-                  "value": "",
-                  "description": "Optional area ID to get breadcrumbs hierarchy",
-                  "disabled": true
+                  "value": ""
                 }
               ]
             },
@@ -399,14 +471,15 @@
               "raw": "{\n    \"full_name\": \"{{submitter_name}}\",\n    \"email\": \"{{user_email}}\",\n    \"phone_number\": \"{{contact_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Individual Farmer\",\n    \"fayda_id\": \"{{fayda_id}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.register_user",
+              "raw": "{{base_url}}/api/v1/auth/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_auth_service.api.v1.auth.register_user"
+                "v1",
+                "auth",
+                "register"
               ]
             },
             "description": "Registers an Individual Farmer account. Derives canonical dedupe_key as 'fayda:<fayda_id>' or 'phone:<contact_mobile>', initializes the Submitter Profile, and issues access/refresh tokens."
@@ -498,14 +571,15 @@
               "raw": "{\n    \"full_name\": \"{{authorized_representative}}\",\n    \"email\": \"{{org_email}}\",\n    \"phone_number\": \"{{org_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Cooperative\",\n    \"organization_name\": \"{{organization_name}}\",\n    \"registration_number\": \"{{registration_number}}\",\n    \"representative_name\": \"{{authorized_representative}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.register_user",
+              "raw": "{{base_url}}/api/v1/auth/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_auth_service.api.v1.auth.register_user"
+                "v1",
+                "auth",
+                "register"
               ]
             },
             "description": "Registers an Organization (Cooperative, FPO, NGO, or Local Body). Takes the Organization Name, official Registration Number (which forms dedupe_key as 'org:<registration_number>'), and Authorized Representative contact details."
@@ -587,14 +661,15 @@
               "raw": "{\n    \"usr\": \"{{user_email}}\",\n    \"pwd\": \"{{user_password}}\",\n    \"remember_me\": false\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.login",
+              "raw": "{{base_url}}/api/v1/auth/login",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_auth_service.api.v1.auth.login"
+                "v1",
+                "auth",
+                "login"
               ]
             },
             "description": "Authenticates user credentials and returns a Bearer access token along with a single-use refresh token. Tokens are automatically saved to Postman variables for subsequent requests."
@@ -670,14 +745,15 @@
               "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.refresh",
+              "raw": "{{base_url}}/api/v1/auth/refresh",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_auth_service.api.v1.auth.refresh"
+                "v1",
+                "auth",
+                "refresh"
               ]
             },
             "description": "Exchanges a single-use refresh token for a fresh access token and a newly rotated refresh token."
@@ -740,14 +816,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.submitter.me",
+              "raw": "{{base_url}}/api/v1/submitter/me",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.submitter.me"
+                "v1",
+                "submitter",
+                "me"
               ]
             },
             "description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
@@ -813,14 +890,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.options",
+              "raw": "{{base_url}}/api/v1/grievances/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.options"
+                "v1",
+                "grievances",
+                "options"
               ]
             },
             "description": "Protected management reference endpoint for Grievance Officers and Administrators. Retrieves reference data for case triage, assignment, and status filters, including departments, lifecycle statuses with open/terminal flags, categories, grievance types, and channels."
@@ -858,14 +936,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.list_grievances?page=1&page_size=20&status={{status}}&category={{category}}&region={{region}}&search={{search}}",
+              "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&status={{status}}&category={{category}}&region={{region}}&search={{search}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.list_grievances"
+                "v1",
+                "grievances"
               ],
               "query": [
                 {
@@ -908,7 +986,7 @@
                 }
               ]
             },
-            "description": "Retrieves a paginated list of grievances matching RBAC permissions and optional multi-select filters."
+            "description": "Retrieves a paginated list of grievances matching RBAC permissions and optional multi-select filters for status, category, region, date range, and text search (ID, submitter, grievance type)."
           },
           "response": []
         },
@@ -981,14 +1059,14 @@
               "raw": "{\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n    \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.submit",
+              "raw": "{{base_url}}/api/v1/grievances",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.submit"
+                "v1",
+                "grievances"
               ]
             },
             "description": "FSD 4.1: Submits a new grievance. Validates required fields, snapshots administrative path code, executes nearest-ancestor routing, generates ticket number, queues acknowledgement notification, and returns ticket summary."
@@ -1035,20 +1113,15 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.track?ticket_number={{ticket_number}}",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.track"
-              ],
-              "query": [
-                {
-                  "key": "ticket_number",
-                  "value": "{{ticket_number}}"
-                }
+                "v1",
+                "grievances",
+                "{{ticket_number}}"
               ]
             },
             "description": "Submitter-facing tracking lookup for the portal, mobile app, and IVR. Returns current status, assigned department, SLA deadline, consumed SLA percentage, and confirmation window."
@@ -1106,14 +1179,16 @@
               "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Additional fertilizer receipt voucher reference is VR-2026-9912 attached for verification.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.reply",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reply",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.reply"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "reply"
               ]
             },
             "description": "FSD Appendix C: Allows the submitter to answer a 'More Information Needed' request from the handling officer."
@@ -1156,65 +1231,19 @@
               "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Following up on the voucher disbursement status.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.message",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.message"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "message"
               ]
             },
             "description": "Posts a public conversation message onto the grievance timeline."
-          },
-          "response": []
-        },
-        {
-          "name": "9b. Get Grievance Timeline",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Timeline retrieved with entries list\", function () {",
-                  "    pm.expect(data).to.have.property(\"ticket_number\");",
-                  "    pm.expect(data).to.have.property(\"timeline\");",
-                  "    pm.expect(Array.isArray(data.timeline)).to.be.true;",
-                  "    pm.expect(data.timeline.length).to.be.above(0);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.timeline?ticket_number={{ticket_number}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.timeline"
-              ],
-              "query": [
-                {
-                  "key": "ticket_number",
-                  "value": "{{ticket_number}}"
-                }
-              ]
-            },
-            "description": "Retrieves the unified conversation and activity timeline for the grievance."
           },
           "response": []
         },
@@ -1253,20 +1282,66 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Officer verified voucher discrepancy with local union supervisor.\",\n    \"is_internal\": true\n}"
+              "raw": "{\n    \"body\": \"Officer verified voucher discrepancy with local union supervisor.\",\n    \"is_internal\": true\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.add_note",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/note",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.add_note"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "note"
               ]
             },
             "description": "Staff-only endpoint (Officer/Admin) to add an internal or public note to the unified grievance timeline."
+          },
+          "response": []
+        },
+        {
+          "name": "9b. Get Grievance Timeline",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "pm.test(\"Timeline retrieved with entries list\", function () {",
+                  "    pm.expect(data).to.have.property(\"ticket_number\");",
+                  "    pm.expect(data).to.have.property(\"timeline\");",
+                  "    pm.expect(Array.isArray(data.timeline)).to.be.true;",
+                  "    pm.expect(data.timeline.length).to.be.above(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "timeline"
+              ]
+            },
+            "description": "Retrieves the unified conversation and activity timeline for the grievance."
           },
           "response": []
         },
@@ -1330,14 +1405,16 @@
               "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"SLA window elapsed without preliminary response or status update from the department.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.escalate",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/escalate",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.escalate"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "escalate"
               ]
             },
             "description": "FSD 3.7: Allows the submitter to trigger a manual escalation once the SLA window has expired."
@@ -1403,14 +1480,16 @@
               "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.confirm",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/confirm",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.confirm"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "confirm"
               ]
             },
             "description": "FSD 3.6 / UC-03: The submitter confirms the resolution provided by the officer, submitting an optional 1-5 satisfaction rating and comments, transitioning the case to Closed."
@@ -1476,14 +1555,16 @@
               "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.reopen",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reopen",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_grievance_service.api.v1.grievance.reopen"
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "reopen"
               ]
             },
             "description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."
@@ -1541,14 +1622,15 @@
               "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.logout",
+              "raw": "{{base_url}}/api/v1/auth/logout",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "method",
-                "oan_auth_service.api.v1.auth.logout"
+                "v1",
+                "auth",
+                "logout"
               ]
             },
             "description": "Revokes the supplied refresh token row from storage and clears local token variables."

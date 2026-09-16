@@ -194,11 +194,11 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(data_hyphen["status"], "success")
 
 	def test_grievance_options_endpoint(self):
-		"""Test GET /api/v1/grievance/options."""
+		"""Test GET /api/v1/grievances/options."""
 		import frappe.api
 
 		frappe.set_user("Administrator")
-		req = make_test_request("/api/v1/grievance/options", method="GET")
+		req = make_test_request("/api/v1/grievances/options", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
 		data = json.loads(res.get_data(as_text=True))

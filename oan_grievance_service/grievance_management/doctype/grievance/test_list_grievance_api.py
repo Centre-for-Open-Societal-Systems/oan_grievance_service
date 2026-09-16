@@ -160,6 +160,20 @@ class TestListGrievanceAPI(FrappeTestCase):
 		for item in items:
 			self.assertEqual(item.get("status"), C.IN_PROGRESS)
 
+	def test_list_grievances_filter_by_status_multi(self):
+		"""Filter by multiple statuses (comma-separated and list)."""
+		frappe.set_user("Administrator")
+		res = list_grievances(status=f"{C.SUBMITTED},{C.IN_PROGRESS}")
+		items = res.get("data", {}).get("items", [])
+		self.assertEqual(len(items), 5)
+		statuses = {item.get("status") for item in items}
+		self.assertIn(C.SUBMITTED, statuses)
+		self.assertIn(C.IN_PROGRESS, statuses)
+
+		res_list = list_grievances(status=[C.SUBMITTED, C.IN_PROGRESS])
+		items_list = res_list.get("data", {}).get("items", [])
+		self.assertEqual(len(items_list), 5)
+
 	def test_list_grievances_filter_by_category(self):
 		"""Filter by service category."""
 		frappe.set_user("Administrator")
@@ -168,13 +182,33 @@ class TestListGrievanceAPI(FrappeTestCase):
 		for item in items:
 			self.assertEqual(item.get("service_category"), "Credit")
 
-	def test_list_grievances_search(self):
-		"""Search by description text."""
+	def test_list_grievances_filter_by_category_multi(self):
+		"""Filter by multiple service categories using category alias."""
 		frappe.set_user("Administrator")
-		res = list_grievances(search="number 2")
+		res = list_grievances(category=["Inputs", "Credit"])
+		items = res.get("data", {}).get("items", [])
+		self.assertEqual(len(items), 5)
+
+	def test_list_grievances_search(self):
+		"""Search by ticket number."""
+		frappe.set_user("Administrator")
+		target = self.created_docs[2]
+		res = list_grievances(search=target.ticket_number)
 		items = res.get("data", {}).get("items", [])
 		self.assertEqual(len(items), 1)
-		self.assertIn("number 2", items[0].get("description"))
+		self.assertEqual(items[0].get("ticket_number"), target.ticket_number)
+
+	def test_list_grievances_search_by_type_and_submitter(self):
+		"""Search by grievance type and submitter name."""
+		frappe.set_user("Administrator")
+		res_type = list_grievances(search="Fertilizer")
+		items_type = res_type.get("data", {}).get("items", [])
+		self.assertEqual(len(items_type), 5)
+
+		res_sub = list_grievances(search="Farmer Submitter 1")
+		items_sub = res_sub.get("data", {}).get("items", [])
+		self.assertEqual(len(items_sub), 1)
+		self.assertEqual(items_sub[0].get("submitter_name"), "Farmer Submitter 1")
 
 	def test_get_grievance_detail(self):
 		"""Retrieve full grievance detail."""
