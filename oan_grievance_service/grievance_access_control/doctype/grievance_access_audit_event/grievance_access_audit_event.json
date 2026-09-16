@@ -1,6 +1,6 @@
 {
  "actions": [],
- "allow_rename": 1,
+ "allow_rename": 0,
  "autoname": "format:GR-AUDIT-{########}",
  "creation": "2026-09-03 18:15:08.844410",
  "doctype": "DocType",
@@ -24,7 +24,8 @@
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Timestamp",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "user",
@@ -32,13 +33,15 @@
    "in_list_view": 1,
    "label": "User",
    "options": "User",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "role",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Role"
+   "label": "Role",
+   "read_only": 1
   },
   {
    "fieldname": "col_audit",
@@ -48,14 +51,16 @@
    "fieldname": "grievance",
    "fieldtype": "Link",
    "label": "Grievance",
-   "options": "Grievance"
+   "options": "Grievance",
+   "read_only": 1
   },
   {
    "fieldname": "action",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Action",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "decision",
@@ -63,12 +68,14 @@
    "in_list_view": 1,
    "label": "Decision",
    "options": "Allowed\nDenied",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "source",
    "fieldtype": "Data",
-   "label": "Source"
+   "label": "Source",
+   "read_only": 1
   },
   {
    "fieldname": "sec_scope",
@@ -78,7 +85,8 @@
   {
    "fieldname": "scope_evaluated",
    "fieldtype": "Small Text",
-   "label": "Scope Evaluated"
+   "label": "Scope Evaluated",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
@@ -94,7 +102,7 @@
   {
    "role": "Grievance Admin",
    "read": 1,
-   "write": 1,
+   "write": 0,
    "create": 1,
    "delete": 0,
    "submit": 0,
@@ -109,7 +117,7 @@
   {
    "role": "System Manager",
    "read": 1,
-   "write": 1,
+   "write": 0,
    "create": 1,
    "delete": 0,
    "submit": 0,

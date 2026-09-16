@@ -83,7 +83,10 @@ jobs:
       - name: Setup
         run: |
           pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
+          # Pin the branch. Without it bench clones frappe's default, which is
+          # develop (17.0.0-dev) -- so CI was green against a pre-release
+          # framework two majors ahead of the one we run and would deploy.
+          bench init --frappe-branch version-16 --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
 
       - name: Install
         working-directory: /home/runner/frappe-bench

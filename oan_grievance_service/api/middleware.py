@@ -14,6 +14,24 @@ API_NAMESPACE = "/api/method/oan_grievance_service."
 EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.submitter.options",
 	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
+	# The submission wizard fills its dropdowns on page load, before the submitter
+	# has registered and therefore before any token exists. Without these four the
+	# form 401s at the point a farmer opens it, having typed nothing. All four are
+	# read-only reference data -- submitter types, categories, the types under a
+	# category, and a preview of the ticket number -- and carry no personal data.
+	"/api/method/oan_grievance_service.api.v1.submission.form_meta",
+	"/api/method/oan_grievance_service.api.v1.submission.categories",
+	"/api/method/oan_grievance_service.api.v1.submission.grievance_types",
+	"/api/method/oan_grievance_service.api.v1.submission.ticket_preview",
+	# A draft exists to survive the connection dropping mid-wizard, which happens
+	# while the submitter is still filling the form -- before they have registered
+	# and so before a token exists. Requiring one here would defeat the feature on
+	# exactly the low-connectivity channel FSD 7 targets. A draft is reached only
+	# by its client_uuid, and a draft claimed by a signed-in user stays with that
+	# user; see _assert_owner.
+	"/api/method/oan_grievance_service.api.v1.draft.save",
+	"/api/method/oan_grievance_service.api.v1.draft.load",
+	"/api/method/oan_grievance_service.api.v1.draft.discard",
 ]
 
 

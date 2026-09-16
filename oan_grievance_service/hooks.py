@@ -45,6 +45,11 @@ has_permission = {
 # structured response is filed. FSD 3.3.1 gates reassignment on L2 approval.
 # FR-10 records every read of a case.
 
+_CLEAR_LOOKUP_CACHE = {
+	"on_update": "oan_grievance_service.api.v1.submission.clear_reference_cache",
+	"after_delete": "oan_grievance_service.api.v1.submission.clear_reference_cache",
+}
+
 doc_events = {
 	"Grievance": {
 		"after_insert": "oan_grievance_service.services.hooks_handlers.grievance_after_insert",
@@ -62,6 +67,12 @@ doc_events = {
 	"Grievance Anonymity Request": {
 		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
 	},
+	# The submission wizard caches its lookups. An administrator adding a woreda
+	# or deactivating a category must see it in the form immediately, not after
+	# the cache expires.
+	"Grievance Administrative Area": _CLEAR_LOOKUP_CACHE,
+	"Grievance Service Category": _CLEAR_LOOKUP_CACHE,
+	"Grievance Type": _CLEAR_LOOKUP_CACHE,
 	# FSD 3.8: our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
 	# text. Extends a core doctype through the supported hook rather than editing it.
@@ -80,9 +91,13 @@ scheduler_events = {
 		"oan_grievance_service.tasks.send_sla_reminders",
 		"oan_grievance_service.tasks.escalate_breached",
 		"oan_grievance_service.tasks.dispatch_notifications",
+		# Attachments land as Pending and is_servable() withholds anything not yet
+		# Clean, so without this every uploaded file stays invisible to officers.
+		"oan_grievance_service.tasks.scan_pending_attachments",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",
+		"oan_grievance_service.tasks.purge_expired_drafts",
 	],
 }
 

@@ -6,6 +6,7 @@ Every question about a breach â€” who opened this case, who exported a region â€
 """
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
 ACTION_VIEW_DETAIL = "view_detail"
@@ -56,3 +57,33 @@ def on_grievance_view(doc, method=None):
 def log_denied(action, grievance=None, scope=None):
 	"""FSD UC-02 E1: an unauthorised attempt is denied and logged."""
 	record_access(action, grievance=grievance, scope=scope, decision="Denied")
+
+
+class ImmutableRecord:
+	"""Mixin for append-only doctypes: a row may be created, never changed or removed.
+
+	The permission flags on these doctypes already deny write and delete in the desk,
+	but permissions are exactly what server code bypasses -- every insert here runs
+	with `ignore_permissions=True`, and `db_set` skips the ORM altogether. An audit
+	trail whose only defence is a permission flag is one `frappe.db.set_value` away
+	from being rewritten, with nothing recording that it happened.
+
+	FR-10 needs the trail to be evidence. Evidence that the application can silently
+	revise is not evidence, so the refusal lives in the document lifecycle where the
+	service layer cannot step around it.
+	"""
+
+	def on_update(self):
+		# get_doc_before_save() is None on insert and the prior version on update,
+		# which is the only reliable way to tell the two apart in this hook.
+		if self.get_doc_before_save():
+			frappe.throw(
+				_("{0} is an audit record and cannot be modified after it is written.").format(self.doctype),
+				title=_("Immutable Record"),
+			)
+
+	def on_trash(self):
+		frappe.throw(
+			_("{0} is an audit record and cannot be deleted.").format(self.doctype),
+			title=_("Immutable Record"),
+		)

@@ -1,0 +1,208 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:GR-ATT-{######}",
+ "creation": "2026-09-13 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "response",
+  "document_type",
+  "col_source",
+  "uploaded_by_user",
+  "uploaded_by_submitter",
+  "sec_file",
+  "file_name",
+  "file_url",
+  "mime_type",
+  "col_file",
+  "size_bytes",
+  "checksum_sha256",
+  "sec_scan",
+  "scan_status",
+  "scanned_at",
+  "col_scan",
+  "scan_detail"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Set when the file arrived with an officer response rather than the original submission.",
+   "fieldname": "response",
+   "fieldtype": "Link",
+   "label": "Grievance Response",
+   "options": "Grievance Response",
+   "read_only": 1
+  },
+  {
+   "description": "Which item on the supporting-documents checklist this file satisfies, where one applies.",
+   "fieldname": "document_type",
+   "fieldtype": "Data",
+   "label": "Document Type"
+  },
+  {
+   "fieldname": "col_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Set when an officer uploaded the file.",
+   "fieldname": "uploaded_by_user",
+   "fieldtype": "Link",
+   "label": "Uploaded By (Officer)",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Set when the submitter uploaded the file. Exactly one of the two uploader fields is always populated.",
+   "fieldname": "uploaded_by_submitter",
+   "fieldtype": "Link",
+   "label": "Uploaded By (Submitter)",
+   "options": "Grievance Submitter Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_file",
+   "fieldtype": "Section Break",
+   "label": "File"
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File Name",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Storage key for the object. Blobs are never held in the database.",
+   "fieldname": "file_url",
+   "fieldtype": "Data",
+   "label": "File URL",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Sniffed server-side, never taken from the client. A renamed .exe is still an .exe.",
+   "fieldname": "mime_type",
+   "fieldtype": "Data",
+   "label": "MIME Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_file",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "size_bytes",
+   "fieldtype": "Int",
+   "label": "Size (bytes)",
+   "read_only": 1
+  },
+  {
+   "description": "Content hash. Deduplicates re-uploads of the same photo across a case, and proves an evidence file has not been swapped since it was filed.",
+   "fieldname": "checksum_sha256",
+   "fieldtype": "Data",
+   "label": "SHA-256",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_scan",
+   "fieldtype": "Section Break",
+   "label": "Malware Scan"
+  },
+  {
+   "default": "Pending",
+   "description": "Nothing is served to an officer until this reads Clean. A public intake system accepts arbitrary files from the internet and then hands them to government staff to open.",
+   "fieldname": "scan_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Scan Status",
+   "options": "Pending\nClean\nInfected\nFailed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "scanned_at",
+   "fieldtype": "Datetime",
+   "label": "Scanned At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_scan",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Scanner verdict detail. An infected file keeps its row and its audit trail, and loses its object.",
+   "fieldname": "scan_detail",
+   "fieldtype": "Small Text",
+   "label": "Scan Detail",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Attachment",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Grievance Submitter"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "file_name",
+ "track_changes": 1
+}

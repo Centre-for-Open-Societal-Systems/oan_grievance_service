@@ -133,9 +133,29 @@ def dispatch_notifications():
 	return notifications.dispatch_queued()
 
 
+def purge_expired_drafts():
+	"""Clear abandoned submission drafts. Drafts that became grievances are kept,
+	because they are what makes a retried submit return the original ticket."""
+	from oan_grievance_service.api.v1 import draft
+
+	return draft.purge_expired_drafts()
+
+
+def scan_pending_attachments():
+	"""Drain the attachment scan queue.
+
+	Nothing is served to an officer while a row is still Pending, so a backlog
+	here is a usability problem rather than a safety one.
+	"""
+	from oan_grievance_service.services import scanning
+
+	return scanning.scan_pending()
+
+
 def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
+	scan_pending_attachments()
 	escalate_breached()
 	dispatch_notifications()
 
@@ -143,3 +163,4 @@ def hourly():
 def daily():
 	"""Entry point wired to the daily scheduler event."""
 	auto_close_expired()
+	purge_expired_drafts()
