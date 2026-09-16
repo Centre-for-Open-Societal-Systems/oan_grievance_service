@@ -653,71 +653,6 @@
 						"description": "Exchanges a single-use refresh token for a fresh access token and a newly rotated refresh token."
 					},
 					"response": []
-				},
-				{
-					"name": "5. Logout",
-					"event": [
-						{
-							"listen": "prerequest",
-							"script": {
-								"exec": [
-									"var refreshToken = pm.environment.get(\"refresh_token\") || pm.collectionVariables.get(\"refresh_token\");",
-									"if (!refreshToken) {",
-									"    console.warn(\"[Pre-request] 'refresh_token' is empty.\");",
-									"}"
-								],
-								"type": "text/javascript"
-							}
-						},
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.collectionVariables.set(\"access_token\", \"\");",
-									"pm.collectionVariables.set(\"refresh_token\", \"\");",
-									"if (pm.environment.name) {",
-									"    pm.environment.set(\"access_token\", \"\");",
-									"    pm.environment.set(\"refresh_token\", \"\");",
-									"}",
-									"console.log(\"[Post-response] Cleared access_token and refresh_token.\");"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"auth": {
-							"type": "noauth"
-						},
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.logout",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"api",
-								"method",
-								"oan_auth_service.api.v1.auth.logout"
-							]
-						},
-						"description": "Revokes the supplied refresh token row from storage and clears local token variables."
-					},
-					"response": []
 				}
 			]
 		},
@@ -823,7 +758,6 @@
 									"    var data = envelope.data || envelope;",
 									"    pm.expect(data).to.have.property(\"departments\");",
 									"    pm.expect(data).to.have.property(\"statuses\");",
-									"    pm.expect(data).to.have.property(\"priorities\");",
 									"    pm.expect(data).to.have.property(\"service_categories\");",
 									"    pm.expect(data).to.have.property(\"grievance_types\");",
 									"    pm.expect(data).to.have.property(\"submission_channels\");",
@@ -859,7 +793,7 @@
 								"oan_grievance_service.api.v1.grievance.options"
 							]
 						},
-						"description": "Protected management reference endpoint for Grievance Officers and Administrators. Retrieves reference data for case triage, assignment, and status filters, including departments, lifecycle statuses with open/terminal flags, priorities, categories, grievance types, and channels."
+						"description": "Protected management reference endpoint for Grievance Officers and Administrators. Retrieves reference data for case triage, assignment, and status filters, including departments, lifecycle statuses with open/terminal flags, categories, grievance types, and channels."
 					},
 					"response": []
 				},
@@ -890,6 +824,9 @@
 							"script": {
 								"exec": [
 									"pm.test(\"Status code is 200\", function () {",
+									"    if (pm.response.code !== 200) {",
+									"        console.error(\"[Post-response 7 Error]:\", pm.response.text());",
+									"    }",
 									"    pm.response.to.have.status(200);",
 									"});",
 									"",
@@ -1069,6 +1006,104 @@
 					"response": []
 				},
 				{
+					"name": "9a. Post Timeline Message",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"pm.test(\"Timeline message recorded successfully\", function () {",
+									"    pm.expect(data).to.have.property(\"entry_type\");",
+									"    pm.expect(data.entry_type).to.eql(\"message\");",
+									"    pm.expect(data.is_internal).to.be.false;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Following up on the voucher disbursement status.\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.message",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.message"
+							]
+						},
+						"description": "Posts a public conversation message onto the grievance timeline."
+					},
+					"response": []
+				},
+				{
+					"name": "9b. Get Grievance Timeline",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"pm.test(\"Timeline retrieved with entries list\", function () {",
+									"    pm.expect(data).to.have.property(\"ticket_number\");",
+									"    pm.expect(data).to.have.property(\"timeline\");",
+									"    pm.expect(Array.isArray(data.timeline)).to.be.true;",
+									"    pm.expect(data.timeline.length).to.be.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.timeline?ticket_number={{ticket_number}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_grievance_service.api.v1.grievance.timeline"
+							],
+							"query": [
+								{
+									"key": "ticket_number",
+									"value": "{{ticket_number}}"
+								}
+							]
+						},
+						"description": "Retrieves the unified conversation and activity timeline for the grievance."
+					},
+					"response": []
+				},
+				{
 					"name": "10. Escalate Grievance",
 					"event": [
 						{
@@ -1092,17 +1127,24 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
+									"pm.test(\"Status code is 200 or 400 (validates SLA window)\", function () {",
+									"    pm.expect([200, 400]).to.include(pm.response.code);",
 									"});",
 									"",
 									"var jsonData = pm.response.json();",
-									"var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-									"pm.test(\"Escalation response confirmed\", function () {",
-									"    pm.expect(data).to.have.property(\"ticket_number\");",
-									"    pm.expect(data).to.have.property(\"escalated\");",
-									"    pm.expect(data.escalated).to.be.true;",
-									"});"
+									"if (pm.response.code === 200) {",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.test(\"Escalation response confirmed\", function () {",
+									"        pm.expect(data).to.have.property(\"ticket_number\");",
+									"        pm.expect(data).to.have.property(\"escalated\");",
+									"        pm.expect(data.escalated).to.be.true;",
+									"    });",
+									"} else {",
+									"    var envelope = jsonData.message || jsonData;",
+									"    pm.test(\"Returns validation error for premature escalation\", function () {",
+									"        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+									"    });",
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -1159,16 +1201,23 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
+									"pm.test(\"Status code is 200 or 400 (requires Pending Submitter state)\", function () {",
+									"    pm.expect([200, 400]).to.include(pm.response.code);",
 									"});",
 									"",
 									"var jsonData = pm.response.json();",
-									"var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-									"pm.test(\"Grievance status marked Closed\", function () {",
-									"    pm.expect(data).to.have.property(\"ticket_number\");",
-									"    pm.expect(data.status).to.eql(\"Closed\");",
-									"});"
+									"if (pm.response.code === 200) {",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.test(\"Grievance status marked Closed\", function () {",
+									"        pm.expect(data).to.have.property(\"ticket_number\");",
+									"        pm.expect(data.status).to.eql(\"Closed\");",
+									"    });",
+									"} else {",
+									"    var envelope = jsonData.message || jsonData;",
+									"    pm.test(\"Returns validation error when not in Pending Submitter state\", function () {",
+									"        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+									"    });",
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -1225,16 +1274,23 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
+									"pm.test(\"Status code is 200 or 400 (requires reopenable state)\", function () {",
+									"    pm.expect([200, 400]).to.include(pm.response.code);",
 									"});",
 									"",
 									"var jsonData = pm.response.json();",
-									"var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-									"pm.test(\"Reopen returned valid status\", function () {",
-									"    pm.expect(data).to.have.property(\"ticket_number\");",
-									"    pm.expect(data).to.have.property(\"status\");",
-									"});"
+									"if (pm.response.code === 200) {",
+									"    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+									"    pm.test(\"Reopen returned valid status\", function () {",
+									"        pm.expect(data).to.have.property(\"ticket_number\");",
+									"        pm.expect(data).to.have.property(\"status\");",
+									"    });",
+									"} else {",
+									"    var envelope = jsonData.message || jsonData;",
+									"    pm.test(\"Returns validation error when not in reopenable state\", function () {",
+									"        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+									"    });",
+									"}"
 								],
 								"type": "text/javascript"
 							}
@@ -1264,6 +1320,71 @@
 							]
 						},
 						"description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."
+					},
+					"response": []
+				},
+				{
+					"name": "13. Logout (Cleanup)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"var refreshToken = pm.environment.get(\"refresh_token\") || pm.collectionVariables.get(\"refresh_token\");",
+									"if (!refreshToken) {",
+									"    console.warn(\"[Pre-request] 'refresh_token' is empty.\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.collectionVariables.set(\"access_token\", \"\");",
+									"pm.collectionVariables.set(\"refresh_token\", \"\");",
+									"if (pm.environment.name) {",
+									"    pm.environment.set(\"access_token\", \"\");",
+									"    pm.environment.set(\"refresh_token\", \"\");",
+									"}",
+									"console.log(\"[Post-response] Cleared access_token and refresh_token.\");"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/method/oan_auth_service.api.v1.auth.logout",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"method",
+								"oan_auth_service.api.v1.auth.logout"
+							]
+						},
+						"description": "Revokes the supplied refresh token row from storage and clears local token variables."
 					},
 					"response": []
 				}

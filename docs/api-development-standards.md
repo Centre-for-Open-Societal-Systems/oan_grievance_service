@@ -18,12 +18,16 @@ This document defines the architectural conventions, decorator pipeline, request
 
 ## 2. Directory Structure & URL Mapping
 
-Endpoints follow Frappe's method dispatch convention:
+Endpoints support two transports:
+
+1. **REST Transport (Preferred):** Clean HTTP paths mounted into Frappe's URL Map via `@prefixed(...)` / `@rest(...)`.
+2. **RPC Transport (Backward Compatibility):** Frappe's method dispatch convention (`/api/method/...`).
 
 ```
 oan_grievance_service/api/
-├── __init__.py                # Version registry & metadata helpers
-├── middleware.py              # JWT validation & public path exemptions
+├── __init__.py                # Version registry, metadata helpers & router re-exports
+├── router.py                  # REST route loader & URL map registration
+├── middleware.py              # JWT validation & RPC path exemptions
 └── v1/                        # Version 1 API package
     ├── __init__.py            # Module index & endpoint catalog
     ├── grievance.py           # Case submission, tracking & lifecycle actions
@@ -31,9 +35,25 @@ oan_grievance_service/api/
     └── administrative_area.py # Cascading geo-hierarchy lookups
 ```
 
-**Dispatch Path:**  
-A function `submit` in `oan_grievance_service/api/v1/grievance.py` maps to:  
-`POST /api/method/oan_grievance_service.api.v1.grievance.submit`
+**URL Mapping Examples:**
+
+| Endpoint Purpose          | REST Route (Preferred)                             | RPC Route (Legacy)                                                           | Method |
+| ------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- | ------ |
+| Health Check              | `GET /api/v1/grievance/health`                     | `GET /api/method/oan_grievance_service.api.router.get_health`                | GET    |
+| Submitter Options         | `GET /api/v1/submitter/options`                    | `GET /api/method/oan_grievance_service.api.v1.submitter.options`             | GET    |
+| Submitter Profile         | `GET /api/v1/submitter/me`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                  | GET    |
+| Geo Areas                 | `GET /api/v1/administrative_area/areas`            | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas` | GET    |
+| List Grievances           | `GET /api/v1/grievances`                           | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`     | GET    |
+| Submit Case               | `POST /api/v1/grievances`                          | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`             | POST   |
+| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`           | `GET /api/method/oan_grievance_service.api.v1.grievance.track`               | GET    |
+| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`  | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`            | GET    |
+| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`     | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`           | POST   |
+| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`  | `POST /api/method/oan_grievance_service.api.v1.grievance.message`            | POST   |
+| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`  | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`            | POST   |
+| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`   | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`             | POST   |
+| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate` | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`           | POST   |
+| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`    | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`              | POST   |
+| Grievance Options         | `GET /api/v1/grievances/options`                   | `GET /api/method/oan_grievance_service.api.v1.grievance.options`             | GET    |
 
 ---
 
@@ -42,22 +62,29 @@ A function `submit` in `oan_grievance_service/api/v1/grievance.py` maps to:
 Every API endpoint must apply decorators in the exact order shown below:
 
 ```python
-@frappe.whitelist()                               # 1. Exposes method via HTTP RPC
-@handle_api_errors                                # 2. Catches exceptions and formats error JSON
-@require_role(ALLOWED_ROLES)                      # 3. Enforces RBAC permissions
-@validate_request(YourRequestModel)               # 4. Validates payload schema via Pydantic
+from oan_auth_service.api.router import prefixed
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
+
+route = prefixed("/api/v1/grievance")
+
+@route("/your-action", methods=("POST",), summary="Action description")
+@frappe.whitelist()                               # Exposes method via HTTP RPC
+@handle_api_errors                                # Catches exceptions and formats error JSON
+@require_role(ALLOWED_ROLES)                      # Enforces RBAC permissions
+@validate_request(YourRequestModel)               # Validates payload schema via Pydantic
 def your_endpoint(**kwargs):
     ...
 ```
 
 ### Decorator Responsibilities
 
-| Decorator                  | Source                       | Purpose                                                                                                                                            |
-| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@frappe.whitelist()`      | `frappe`                     | Whitelists the Python function for HTTP invocation. Use `allow_guest=True` only for public, unauthenticated routes.                                |
-| `@handle_api_errors`       | `oan_auth_service.api.utils` | Intercepts `frappe.ValidationError`, `frappe.PermissionError`, etc., and returns standard JSON error responses with appropriate HTTP status codes. |
-| `@require_role(...)`       | `oan_auth_service.api.utils` | Blocks requests if the authenticated user lacks one of the specified roles (e.g., `Grievance Submitter`, `Grievance Officer`).                     |
-| `@validate_request(Model)` | `oan_auth_service.api.utils` | Validates input against a Pydantic schema before executing the handler.                                                                            |
+| Decorator                    | Source                        | Purpose                                                                                                                                                                                                  |
+| ---------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@route(...)` / `@rest(...)` | `oan_auth_service.api.router` | Exposes clean RESTful URL endpoint on Frappe's `API_URL_MAP` and registers guest exemptions.                                                                                                             |
+| `@frappe.whitelist()`        | `frappe`                      | Whitelists the Python function for HTTP invocation. Use `allow_guest=True` only for public, unauthenticated routes.                                                                                      |
+| `@handle_api_errors`         | `oan_auth_service.api.utils`  | Intercepts `frappe.ValidationError`, `frappe.PermissionError`, etc., and returns standard JSON error responses with appropriate HTTP status codes. Dynamically resolves service-specific `version_meta`. |
+| `@require_role(...)`         | `oan_auth_service.api.utils`  | Blocks requests if the authenticated user lacks one of the specified roles (e.g., `Grievance Submitter`, `Grievance Officer`).                                                                           |
+| `@validate_request(Model)`   | `oan_auth_service.api.utils`  | Validates input against a Pydantic schema before executing the handler.                                                                                                                                  |
 
 ---
 

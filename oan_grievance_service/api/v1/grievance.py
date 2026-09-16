@@ -8,6 +8,7 @@ service layer so the audit trail and notifications cannot be bypassed.
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
@@ -19,6 +20,8 @@ from oan_grievance_service.services import constants as C
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
+
+route = prefixed("/api/v1/grievances")
 
 ALLOWED_GRIEVANCE_ROLES = [
 	"Grievance Submitter",
@@ -139,6 +142,7 @@ def resolve_administrative_area(area_identifier):
 	) or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
 
 
+@route("", methods=("POST",), summary="Submit a new grievance")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -204,6 +208,17 @@ def submit(**kwargs):
 			return original
 
 	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
+
+	# Resolve grievance_type if caller provided the type_name instead of document ID
+	gtype = resolved.get("grievance_type")
+	if gtype and not frappe.db.exists("Grievance Type", gtype):
+		gtype_id = frappe.db.get_value(
+			"Grievance Type",
+			{"type_name": gtype, "is_active": 1},
+			"name",
+		)
+		if gtype_id:
+			resolved["grievance_type"] = gtype_id
 
 	doc = frappe.new_doc("Grievance")
 	for field, value in resolved.items():
@@ -354,30 +369,263 @@ def detect_duplicates(grievance, window_days=7):
 	return rows
 
 
+@route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def list_grievances(
+	page: int | str = 1,
+	page_size: int | str = 20,
+	limit: int | str | None = None,
+	status: str | None = None,
+	service_category: str | None = None,
+	grievance_type: str | None = None,
+	assigned_dept: str | None = None,
+	department: str | None = None,
+	assigned_to: str | None = None,
+	administrative_area: str | None = None,
+	submission_channel: str | None = None,
+	escalated: bool | str | None = None,
+	is_escalated: bool | str | None = None,
+	is_anonymous: bool | str | None = None,
+	submitter: str | None = None,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	search: str | None = None,
+	sort_by: str = "creation",
+	sort_order: str = "desc",
+	**kwargs,
+):
+	"""Retrieve paginated and filtered list of grievances.
+
+	Enforces deny-by-default RBAC through permission query conditions:
+	- Grievance Submitters only see their own cases and assisted submissions.
+	- Grievance Officers only see cases matching their RBAC scope (administrative area subtree,
+	  department, category) or directly assigned to them.
+	- Grievance Admins and System Managers see all cases.
+	"""
+	import math
+
+	page_num = max(1, int(page))
+	effective_limit = limit if limit is not None else page_size
+	page_size_num = min(100, max(1, int(effective_limit)))
+	offset = (page_num - 1) * page_size_num
+
+	filters = []
+
+	if status:
+		status_list = [s.strip() for s in status.split(",") if s.strip()]
+		if len(status_list) == 1:
+			filters.append(["status", "=", status_list[0]])
+		elif len(status_list) > 1:
+			filters.append(["status", "in", status_list])
+
+	if service_category:
+		filters.append(["service_category", "=", service_category])
+
+	if grievance_type:
+		filters.append(["grievance_type", "=", grievance_type])
+
+	dept = assigned_dept or department
+	if dept:
+		filters.append(["assigned_dept", "=", dept])
+
+	if assigned_to:
+		target_user = frappe.session.user if assigned_to == "me" else assigned_to
+		filters.append(["assigned_to", "=", target_user])
+
+	if submission_channel:
+		filters.append(["submission_channel", "=", submission_channel])
+
+	if submitter:
+		if submitter == "me":
+			profile_name = frappe.db.get_value(
+				"Grievance Submitter Profile", {"user": frappe.session.user}, "name"
+			)
+			if profile_name:
+				filters.append(["submitter", "=", profile_name])
+		else:
+			filters.append(["submitter", "=", submitter])
+
+	if is_anonymous is not None:
+		val = 1 if str(is_anonymous).lower() in ("1", "true", "yes") else 0
+		filters.append(["is_anonymous", "=", val])
+
+	esc = is_escalated if is_escalated is not None else escalated
+	if esc is not None:
+		val = 1 if str(esc).lower() in ("1", "true", "yes") else 0
+		filters.append(["escalated", "=", val])
+
+	if from_date:
+		filters.append(["creation", ">=", f"{from_date} 00:00:00" if len(from_date) == 10 else from_date])
+
+	if to_date:
+		filters.append(["creation", "<=", f"{to_date} 23:59:59" if len(to_date) == 10 else to_date])
+
+	if administrative_area:
+		area_bounds = frappe.db.get_value(
+			"Grievance Administrative Area",
+			administrative_area,
+			["lft", "rgt"],
+			as_dict=True,
+		)
+		if area_bounds and area_bounds.lft is not None and area_bounds.rgt is not None:
+			filters.append(["area_lft", ">=", int(area_bounds.lft)])
+			filters.append(["area_lft", "<=", int(area_bounds.rgt)])
+		else:
+			filters.append(["administrative_area", "=", administrative_area])
+
+	or_filters = []
+	if search:
+		search_pattern = f"%{search.strip()}%"
+		or_filters = [
+			["ticket_number", "like", search_pattern],
+			["description", "like", search_pattern],
+			["submitter_name", "like", search_pattern],
+		]
+
+	allowed_sort_fields = {
+		"creation",
+		"modified",
+		"ticket_number",
+		"status",
+		"sla_due_date",
+		"service_category",
+		"grievance_type",
+	}
+	order_field = sort_by if sort_by in allowed_sort_fields else "creation"
+	order_direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+	order_by = f"`tabGrievance`.{order_field} {order_direction}"
+
+	fields = [
+		"name",
+		"ticket_number",
+		"status",
+		"escalated",
+		"submission_channel",
+		"submitter",
+		"submitter_name",
+		"contact_mobile",
+		"contact_email",
+		"is_anonymous",
+		"administrative_area",
+		"service_category",
+		"grievance_type",
+		"description",
+		"assigned_dept",
+		"assigned_to",
+		"sla_due_date",
+		"confirmation_deadline",
+		"creation as submitted_on",
+		"modified as updated_at",
+	]
+
+	items = frappe.get_list(
+		"Grievance",
+		filters=filters,
+		or_filters=or_filters if or_filters else None,
+		fields=fields,
+		order_by=order_by,
+		start=offset,
+		page_length=page_size_num,
+	)
+
+	total_records = frappe.get_list(
+		"Grievance",
+		filters=filters,
+		or_filters=or_filters if or_filters else None,
+		fields=["count(`tabGrievance`.name) as total"],
+		limit_page_length=1,
+	)
+	total_count = int(total_records[0].get("total", 0)) if total_records else 0
+	total_pages = math.ceil(total_count / page_size_num) if total_count > 0 else 1
+
+	for item in items:
+		item["escalated"] = bool(item.get("escalated"))
+		item["is_anonymous"] = bool(item.get("is_anonymous"))
+		item["department"] = item.get("assigned_dept")
+
+	audit.record_access(audit.ACTION_VIEW_LIST)
+
+	return success_response(
+		data={
+			"items": items,
+			"pagination": {
+				"page": page_num,
+				"page_size": page_size_num,
+				"total_count": total_count,
+				"total_pages": total_pages,
+				"has_next": page_num < total_pages,
+				"has_prev": page_num > 1,
+			},
+		},
+		message=_("Grievances retrieved successfully"),
+	)
+
+
+@route("/<ticket_number>", methods=("GET",), summary="Get grievance details by ticket number")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def track(ticket_number: str):
-	"""Submitter-facing status lookup for the portal and IVR."""
+	"""Grievance details and status lookup."""
 	doc = _load(ticket_number)
+	doc.check_permission("read")
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=doc.name)
+
+	attachments = frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Grievance", "attached_to_name": doc.name},
+		fields=["name", "file_name", "file_url", "file_size", "is_private"],
+		order_by="creation asc",
+	)
 
 	return success_response(
 		data={
+			"name": doc.name,
 			"ticket_number": doc.ticket_number,
 			"ticket_number_display": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
+			"submission_channel": doc.submission_channel,
+			"submitter_type": doc.submitter_type,
+			"submitter": doc.submitter,
+			"submitter_name": doc.submitter_name,
+			"contact_mobile": doc.contact_mobile,
+			"contact_email": doc.contact_email,
+			"assisted_by_officer": doc.assisted_by_officer,
+			"is_anonymous": bool(doc.is_anonymous),
+			"anonymity_status": doc.anonymity_status,
+			"administrative_area": doc.administrative_area,
+			"administrative_unit": doc.administrative_unit,
+			"service_category": doc.service_category,
+			"grievance_type": doc.grievance_type,
+			"associated_service_provider": doc.associated_service_provider,
+			"description": doc.description,
+			"desired_outcome": doc.desired_outcome,
+			"assigned_dept": doc.assigned_dept,
 			"department": doc.assigned_dept,
+			"assigned_to": doc.assigned_to,
+			"routed_automatically": bool(doc.routed_automatically),
+			"sla_days": doc.sla_days,
+			"sla_start_at": doc.sla_start_at,
 			"sla_due_date": doc.sla_due_date,
 			"sla_consumed_percent": sla.consumed_percent(doc),
 			"confirmation_deadline": doc.confirmation_deadline,
+			"reopen_count": doc.reopen_count,
+			"satisfaction_rating": doc.satisfaction_rating,
+			"satisfaction_comments": doc.satisfaction_comments,
+			"closure_reason": doc.closure_reason,
 			"submitted_on": doc.creation,
+			"created_at": doc.creation,
+			"updated_at": doc.modified,
+			"attachments": attachments,
 		},
-		message=_("Grievance status retrieved successfully"),
+		message=_("Grievance details retrieved successfully"),
 	)
 
 
+@route("/<ticket_number>/confirm", methods=("POST",), summary="Confirm grievance resolution")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -399,6 +647,7 @@ def confirm(ticket_number: str, rating: int | str | None = None, comments: str |
 	)
 
 
+@route("/<ticket_number>/reopen", methods=("POST",), summary="Reopen a resolved grievance")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -412,6 +661,7 @@ def reopen(ticket_number: str, reason: str):
 	)
 
 
+@route("/<ticket_number>/escalate", methods=("POST",), summary="Escalate an SLA-breached grievance")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -428,6 +678,7 @@ def escalate(ticket_number: str, reason: str):
 	)
 
 
+@route("/<ticket_number>/reply", methods=("POST",), summary="Reply to a More Info Needed request")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -441,6 +692,7 @@ def reply(ticket_number: str, body: str):
 	)
 
 
+@route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -450,12 +702,13 @@ def timeline(
 	limit: int | str = 20,
 	cursor: str | None = None,
 ):
-	"""Retrieve chronological unified conversation and activity timeline for a grievance.
+	"""Retrieve chronological unified conversation, activity timeline, and thread summary for a grievance.
 
 	Submitters only see public entries (is_internal = 0).
 	Staff (Officers, Admins) see all entries or can filter by is_internal flag.
 	"""
 	doc = _load(ticket_number)
+	doc.check_permission("read")
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=doc.name)
 
 	user = frappe.session.user
@@ -514,6 +767,38 @@ def timeline(
 	return success_response(
 		data={
 			"ticket_number": doc.ticket_number,
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"summary": {
+				"description": doc.description,
+				"desired_outcome": doc.desired_outcome,
+				"service_category": doc.service_category,
+				"grievance_type": doc.grievance_type,
+				"administrative_area": doc.administrative_area,
+				"administrative_unit": doc.administrative_unit,
+				"submission_channel": doc.submission_channel,
+			},
+			"submitter": {
+				"name": doc.submitter_name,
+				"mobile": doc.contact_mobile,
+				"email": doc.contact_email,
+				"submitter_type": doc.submitter_type,
+				"is_anonymous": bool(doc.is_anonymous),
+				"assisted_by_officer": doc.assisted_by_officer,
+			},
+			"sla": {
+				"sla_days": doc.sla_days,
+				"sla_start_at": doc.sla_start_at,
+				"sla_due_date": doc.sla_due_date,
+				"sla_consumed_percent": sla.consumed_percent(doc),
+				"next_escalation_at": doc.next_escalation_at,
+				"confirmation_deadline": doc.confirmation_deadline,
+			},
+			"assignment": {
+				"department": doc.assigned_dept,
+				"assigned_to": doc.assigned_to,
+				"routed_automatically": bool(doc.routed_automatically),
+			},
 			"timeline": entries,
 			"has_more": has_more,
 			"next_cursor": next_cursor,
@@ -522,6 +807,7 @@ def timeline(
 	)
 
 
+@route("/<ticket_number>/note", methods=("POST",), summary="Add internal or public note (staff only)")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -550,6 +836,7 @@ def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
 	)
 
 
+@route("/<ticket_number>/message", methods=("POST",), summary="Post a public message to the conversation")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -580,7 +867,7 @@ def message(ticket_number: str, body: str):
 	)
 
 
-def _load(ticket_number):
+def _load(ticket_number, ptype="read"):
 	"""Fetch a grievance by ticket number as the submitter typed it.
 
 	Normalised first: the number is printed grouped (3-001-002A-0) and read back
@@ -588,10 +875,18 @@ def _load(ticket_number):
 	alphabet anticipates must not decide whether a farmer can reach their own
 	case.
 	"""
-	name = frappe.db.get_value("Grievance", {"ticket_number": tn.normalize(ticket_number)}, "name")
+	normalized = tn.normalize(ticket_number)
+	name = frappe.db.get_value("Grievance", {"ticket_number": normalized}, "name")
 	if not name:
-		frappe.throw(_("No grievance found with that ticket number."), title=_("Not Found"))
-	return frappe.get_doc("Grievance", name)
+		if frappe.db.exists("Grievance", normalized):
+			name = normalized
+		elif frappe.db.exists("Grievance", ticket_number):
+			name = ticket_number
+		else:
+			frappe.throw(_("No grievance found with that ticket number."), title=_("Not Found"))
+	doc = frappe.get_doc("Grievance", name)
+	doc.check_permission(ptype)
+	return doc
 
 
 def get_status_options() -> list[dict]:
@@ -618,6 +913,7 @@ def get_status_options() -> list[dict]:
 	]
 
 
+@route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)

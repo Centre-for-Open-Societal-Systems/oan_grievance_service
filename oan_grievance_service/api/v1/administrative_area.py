@@ -1,9 +1,20 @@
 """Administrative Area cascading lookup and search endpoints for mobile apps, web wizards and public registration."""
 
 import frappe
+from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, success_response
 
+route = prefixed("/api/v1/administrative_area")
+route_hyphen = prefixed("/api/v1/administrative-area")
 
+
+@route("/areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas")
+@route("/get_areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (alias)")
+@route("", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (alias)")
+@route_hyphen(
+	"/areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (hyphen alias)"
+)
+@route_hyphen("", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (hyphen alias)")
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_areas(
@@ -124,3 +135,22 @@ def get_ancestors(area_id_or_path):
 		},
 		"breadcrumbs": ancestors,
 	}
+
+
+@route(
+	"/<path:area_id_or_path>/ancestors",
+	methods=("GET",),
+	allow_guest=True,
+	summary="Fetch ancestor hierarchy",
+)
+@route_hyphen(
+	"/<path:area_id_or_path>/ancestors",
+	methods=("GET",),
+	allow_guest=True,
+	summary="Fetch ancestor hierarchy",
+)
+@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@handle_api_errors
+def get_area_ancestors(area_id_or_path: str):
+	"""Public endpoint to fetch ancestor breadcrumbs for an administrative area."""
+	return success_response(data=get_ancestors(area_id_or_path))

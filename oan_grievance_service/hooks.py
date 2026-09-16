@@ -18,8 +18,12 @@ add_to_apps_screen = [
 	}
 ]
 
+# Register Werkzeug REST routes for Frappe API Map
+before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
+
 # Installation
 # ------------------
+
 # FSD Appendix F roles, 3.2.2 categories, 3.11.8 regions and the Appendix C
 # notification matrix are seeded so a fresh site comes up usable.
 
