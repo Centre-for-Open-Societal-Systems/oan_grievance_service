@@ -96,9 +96,11 @@ class TestTimelineAPI(FrappeTestCase):
 				"service_category": "Inputs",
 				"grievance_type": self.gtype_name,
 				"description": "Fertilizer delivery delay for API timeline testing.",
+				"assigned_to": self.officer.name,
 			}
 		).insert(ignore_permissions=True)
 
+		frappe.local.message_log = []
 		self.addCleanup(frappe.set_user, "Administrator")
 
 	def tearDown(self):
