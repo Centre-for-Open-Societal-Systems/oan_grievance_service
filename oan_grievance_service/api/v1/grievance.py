@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import now_datetime
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
-from oan_grievance_service.services import audit, lifecycle, routing, sla
+from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
 from oan_grievance_service.services import constants as C
 
 ALLOWED_GRIEVANCE_ROLES = [
@@ -155,13 +155,51 @@ def submit(**kwargs):
 	if resolved["submission_channel"] not in CHANNELS:
 		frappe.throw(_("Unknown submission channel."), title=_("Invalid Channel"))
 
+	# A retry must not lodge a second case. This read settles the ordinary retry --
+	# one that arrives after the first attempt committed. It cannot settle two
+	# retries in flight at once, because both would read nothing and both would
+	# insert; that case is caught on the unique index at insert time below.
+	client_uuid = kwargs.get("client_submission_uuid")
+	if client_uuid:
+		original = _existing_submission(client_uuid)
+		if original:
+			return original
+
+	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
+
 	doc = frappe.new_doc("Grievance")
 	for field, value in resolved.items():
 		if doc.meta.has_field(field):
 			doc.set(field, value)
 	doc.status = C.SUBMITTED
-	doc.insert(ignore_permissions=True)
+	# FR-02 duplicate detection matches on the submitter, so a grievance without one
+	# can never be found to duplicate anything. Only fall back to creating a profile
+	# when identity resolution found none -- staff taking a walk-in or IVR report
+	# from someone who has never registered. Overwriting unconditionally would throw
+	# away the session-resolved profile and let a submitter file against a profile of
+	# their own choosing by varying contact_mobile.
+	if not doc.submitter:
+		doc.submitter = submission.find_or_create_submitter(kwargs)
+	submission.record_consent(doc)
+	try:
+		doc.insert(ignore_permissions=True)
+	except frappe.UniqueValidationError:
+		# Another retry carrying the same client_submission_uuid committed while this
+		# one was building its document. The index is the only thing that can settle
+		# that race, and it just did: hand back the ticket the winner created rather
+		# than a 500 the client cannot act on.
+		if not client_uuid:
+			raise
+		frappe.db.rollback()
+		original = _existing_submission(client_uuid)
+		if not original:
+			raise
+		return original
 
+	if kwargs.get("is_anonymous"):
+		_request_anonymity(doc, kwargs.get("anonymity_justification"))
+
+	attachments = _claim_draft(kwargs.get("client_uuid"), doc)
 	duplicates = detect_duplicates(doc)
 
 	# FSD 4.1 step 6: acknowledge before routing, so the submitter always gets a ticket.
@@ -181,9 +219,68 @@ def submit(**kwargs):
 			"auto_routed": bool(rule),
 			"sla_due_date": doc.sla_due_date,
 			"possible_duplicates": [d.duplicate_of for d in duplicates],
+			"area_path_code": doc.area_path_code,
+			"attachments": attachments,
+			"duplicate_submission": False,
 		},
 		message=_("Grievance submitted successfully"),
 	)
+
+
+def _existing_submission(client_uuid):
+	"""The response for an already-lodged submission, or None if there isn't one.
+
+	Shared by the pre-insert check and the unique-index recovery so a retry gets the
+	same answer whichever of the two settles it.
+	"""
+	existing = frappe.db.get_value(
+		"Grievance",
+		{"client_submission_uuid": client_uuid},
+		["name", "ticket_number", "status"],
+		as_dict=True,
+	)
+	if not existing:
+		return None
+
+	return success_response(
+		data={
+			"ticket_number": existing.ticket_number,
+			"status": existing.status,
+			"duplicate_submission": True,
+		},
+		message=_("Grievance already submitted"),
+	)
+
+
+def _request_anonymity(doc, justification):
+	"""FSD 9.2: anonymity is requested at submission and approved separately."""
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Anonymity Request",
+			"grievance": doc.name,
+			# The request and the grievance use different vocabularies: the request
+			# is "Pending", the flag it drives on the grievance is "Pending Approval".
+			"status": "Pending",
+			"requested_at": now_datetime(),
+			"justification": justification,
+		}
+	).insert(ignore_permissions=True)
+	doc.db_set("anonymity_status", "Pending Approval", update_modified=False)
+
+
+def _claim_draft(client_uuid, doc):
+	"""Bind the draft this submission came from to the grievance it became, and
+	move any files uploaded against it."""
+	if not client_uuid:
+		return 0
+
+	draft = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	if not draft:
+		return 0
+
+	moved = submission.attach_draft_files(draft, doc.name)
+	frappe.db.set_value("Grievance Draft", draft, "submitted_as", doc.name, update_modified=False)
+	return moved
 
 
 def detect_duplicates(grievance, window_days=7):

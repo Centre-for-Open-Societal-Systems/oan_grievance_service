@@ -17,6 +17,15 @@ from oan_grievance_service.services import notifications
 
 EVENT = "test_notification_event"
 
+# sms_log is a Link to core's SMS Log, which exists on version-16 but not on
+# version-15 -- there sms_settings.py guards its own writes with
+# `if not frappe.db.exists("DocType", "SMS Log")`. The test runner walks a doctype's
+# Link fields to build test records and throws DoesNotExistError when the target is
+# absent, stopping the whole suite before a single test runs. Kept so the suite runs
+# on either branch; the field is read-only and populated only opportunistically, so
+# skipping the dependency costs nothing.
+test_ignore = ["SMS Log"]
+
 
 def _ensure_user(email, mobile=None, language=None):
 	if not frappe.db.exists("User", email):

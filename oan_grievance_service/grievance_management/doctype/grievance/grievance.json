@@ -11,6 +11,7 @@
   "col_flags",
   "escalated",
   "submission_channel",
+  "client_submission_uuid",
   "sec_submitter",
   "submitter_type",
   "submitter",
@@ -19,6 +20,8 @@
   "contact_mobile",
   "contact_email",
   "assisted_by_officer",
+  "consent_given",
+  "consent_recorded_at",
   "sec_anonymity",
   "is_anonymous",
   "anonymity_status",
@@ -101,6 +104,14 @@
    "reqd": 1
   },
   {
+   "description": "Client-generated key for one submission attempt. A retry carrying the same value returns the original ticket instead of lodging a second grievance -- the offline-first app of FSD 3.2.1 retries by design, and a farmer double-tapping on a slow connection must not file twice.",
+   "fieldname": "client_submission_uuid",
+   "fieldtype": "Data",
+   "label": "Client Submission UUID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
    "fieldname": "sec_submitter",
    "fieldtype": "Section Break",
    "label": "Submitter"
@@ -146,6 +157,18 @@
    "fieldtype": "Link",
    "label": "Assisted By (Development Agent)",
    "options": "User"
+  },
+  {
+   "description": "FSD 9: the submitter's agreement to the processing of their personal data. Required on every channel; for IVR and assisted submissions the officer records that it was read out and given.",
+   "fieldname": "consent_given",
+   "fieldtype": "Check",
+   "label": "Consent Given"
+  },
+  {
+   "fieldname": "consent_recorded_at",
+   "fieldtype": "Datetime",
+   "label": "Consent Recorded At",
+   "read_only": 1
   },
   {
    "fieldname": "sec_anonymity",
