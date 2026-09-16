@@ -22,8 +22,9 @@ class TestGrievanceTimeline(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		if not frappe.db.exists("Grievance Type", "Fertilizer Shortage"):
-			frappe.get_doc(
+		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+		if not gtype_name:
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -31,6 +32,8 @@ class TestGrievanceTimeline(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+			gtype_name = self.gtype.name
+		self.gtype_name = gtype_name
 
 		# Ensure area
 		area_name = frappe.db.get_value(
@@ -58,7 +61,7 @@ class TestGrievanceTimeline(FrappeTestCase):
 				"submission_channel": "Mobile App",
 				"administrative_area": self.area.name,
 				"service_category": "Inputs",
-				"grievance_type": "Fertilizer Shortage",
+				"grievance_type": self.gtype_name,
 				"description": "Fertilizer delivery delay for testing timeline spine.",
 			}
 		).insert(ignore_permissions=True)

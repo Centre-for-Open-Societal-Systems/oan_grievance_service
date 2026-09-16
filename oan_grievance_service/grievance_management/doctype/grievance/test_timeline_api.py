@@ -25,8 +25,9 @@ class TestTimelineAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		if not frappe.db.exists("Grievance Type", "Fertilizer Shortage"):
-			frappe.get_doc(
+		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+		if not gtype_name:
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -34,6 +35,8 @@ class TestTimelineAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+			gtype_name = self.gtype.name
+		self.gtype_name = gtype_name
 
 		area_name = frappe.db.get_value(
 			"Grievance Administrative Area", {"area_name": "API Timeline Woreda"}, "name"
@@ -78,15 +81,21 @@ class TestTimelineAPI(FrappeTestCase):
 		else:
 			self.farmer = frappe.get_doc("User", "timeline_farmer@example.com")
 
-		self.farmer_profile = frappe.get_doc(
-			{
-				"doctype": "Grievance Submitter Profile",
-				"submitter_type": "Individual Farmer",
-				"submitter_name": "Farmer Submitter",
-				"contact_mobile": "+251911445566",
-				"user": self.farmer.name,
-			}
-		).insert(ignore_permissions=True)
+		profile_name = frappe.db.get_value(
+			"Grievance Submitter Profile", {"contact_mobile": "+251911445566"}, "name"
+		)
+		if profile_name:
+			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+		else:
+			self.farmer_profile = frappe.get_doc(
+				{
+					"doctype": "Grievance Submitter Profile",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "Farmer Submitter",
+					"contact_mobile": "+251911445566",
+					"user": self.farmer.name,
+				}
+			).insert(ignore_permissions=True)
 
 		self.grievance = frappe.get_doc(
 			{
@@ -98,7 +107,7 @@ class TestTimelineAPI(FrappeTestCase):
 				"submission_channel": "Mobile App",
 				"administrative_area": self.area.name,
 				"service_category": "Inputs",
-				"grievance_type": "Fertilizer Shortage",
+				"grievance_type": self.gtype_name,
 				"description": "Fertilizer delivery delay for API timeline testing.",
 			}
 		).insert(ignore_permissions=True)
@@ -107,9 +116,11 @@ class TestTimelineAPI(FrappeTestCase):
 
 	def tearDown(self):
 		frappe.flags.in_test = True
-		if frappe.db.exists("Grievance", self.grievance.name):
+		if hasattr(self, "grievance") and frappe.db.exists("Grievance", self.grievance.name):
 			frappe.delete_doc("Grievance", self.grievance.name, force=True, ignore_permissions=True)
-		if frappe.db.exists("Grievance Submitter Profile", self.farmer_profile.name):
+		if hasattr(self, "farmer_profile") and frappe.db.exists(
+			"Grievance Submitter Profile", self.farmer_profile.name
+		):
 			frappe.delete_doc(
 				"Grievance Submitter Profile", self.farmer_profile.name, force=True, ignore_permissions=True
 			)
