@@ -7,7 +7,7 @@ from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
-route = prefixed("/api/v1/submitter")
+route = prefixed("/api/v1/submitters")
 
 ALLOWED_SUBMITTER_ROLES = [
 	"Grievance Submitter",
@@ -99,7 +99,7 @@ def get_phone_extensions(search: str | None = None, country: str | None = None) 
 	return extensions
 
 
-@route(
+@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"/options",
 	methods=("GET",),
 	allow_guest=True,
@@ -186,7 +186,6 @@ def options(
 
 
 @route("/me", methods=("GET",), summary="Get current authenticated user's submitter profile")
-@route("/profile", methods=("GET",), summary="Get current authenticated user's submitter profile (alias)")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_SUBMITTER_ROLES)

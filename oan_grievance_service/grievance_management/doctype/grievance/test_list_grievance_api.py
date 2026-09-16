@@ -35,8 +35,9 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		if not frappe.db.exists("Grievance Type", "Fertilizer Shortage"):
-			frappe.get_doc(
+		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+		if not gtype_name:
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -44,12 +45,28 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+			gtype_name = self.gtype.name
+		self.gtype_name = gtype_name
+
+		gtype_credit_name = frappe.db.get_value("Grievance Type", {"type_name": "Credit Dispute"}, "name")
+		if not gtype_credit_name:
+			self.gtype_credit = frappe.get_doc(
+				{
+					"doctype": "Grievance Type",
+					"type_name": "Credit Dispute",
+					"service_category": "Credit",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+			gtype_credit_name = self.gtype_credit.name
+		self.gtype_credit_name = gtype_credit_name
 
 		if not frappe.db.exists("Grievance Department", "Dept of Agriculture"):
 			frappe.get_doc(
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Dept of Agriculture",
+					"email_account": "agri@example.com",
 					"active": 1,
 				}
 			).insert(ignore_permissions=True)
@@ -97,15 +114,21 @@ class TestListGrievanceAPI(FrappeTestCase):
 		else:
 			self.farmer = frappe.get_doc("User", "list_farmer@example.com")
 
-		self.farmer_profile = frappe.get_doc(
-			{
-				"doctype": "Grievance Submitter Profile",
-				"submitter_type": "Individual Farmer",
-				"submitter_name": "List Farmer Submitter",
-				"contact_mobile": "+251911998877",
-				"user": self.farmer.name,
-			}
-		).insert(ignore_permissions=True)
+		profile_name = frappe.db.get_value(
+			"Grievance Submitter Profile", {"contact_mobile": "+251911998877"}, "name"
+		)
+		if profile_name:
+			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+		else:
+			self.farmer_profile = frappe.get_doc(
+				{
+					"doctype": "Grievance Submitter Profile",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "List Farmer Submitter",
+					"contact_mobile": "+251911998877",
+					"user": self.farmer.name,
+				}
+			).insert(ignore_permissions=True)
 
 		self.created_docs = []
 
@@ -121,7 +144,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"submission_channel": "Mobile App",
 					"administrative_area": self.area.name,
 					"service_category": "Inputs" if i % 2 == 0 else "Credit",
-					"grievance_type": "Fertilizer Shortage",
+					"grievance_type": self.gtype_name if i % 2 == 0 else self.gtype_credit_name,
 					"description": f"Grievance test issue number {i}",
 					"status": C.SUBMITTED if i < 3 else C.IN_PROGRESS,
 					"assigned_dept": "Dept of Agriculture",
@@ -134,10 +157,12 @@ class TestListGrievanceAPI(FrappeTestCase):
 
 	def tearDown(self):
 		frappe.flags.in_test = True
-		for g in self.created_docs:
+		for g in getattr(self, "created_docs", []):
 			if frappe.db.exists("Grievance", g.name):
 				frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
-		if frappe.db.exists("Grievance Submitter Profile", self.farmer_profile.name):
+		if hasattr(self, "farmer_profile") and frappe.db.exists(
+			"Grievance Submitter Profile", self.farmer_profile.name
+		):
 			frappe.delete_doc(
 				"Grievance Submitter Profile", self.farmer_profile.name, force=True, ignore_permissions=True
 			)
@@ -146,7 +171,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		"""Admin retrieves paginated grievances."""
 		frappe.set_user("Administrator")
 		res = list_grievances(page=1, page_size=3)
-		self.assertTrue(res.get("success"))
+		self.assertEqual(res.get("status"), "success")
 		data = res.get("data", {})
 		self.assertEqual(len(data.get("items", [])), 3)
 		self.assertGreaterEqual(data.get("pagination", {}).get("total_count", 0), 5)
@@ -203,7 +228,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.set_user("Administrator")
 		res_type = list_grievances(search="Fertilizer")
 		items_type = res_type.get("data", {}).get("items", [])
-		self.assertEqual(len(items_type), 5)
+		self.assertGreaterEqual(len(items_type), 3)
 
 		res_sub = list_grievances(search="Farmer Submitter 1")
 		items_sub = res_sub.get("data", {}).get("items", [])
@@ -215,7 +240,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.set_user("Administrator")
 		target = self.created_docs[0]
 		res = track(target.ticket_number)
-		self.assertTrue(res.get("success"))
+		self.assertEqual(res.get("status"), "success")
 		data = res.get("data", {})
 		self.assertEqual(data.get("ticket_number"), target.ticket_number)
 		self.assertEqual(data.get("submitter_name"), target.submitter_name)

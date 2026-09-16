@@ -35,25 +35,37 @@ oan_grievance_service/api/
     └── administrative_area.py # Cascading geo-hierarchy lookups
 ```
 
-**URL Mapping Examples:**
+### REST Resource Naming Standards
 
-| Endpoint Purpose          | REST Route (Preferred)                             | RPC Route (Legacy)                                                           | Method |
-| ------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- | ------ |
-| Health Check              | `GET /api/v1/grievance/health`                     | `GET /api/method/oan_grievance_service.api.router.get_health`                | GET    |
-| Submitter Options         | `GET /api/v1/submitter/options`                    | `GET /api/method/oan_grievance_service.api.v1.submitter.options`             | GET    |
-| Submitter Profile         | `GET /api/v1/submitter/me`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                  | GET    |
-| Geo Areas                 | `GET /api/v1/administrative_area/areas`            | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas` | GET    |
-| List Grievances           | `GET /api/v1/grievances`                           | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`     | GET    |
-| Submit Case               | `POST /api/v1/grievances`                          | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`             | POST   |
-| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`           | `GET /api/method/oan_grievance_service.api.v1.grievance.track`               | GET    |
-| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`  | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`            | GET    |
-| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`     | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`           | POST   |
-| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`  | `POST /api/method/oan_grievance_service.api.v1.grievance.message`            | POST   |
-| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`  | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`            | POST   |
-| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`   | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`             | POST   |
-| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate` | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`           | POST   |
-| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`    | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`              | POST   |
-| Grievance Options         | `GET /api/v1/grievances/options`                   | `GET /api/method/oan_grievance_service.api.v1.grievance.options`             | GET    |
+All REST endpoints in `oan_grievance_service` follow industry-standard RESTful conventions:
+
+1. **Plural Resource Nouns:** Top-level and nested collections must use plural nouns (`/api/v1/grievances`, `/api/v1/submitters`, `/api/v1/administrative-areas`).
+2. **Kebab-Case URL Segments:** Compound resource names must use lowercase kebab-case (`/administrative-areas`, not snake_case `administrative_area`).
+3. **No Frappe DocType Aliasing:** Do not create duplicate URL aliases to mirror internal Frappe DocType conventions (e.g. avoid creating duplicate singular `/grievance`, snake_case `/administrative_area`, or `/profile` routes). The REST API contract remains clean, consistent, and strictly decoupled from internal DocType names.
+4. **Clean Root Collection Paths:** Use collection roots directly with query parameters (`GET /api/v1/administrative-areas?parent=...`) rather than nested RPC verb suffixes like `/areas` or `/get_areas`.
+5. **State Transition Action Verbs:** For non-CRUD lifecycle state transitions, use clear POST action sub-paths on item resources (`/api/v1/grievances/<ticket_number>/confirm`, `/reopen`, `/escalate`).
+
+**URL Mapping:**
+
+| Endpoint Purpose          | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
+| ------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
+| Health Check              | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
+| Ping                      | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
+| Submitter Options         | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
+| Submitter Profile         | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
+| Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
+| Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
+| List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
+| Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
+| Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
+| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
+| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
+| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
+| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
+| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
+| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
+| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
+| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
 
 ---
 
@@ -65,7 +77,7 @@ Every API endpoint must apply decorators in the exact order shown below:
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
 
-route = prefixed("/api/v1/grievance")
+route = prefixed("/api/v1/grievances")
 
 @route("/your-action", methods=("POST",), summary="Action description")
 @frappe.whitelist()                               # Exposes method via HTTP RPC

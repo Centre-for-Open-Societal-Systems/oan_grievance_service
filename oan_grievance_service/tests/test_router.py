@@ -143,10 +143,10 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(meta_area["api_version"], "v1")
 
 	def test_public_health_and_ping_endpoints(self):
-		"""Test GET /api/v1/grievance/health and /ping."""
+		"""Test GET /api/v1/grievances/health and /ping."""
 		import frappe.api
 
-		req = make_test_request("/api/v1/grievance/health", method="GET")
+		req = make_test_request("/api/v1/grievances/health", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
 		data = json.loads(res.get_data(as_text=True))
@@ -154,17 +154,17 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(data["data"]["service"], "oan_grievance_service")
 		self.assertEqual(data["data"]["status"], "healthy")
 
-		req_ping = make_test_request("/api/v1/grievance/ping", method="GET")
+		req_ping = make_test_request("/api/v1/grievances/ping", method="GET")
 		res_ping = frappe.api.handle(req_ping)
 		self.assertEqual(res_ping.status_code, 200)
 		data_ping = json.loads(res_ping.get_data(as_text=True))
 		self.assertEqual(data_ping["data"]["ping"], "pong")
 
 	def test_public_submitter_options_endpoint(self):
-		"""Test GET /api/v1/submitter/options is accessible as guest."""
+		"""Test GET /api/v1/submitters/options is accessible as guest."""
 		import frappe.api
 
-		req = make_test_request("/api/v1/submitter/options", method="GET")
+		req = make_test_request("/api/v1/submitters/options", method="GET")
 		frappe.set_user("Guest")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
@@ -174,24 +174,16 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("submission_types", data["data"])
 
 	def test_public_administrative_area_endpoints(self):
-		"""Test GET /api/v1/administrative_area/areas and aliases."""
+		"""Test GET /api/v1/administrative-areas."""
 		import frappe.api
 
-		# 1. /api/v1/administrative_area/areas
-		req = make_test_request("/api/v1/administrative_area/areas", method="GET")
+		req = make_test_request("/api/v1/administrative-areas", method="GET")
 		frappe.set_user("Guest")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
 		data = json.loads(res.get_data(as_text=True))
 		self.assertEqual(data["status"], "success")
 		self.assertIn("areas", data["data"])
-
-		# 2. Hyphen alias /api/v1/administrative-area/areas
-		req_hyphen = make_test_request("/api/v1/administrative-area/areas", method="GET")
-		res_hyphen = frappe.api.handle(req_hyphen)
-		self.assertEqual(res_hyphen.status_code, 200)
-		data_hyphen = json.loads(res_hyphen.get_data(as_text=True))
-		self.assertEqual(data_hyphen["status"], "success")
 
 	def test_grievance_options_endpoint(self):
 		"""Test GET /api/v1/grievances/options."""
@@ -208,11 +200,11 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("service_categories", data["data"])
 
 	def test_submitter_me_endpoint_authenticated(self):
-		"""Test GET /api/v1/submitter/me."""
+		"""Test GET /api/v1/submitters/me."""
 		import frappe.api
 
 		frappe.set_user(self.farmer_user.name)
-		req = make_test_request("/api/v1/submitter/me", method="GET")
+		req = make_test_request("/api/v1/submitters/me", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
 		data = json.loads(res.get_data(as_text=True))
@@ -224,7 +216,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""
 		import frappe.api
 
-		# 1. Submit a grievance via POST /api/v1/grievance/submit
+		# 1. Submit a grievance via POST /api/v1/grievances
 		frappe.set_user(self.farmer_user.name)
 		submit_payload = {
 			"submission_channel": "Mobile App",
@@ -232,8 +224,9 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			"service_category": "Inputs",
 			"grievance_type": "Fertilizer Shortage",
 			"description": "REST API submission test: severe shortage in sector 4.",
+			"consent_given": 1,
 		}
-		req_submit = make_test_request("/api/v1/grievance/submit", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		self.assertEqual(res_submit.status_code, 200)
 		submit_data = json.loads(res_submit.get_data(as_text=True))
@@ -241,17 +234,17 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		ticket_number = submit_data["data"]["ticket_number"]
 		self.assertTrue(bool(ticket_number))
 
-		# 2. Track status via GET /api/v1/grievance/<ticket_number>
-		req_track = make_test_request(f"/api/v1/grievance/{ticket_number}", method="GET")
+		# 2. Track status via GET /api/v1/grievances/<ticket_number>
+		req_track = make_test_request(f"/api/v1/grievances/{ticket_number}", method="GET")
 		res_track = frappe.api.handle(req_track)
 		self.assertEqual(res_track.status_code, 200)
 		track_data = json.loads(res_track.get_data(as_text=True))
 		self.assertEqual(track_data["data"]["ticket_number"], ticket_number)
 
-		# 3. Add note as Officer via POST /api/v1/grievance/<ticket_number>/note
+		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/note
 		frappe.set_user("Administrator")
 		req_note = make_test_request(
-			f"/api/v1/grievance/{ticket_number}/note",
+			f"/api/v1/grievances/{ticket_number}/note",
 			method="POST",
 			data={"body": "Officer reviewing case via REST", "is_internal": True},
 		)
@@ -260,8 +253,8 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		note_data = json.loads(res_note.get_data(as_text=True))
 		self.assertEqual(note_data["status"], "success")
 
-		# 4. View Timeline via GET /api/v1/grievance/<ticket_number>/timeline
-		req_tl = make_test_request(f"/api/v1/grievance/{ticket_number}/timeline", method="GET")
+		# 4. View Timeline via GET /api/v1/grievances/<ticket_number>/timeline
+		req_tl = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
 		res_tl = frappe.api.handle(req_tl)
 		self.assertEqual(res_tl.status_code, 200)
 		tl_data = json.loads(res_tl.get_data(as_text=True))

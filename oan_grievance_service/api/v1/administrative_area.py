@@ -4,17 +4,12 @@ import frappe
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, success_response
 
-route = prefixed("/api/v1/administrative_area")
-route_hyphen = prefixed("/api/v1/administrative-area")
+route = prefixed("/api/v1/administrative-areas")
 
 
-@route("/areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas")
-@route("/get_areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (alias)")
-@route("", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (alias)")
-@route_hyphen(
-	"/areas", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (hyphen alias)"
-)
-@route_hyphen("", methods=("GET",), allow_guest=True, summary="Fetch administrative areas (hyphen alias)")
+@route(
+	"", methods=("GET",), allow_guest=True, summary="Fetch administrative areas"
+)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_areas(
@@ -137,13 +132,7 @@ def get_ancestors(area_id_or_path):
 	}
 
 
-@route(
-	"/<path:area_id_or_path>/ancestors",
-	methods=("GET",),
-	allow_guest=True,
-	summary="Fetch ancestor hierarchy",
-)
-@route_hyphen(
+@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"/<path:area_id_or_path>/ancestors",
 	methods=("GET",),
 	allow_guest=True,

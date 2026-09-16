@@ -212,7 +212,9 @@ def submit(**kwargs):
 		if original:
 			return original
 
-	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
+	resolved["contact_mobile"] = submission.normalise_mobile(resolved.get("contact_mobile"))
+	if "contact_mobile" in kwargs:
+		kwargs["contact_mobile"] = resolved["contact_mobile"]
 
 	# Resolve grievance_type if caller provided the type_name instead of document ID
 	gtype = resolved.get("grievance_type")
@@ -237,7 +239,7 @@ def submit(**kwargs):
 	# away the session-resolved profile and let a submitter file against a profile of
 	# their own choosing by varying contact_mobile.
 	if not doc.submitter:
-		doc.submitter = submission.find_or_create_submitter(kwargs)
+		doc.submitter = submission.find_or_create_submitter(resolved)
 	submission.record_consent(doc)
 	try:
 		doc.insert(ignore_permissions=True)
@@ -546,12 +548,20 @@ def list_grievances(
 	or_filters = []
 	if search:
 		search_pattern = f"%{search.strip()}%"
+		matching_types = frappe.get_all(
+			"Grievance Type",
+			filters={"type_name": ["like", search_pattern]},
+			pluck="name",
+		)
 		or_filters = [
 			["ticket_number", "like", search_pattern],
 			["name", "like", search_pattern],
 			["submitter_name", "like", search_pattern],
-			["grievance_type", "like", search_pattern],
 		]
+		if matching_types:
+			or_filters.append(["grievance_type", "in", matching_types])
+		else:
+			or_filters.append(["grievance_type", "like", search_pattern])
 
 	allowed_sort_fields = {
 		"creation",
@@ -603,7 +613,7 @@ def list_grievances(
 		"Grievance",
 		filters=filters,
 		or_filters=or_filters if or_filters else None,
-		fields=["count(`tabGrievance`.name) as total"],
+		fields=[{"COUNT": "*", "as": "total"}],
 		limit_page_length=1,
 	)
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0

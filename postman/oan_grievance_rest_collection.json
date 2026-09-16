@@ -191,14 +191,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance/health",
+              "raw": "{{base_url}}/api/v1/grievances/health",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "grievance",
+                "grievances",
                 "health"
               ]
             },
@@ -235,14 +235,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance/ping",
+              "raw": "{{base_url}}/api/v1/grievances/ping",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "grievance",
+                "grievances",
                 "ping"
               ]
             },
@@ -299,14 +299,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitter/options",
+              "raw": "{{base_url}}/api/v1/submitters/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "submitter",
+                "submitters",
                 "options"
               ]
             },
@@ -360,15 +360,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/administrative_area/areas?parent=",
+              "raw": "{{base_url}}/api/v1/administrative-areas?parent=",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "administrative_area",
-                "areas"
+                "administrative-areas"
               ],
               "query": [
                 {
@@ -378,6 +377,65 @@
               ]
             },
             "description": "Public cascading location endpoint. Returns top-level Regions when called without parameters, or child areas (Zones, Woredas, Kebeles) when a 'parent' is provided. Also supports text search and ancestor breadcrumb lookups."
+          },
+          "response": []
+        },
+        {
+          "name": "1c. Get Administrative Area Ancestors (Public)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var baseUrl = pm.environment.get(\"base_url\") || pm.collectionVariables.get(\"base_url\");",
+                  "if (!baseUrl) {",
+                  "    console.warn(\"[Pre-request] base_url is empty. Defaulting to http://localhost:8000.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Administrative area ancestors returned successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    var envelope = jsonData.message || jsonData;",
+                  "    var data = envelope.data || envelope;",
+                  "    pm.expect(data).to.have.property(\"breadcrumbs\");",
+                  "    pm.expect(Array.isArray(data.breadcrumbs)).to.be.true;",
+                  "    pm.expect(data).to.have.property(\"current\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/administrative-areas/{{administrative_area}}/ancestors",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "administrative-areas",
+                "{{administrative_area}}",
+                "ancestors"
+              ]
+            },
+            "description": "Public endpoint to retrieve ancestor breadcrumbs for a selected administrative area node."
           },
           "response": []
         }
@@ -401,7 +459,7 @@
                   "// Generate fresh unique test credentials to avoid collision on repeated runs",
                   "var randSuffix = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
                   "var dynamicEmail = \"abebe.farmer.\" + randSuffix + \"@example.com\";",
-                  "var dynamicMobile = \"+2519\" + randSuffix;",
+                  "var dynamicMobile = \"+2519\" + randSuffix.slice(-8);",
                   "var dynamicFayda = \"ET-FAYDA-\" + randSuffix;",
                   "",
                   "pm.collectionVariables.set(\"user_email\", dynamicEmail);",
@@ -501,7 +559,7 @@
                   "// Generate fresh unique organization credentials to avoid collision on repeated runs",
                   "var randSuffix = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
                   "var dynamicOrgEmail = \"coop.oromia.\" + randSuffix + \"@example.com\";",
-                  "var dynamicOrgMobile = \"+2519\" + randSuffix;",
+                  "var dynamicOrgMobile = \"+2519\" + randSuffix.slice(-8);",
                   "var dynamicRegNo = \"COOP-OROM-\" + randSuffix;",
                   "",
                   "pm.collectionVariables.set(\"org_email\", dynamicOrgEmail);",
@@ -816,14 +874,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitter/me",
+              "raw": "{{base_url}}/api/v1/submitters/me",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "submitter",
+                "submitters",
                 "me"
               ]
             },
