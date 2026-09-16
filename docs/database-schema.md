@@ -1050,10 +1050,10 @@ Separate table rather than a row type in `audit_log` because the volumes differ 
 
 Per-scope counters for ticket IDs.
 
-| Column       | Type | Key | Description                                     |
-| ------------ | ---- | --- | ----------------------------------------------- |
-| `scope`      | text | PK  | `GRV-3001A-` — region, category and year        |
-| `next_value` | int  |     | Next sequence number to issue                   |
+| Column       | Type | Key | Description                              |
+| ------------ | ---- | --- | ---------------------------------------- |
+| `scope`      | text | PK  | `GRV-3001A-` — region, category and year |
+| `next_value` | int  |     | Next sequence number to issue            |
 
 A database `SEQUENCE` won't work here: the counter is per region/category/year scope, so the row is locked inside the creation transaction instead. Two submissions in the same scope then serialise on that row and cannot be issued the same number. Many small counters rather than one national one also means a submission contends only with others in its own region, category and year.
 
