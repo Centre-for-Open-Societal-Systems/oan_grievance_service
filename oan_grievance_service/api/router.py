@@ -24,9 +24,9 @@ _REGISTERED = False
 root_route = prefixed("/api/v1")
 
 
-@root_route(
+@root_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"/grievances/health", methods=("GET",), allow_guest=True, summary="Grievance service health check"
-)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_health():
@@ -40,9 +40,9 @@ def get_health():
 	)
 
 
-@root_route(
+@root_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"/grievances/ping", methods=("GET",), allow_guest=True, summary="Grievance service ping"
-)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_ping():

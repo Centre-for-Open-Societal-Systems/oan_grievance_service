@@ -7,9 +7,9 @@ from oan_auth_service.api.utils import handle_api_errors, success_response
 route = prefixed("/api/v1/administrative-areas")
 
 
-@route(
+@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"", methods=("GET",), allow_guest=True, summary="Fetch administrative areas"
-)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_areas(
