@@ -88,14 +88,27 @@ class TestGrievanceTimeline(FrappeTestCase):
 		self.assertIsNotNone(entry.created_on)
 
 	def test_submitter_cannot_author_internal_entry(self):
-		profile = frappe.get_doc(
-			{
-				"doctype": "Grievance Submitter Profile",
-				"submitter_type": "Individual Farmer",
-				"submitter_name": "Abebe Submitter",
-				"contact_mobile": "+251911998877",
-			}
-		).insert(ignore_permissions=True)
+		profile_name = frappe.db.get_value(
+			"Grievance Submitter Profile", {"contact_mobile": "+251911998877"}, "name"
+		)
+		if profile_name:
+			profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+		else:
+			profile = frappe.get_doc(
+				{
+					"doctype": "Grievance Submitter Profile",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "Abebe Submitter",
+					"contact_mobile": "+251911998877",
+				}
+			).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Submitter Profile",
+			profile.name,
+			force=True,
+			ignore_permissions=True,
+		)
 
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc(

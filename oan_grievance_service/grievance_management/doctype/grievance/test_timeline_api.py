@@ -135,6 +135,10 @@ class TestTimelineAPI(FrappeTestCase):
 		)
 		self.assertTrue(note_res["data"]["is_internal"])
 
+		# Move grievance through Assigned -> In Progress
+		lifecycle.change_status(self.grievance, "Assigned")
+		lifecycle.accept(self.grievance)
+
 		# 2. Officer requests more info
 		lifecycle.request_more_info(self.grievance, "Please provide the receipt number.")
 
