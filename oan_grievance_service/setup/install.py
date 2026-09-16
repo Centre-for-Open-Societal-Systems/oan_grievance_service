@@ -63,13 +63,39 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
-# FSD 3.2.2. The code is the CATEGORY segment of the FSD 3.2.3 ticket number.
+# FSD 3.2.2. The code is the 3-character CATEGORY segment of the ticket number
+# (services.ticket_number). Three characters allow 32,768 categories, so a
+# service can later be split into much finer groups without the codes running
+# out. Assigned sequentially; a retired code is never reused.
 SERVICE_CATEGORIES = [
-	("Inputs", "INPT", 1),
-	("Schemes", "SCHM", 2),
-	("Payments", "PAYM", 3),
-	("Credit", "CRDT", 4),
-	("Markets", "MRKT", 5),
+	("Inputs", "001", 1),
+	("Schemes", "002", 2),
+	("Payments", "003", 3),
+	("Credit", "004", 4),
+	("Markets", "005", 5),
+]
+
+# The 1-character REGION segment of the ticket number, keyed by the official
+# administrative code carried in the seeded registry data. Assigned in
+# ascending order of that code so the mapping is derived rather than chosen.
+# Eighteen characters remain spare for future regions; a retired character is
+# never reassigned, or tickets issued years earlier would start pointing at the
+# wrong region.
+REGION_TICKET_CODES = [
+	("ET01", "0"),  # Tigray
+	("ET02", "1"),  # Afar
+	("ET03", "2"),  # Amhara
+	("ET04", "3"),  # Oromia
+	("ET05", "4"),  # Somali
+	("ET06", "5"),  # Benishangul-Gumuz
+	("ET07", "6"),  # Central Ethiopia
+	("ET08", "7"),  # South Ethiopian
+	("ET11", "8"),  # South West Ethiopia
+	("ET12", "9"),  # Gambela
+	("ET13", "A"),  # Harari
+	("ET14", "B"),  # Addis Ababa
+	("ET15", "C"),  # Dire Dawa
+	("ET16", "D"),  # Sidama
 ]
 
 # Submitter Types master
@@ -312,6 +338,7 @@ def seed_all():
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
+		"region_ticket_codes": seed_region_ticket_codes(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
@@ -335,6 +362,30 @@ def seed_administrative_areas():
 		frappe.db.sql(statement)  # nosemgrep
 
 	return frappe.db.count("Grievance Administrative Area")
+
+
+def seed_region_ticket_codes():
+	"""Give each region its REGION character for the ticket number.
+
+	Runs after the area tree so the rows exist. Matched on the official
+	administrative code rather than the area name, because names are translated
+	and occasionally renamed while the codes are stable. Only regions carry a
+	ticket code; no other level appears in a ticket number.
+	"""
+	made = []
+	for official_code, ticket_code in REGION_TICKET_CODES:
+		name = frappe.db.get_value(
+			"Grievance Administrative Area",
+			{"code": official_code, "level_name": "Region"},
+			"name",
+		)
+		if not name:
+			continue
+		if frappe.db.get_value("Grievance Administrative Area", name, "ticket_code") == ticket_code:
+			continue
+		frappe.db.set_value("Grievance Administrative Area", name, "ticket_code", ticket_code)
+		made.append(f"{official_code}={ticket_code}")
+	return made
 
 
 def seed_roles():
@@ -370,9 +421,23 @@ def seed_role_levels():
 
 
 def seed_categories():
+	"""Seed the service categories, converging the code of any that already exist.
+
+	The code is the CATEGORY segment of the ticket number, so it has to match
+	what is declared here. Sites installed before the ticket format changed
+	carry the old four-letter codes (INPT, SCHM); skipping them would leave
+	ticket generation refusing every submission on those sites. A category
+	nobody has issued tickets under can be renumbered freely, which is true of
+	all of these until go-live.
+	"""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
-		if frappe.db.exists("Grievance Service Category", name):
+		existing = frappe.db.get_value("Grievance Service Category", name, "code")
+		if existing == code:
+			continue
+		if existing is not None:
+			frappe.db.set_value("Grievance Service Category", name, "code", code)
+			made.append(f"{name}:{existing}->{code}")
 			continue
 		frappe.get_doc(
 			{

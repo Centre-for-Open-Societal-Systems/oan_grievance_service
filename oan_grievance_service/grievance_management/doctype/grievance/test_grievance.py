@@ -9,7 +9,7 @@ from oan_grievance_service.api.v1.grievance import (
 	_resolve_submitter_identity,
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
-from oan_grievance_service.services import routing
+from oan_grievance_service.services import routing, ticket_number
 
 
 class TestGrievance(FrappeTestCase):
@@ -41,6 +41,7 @@ class TestGrievance(FrappeTestCase):
 					"area_name": "Tree Test Region",
 					"level_name": "Region",
 					"code": "TTR",
+					"ticket_code": "T",
 					"parent_administrative_area": self.root_area.name,
 					"is_group": 1,
 				}
@@ -80,7 +81,7 @@ class TestGrievance(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
@@ -135,7 +136,139 @@ class TestGrievance(FrappeTestCase):
 
 		self.assertEqual(g.area_lft, self.woreda_leaf.lft)
 		self.assertTrue(bool(g.area_path_code))
-		self.assertTrue(g.ticket_number.startswith("TTW-INPT-") or "INPT" in g.ticket_number)
+
+	def _submit(self, **overrides):
+		payload = {
+			"doctype": "Grievance",
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+		payload.update(overrides)
+		return frappe.get_doc(payload).insert(ignore_permissions=True)
+
+	def test_ticket_number_has_the_agreed_shape(self):
+		"""Nine characters: region 1, category 3, sequence 4, year 1."""
+		g = self._submit()
+		ticket = g.ticket_number
+
+		self.assertEqual(len(ticket), ticket_number.TICKET_WIDTH)
+		self.assertEqual(ticket[0], "T", "region character")
+		self.assertEqual(ticket[1:4], "001", "category code")
+		self.assertEqual(ticket[8], ticket_number.year_segment(), "year character")
+
+		# Every character must come from the Base32 alphabet, so none of the
+		# excluded I, L, O or U can reach a submitter.
+		for char in ticket:
+			self.assertIn(char, ticket_number.ALPHABET, f"{char} is outside the alphabet")
+
+		# The name is the ticket number; reports and notifications read both.
+		self.assertEqual(g.name, ticket)
+
+	def test_ticket_number_takes_the_region_not_the_leaf(self):
+		"""The grievance attaches to a woreda; the ticket still names its region."""
+		self.assertIsNone(self.woreda_leaf.ticket_code, "leaf carries no ticket code")
+		g = self._submit()
+		self.assertEqual(g.ticket_number[0], self.region_area.ticket_code)
+
+	def test_ticket_numbers_are_unique_within_one_scope(self):
+		"""Same region, category and year: the sequence must still separate them."""
+		first = self._submit()
+		second = self._submit()
+
+		self.assertNotEqual(first.ticket_number, second.ticket_number)
+		# Region, category and year are shared; only the sequence differs.
+		self.assertEqual(first.ticket_number[:4], second.ticket_number[:4])
+		self.assertEqual(first.ticket_number[8], second.ticket_number[8])
+		self.assertEqual(
+			ticket_number.decode(second.ticket_number[4:8]),
+			ticket_number.decode(first.ticket_number[4:8]) + 1,
+			"the sequence should advance by one",
+		)
+
+	def test_missing_region_ticket_code_is_refused(self):
+		"""A guessed region would be wrong for the life of the case, so fail loudly."""
+		region = frappe.get_doc(
+			{
+				"doctype": "Grievance Administrative Area",
+				"area_name": "Uncoded Region",
+				"level_name": "Region",
+				"parent_administrative_area": self.root_area.name,
+				"is_group": 1,
+			}
+		).insert(ignore_permissions=True)
+		woreda = frappe.get_doc(
+			{
+				"doctype": "Grievance Administrative Area",
+				"area_name": "Uncoded Woreda",
+				"level_name": "Woreda",
+				"parent_administrative_area": region.name,
+				"is_group": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.ValidationError):
+			self._submit(administrative_area=woreda.name)
+
+	def test_base32_round_trips_and_pads(self):
+		self.assertEqual(ticket_number.encode(0, 4), "0000")
+		self.assertEqual(ticket_number.encode(1, 4), "0001")
+		self.assertEqual(ticket_number.encode(31, 4), "000Z")
+		self.assertEqual(ticket_number.encode(32, 4), "0010")
+		self.assertEqual(ticket_number.encode(42, 4), "001A")
+
+		for value in (0, 1, 31, 32, 42, 1000, 1048575):
+			self.assertEqual(ticket_number.decode(ticket_number.encode(value, 4)), value)
+
+	def test_base32_excludes_and_forgives_confusable_characters(self):
+		for char in "ILOU":
+			self.assertNotIn(char, ticket_number.ALPHABET)
+
+		# A submitter reading "0" as "O" and "1" as "I" or "L" still resolves,
+		# and the display hyphens and lower case are accepted.
+		self.assertEqual(ticket_number.decode("O1"), ticket_number.decode("01"))
+		self.assertEqual(ticket_number.decode("I0"), ticket_number.decode("10"))
+		self.assertEqual(ticket_number.decode("L0"), ticket_number.decode("10"))
+		self.assertEqual(ticket_number.decode("3-001-002a-0"), ticket_number.decode("3001002A0"))
+
+	def test_sequence_exhaustion_is_refused_not_widened(self):
+		"""Overflowing must fail rather than silently emit a tenth character."""
+		with self.assertRaises(frappe.ValidationError):
+			ticket_number.encode(ticket_number.BASE**ticket_number.SEQUENCE_WIDTH, 4)
+
+	def test_ethiopian_year_turns_in_september(self):
+		"""The manual form numbers its references by the Ethiopian year."""
+		import datetime
+
+		# The annexure's sample: filed 15 November 2025, reference LK/GR/2018/0147.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2025, 11, 15)), 2018)
+		# Still 2018 before the new year, 2019 on and after 11 September 2026.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 1, 1)), 2018)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 9, 10)), 2018)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 9, 11)), 2019)
+		# 2028 is a Gregorian leap year, so the 2027 new year falls a day later.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2027, 9, 11)), 2019)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2027, 9, 12)), 2020)
+
+	def test_segments_are_read_only(self):
+		"""Describing a ticket must not consume a sequence number."""
+		before = ticket_number.segments(self.woreda_leaf.name, "Inputs")
+		self.assertEqual(before, {"region": "T", "category": "001", "year": before["year"]})
+
+		g = self._submit()
+		after = ticket_number.segments(self.woreda_leaf.name, "Inputs")
+		self.assertEqual(before, after)
+		self.assertTrue(g.ticket_number.startswith(before["region"] + before["category"]))
+
+	def test_display_grouping_is_presentation_only(self):
+		self.assertEqual(ticket_number.display("3001002A0"), "3-001-002A-0")
+		g = self._submit()
+		self.assertEqual(ticket_number.display(g.ticket_number).replace("-", ""), g.ticket_number)
 
 	def test_cannot_attach_grievance_to_group_area(self):
 		with self.assertRaises(frappe.ValidationError):
@@ -341,7 +474,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)

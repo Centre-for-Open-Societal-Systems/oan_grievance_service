@@ -342,7 +342,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)

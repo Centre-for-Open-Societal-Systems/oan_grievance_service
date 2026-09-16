@@ -99,6 +99,27 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 				.name
 			)
 
+		# A region sits between country and woreda: the ticket number takes its
+		# character from the region, so a woreda hung straight off the country is
+		# not a tree a grievance can be filed in.
+		region = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Region"}, "name")
+		if not region:
+			region = (
+				frappe.get_doc(
+					{
+						"doctype": "Grievance Administrative Area",
+						"area_name": "Notif Region",
+						"level_name": "Region",
+						"code": "NFG",
+						"ticket_code": "N",
+						"parent_administrative_area": root,
+						"is_group": 1,
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+
 		leaf = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Woreda"}, "name")
 		if not leaf:
 			leaf = (
@@ -108,7 +129,7 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 						"area_name": "Notif Woreda",
 						"level_name": "Woreda",
 						"code": "NFW",
-						"parent_administrative_area": root,
+						"parent_administrative_area": region,
 						"is_group": 0,
 					}
 				)

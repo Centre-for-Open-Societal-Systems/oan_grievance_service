@@ -1,46 +1,26 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-import re
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.model.naming import getseries
 
-CODE_LENGTH = 4
+from oan_grievance_service.services import ticket_number
+
 MIN_DESCRIPTION_LENGTH = 20
-
-
-def abbreviate(value: str) -> str:
-	"""Uppercase alphanumeric prefix of a name, padded to a fixed width."""
-	cleaned = re.sub(r"[^A-Za-z0-9]", "", value or "").upper()
-	if not cleaned:
-		return "XXXX"
-	return cleaned[:CODE_LENGTH].ljust(CODE_LENGTH, "X")
-
-
-def segment(doctype: str, name: str) -> str:
-	"""The configured ticket code for a master record, else an abbreviation of it."""
-	if not name:
-		return "XXXX"
-	try:
-		code = frappe.db.get_value(doctype, name, "code")
-	except Exception:
-		code = None
-	return (code or abbreviate(name)).upper()
 
 
 class Grievance(Document):
 	def autoname(self):
-		"""Build the ticket number: AREA-CATEGORY-SEQUENCE."""
-		area_code = "GEN"
-		if self.administrative_area:
-			area_code = segment("Grievance Administrative Area", self.administrative_area)
+		"""Nine-character ticket number: region, category, sequence, year.
 
-		cat_code = segment("Grievance Service Category", self.service_category)
-		prefix = f"{area_code}-{cat_code}"
-		self.name = f"{prefix}-{getseries(prefix + '-', 5)}"
+		Named at insert so the sequence is allocated in the same transaction as
+		the row it belongs to. See `services.ticket_number` for the encoding;
+		the number is mirrored onto its own field because the FSD treats it as
+		an attribute of the grievance, and reports and notifications read it by
+		name.
+		"""
+		self.name = ticket_number.generate(self.administrative_area, self.service_category)
 		self.ticket_number = self.name
 
 	def validate(self):
