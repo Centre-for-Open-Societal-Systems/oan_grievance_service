@@ -11,18 +11,18 @@ container, never on the Windows host.
 
 ## 1. Tech stack
 
-| Layer               | Component                            | Version used                  |
-| ------------------- | ------------------------------------ | ----------------------------- |
-| Container runtime   | Docker Desktop (WSL 2 backend)       | 29.7.2                        |
-| Dev environment     | `frappe/frappe_docker` dev container | `frappe/bench:latest`         |
-| Bench CLI           | frappe-bench                         | 5.31.0                        |
-| Framework           | Frappe                               | 15.120.0 (`version-15`)       |
-| Language            | Python                               | 3.14.2 (app requires >= 3.10) |
-| Front-end toolchain | Node                                 | 24.13.0                       |
-| Database            | MariaDB                              | 11.8                          |
-| Cache / queue       | Redis                                | alpine (two instances)        |
-| App                 | `oan_grievance_service`              | 0.0.1                         |
-| Modules             | 6, split by FSD area                 | 22 doctypes, 6 roles          |
+| Layer               | Component                                   | Version used                  |
+| ------------------- | ------------------------------------------- | ----------------------------- |
+| Container runtime   | Docker Desktop (WSL 2 backend)              | 29.7.2                        |
+| Dev environment     | `frappe/frappe_docker` dev container        | `frappe/bench:latest`         |
+| Bench CLI           | frappe-bench                                | 5.31.0                        |
+| Framework           | Frappe                                      | 16.0.0 (`version-16`)         |
+| Language            | Python                                      | 3.14.2 (app requires >= 3.10) |
+| Front-end toolchain | Node                                        | v24.13.0                      |
+| Database            | MariaDB                                     | 11.8.8                        |
+| Cache / queue       | Redis                                       | 8.10.1 (two instances)        |
+| Apps                | `oan_auth_service`, `oan_grievance_service` | 0.0.1                         |
+| Modules             | 6, split by FSD area                        | 22 doctypes, 6 roles          |
 
 The app itself ships no server, no ORM and no migration engine. Frappe supplies all
 three. See `ARCHITECTURE` notes or the published architecture diagram for how the layers
@@ -154,7 +154,7 @@ roughly ten to fifteen minutes on a first run. That is normal, not a hang.
 
 ```bash
 cd /workspace/development
-bench init frappe-bench --skip-redis-config-generation --frappe-branch version-15
+bench init frappe-bench --skip-redis-config-generation --frappe-branch version-16
 ```
 
 ### 3.7 Point bench at the compose services
@@ -193,15 +193,18 @@ Confirm the service names resolve:
 getent hosts mariadb redis-cache redis-queue
 ```
 
-### 3.8 Add this app to the bench
+### 3.8 Add the apps to the bench
+
+`oan_grievance_service` depends on `oan_auth_service` for authentication and user self-registration. Fetch both into the bench:
 
 ```bash
 cd /workspace/development/frappe-bench
-bench get-app https://github.com/<org>/oan_grievance_service.git --branch develop
+bench get-app https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service.git --branch develop
+bench get-app https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service.git --branch develop
 ```
 
 If you are working from a local checkout instead, see
-[section 6](#6-repository-and-bench-relationship) first, because the repository is not
+[section 6](#6-repository-and-bench-relationship) first, because the repositories are not
 mounted into the container by default.
 
 ### 3.9 Create a site
@@ -220,11 +223,29 @@ each site you create gets its own schema.
 Two harmless messages appear here. `MariaDB version 11.8 is more than 10.8 which is not yet tested` is an upstream version check, and `*** Scheduler is disabled ***` is the
 default for a new site.
 
-### 3.10 Install the app and enable developer mode
+### 3.10 Configure site, install the apps, and migrate
+
+1. Configure required keys in `site_config.json` for JWT authentication and development mode:
 
 ```bash
+bench --site grievance.localhost set-config developer_mode 1
+bench --site grievance.localhost set-config allow_tests true --parse
+
+# Configure JWT signing secret and registration roles for oan_auth_service
+JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+bench --site grievance.localhost set-config jwt_secrets "{\"v1\": \"$JWT_SECRET\"}" --parse
+bench --site grievance.localhost set-config jwt_current_kid "v1"
+bench --site grievance.localhost set-config jwt_default_registration_role "Grievance Submitter"
+bench --site grievance.localhost set-config jwt_self_registerable_roles '["Grievance Submitter"]' --parse
+```
+
+_(See [`site_config.example.json`](site_config.example.json) and [`SETUP_DOCKER.md`](SETUP_DOCKER.md) for the full configuration matrix)._
+
+2. Install `oan_auth_service` first, then `oan_grievance_service`, and run migrations:
+
+```bash
+bench --site grievance.localhost install-app oan_auth_service
 bench --site grievance.localhost install-app oan_grievance_service
-bench set-config -g developer_mode 1
 bench --site grievance.localhost migrate
 ```
 
@@ -240,7 +261,8 @@ bench --site grievance.localhost list-apps
 Expected:
 
 ```
-frappe                15.120.0 version-15
+frappe                16.0.0   version-16
+oan_auth_service      0.0.1    UNVERSIONED
 oan_grievance_service 0.0.1    UNVERSIONED
 ```
 

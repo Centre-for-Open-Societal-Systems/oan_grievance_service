@@ -10,6 +10,21 @@ from oan_grievance_service.services import ticket_number
 MIN_DESCRIPTION_LENGTH = 20
 
 
+ALLOWED_FILING_LEVELS = frozenset(
+	{
+		"Woreda",
+		"Kebele",
+		"Village",
+		"Ward",
+		"Taluka",
+		"Sub-County",
+		"County",
+		"District",
+	}
+)
+
+
+
 class Grievance(Document):
 	def autoname(self):
 		"""Nine-character ticket number: region, category, sequence, year.
@@ -34,11 +49,17 @@ class Grievance(Document):
 			return
 
 		area = frappe.get_doc("Grievance Administrative Area", self.administrative_area)
-		if area.is_group:
+
+		# Only operational administrative levels (Woreda, Kebele, Village, etc.) can have
+		# grievances attached. Macro containers (Country, Region, Zone) and root nodes are rejected.
+		if area.level_name not in ALLOWED_FILING_LEVELS or (
+			not area.parent_administrative_area and area.is_group
+		):
 			frappe.throw(
 				_(
-					"Grievances can only be attached to an operational leaf Administrative Area (not a group)."
-				),
+					"Grievances cannot be attached to administrative level '{0}'. "
+					"Please select an operational area such as a Woreda or Kebele."
+				).format(area.level_name or _("Unknown")),
 				title=_("Invalid Administrative Area"),
 			)
 

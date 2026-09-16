@@ -123,6 +123,22 @@ def _resolve_submitter_identity(kwargs):
 	return identity
 
 
+def resolve_administrative_area(area_identifier):
+	"""Resolve an area identifier (ID, path_code, or unique code) to canonical doc name.
+
+	Note: area_name is intentionally excluded because display names recur across
+	regions/woredas (e.g. over 100 kebeles named '1' or '2') and resolving by name
+	causes silent misrouting to an arbitrary region.
+	"""
+	if not area_identifier:
+		return None
+	if frappe.db.exists("Grievance Administrative Area", area_identifier):
+		return area_identifier
+	return frappe.db.get_value(
+		"Grievance Administrative Area", {"path_code": area_identifier}, "name"
+	) or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
+
+
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -141,6 +157,21 @@ def submit(**kwargs):
 		**{field: value for field, value in kwargs.items() if field not in CLIENT_IMMUTABLE_FIELDS},
 		**identity,
 	}
+
+	# Support intake forms providing woreda and optional kebele:
+	canonical_area = resolve_administrative_area(resolved.get("administrative_area"))
+	if not canonical_area and kwargs.get("kebele"):
+		canonical_area = resolve_administrative_area(kwargs.get("kebele"))
+	if not canonical_area and kwargs.get("woreda"):
+		canonical_area = resolve_administrative_area(kwargs.get("woreda"))
+
+	if canonical_area:
+		resolved["administrative_area"] = canonical_area
+
+	# If kebele was provided as free text and administrative_unit is empty, preserve it
+	if kwargs.get("kebele") and not resolved.get("administrative_unit"):
+		if resolved.get("administrative_area") != kwargs.get("kebele"):
+			resolved["administrative_unit"] = kwargs.get("kebele")
 
 	required = (
 		"submitter_type",
