@@ -270,6 +270,38 @@ class TestGrievance(FrappeTestCase):
 		g = self._submit()
 		self.assertEqual(ticket_number.display(g.ticket_number).replace("-", ""), g.ticket_number)
 
+	def test_normalize_accepts_a_ticket_however_it_was_typed(self):
+		"""What we print grouped must come back in whatever form a person sends."""
+		stored = "3001002A0"
+		for typed in (
+			"3001002A0",
+			"3-001-002A-0",  # as displayed
+			"3 001 002A 0",  # read out with pauses
+			"3001002a0",  # lower case
+			"  3-001-002a-0  ",  # pasted with whitespace
+			"3OO1OO2AO",  # O read for 0
+			"300I002A0",  # I read for 1
+			"300L002A0",  # L read for 1
+		):
+			self.assertEqual(ticket_number.normalize(typed), stored, f"failed on {typed!r}")
+
+	def test_normalize_leaves_non_tickets_alone(self):
+		"""A search for something else must not be mangled into a false match."""
+		for other in ("", "not-a-ticket", "3001002A", "3001002A00"):
+			self.assertEqual(ticket_number.normalize(other), other.strip())
+
+	def test_a_ticket_can_be_looked_up_as_it_was_displayed(self):
+		"""The grouped form we send is the form a submitter will quote back."""
+		from oan_grievance_service.api.v1.grievance import _load
+
+		g = self._submit()
+		grouped = ticket_number.display(g.ticket_number)
+		self.assertNotEqual(grouped, g.ticket_number, "the display form should differ")
+
+		self.assertEqual(_load(grouped).name, g.name)
+		self.assertEqual(_load(grouped.lower()).name, g.name)
+		self.assertEqual(_load(g.ticket_number).name, g.name)
+
 	def test_cannot_attach_grievance_to_group_area(self):
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc(

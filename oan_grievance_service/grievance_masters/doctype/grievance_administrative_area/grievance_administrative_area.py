@@ -2,7 +2,10 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.utils.nestedset import NestedSet
+
+from oan_grievance_service.services import ticket_number
 
 
 class GrievanceAdministrativeArea(NestedSet):
@@ -21,6 +24,62 @@ class GrievanceAdministrativeArea(NestedSet):
 
 	def validate(self):
 		self.set_tree_metadata()
+		self.validate_ticket_code()
+
+	def validate_ticket_code(self):
+		"""Check the ticket character here, where an admin can still fix it.
+
+		Without this the error surfaces at the far end: the record saves, and
+		the first farmer to file a grievance in the region is the one who gets
+		the failure. A duplicate is worse than an invalid one, because it saves
+		and works — two regions would then share a ticket prefix and their
+		numbers would be indistinguishable after the fact.
+		"""
+		if not self.ticket_code:
+			return
+
+		self.ticket_code = self.ticket_code.strip().upper()
+
+		if self.level_name != ticket_number.REGION_LEVEL:
+			frappe.throw(
+				_("Only regions carry a Ticket Code; {0} is a {1}.").format(
+					frappe.bold(self.area_name), self.level_name or _("different level")
+				),
+				title=_("Ticket Code Not Applicable"),
+			)
+
+		if len(self.ticket_code) != ticket_number.REGION_WIDTH:
+			frappe.throw(
+				_("Ticket Code must be exactly {0} character(s); {1} is {2}.").format(
+					ticket_number.REGION_WIDTH, frappe.bold(self.ticket_code), len(self.ticket_code)
+				),
+				title=_("Invalid Ticket Code"),
+			)
+
+		if self.ticket_code not in ticket_number.ALPHABET:
+			frappe.throw(
+				_(
+					"Ticket Code {0} is not a valid character. I, L, O and U are excluded because they are misread."
+				).format(frappe.bold(self.ticket_code)),
+				title=_("Invalid Ticket Code"),
+			)
+
+		clash = frappe.db.get_value(
+			"Grievance Administrative Area",
+			{
+				"ticket_code": self.ticket_code,
+				"level_name": ticket_number.REGION_LEVEL,
+				"name": ["!=", self.name],
+			},
+			"area_name",
+		)
+		if clash:
+			frappe.throw(
+				_("Ticket Code {0} already belongs to {1}. Every region needs its own.").format(
+					frappe.bold(self.ticket_code), frappe.bold(clash)
+				),
+				title=_("Duplicate Ticket Code"),
+			)
 
 	def set_tree_metadata(self):
 		"""Compute depth, country, and materialized path_code."""

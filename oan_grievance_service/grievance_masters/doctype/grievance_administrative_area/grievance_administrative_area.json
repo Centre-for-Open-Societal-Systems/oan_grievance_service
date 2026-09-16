@@ -46,7 +46,8 @@
    "fieldname": "ticket_code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Ticket Code"
+   "label": "Ticket Code",
+   "length": 1
   },
   {
    "description": "Materialized dotted code path, e.g. ET.OROM.BISH.K01",

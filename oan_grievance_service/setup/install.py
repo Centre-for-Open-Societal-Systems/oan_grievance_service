@@ -421,23 +421,15 @@ def seed_role_levels():
 
 
 def seed_categories():
-	"""Seed the service categories, converging the code of any that already exist.
+	"""Seed the service categories if they are absent.
 
-	The code is the CATEGORY segment of the ticket number, so it has to match
-	what is declared here. Sites installed before the ticket format changed
-	carry the old four-letter codes (INPT, SCHM); skipping them would leave
-	ticket generation refusing every submission on those sites. A category
-	nobody has issued tickets under can be renumbered freely, which is true of
-	all of these until go-live.
+	Converting the code of a category that already exists is a one-time data
+	migration, not seeding, so it lives in
+	`patches/convert_service_category_codes_to_base32.py` instead.
 	"""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
-		existing = frappe.db.get_value("Grievance Service Category", name, "code")
-		if existing == code:
-			continue
-		if existing is not None:
-			frappe.db.set_value("Grievance Service Category", name, "code", code)
-			made.append(f"{name}:{existing}->{code}")
+		if frappe.db.exists("Grievance Service Category", name):
 			continue
 		frappe.get_doc(
 			{

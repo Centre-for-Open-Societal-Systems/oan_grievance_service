@@ -13,6 +13,10 @@ from oan_auth_service.api.utils import handle_api_errors, require_role, success_
 from oan_grievance_service.services import audit, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C
 
+# Aliased: several entry points take a `ticket_number` argument, which would
+# otherwise shadow the module inside them.
+from oan_grievance_service.services import ticket_number as tn
+
 ALLOWED_GRIEVANCE_ROLES = [
 	"Grievance Submitter",
 	"Grievance Officer",
@@ -224,16 +228,13 @@ def detect_duplicates(grievance, window_days=7):
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def track(ticket_number: str):
 	"""Submitter-facing status lookup for the portal and IVR."""
-	name = frappe.db.get_value("Grievance", {"ticket_number": ticket_number}, "name")
-	if not name:
-		frappe.throw(_("No grievance found with that ticket number."), title=_("Not Found"))
-
-	doc = frappe.get_doc("Grievance", name)
-	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=name)
+	doc = _load(ticket_number)
+	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=doc.name)
 
 	return success_response(
 		data={
 			"ticket_number": doc.ticket_number,
+			"ticket_number_display": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
 			"department": doc.assigned_dept,
@@ -310,7 +311,14 @@ def reply(ticket_number: str, body: str):
 
 
 def _load(ticket_number):
-	name = frappe.db.get_value("Grievance", {"ticket_number": ticket_number}, "name")
+	"""Fetch a grievance by ticket number as the submitter typed it.
+
+	Normalised first: the number is printed grouped (3-001-002A-0) and read back
+	over a phone line, so the hyphens, casing and the O/I/L substitutions the
+	alphabet anticipates must not decide whether a farmer can reach their own
+	case.
+	"""
+	name = frappe.db.get_value("Grievance", {"ticket_number": tn.normalize(ticket_number)}, "name")
 	if not name:
 		frappe.throw(_("No grievance found with that ticket number."), title=_("Not Found"))
 	return frappe.get_doc("Grievance", name)
