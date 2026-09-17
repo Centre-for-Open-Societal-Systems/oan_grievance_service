@@ -12,6 +12,7 @@ An unversioned endpoint would make every contract change a breaking change for e
 deployed client at once. The version lives in the path so an old client keeps its
 old contract until it is retired deliberately.
 
+    /api/v1/grievance/submit
     /api/method/oan_grievance_service.api.v1.grievance.submit
 
 VERSIONING POLICY
@@ -48,3 +49,21 @@ def version_meta(version=CURRENT_VERSION):
 	if info.get("sunset_on"):
 		meta["sunset_on"] = info["sunset_on"]
 	return meta
+
+
+from oan_grievance_service.api.router import (
+	ensure_routes_registered,
+	prefixed,
+	registered_routes,
+	rest,
+)
+
+__all__ = [
+	"CURRENT_VERSION",
+	"VERSIONS",
+	"ensure_routes_registered",
+	"prefixed",
+	"registered_routes",
+	"rest",
+	"version_meta",
+]

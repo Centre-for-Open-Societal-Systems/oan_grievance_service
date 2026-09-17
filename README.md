@@ -19,6 +19,11 @@ consumed as a pinned dependency in `pyproject.toml`. It carries the API response
 envelope, request-validation decorators and JWT key resolution. It is pinned by
 tag rather than branch so each deployment adopts changes deliberately.
 
+## Setup & Configuration Guides
+
+- **[SETUP_DOCKER.md](SETUP_DOCKER.md)** — Production setup using **`frappe_docker`** with multi-container Docker Compose, image builds with custom apps, and containerized `site_config.json` setup.
+- **[SETUP.md](SETUP.md)** — Development setup using the official `frappe_docker` dev container (Windows/WSL 2).
+
 ## Development
 
 All commands run from `development/frappe-bench-16/`.

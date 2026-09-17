@@ -17,6 +17,9 @@ CHANNELS = (
 	"Development Agent Assisted",
 )
 
+# Re-export for callers; single source of truth lives on identity.
+ALLOWED_FILING_LEVELS = identity.ALLOWED_FILING_LEVELS
+
 
 class Grievance(Document):
 	def autoname(self):
@@ -65,11 +68,17 @@ class Grievance(Document):
 			return
 
 		area = frappe.get_doc("Grievance Administrative Area", self.administrative_area)
-		if area.is_group:
+
+		# Only operational administrative levels (Woreda, Kebele, Village, etc.) can have
+		# grievances attached. Macro containers (Country, Region, Zone) and root nodes are rejected.
+		if area.level_name not in ALLOWED_FILING_LEVELS or (
+			not area.parent_administrative_area and area.is_group
+		):
 			frappe.throw(
 				_(
-					"Grievances can only be attached to an operational leaf Administrative Area (not a group)."
-				),
+					"Grievances cannot be attached to administrative level '{0}'. "
+					"Please select an operational area such as a Woreda or Kebele."
+				).format(area.level_name or _("Unknown")),
 				title=_("Invalid Administrative Area"),
 			)
 

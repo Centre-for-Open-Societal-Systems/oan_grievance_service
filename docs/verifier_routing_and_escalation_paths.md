@@ -48,13 +48,13 @@ timeline
     Final Resolution (10 Days) : resolution_escalation_at<br>(Legally mandated case resolution deadline)
 ```
 
-| Milestone Timestamp         | Field Name          | Purpose                                                                        | How it fires                                                                 |
-| :-------------------------- | :------------------ | :----------------------------------------------------------------------------- | :--------------------------------------------------------------------------- |
-| **First Response Due**      | `first_response_at` | Deadline for the local officer to open the case and send a first response.     | Computed from the matched `sla_policies` row at submission.                  |
-| **Periodic Update Due**     | `update_due_at`     | Prevents stalled cases by requiring a verifier update on the policy's cadence. | Recomputed on each public update.                                            |
-| **Directive Execution Due** | `remand_due_at`     | Fast-track timer for officers executing a supervisor's remand order.           | Set on the remand action.                                                    |
-| **Resolution Due**          | `due_at`            | Final resolution deadline, in working hours.                                   | Computed from `sla_policies` and the `business_calendars` row at submission. |
-| **Appeal Window Expiry**    | `appeal_expiry_at`  | Objection period after resolution, before the case auto-closes.                | Computed on transition to Resolved.                                          |
+| Milestone Timestamp         | Field Name          | Purpose                                                                        | How it fires                                                                |
+| :-------------------------- | :------------------ | :----------------------------------------------------------------------------- | :-------------------------------------------------------------------------- |
+| **First Response Due**      | `first_response_at` | Deadline for the local officer to open the case and send a first response.     | Computed from the matched`sla_policies` row at submission.                  |
+| **Periodic Update Due**     | `update_due_at`     | Prevents stalled cases by requiring a verifier update on the policy's cadence. | Recomputed on each public update.                                           |
+| **Directive Execution Due** | `remand_due_at`     | Fast-track timer for officers executing a supervisor's remand order.           | Set on the remand action.                                                   |
+| **Resolution Due**          | `due_at`            | Final resolution deadline, in working hours.                                   | Computed from`sla_policies` and the `business_calendars` row at submission. |
+| **Appeal Window Expiry**    | `appeal_expiry_at`  | Objection period after resolution, before the case auto-closes.                | Computed on transition to Resolved.                                         |
 
 **Every one of these is backed by a `case_timers` row, not by a scan.** Each deadline — and each pre-breach warning and citizen reminder derived from it — is written as a row with a `fire_at` when the deadline is computed. The scheduler reads `WHERE fire_at <= now() AND status = 'pending'` with `FOR UPDATE SKIP LOCKED` and does nothing else. It never sweeps the grievance table asking which cases are late, because at national volume that scan is the outage. This is the mechanism specified in `database-schema.md` §10; nothing in this document introduces a second clock.
 

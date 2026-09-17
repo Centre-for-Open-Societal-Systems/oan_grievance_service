@@ -8,6 +8,7 @@ from pydantic import ValidationError as PydanticValidationError
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
 	_resolve_submitter_identity,
+	submit,
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
@@ -349,6 +350,87 @@ class TestGrievance(FrappeTestCase):
 
 		with self.assertRaises(PydanticValidationError):
 			validate_submission_payload({**base, "grievance_type": "not-a-real-type"})
+
+	def test_can_attach_grievance_to_woreda_group_area(self):
+		"""Woredas with child kebeles (is_group=1) must still be allowed for grievance filing."""
+		# Create a child kebele under woreda to ensure it is marked as a group
+		kebele_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Test Child Kebele"}, "name"
+		)
+		if not kebele_name:
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Test Child Kebele",
+					"level_name": "Kebele",
+					"code": "TCK",
+					"parent_administrative_area": self.woreda_leaf.name,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
+
+		self.woreda_leaf.reload()
+		g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Tesfaye",
+				"contact_mobile": "+251911334455",
+				"submission_channel": "Mobile App",
+				"administrative_area": self.woreda_leaf.name,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_doc.name,
+				"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.area_lft, self.woreda_leaf.lft)
+		self.assertTrue(bool(g.area_path_code))
+		frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
+
+	def test_can_file_grievance_at_woreda_level_via_api(self):
+		"""Submit API accepts woreda parameter and optional kebele free text."""
+		res = submit(
+			submitter_type="Individual Farmer",
+			submitter_name="Tesfaye",
+			contact_mobile="+251911334455",
+			submission_channel="Mobile App",
+			woreda=self.woreda_leaf.name,
+			kebele="Village 2 West",
+			service_category="Inputs",
+			grievance_type=self.gtype_doc.name,
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+			consent_given=1,
+		)
+		self.assertEqual(res["status"], "success")
+		ticket = res["data"]["ticket_number"]
+		g = frappe.get_doc("Grievance", ticket)
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.administrative_unit, "Village 2 West")
+		frappe.delete_doc("Grievance", ticket, force=True, ignore_permissions=True)
+
+	def test_kebele_digit_name_does_not_silently_misroute(self):
+		"""Kebele passed as common numeric name (e.g. '1') must not match random other region."""
+		res = submit(
+			submitter_type="Individual Farmer",
+			submitter_name="Tesfaye",
+			contact_mobile="+251911334455",
+			submission_channel="Mobile App",
+			woreda=self.woreda_leaf.name,
+			kebele="1",
+			service_category="Inputs",
+			grievance_type=self.gtype_doc.name,
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+			consent_given=1,
+		)
+		self.assertEqual(res["status"], "success")
+		ticket = res["data"]["ticket_number"]
+		g = frappe.get_doc("Grievance", ticket)
+		# Must remain attached to woreda, not random kebele '1' across the country
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.administrative_unit, "1")
+		frappe.delete_doc("Grievance", ticket, force=True, ignore_permissions=True)
 
 	def test_nearest_ancestor_routing(self):
 		# Create a broad rule on Region, and a specific rule on Woreda Leaf

@@ -18,12 +18,20 @@ def a_leaf_area():
 	"""A leaf Administrative Area a grievance may attach to.
 
 	`Grievance.set_administrative_area_metadata` refuses a group node, so this has
-	to be an operational leaf. The Ethiopia seed provides plenty; one is created
-	only when the seed has not been loaded, which is the case on a bare test site.
+	to be an operational leaf under a region with a valid ticket code. The Ethiopia
+	seed provides plenty; one is created only when the seed has not been loaded,
+	which is the case on a bare test site.
 	"""
-	existing = frappe.db.get_value("Grievance Administrative Area", {"is_group": 0, "is_active": 1}, "name")
-	if existing:
-		return existing
+	from oan_grievance_service.services.ticket_number import region_of
+
+	for area in frappe.db.get_all(
+		"Grievance Administrative Area",
+		{"is_group": 0, "is_active": 1},
+		pluck="name",
+		limit=20,
+	):
+		if region_of(area):
+			return area
 
 	root = frappe.db.get_value(
 		"Grievance Administrative Area", {"parent_administrative_area": ["is", "not set"]}, "name"
@@ -45,6 +53,28 @@ def a_leaf_area():
 			.name
 		)
 
+	region = frappe.db.get_value(
+		"Grievance Administrative Area", {"level_name": "Region", "ticket_code": ["is", "set"]}, "name"
+	)
+	if not region:
+		region = (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Test Region",
+					"code": "TRG",
+					"ticket_code": "T",
+					"level_name": "Region",
+					"country": "Test Country",
+					"parent_administrative_area": root,
+					"is_group": 1,
+					"is_active": 1,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
 	return (
 		frappe.get_doc(
 			{
@@ -53,7 +83,7 @@ def a_leaf_area():
 				"code": "TLA",
 				"level_name": "Woreda",
 				"country": "Test Country",
-				"parent_administrative_area": root,
+				"parent_administrative_area": region,
 				"is_group": 0,
 				"is_active": 1,
 			}
@@ -113,7 +143,7 @@ def a_service_category():
 			{
 				"doctype": "Grievance Service Category",
 				"category_name": SEED_CATEGORY,
-				"code": "INPT",
+				"code": "001",
 				"sort_order": 1,
 				"is_active": 1,
 			}

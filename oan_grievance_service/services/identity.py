@@ -33,6 +33,21 @@ EMAIL_PATTERN = re.compile(
 FAYDA_PATTERN = re.compile(r"^(?=.{6,30}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
 REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
 
+# Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
+# are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
+ALLOWED_FILING_LEVELS = frozenset(
+	{
+		"Woreda",
+		"Kebele",
+		"Village",
+		"Ward",
+		"Taluka",
+		"Sub-County",
+		"County",
+		"District",
+	}
+)
+
 
 @dataclass(frozen=True)
 class IdentityRule:
@@ -254,13 +269,16 @@ def validate_submission_payload(payload, allowed_channels=None):
 			)
 		else:
 			area = frappe.get_doc("Grievance Administrative Area", administrative_area)
-			if area.is_group:
+			if area.level_name not in ALLOWED_FILING_LEVELS or (
+				not area.parent_administrative_area and area.is_group
+			):
 				errors.append(
 					_field_error(
 						"administrative_area",
 						_(
-							"Grievances can only be attached to an operational leaf Administrative Area (not a group)."
-						),
+							"Grievances cannot be attached to administrative level '{0}'. "
+							"Please select an operational area such as a Woreda or Kebele."
+						).format(area.level_name or _("Unknown")),
 						input_value=administrative_area,
 					)
 				)

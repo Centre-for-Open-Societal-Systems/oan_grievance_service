@@ -18,8 +18,12 @@ add_to_apps_screen = [
 	}
 ]
 
+# Register Werkzeug REST routes for Frappe API Map
+before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
+
 # Installation
 # ------------------
+
 # FSD Appendix F roles, 3.2.2 categories, 3.11.8 regions and the Appendix C
 # notification matrix are seeded so a fresh site comes up usable.
 
@@ -124,9 +128,11 @@ fixtures = [
 
 # Authentication & Registration
 # -----------------------------
-# Integrates with oan_auth_service to initialize domain profiles upon user registration.
+# Integrates with oan_auth_service to initialize domain profiles upon user registration
+# and enrich user introspection (GET /api/v1/auth/me) with grievance profile data.
 
 on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
+on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 
 # Portal
 # ------------------

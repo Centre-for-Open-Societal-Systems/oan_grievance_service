@@ -20,6 +20,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
 
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
 from oan_grievance_service.services import constants as C
 
 CLOCK_START_ASSIGNMENT = "assignment"
@@ -397,6 +400,19 @@ def escalate(grievance, trigger, reason=None, reassign=True):
 		"next_escalation_at",
 		add_to_date(now_datetime(), hours=hours) if hours else None,
 		update_modified=False,
+	)
+
+	# Record escalation in unified timeline spine
+	timeline_body = f"Case escalated to {target} ({level.level_name or level.name})"
+	if reason:
+		timeline_body += f": {reason}"
+	user = frappe.session.user if frappe.session.user != "Guest" else None
+	GrievanceTimeline.record(
+		grievance=grievance.name,
+		entry_type="escalation",
+		is_internal=False,
+		body=timeline_body,
+		author_user=user,
 	)
 
 	notifications.queue(grievance, event, recipient_override=target)

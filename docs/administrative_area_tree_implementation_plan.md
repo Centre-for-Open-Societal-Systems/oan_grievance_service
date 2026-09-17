@@ -129,9 +129,7 @@ The one place it bites is bulk load. Loading a country row by row is O(n²) beca
 
 ## 5. Attaching a grievance to an area
 
-A grievance attaches to exactly one area, and it must be a leaf (`is_group = false`) that is current (`valid_to IS NULL`). Both conditions are enforced in the database, not in the form: a `CHECK` cannot see the referenced row, so this is a trigger on insert and update of `grievances.administrative_area_id`.
-
-A UI filter that offers only leaf nodes is a convenience. It is not the enforcement, because the API is reachable without it.
+A grievance attaches to an operational administrative area (such as a Woreda or Kebele; Woreda is required in intake while Kebele/Village is optional) that is current (`valid_to IS NULL`). Because Woredas contain child Kebeles in the full hierarchy, Woredas are group nodes (`is_group = 1`) and are fully supported. Macro administrative containers (`Country`, `Region`, `Zone`) cannot have grievances attached directly.
 
 ### Snapshot the hierarchy at submission
 
