@@ -4,10 +4,18 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.services import ticket_number
+from oan_grievance_service.services import identity, ticket_number
 
 MIN_DESCRIPTION_LENGTH = 20
+CHANNELS = (
+	"Mobile App",
+	"Web Portal",
+	"Mobile Call",
+	"IVR Helpline",
+	"Development Agent Assisted",
+)
 
 
 class Grievance(Document):
@@ -24,6 +32,29 @@ class Grievance(Document):
 		self.ticket_number = self.name
 
 	def validate(self):
+		try:
+			identity.validate_submission_payload(
+				{
+					"submitter_type": self.submitter_type,
+					"submitter_name": self.submitter_name,
+					"contact_mobile": self.contact_mobile,
+					"contact_email": self.contact_email,
+					"submission_channel": self.submission_channel,
+					"administrative_area": self.administrative_area,
+					"service_category": self.service_category,
+					"grievance_type": self.grievance_type,
+					"description": self.description,
+					"fayda_id": getattr(self, "fayda_id", None),
+				},
+				allowed_channels=CHANNELS,
+			)
+		except PydanticValidationError as e:
+			# Desk / DocType path expects frappe.ValidationError; API gets pydantic details.
+			parts = []
+			for err in e.errors():
+				loc = ".".join(str(item) for item in err["loc"])
+				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
+			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
 		self.validate_description_length()
 		self.validate_grievance_type_category()
 		self.set_administrative_area_metadata()

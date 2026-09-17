@@ -3,6 +3,7 @@
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from pydantic import ValidationError as PydanticValidationError
 
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
@@ -10,6 +11,7 @@ from oan_grievance_service.api.v1.grievance import (
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
+from oan_grievance_service.services.identity import validate_submission_payload
 
 
 class TestGrievance(FrappeTestCase):
@@ -48,6 +50,10 @@ class TestGrievance(FrappeTestCase):
 			).insert(ignore_permissions=True)
 		else:
 			self.region_area = frappe.get_doc("Grievance Administrative Area", region_name)
+			# Existing region rows from older fixtures may lack ticket_code.
+			if not self.region_area.ticket_code:
+				self.region_area.db_set("ticket_code", "T", update_modified=False)
+				self.region_area.reload()
 
 		woreda_name = frappe.db.get_value(
 			"Grievance Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
@@ -318,6 +324,32 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+	def test_submission_payload_validates_required_and_format_rules(self):
+		base = {
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+
+		validate_submission_payload(base)
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_mobile": "+255911334455"})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_email": "not-an-email"})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "fayda_id": "bad id!"})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "grievance_type": "not-a-real-type"})
+
 	def test_nearest_ancestor_routing(self):
 		# Create a broad rule on Region, and a specific rule on Woreda Leaf
 		broad_rule = frappe.get_doc(
@@ -498,6 +530,39 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		for field in ("submitter", "assisted_by_officer", "area_lft", "area_path_code", "status"):
 			self.assertIn(field, CLIENT_IMMUTABLE_FIELDS)
 
+	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
+		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
+		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.services import submission as submission_svc
+
+		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
+		req = SubmitGrievanceRequest(
+			submission_channel="Mobile App",
+			administrative_area="placeholder-area",
+			service_category="Inputs",
+			grievance_type="placeholder-type",
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		self.assertIsNone(req.submitter_type)
+		self.assertIsNone(req.submitter_name)
+		self.assertIsNone(req.contact_mobile)
+
+		frappe.set_user(self.owner_user)
+		resolved = {**req.model_dump(), **_resolve_submitter_identity({})}
+
+		self.assertEqual(resolved["submitter"], self.owner_profile.name)
+		self.assertEqual(resolved["submitter_name"], "Alemayehu Bekele")
+		self.assertEqual(resolved["contact_mobile"], "+251911000111")
+		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
+
+		# Domain Ethiopian normalisation (SafePhone would reject bare 9-digit).
+		self.assertEqual(
+			submission_svc.normalise_mobile(resolved["contact_mobile"]),
+			"+251911000111",
+		)
+		self.assertEqual(submission_svc.normalise_mobile("911000111"), "+251911000111")
+
+
 
 class TestGrievanceStaffOptions(FrappeTestCase):
 	def setUp(self):
@@ -598,3 +663,4 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertEqual(res.get("status"), "error")
 		self.assertEqual(res.get("code"), "PERMISSION_DENIED")
 		self.assertEqual(frappe.response.get("http_status_code"), 403)
+

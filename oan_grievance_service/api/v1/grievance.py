@@ -8,14 +8,50 @@ service layer so the audit trail and notifications cannot be bypassed.
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
+from oan_auth_service.api.utils import (
+	SafeEmail,
+	handle_api_errors,
+	require_role,
+	success_response,
+	validate_request,
+)
+from pydantic import BaseModel, Field
 
-from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
+from oan_grievance_service.services import audit, identity, lifecycle, routing, sla, submission
 from oan_grievance_service.services import constants as C
 
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
+
+
+class SubmitGrievanceRequest(BaseModel):
+	"""Case fields are required at the HTTP edge; identity may come from the profile.
+
+	Authenticated submitters omit type/name/mobile — `_resolve_submitter_identity`
+	fills them from the session profile, and `CLIENT_IMMUTABLE_FIELDS` ignores any
+	client-supplied copies. Walk-in/IVR staff still send them; domain validation
+	after resolve enforces presence.
+
+	Phone is plain optional str (not SafePhone): oan_auth SafePhone requires 10–15
+	digits and rejects bare Ethiopian 9-digit subscriber numbers that
+	`submission.normalise_mobile` accepts. Ethiopian rules stay in the domain layer.
+	"""
+
+	model_config = {"extra": "allow"}
+
+	submitter_type: str | None = None
+	submitter_name: str | None = None
+	contact_mobile: str | None = None
+	submission_channel: str = Field(..., min_length=1)
+	administrative_area: str = Field(..., min_length=1)
+	service_category: str = Field(..., min_length=1)
+	grievance_type: str = Field(..., min_length=1)
+	description: str = Field(..., min_length=20)
+	contact_email: SafeEmail | None = None
+	assisted_by_officer: str | None = None
+	is_anonymous: int | None = Field(0, ge=0, le=1)
+
 
 ALLOWED_GRIEVANCE_ROLES = [
 	"Grievance Submitter",
@@ -123,6 +159,7 @@ def _resolve_submitter_identity(kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
+@validate_request(SubmitGrievanceRequest)
 def submit(**kwargs):
 	"""FSD 4.1: validate, generate the ticket, acknowledge, then route.
 
@@ -133,31 +170,19 @@ def submit(**kwargs):
 
 	# Identity is resolved first so the required-field check sees the profile snapshot:
 	# a submitter filing for themselves need not send back their own name and number.
-	identity = _resolve_submitter_identity(kwargs)
+	resolved_identity = _resolve_submitter_identity(kwargs)
 	resolved = {
 		**{field: value for field, value in kwargs.items() if field not in CLIENT_IMMUTABLE_FIELDS},
-		**identity,
+		**resolved_identity,
 	}
 
-	required = (
-		"submitter_type",
-		"submitter_name",
-		"contact_mobile",
-		"submission_channel",
-		"administrative_area",
-		"service_category",
-		"grievance_type",
-		"description",
-	)
-	missing = [field for field in required if not resolved.get(field)]
-	if missing:
-		frappe.throw(
-			_("Missing required fields: {0}").format(", ".join(missing)),
-			title=_("Incomplete Submission"),
-		)
+	# Normalise before insert so the doc (and find_or_create_submitter) get +251…
+	# form even when contact_mobile came from the profile snapshot, not kwargs.
+	if resolved.get("contact_mobile"):
+		resolved["contact_mobile"] = submission.normalise_mobile(resolved["contact_mobile"])
+	kwargs["contact_mobile"] = resolved.get("contact_mobile")
 
-	if resolved["submission_channel"] not in CHANNELS:
-		frappe.throw(_("Unknown submission channel."), title=_("Invalid Channel"))
+	identity.validate_submission_payload(resolved, allowed_channels=CHANNELS)
 
 	# A retry must not lodge a second case. This read settles the ordinary retry --
 	# one that arrives after the first attempt committed. It cannot settle two
@@ -168,8 +193,6 @@ def submit(**kwargs):
 		original = _existing_submission(client_uuid)
 		if original:
 			return original
-
-	kwargs["contact_mobile"] = submission.normalise_mobile(kwargs.get("contact_mobile"))
 
 	doc = frappe.new_doc("Grievance")
 	for field, value in resolved.items():
