@@ -151,10 +151,42 @@ def _submitter_profiles(user):
 	return frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name")
 
 
+def get_subordinate_officers(user):
+	"""Find all officers who report directly or indirectly to `user` (bottom-to-top hierarchy)."""
+	if not user:
+		return set()
+	subordinates = {user}
+	frontier = {user}
+	today = frappe.utils.today()
+	while frontier:
+		query = """
+			SELECT DISTINCT c.user
+			FROM `tabGrievance RBAC Assignment Officer` c
+			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+			WHERE c.reports_to IN %(frontier)s
+			  AND c.active = 1
+			  AND p.active = 1
+			  AND p.effective_from <= %(today)s
+			  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+		"""
+		try:
+			rows = frappe.db.sql(query, {"frontier": tuple(frontier), "today": today}, as_dict=True)
+		except Exception:
+			rows = []
+		new_users = {r.user for r in rows if r.user and r.user not in subordinates}
+		if not new_users:
+			break
+		subordinates.update(new_users)
+		frontier = new_users
+	return subordinates
+
+
 def grievance_query_conditions(user=None):
 	"""SQL appended to every Grievance list query. Deny-by-default.
 
-	Uses O(1) Nested Set tree interval containment (`area_lft BETWEEN scope_lft AND scope_rgt`).
+	- Submitters only see their own cases and assisted submissions.
+	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
+	- Admins see all cases.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -172,7 +204,7 @@ def grievance_query_conditions(user=None):
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
 		clauses.append(f"`tabGrievance`.assisted_by_officer = {frappe.db.escape(user)}")
 
-	# FSD 3.1.1: officers act on assigned cases within their configured scope.
+	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
 		scope_clauses = []
 		scopes = active_scopes(user)
@@ -195,8 +227,8 @@ def grievance_query_conditions(user=None):
 			else:
 				scope_clauses.append("1 = 1")
 
-		# An assigned case is always visible to its own officer.
-		scope_clauses.append(f"`tabGrievance`.assigned_to = {frappe.db.escape(user)}")
+		team = get_subordinate_officers(user)
+		scope_clauses.append(f"`tabGrievance`.assigned_to in ({_quote(team)})")
 		clauses.append("(" + " or ".join(scope_clauses) + ")")
 
 	if not clauses:
@@ -213,28 +245,45 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		return True
 
 	if ROLE_SUBMITTER in roles:
-		owns = bool(doc.submitter) and doc.submitter in _submitter_profiles(user)
-		if owns or doc.assisted_by_officer == user:
+		submitter = doc.get("submitter") if isinstance(doc, dict) else getattr(doc, "submitter", None)
+		assisted = (
+			doc.get("assisted_by_officer")
+			if isinstance(doc, dict)
+			else getattr(doc, "assisted_by_officer", None)
+		)
+		status = doc.get("status") if isinstance(doc, dict) else getattr(doc, "status", None)
+		owns = bool(submitter) and submitter in _submitter_profiles(user)
+		if owns or assisted == user:
 			if ptype == "read":
 				return True
-			return ptype == "write" and doc.status in SUBMITTER_WRITABLE_STATUSES
+			return ptype == "write" and status in SUBMITTER_WRITABLE_STATUSES
 
 	if ROLE_OFFICER not in roles:
 		return False
 
-	if doc.assigned_to == user:
-		return True
+	team = get_subordinate_officers(user)
+	assigned = doc.get("assigned_to") if isinstance(doc, dict) else getattr(doc, "assigned_to", None)
+	if assigned in team:
+		# Visibility granted for all cases in reporting chain; editing requires explicit assignment or supervisor
+		return True if ptype == "read" else assigned == user
 
-	case_lft = getattr(doc, "area_lft", None)
-	if case_lft is None and getattr(doc, "administrative_area", None):
-		case_lft = frappe.db.get_value("Grievance Administrative Area", doc.administrative_area, "lft")
+	dept = doc.get("assigned_dept") if isinstance(doc, dict) else getattr(doc, "assigned_dept", None)
+	category = (
+		doc.get("service_category") if isinstance(doc, dict) else getattr(doc, "service_category", None)
+	)
+	area = (
+		doc.get("administrative_area") if isinstance(doc, dict) else getattr(doc, "administrative_area", None)
+	)
+	case_lft = doc.get("area_lft") if isinstance(doc, dict) else getattr(doc, "area_lft", None)
+	if case_lft is None and area:
+		case_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
 
 	scopes = active_scopes(user)
 	bounds = area_bounds(scopes)
 	for scope in scopes:
-		if scope.department_scope and doc.assigned_dept != scope.department_scope:
+		if scope.department_scope and dept != scope.department_scope:
 			continue
-		if scope.category_scope and doc.service_category != scope.category_scope:
+		if scope.category_scope and category != scope.category_scope:
 			continue
 		if scope.administrative_area_scope:
 			scope_lft, scope_rgt = bounds.get(scope.administrative_area_scope, (None, None))
@@ -243,7 +292,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 					continue
 
 		# FSD 3.1.1: scope grants visibility; editing still needs the case assigned.
-		return True if ptype == "read" else doc.assigned_to == user
+		return ptype == "read"
 
 	return False
 

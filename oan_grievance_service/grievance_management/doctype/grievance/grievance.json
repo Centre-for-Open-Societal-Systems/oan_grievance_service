@@ -207,7 +207,7 @@
    "label": "Administrative Scope & Area"
   },
   {
-   "description": "The operational administrative leaf node (e.g. Kebele / Ward) where the grievance occurred",
+   "description": "The operational administrative area (e.g. Woreda, Kebele, Ward) where the grievance occurred",
    "fieldname": "administrative_area",
    "fieldtype": "Link",
    "ignore_user_permissions": 1,

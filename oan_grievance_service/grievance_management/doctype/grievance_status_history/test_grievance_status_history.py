@@ -35,6 +35,34 @@ class TestGrievanceStatusHistory(FrappeTestCase):
 		self.assertTrue(self.row.name)
 		self.assertEqual(self.row.to_status, "Assigned")
 
+	def test_hash_chain_generation(self):
+		g = a_grievance()
+		h1 = frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": g.name,
+				"from_status": "Submitted",
+				"to_status": "Assigned",
+				"changed_by": "Administrator",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(h1.prev_hash, "0" * 64)
+		self.assertTrue(bool(h1.row_hash))
+
+		h2 = frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": g.name,
+				"from_status": "Assigned",
+				"to_status": "In Progress",
+				"changed_by": "Administrator",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(h2.prev_hash, h1.row_hash)
+		self.assertNotEqual(h2.row_hash, h1.row_hash)
+
 	def test_update_is_refused(self):
 		self.row.to_status = "Closed"
 		with self.assertRaises(frappe.ValidationError):

@@ -75,7 +75,6 @@ Closed value lists referenced by the tables below.
 | `scan_status`          | pending, clean, infected, failed                                                                                     | `grievance_attachments`                     |
 | `corrective_action`    | record_corrected, site_verification, referred_onward, written_clarification, no_action_required, other               | `grievance_responses`                       |
 | `timeline_entry_type`  | note, message, response, info_request, info_response, status_change, assignment, escalation, attachment              | `grievance_timeline`                        |
-| `timeline_visibility`  | public, internal, system                                                                                             | `grievance_timeline`                        |
 | `timer_type`           | sla_reminder, sla_breach, sla_l2_breach, auto_close, info_request_deadline, workflow_auto_transition, triage_stalled | `case_timers`                               |
 | `routing_strategy`     | primary_first, round_robin, least_loaded                                                                             | `category_assignments`                      |
 
@@ -373,7 +372,7 @@ The central table. This is what the All-Grievances table renders and the detail 
 | `expected_resolution`       | text        |                                    | "What is the expected resolution for this grievance?"                                                                                                                                                                 |
 | `category_id`               | uuid        | FK → `service_categories.id`, IX   | Drives routing and SLA                                                                                                                                                                                                |
 | `grievance_type_id`         | uuid        | FK → `grievance_types.id`          | Specific issue type within the category                                                                                                                                                                               |
-| `administrative_area_id`    | uuid        | FK → `administrative_areas.id`, IX | **Incident** location leaf node (`is_group = false`, `valid_to IS NULL`)                                                                                                                                              |
+| `administrative_area_id`    | uuid        | FK → `administrative_areas.id`, IX | **Incident** location operational area node (Woreda, Kebele; `valid_to IS NULL`)                                                                                                                                      |
 | `area_lft`                  | int         | IX                                 | Denormalised tree interval left bound for single-table range filtering                                                                                                                                                |
 | `area_path_code`            | text        |                                    | Immutable snapshot of dotted code path at submission time (e.g. `ET.OROM.ESHW.ADAM.K01`)                                                                                                                              |
 | `kebele`                    | text        |                                    | Free text as entered                                                                                                                                                                                                  |
@@ -609,7 +608,7 @@ This replaces `grievance_comments`, which only ever held two of those.
 | `id`                  | uuid        | PK                        | UUIDv7 — so id order _is_ chronological order                                                                           |
 | `grievance_id`        | uuid        | FK → `grievances.id`, IX¹ | Cascade delete                                                                                                          |
 | `entry_type`          | enum        |                           | note / message / response / info_request / info_response / status_change / assignment / escalation / attachment         |
-| `visibility`          | enum        | IX¹                       | `public` (submitter and staff) / `internal` (staff only) / `system`                                                     |
+| `is_internal`         | boolean     | IX¹                       | `false` (submitter and staff) / `true` (staff only internal note)                                                       |
 | `body`                | text        |                           | The display text. Authored directly for notes and messages; a rendered summary for entries whose detail lives elsewhere |
 | `author_user_id`      | uuid        | FK → `users.id`           | Staff author                                                                                                            |
 | `author_submitter_id` | uuid        | FK → `submitters.id`      | Submitter author                                                                                                        |
@@ -617,13 +616,13 @@ This replaces `grievance_comments`, which only ever held two of those.
 | `ref_id`              | uuid        |                           | The row in it. Null for plain notes and messages, which have no payload beyond `body`                                   |
 | `created_at`          | timestamptz | IX¹                       |                                                                                                                         |
 
-¹ The one index that matters: `(grievance_id, visibility, created_at DESC, id DESC)`. The entire thread, correctly filtered for the viewer, keyset-paginated, from a single index scan.
+¹ The one index that matters: `(grievance_id, is_internal, created_at DESC, id DESC)`. The entire thread, correctly filtered for the viewer, keyset-paginated, from a single index scan.
 
-Constraints: at most one author column is set — system entries have neither; a submitter-authored entry can never be `internal`, enforced by a `CHECK`, because that mistake leaks the wrong way.
+Constraints: at most one author column is set — system entries have neither; a submitter-authored entry can never be `is_internal = true`, enforced by validation/check, because that mistake leaks the wrong way.
 
 **Why a spine and not a `UNION`.** Without this table, rendering the conversation means a five-way `UNION ALL` across `grievance_responses`, `grievance_status_history`, `grievance_info_requests`, comments and `notification_log`, each with a different shape, sorted in memory after the fact. That query cannot use an index for its ordering, so it reads _every_ row for the case before discarding all but the first twenty; it cannot be keyset-paginated, because there is no single key to paginate on; and audience filtering is re-derived per branch, so the day someone adds a sixth source and forgets the `is_internal` check, an internal note appears in a farmer's app.
 
-That third problem is a security property, not a performance one, and it is the real argument: **`visibility` is decided once, at write time, in one column, and every read filters on it identically.** Worth more than the index.
+That third problem is a security property, not a performance one, and it is the real argument: **`is_internal` is decided once, at write time, in one column, and every read filters on it identically.** Worth more than the index.
 
 **Detail stays where it belongs.** The timeline is a display and ordering spine, not a replacement for typed storage. `grievance_responses` remains the system of record for a response — its outcome, corrective actions, proposed closure date. The timeline row carries enough to render a thread item plus a pointer to the rest. Notes and messages are the exception: they _are_ their body, so they live here directly, and the most common entry of all needs no second table and no dual write.
 
@@ -632,10 +631,10 @@ Entries are written by trigger in the same transaction as the thing they describ
 **Reading it.**
 
 ```sql
--- Officer view: everything. Farmer view: drop 'internal' from the filter.
+-- Officer view: everything (or WHERE is_internal = 1 for private notes). Farmer view: WHERE is_internal = false.
 SELECT * FROM grievance_timeline
 WHERE  grievance_id = $1
-  AND  visibility = ANY($2)          -- {public,internal,system} | {public}
+  AND  ($2::boolean IS NULL OR is_internal = $2)
   AND  (created_at, id) < ($3, $4)   -- keyset cursor; omit for page one
 ORDER BY created_at DESC, id DESC
 LIMIT 20;
@@ -647,22 +646,22 @@ One index scan, no join, no sort, no `OFFSET`, and it costs the same on a case w
 
 `OROM-BISH-INP-09905`. Twelve entries, in `created_at` order:
 
-| #   | `entry_type`  | `visibility` | Author        | `body`                                                    | `ref`                        |
-| --- | ------------- | ------------ | ------------- | --------------------------------------------------------- | ---------------------------- |
-| 1   | status_change | public       | —             | Grievance submitted                                       | → `grievance_status_history` |
-| 2   | status_change | public       | —             | Assigned to Inputs Supply Agency                          | → `grievance_status_history` |
-| 3   | note          | **internal** | Nodal officer | "Same store as OROM-BISH-INP-09812 — watch for a pattern" | —                            |
-| 4   | status_change | public       | —             | In Progress                                               | → `grievance_status_history` |
-| 5   | info_request  | public       | L1 officer    | "Please send a photo of your cooperative issue slip"      | —                            |
-| 6   | message       | public       | Farmer        | "Which one? The one from March?"                          | —                            |
-| 7   | message       | public       | L1 officer    | "Yes, the March slip"                                     | —                            |
-| 8   | info_response | public       | Farmer        | "Attached"                                                | —                            |
-| 9   | attachment    | public       | Farmer        | slip.jpg                                                  | → `grievance_attachments`    |
-| 10  | note          | **internal** | L1 officer    | "Slip confirms 4qt shortfall; store manager agrees"       | —                            |
-| 11  | response      | public       | L1 officer    | "4 quintals to be reissued by 12 September"               | → `grievance_responses`      |
-| 12  | status_change | public       | —             | Awaiting your confirmation                                | → `grievance_status_history` |
+| #   | `entry_type`  | `is_internal` | Author        | `body`                                                    | `ref`                        |
+| --- | ------------- | ------------- | ------------- | --------------------------------------------------------- | ---------------------------- |
+| 1   | status_change | false         | —             | Grievance submitted                                       | → `grievance_status_history` |
+| 2   | status_change | false         | —             | Assigned to Inputs Supply Agency                          | → `grievance_status_history` |
+| 3   | note          | **true**      | Nodal officer | "Same store as OROM-BISH-INP-09812 — watch for a pattern" | —                            |
+| 4   | status_change | false         | —             | In Progress                                               | → `grievance_status_history` |
+| 5   | info_request  | false         | L1 officer    | "Please send a photo of your cooperative issue slip"      | —                            |
+| 6   | message       | false         | Farmer        | "Which one? The one from March?"                          | —                            |
+| 7   | message       | false         | L1 officer    | "Yes, the March slip"                                     | —                            |
+| 8   | info_response | false         | Farmer        | "Attached"                                                | —                            |
+| 9   | attachment    | false         | Farmer        | slip.jpg                                                  | → `grievance_attachments`    |
+| 10  | note          | **true**      | L1 officer    | "Slip confirms 4qt shortfall; store manager agrees"       | —                            |
+| 11  | response      | false         | L1 officer    | "4 quintals to be reissued by 12 September"               | → `grievance_responses`      |
+| 12  | status_change | false         | —             | Awaiting your confirmation                                | → `grievance_status_history` |
 
-The officer's thread is all twelve. The farmer's is the same list **without 3 and 10** — one `WHERE` clause, not a second query and not a second code path.
+The officer's thread is all twelve. The farmer's is the same list **without 3 and 10** — one `WHERE is_internal = false` clause, not a second query and not a second code path.
 
 Every entry exposes the same four fields to the client — type, timestamp, author, body — so the UI renders the thread as one loop and switches only on `entry_type` for the chrome: a bubble for a message, a centred divider for a status change, a card for a response.
 

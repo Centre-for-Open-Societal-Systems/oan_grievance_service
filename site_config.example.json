@@ -1,0 +1,44 @@
+{
+  "_comment": "Reference site_config.json for oan_grievance_service and oan_auth_service",
+
+  "db_name": "_1a2b3c4d5e6f7890",
+  "db_user": "_1a2b3c4d5e6f7890",
+  "db_password": "generated_db_password_here",
+  "db_type": "mariadb",
+
+  "developer_mode": 0,
+  "allow_tests": false,
+
+  "encryption_key": "your_fernet_encryption_key_here=",
+  "secret_key": "your_secret_hmac_key_here",
+
+  "jwt_current_kid": "v1",
+  "jwt_secrets": {
+    "v1": "replace_with_a_secure_random_secret_at_least_32_characters_long"
+  },
+  "jwt_default_registration_role": "Grievance Submitter",
+  "jwt_self_registerable_roles": [
+    "Grievance Submitter"
+  ],
+  "jwt_access_token_ttl": 900,
+  "jwt_refresh_token_ttl": 604800,
+  "jwt_refresh_token_ttl_remember_me": 7776000,
+  "jwt_issuer": "oan-grievance",
+  "jwt_enforce_https": true,
+
+  "grievance_sla_clock_start": "assignment",
+  "grievance_confirmation_window_days": 7,
+  "grievance_max_deferral_days": 30,
+  "grievance_auto_escalation_enabled": true,
+  "grievance_sla_paused_statuses": [
+    "Pending Submitter",
+    "Draft",
+    "Withdrawn"
+  ],
+
+  "installed_apps": [
+    "frappe",
+    "oan_auth_service",
+    "oan_grievance_service"
+  ]
+}

@@ -98,6 +98,21 @@ REGION_TICKET_CODES = [
 	("ET16", "D"),  # Sidama
 ]
 
+# Standard Grievance Types mapped to Service Categories
+GRIEVANCE_TYPES = [
+	("Fertilizer Shortage", "Inputs"),
+	("Seed Quality Issue", "Inputs"),
+	("Pesticide Availability", "Inputs"),
+	("Direct Benefit Transfer Delay", "Schemes"),
+	("Subsidy Allocation Issue", "Schemes"),
+	("Payment Failure", "Payments"),
+	("Delayed Payment Settlement", "Payments"),
+	("Loan Disbursement Delay", "Credit"),
+	("Interest Rate Discrepancy", "Credit"),
+	("Price Reporting Dispute", "Markets"),
+	("Market Access Obstruction", "Markets"),
+]
+
 # Submitter Types master
 SUBMITTER_TYPES = [
 	("Individual Farmer", "IND"),
@@ -333,6 +348,7 @@ def seed_all():
 		"roles": seed_roles(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
+		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
 		"notification_recipient_field": seed_recipient_custom_field(),
@@ -343,6 +359,23 @@ def seed_all():
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
 	return created
+
+
+def seed_grievance_types():
+	made = []
+	for name, category in GRIEVANCE_TYPES:
+		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": name,
+				"service_category": category,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		made.append(name)
+	return made
 
 
 def seed_administrative_areas():
