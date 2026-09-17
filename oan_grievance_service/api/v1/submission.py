@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 from oan_auth_service.api.utils import handle_api_errors, success_response
 
-from oan_grievance_service.grievance_management.doctype.grievance.grievance import segment
+from oan_grievance_service.services import ticket_number
 
 from .grievance import CHANNELS
 
@@ -97,18 +97,27 @@ def grievance_types(service_category: str):
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def ticket_preview(administrative_area: str | None = None, service_category: str | None = None):
-	"""The ticket prefix the submission would receive.
+	"""The characters this submission's ticket number is already known to carry.
 
 	The wizard's review step shows this so the submitter recognises the ticket in
 	the acknowledgement. The sequence is deliberately absent: it is allocated at
 	insert, and showing a number here that a concurrent submission then takes
-	would be worse than showing none.
+	would be worse than showing none. `pattern` masks it with `#`, which is not
+	in the ticket alphabet, so a placeholder can never be mistaken for a real
+	ticket number.
 	"""
-	area_code = (
-		segment("Grievance Administrative Area", administrative_area) if administrative_area else "GEN"
+	parts = ticket_number.segments(administrative_area, service_category)
+	masked = "#" * ticket_number.SEQUENCE_WIDTH
+	return success_response(
+		data={
+			# Region and category open every ticket filed from here.
+			"prefix": f"{parts['region']}{parts['category']}",
+			"region": parts["region"],
+			"category": parts["category"],
+			"year": parts["year"],
+			"pattern": ticket_number.display(f"{parts['region']}{parts['category']}{masked}{parts['year']}"),
+		}
 	)
-	prefix = f"{area_code}-{segment('Grievance Service Category', service_category)}"
-	return success_response(data={"prefix": prefix, "example": f"{prefix}-00001"})
 
 
 def clear_reference_cache(doc=None, method=None):
