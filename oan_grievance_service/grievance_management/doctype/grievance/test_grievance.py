@@ -645,7 +645,6 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertEqual(submission_svc.normalise_mobile("911000111"), "+251911000111")
 
 
-
 class TestGrievanceStaffOptions(FrappeTestCase):
 	def setUp(self):
 		if not frappe.db.exists("Grievance Service Category", "Inputs"):
@@ -745,4 +744,3 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertEqual(res.get("status"), "error")
 		self.assertEqual(res.get("code"), "PERMISSION_DENIED")
 		self.assertEqual(frappe.response.get("http_status_code"), 403)
-

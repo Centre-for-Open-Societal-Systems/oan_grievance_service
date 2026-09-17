@@ -44,7 +44,7 @@ class SubmitGrievanceRequest(BaseModel):
 	`administrative_area` is optional at the edge because intake may send `woreda`
 	and/or `kebele` instead; those are resolved before domain validation.
 
-	Phone is plain optional str (not SafePhone): oan_auth SafePhone requires 10–15
+	Phone is plain optional str (not SafePhone): oan_auth SafePhone requires 10-15
 	digits and rejects bare Ethiopian 9-digit subscriber numbers that
 	`submission.normalise_mobile` accepts. Ethiopian rules stay in the domain layer.
 	"""

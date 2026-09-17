@@ -27,9 +27,7 @@ SUBMISSION_REQUIRED_FIELDS = (
 	"grievance_type",
 	"description",
 )
-EMAIL_PATTERN = re.compile(
-	r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}$"
-)
+EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}$")
 FAYDA_PATTERN = re.compile(r"^(?=.{6,30}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
 REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
 
@@ -286,9 +284,9 @@ def validate_submission_payload(payload, allowed_channels=None):
 				errors.append(
 					_field_error(
 						"administrative_area",
-						_(
-							"The selected Administrative Area '{0}' has been dissolved or reorganized."
-						).format(administrative_area),
+						_("The selected Administrative Area '{0}' has been dissolved or reorganized.").format(
+							administrative_area
+						),
 						input_value=administrative_area,
 					)
 				)
