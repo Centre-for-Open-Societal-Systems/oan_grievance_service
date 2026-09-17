@@ -1007,27 +1007,19 @@ def _load(ticket_number, ptype="read"):
 
 
 def get_status_options() -> list[dict]:
-	"""Retrieve grievance lifecycle status options with open/terminal metadata."""
-	all_statuses = [
-		C.SUBMITTED,
-		C.ASSIGNED,
-		C.IN_PROGRESS,
-		C.MORE_INFO_NEEDED,
-		C.PENDING_SUBMITTER,
-		C.RESOLVED,
-		C.CLOSED,
-		C.REJECTED,
-	]
+	"""The lifecycle states, read from the master rather than listed again here.
 
-	return [
-		{
-			"status": status,
-			"label": status,
-			"is_open": 1 if status in C.OPEN_STATUSES else 0,
-			"is_terminal": 1 if status in C.TERMINAL_STATUSES else 0,
-		}
-		for status in all_statuses
-	]
+	This was a third copy of the same eight names -- once in constants.py, once as
+	the Select options on the doctype, once here. The master is seeded from
+	constants.py and `sort_order` carries the lifecycle order, so the list has one
+	origin and this reads it.
+	"""
+	rows = frappe.get_all(
+		"Grievance Status",
+		fields=["name as status", "name as label", "is_open", "is_terminal"],
+		order_by="sort_order asc",
+	)
+	return [dict(row) for row in rows]
 
 
 @route("/options", methods=("GET",), summary="Get grievance options and dropdowns")

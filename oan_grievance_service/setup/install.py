@@ -351,6 +351,7 @@ def seed_all():
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
+		"statuses": seed_statuses(),
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
@@ -491,6 +492,44 @@ def seed_submitter_types():
 			}
 		).insert(ignore_permissions=True)
 		made.append(name)
+	return made
+
+
+def seed_statuses():
+	"""FSD 3.4's lifecycle states, as Grievance Status rows.
+
+	Derived from services/constants.py rather than written out again. The whole
+	point of the master is that `Grievance.status` stops carrying a second copy of
+	the list, and seeding it from a third copy here would put the duplication
+	straight back.
+	"""
+	from oan_grievance_service.services import constants as C
+
+	order = [
+		C.SUBMITTED,
+		C.ASSIGNED,
+		C.IN_PROGRESS,
+		C.MORE_INFO_NEEDED,
+		C.PENDING_SUBMITTER,
+		C.RESOLVED,
+		C.CLOSED,
+		C.REJECTED,
+	]
+
+	made = []
+	for index, status in enumerate(order, start=1):
+		if frappe.db.exists("Grievance Status", status):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Status",
+				"status_name": status,
+				"sort_order": index * 10,
+				"is_open": 1 if status in C.OPEN_STATUSES else 0,
+				"is_terminal": 1 if status in C.TERMINAL_STATUSES else 0,
+			}
+		).insert(ignore_permissions=True)
+		made.append(status)
 	return made
 
 

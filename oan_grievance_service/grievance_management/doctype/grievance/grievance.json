@@ -78,12 +78,13 @@
   {
    "default": "Submitted",
    "fieldname": "status",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
-   "reqd": 1
+   "options": "Grievance Status",
+   "reqd": 1,
+   "description": "FSD 3.4. The states are defined in services/constants.py and seeded as Grievance Status rows; the transition table is keyed on the same names."
   },
   {
    "fieldname": "col_flags",
