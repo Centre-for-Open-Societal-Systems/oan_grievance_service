@@ -98,9 +98,9 @@
   },
   {
    "fieldname": "submission_channel",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Submission Channel",
-   "options": "Mobile App\nWeb Portal\nMobile Call\nIVR Helpline\nDevelopment Agent Assisted",
+   "options": "Grievance Submission Type",
    "reqd": 1
   },
   {

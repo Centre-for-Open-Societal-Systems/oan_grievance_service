@@ -75,13 +75,22 @@ ALLOWED_GRIEVANCE_ROLES = [
 	"Administrator",
 ]
 
-CHANNELS = (
-	"Mobile App",
-	"Web Portal",
-	"Mobile Call",
-	"IVR Helpline",
-	"Development Agent Assisted",
-)
+
+def active_channels() -> list[str]:
+	"""The intake channels currently open, read from the master.
+
+	Held as data rather than a tuple here because opening a channel is an
+	operational decision, not a release: `Grievance Submission Type` is seeded by
+	install.py and editable from the desk thereafter. `is_active` is what closes one,
+	so a channel that is retired still resolves on historical grievances.
+	"""
+	return frappe.get_all(
+		"Grievance Submission Type",
+		filters={"is_active": 1},
+		pluck="name",
+		order_by="submission_type_name asc",
+	)
+
 
 # Staff may file on another person's behalf; a submitter may only file as themselves.
 STAFF_ROLES = frozenset({"Grievance Officer", "Grievance Admin", "System Manager", "Administrator"})
@@ -240,6 +249,11 @@ def submit(**kwargs):
 	kwargs["contact_mobile"] = resolved.get("contact_mobile")
 
 	identity.validate_submission_payload(resolved)
+
+	# The Link field already refuses a channel that does not exist. This refuses one
+	# that exists but has been switched off, which the link check cannot see.
+	if resolved.get("submission_channel") not in active_channels():
+		frappe.throw(_("Unknown or closed submission channel."), title=_("Invalid Channel"))
 
 	# A retry must not lodge a second case. This read settles the ordinary retry --
 	# one that arrives after the first attempt committed. It cannot settle two
@@ -1052,7 +1066,7 @@ def options(service_category: str | None = None):
 		"statuses": get_status_options(),
 		"service_categories": service_categories,
 		"grievance_types": grievance_types,
-		"submission_channels": list(CHANNELS),
+		"submission_channels": active_channels(),
 	}
 
 	return success_response(data=data, message=_("Grievance options fetched successfully"))
