@@ -9,7 +9,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
-from oan_grievance_service.api.v1 import administrative_area, grievance, submitter
+from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
 
 
 def make_test_request(
@@ -199,8 +199,39 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("statuses", data["data"])
 		self.assertIn("service_categories", data["data"])
 
-	def test_submitter_me_endpoint_authenticated(self):
-		"""Test GET /api/v1/submitters/me."""
+	def test_auth_me_returns_namespaced_grievance_profile(self):
+		"""Test GET /api/v1/auth/me enriches data.profiles.grievance via on_user_profile hook."""
+		import frappe.api
+
+		# 1. Test Submitter profile retrieval
+		frappe.set_user(self.farmer_user.name)
+		req = make_test_request("/api/v1/auth/me", method="GET")
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		data = json.loads(res.get_data(as_text=True))
+		self.assertEqual(data["status"], "success")
+		self.assertIn("profiles", data["data"])
+		self.assertIn("grievance", data["data"]["profiles"])
+		grv_profile = data["data"]["profiles"]["grievance"]
+		self.assertEqual(grv_profile["profile_id"], self.farmer_profile.name)
+		self.assertEqual(grv_profile["full_name"], "REST Test Submitter")
+		self.assertEqual(grv_profile["type"], "Individual Farmer")
+
+		# 2. Test Staff / Admin profile retrieval
+		frappe.set_user("Administrator")
+		req_admin = make_test_request("/api/v1/auth/me", method="GET")
+		res_admin = frappe.api.handle(req_admin)
+		self.assertEqual(res_admin.status_code, 200)
+		data_admin = json.loads(res_admin.get_data(as_text=True))
+		self.assertEqual(data_admin["status"], "success")
+		self.assertIn("profiles", data_admin["data"])
+		self.assertIn("grievance", data_admin["data"]["profiles"])
+		admin_grv = data_admin["data"]["profiles"]["grievance"]
+		self.assertEqual(admin_grv["type"], "Admin")
+		self.assertEqual(admin_grv["profile_id"], "Administrator")
+
+	def test_deprecated_submitters_me_endpoint(self):
+		"""Test GET /api/v1/submitters/me backward compatibility."""
 		import frappe.api
 
 		frappe.set_user(self.farmer_user.name)
@@ -210,7 +241,10 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		data = json.loads(res.get_data(as_text=True))
 		self.assertEqual(data["status"], "success")
 		self.assertEqual(data["data"]["profile_id"], self.farmer_profile.name)
+		self.assertEqual(data["data"]["full_name"], "REST Test Submitter")
+		self.assertEqual(data["data"]["type"], "Individual Farmer")
 		self.assertEqual(data["data"]["submitter_name"], "REST Test Submitter")
+		self.assertEqual(data["data"]["submitter_type"], "Individual Farmer")
 
 	def test_grievance_submission_tracking_and_timeline_rest_flow(self):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""

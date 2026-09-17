@@ -52,7 +52,8 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Health Check              | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
 | Ping                      | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
 | Submitter Options         | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
-| Submitter Profile         | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
+| User Profile & Claims     | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
+| Submitter Profile (Dep.)  | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
 | Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
 | Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
 | List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |

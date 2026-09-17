@@ -274,7 +274,8 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(data["identity_value"], "FAYDA-DT-12345")
 			self.assertEqual(data["fayda_id"], "FAYDA-DT-12345")
 			self.assertIsNone(data["registration_number"])
-			self.assertEqual(data["submitter_name"], "Derartu Tulu")
+			self.assertEqual(data["full_name"], "Derartu Tulu")
+			self.assertEqual(data["type"], "Individual Farmer")
 			self.assertEqual(data["contact_mobile"], "+251911445566")
 			self.assertEqual(data["administrative_unit"], "Bekoji")
 		finally:

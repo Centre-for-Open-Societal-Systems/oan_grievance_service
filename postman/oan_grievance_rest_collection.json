@@ -821,10 +821,77 @@
       ]
     },
     {
-      "name": "Submitter Profiles",
+      "name": "Profiles",
       "item": [
         {
-          "name": "6. Get Current Submitter Profile (Me)",
+          "name": "6a. Introspect User & Profile (Auth Me)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+                  "if (!token) {",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Run Login or Register first.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "    var grvProfile = (data.profiles && data.profiles.grievance) ? data.profiles.grievance : (data.profile || data);",
+                  "    ",
+                  "    pm.test(\"User and grievance profile returned\", function () {",
+                  "        pm.expect(data).to.have.property(\"user\");",
+                  "        pm.expect(grvProfile).to.have.property(\"profile_id\");",
+                  "        pm.expect(grvProfile).to.have.property(\"full_name\");",
+                  "        pm.expect(grvProfile).to.have.property(\"type\");",
+                  "    });",
+                  "",
+                  "    if (grvProfile && grvProfile.profile_id) {",
+                  "        pm.collectionVariables.set(\"profile_id\", grvProfile.profile_id);",
+                  "        if (pm.environment.name) {",
+                  "            pm.environment.set(\"profile_id\", grvProfile.profile_id);",
+                  "        }",
+                  "        console.log(\"[Post-response] Saved profile_id:\", grvProfile.profile_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Introspects current authenticated user from auth service, enriched with grievance domain profile under data.profiles.grievance."
+          },
+          "response": []
+        },
+        {
+          "name": "6b. Get Current Submitter Profile (Me - Deprecated)",
           "event": [
             {
               "listen": "prerequest",
@@ -850,11 +917,10 @@
                   "    var jsonData = pm.response.json();",
                   "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
                   "    ",
-                  "    pm.test(\"Current profile contains identity details\", function () {",
+                  "    pm.test(\"Current submitter profile returned with full_name and type\", function () {",
                   "        pm.expect(data).to.have.property(\"profile_id\");",
-                  "        pm.expect(data).to.have.property(\"submitter_name\");",
-                  "        pm.expect(data).to.have.property(\"identity_scheme\");",
-                  "        pm.expect(data).to.have.property(\"identity_value\");",
+                  "        pm.expect(data).to.have.property(\"full_name\");",
+                  "        pm.expect(data).to.have.property(\"type\");",
                   "    });",
                   "",
                   "    if (data && data.profile_id) {",
@@ -885,7 +951,7 @@
                 "me"
               ]
             },
-            "description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
+            "description": "Deprecated endpoint to retrieve submitter profile. Prefer GET /api/v1/auth/me."
           },
           "response": []
         }

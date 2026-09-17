@@ -7,6 +7,8 @@ from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
+from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
+
 route = prefixed("/api/v1/submitters")
 
 ALLOWED_SUBMITTER_ROLES = [
@@ -150,25 +152,8 @@ def options(
 		{"code": "en", "label": "English"},
 	]
 
-	service_categories = frappe.get_all(
-		"Grievance Service Category",
-		filters={"is_active": 1},
-		fields=["name as category_name", "code", "sort_order"],
-		order_by="sort_order asc, name asc",
-		ignore_permissions=True,
-	)
-
-	gtype_filters = [["is_active", "=", 1]]
-	if service_category:
-		gtype_filters.append(["service_category", "=", service_category])
-
-	grievance_types = frappe.get_all(
-		"Grievance Type",
-		filters=gtype_filters,
-		fields=["name as grievance_type_id", "type_name", "service_category"],
-		order_by="type_name asc",
-		ignore_permissions=True,
-	)
+	service_categories = get_service_categories()
+	grievance_types = get_grievance_types(service_category=service_category)
 
 	data = {
 		"submitter_types": submitter_types,
@@ -185,12 +170,19 @@ def options(
 	return success_response(data=data, message=_("Options fetched successfully"))
 
 
-@route("/me", methods=("GET",), summary="Get current authenticated user's submitter profile")
+@route(
+	"/me",
+	methods=("GET",),
+	summary="Get current authenticated user's submitter profile (deprecated - use /api/v1/auth/me)",
+)
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_SUBMITTER_ROLES)
 def me():
-	"""Get the Submitter Profile associated with the currently authenticated user."""
+	"""Get the Submitter Profile associated with the currently authenticated user.
+
+	Deprecated: Prefer GET /api/v1/auth/me which returns namespaced profiles under data.profiles.grievance.
+	"""
 	user = frappe.session.user
 	if not user or user == "Guest":
 		frappe.throw(_("Authentication required to access current profile."), title=_("Unauthorized"))
@@ -212,12 +204,12 @@ def me():
 			"identity_value": ident_val,
 			"fayda_id": ident_val if scheme == "fayda" else None,
 			"registration_number": ident_val if scheme == "org" else None,
+			"type": doc.submitter_type,
+			"full_name": doc.submitter_name,
 			"submitter_type": doc.submitter_type,
 			"submitter_name": doc.submitter_name,
 			"contact_mobile": doc.contact_mobile,
 			"contact_email": doc.contact_email,
-			# Language lives on the User record, not the profile, so submitters and staff
-			# resolve it the same way.
 			"preferred_language": frappe.db.get_value("User", user, "language"),
 			"administrative_area": getattr(doc, "administrative_area", None),
 			"administrative_unit": doc.administrative_unit,

@@ -68,7 +68,7 @@ def ensure_routes_registered() -> None:
 	ensure_auth_routes()
 
 	# 2. Importing grievance endpoint modules executes the @route(...) decorator registrations
-	from oan_grievance_service.api.v1 import administrative_area, grievance, submitter
+	from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
 
 	for rule in _rules:
 		if rule not in frappe.api.API_URL_MAP._rules:
