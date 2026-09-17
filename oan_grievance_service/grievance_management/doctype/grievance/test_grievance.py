@@ -369,6 +369,7 @@ class TestGrievance(FrappeTestCase):
 			service_category="Inputs",
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+			consent_given=1,
 		)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
@@ -389,6 +390,7 @@ class TestGrievance(FrappeTestCase):
 			service_category="Inputs",
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+			consent_given=1,
 		)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]

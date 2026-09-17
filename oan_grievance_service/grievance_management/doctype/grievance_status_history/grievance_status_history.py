@@ -44,4 +44,3 @@ class GrievanceStatusHistory(ImmutableRecord, Document):
 			f"{1 if self.is_automated else 0}"
 		)
 		self.row_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-

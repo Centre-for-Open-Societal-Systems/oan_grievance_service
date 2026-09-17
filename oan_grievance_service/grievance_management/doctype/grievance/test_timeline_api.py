@@ -6,6 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import add_note, message, timeline
 from oan_grievance_service.services import lifecycle
+from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
 class TestTimelineAPI(FrappeTestCase):
@@ -20,7 +21,7 @@ class TestTimelineAPI(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
@@ -38,21 +39,7 @@ class TestTimelineAPI(FrappeTestCase):
 			gtype_name = self.gtype.name
 		self.gtype_name = gtype_name
 
-		area_name = frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": "API Timeline Woreda"}, "name"
-		)
-		if not area_name:
-			self.area = frappe.get_doc(
-				{
-					"doctype": "Grievance Administrative Area",
-					"area_name": "API Timeline Woreda",
-					"level_name": "Woreda",
-					"code": "ATW",
-					"is_group": 0,
-				}
-			).insert(ignore_permissions=True)
-		else:
-			self.area = frappe.get_doc("Grievance Administrative Area", area_name)
+		self.area_name = a_leaf_area()
 
 		# Setup users
 		if not frappe.db.exists("User", "timeline_officer@example.com"):
@@ -105,7 +92,7 @@ class TestTimelineAPI(FrappeTestCase):
 				"submitter_name": "Farmer Submitter",
 				"contact_mobile": "+251911445566",
 				"submission_channel": "Mobile App",
-				"administrative_area": self.area.name,
+				"administrative_area": self.area_name,
 				"service_category": "Inputs",
 				"grievance_type": self.gtype_name,
 				"description": "Fertilizer delivery delay for API timeline testing.",

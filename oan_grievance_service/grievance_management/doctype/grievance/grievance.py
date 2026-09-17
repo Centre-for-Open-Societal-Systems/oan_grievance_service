@@ -24,7 +24,6 @@ ALLOWED_FILING_LEVELS = frozenset(
 )
 
 
-
 class Grievance(Document):
 	def autoname(self):
 		"""Nine-character ticket number: region, category, sequence, year.
