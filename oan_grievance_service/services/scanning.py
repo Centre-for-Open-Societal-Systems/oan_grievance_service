@@ -49,6 +49,7 @@ served to an officer until something has actually looked at it. An outage makes
 attachments unavailable; it does not make them trusted.
 """
 
+import hashlib
 import socket
 
 import frappe
@@ -89,6 +90,17 @@ def sniff_mime(content: bytes) -> str | None:
 
 	kind = filetype.guess(content)
 	return kind.mime if kind else None
+
+
+def sha256_of(content: bytes) -> str:
+	"""A tamper-evident digest of the stored bytes.
+
+	Core's File.content_hash is MD5 and is marked usedforsecurity=False -- it exists
+	to spot a duplicate upload, not to prove a file is the one that was submitted.
+	Grievance evidence may later be what a decision rested on, so it gets a real
+	digest, taken after the EXIF strip so it matches what is actually on disk.
+	"""
+	return hashlib.sha256(content).hexdigest()
 
 
 def validate_upload(file_name: str, content: bytes) -> str:
