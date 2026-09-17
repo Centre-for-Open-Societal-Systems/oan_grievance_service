@@ -6,6 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import list_grievances, track
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
 class TestListGrievanceAPI(FrappeTestCase):
@@ -20,20 +21,24 @@ class TestListGrievanceAPI(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+		else:
+			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
 		if not frappe.db.exists("Grievance Service Category", "Credit"):
 			frappe.get_doc(
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Credit",
-					"code": "CRDT",
+					"code": "004",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+		else:
+			frappe.db.set_value("Grievance Service Category", "Credit", "code", "004")
 
 		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 		if not gtype_name:
@@ -71,21 +76,8 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		area_name = frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": "API List Woreda"}, "name"
-		)
-		if not area_name:
-			self.area = frappe.get_doc(
-				{
-					"doctype": "Grievance Administrative Area",
-					"area_name": "API List Woreda",
-					"level_name": "Woreda",
-					"code": "ALW",
-					"is_group": 0,
-				}
-			).insert(ignore_permissions=True)
-		else:
-			self.area = frappe.get_doc("Grievance Administrative Area", area_name)
+		self.area_name = a_leaf_area()
+		self.area = frappe.get_doc("Grievance Administrative Area", self.area_name)
 
 		# Setup users
 		if not frappe.db.exists("User", "list_officer@example.com"):
@@ -146,6 +138,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"service_category": "Inputs" if i % 2 == 0 else "Credit",
 					"grievance_type": self.gtype_name if i % 2 == 0 else self.gtype_credit_name,
 					"description": f"Grievance test issue number {i}",
+					"consent_given": 1,
 					"status": C.SUBMITTED if i < 3 else C.IN_PROGRESS,
 					"assigned_dept": "Dept of Agriculture",
 					"assigned_to": self.officer.name if i >= 3 else None,
@@ -190,14 +183,18 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.set_user("Administrator")
 		res = list_grievances(status=f"{C.SUBMITTED},{C.IN_PROGRESS}")
 		items = res.get("data", {}).get("items", [])
-		self.assertEqual(len(items), 5)
+		self.assertGreaterEqual(len(items), 5)
 		statuses = {item.get("status") for item in items}
 		self.assertIn(C.SUBMITTED, statuses)
 		self.assertIn(C.IN_PROGRESS, statuses)
+		for item in items:
+			self.assertIn(item.get("status"), (C.SUBMITTED, C.IN_PROGRESS))
 
 		res_list = list_grievances(status=[C.SUBMITTED, C.IN_PROGRESS])
 		items_list = res_list.get("data", {}).get("items", [])
-		self.assertEqual(len(items_list), 5)
+		self.assertGreaterEqual(len(items_list), 5)
+		for item in items_list:
+			self.assertIn(item.get("status"), (C.SUBMITTED, C.IN_PROGRESS))
 
 	def test_list_grievances_filter_by_category(self):
 		"""Filter by service category."""
@@ -212,7 +209,9 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.set_user("Administrator")
 		res = list_grievances(category=["Inputs", "Credit"])
 		items = res.get("data", {}).get("items", [])
-		self.assertEqual(len(items), 5)
+		self.assertGreaterEqual(len(items), 5)
+		for item in items:
+			self.assertIn(item.get("service_category"), ("Inputs", "Credit"))
 
 	def test_list_grievances_search(self):
 		"""Search by ticket number."""

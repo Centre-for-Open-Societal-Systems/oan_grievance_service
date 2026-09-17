@@ -143,7 +143,7 @@ def a_service_category():
 			{
 				"doctype": "Grievance Service Category",
 				"category_name": SEED_CATEGORY,
-				"code": "INPT",
+				"code": "001",
 				"sort_order": 1,
 				"is_active": 1,
 			}

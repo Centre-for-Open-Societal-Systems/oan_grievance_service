@@ -10,6 +10,7 @@ from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
 from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
+from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
 def make_test_request(
@@ -68,10 +69,12 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+		else:
+			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
 		if not frappe.db.exists("Grievance Type", "Fertilizer Shortage"):
 			frappe.get_doc(
@@ -83,21 +86,8 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		area_name = frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": "REST Test Area"}, "name"
-		)
-		if not area_name:
-			self.area = frappe.get_doc(
-				{
-					"doctype": "Grievance Administrative Area",
-					"area_name": "REST Test Area",
-					"level_name": "Woreda",
-					"code": "RTA",
-					"is_group": 0,
-				}
-			).insert(ignore_permissions=True)
-		else:
-			self.area = frappe.get_doc("Grievance Administrative Area", area_name)
+		self.area_name = a_leaf_area()
+		self.area = frappe.get_doc("Grievance Administrative Area", self.area_name)
 
 		# Setup test farmer user & profile
 		farmer_email = "rest_test_farmer@example.com"
