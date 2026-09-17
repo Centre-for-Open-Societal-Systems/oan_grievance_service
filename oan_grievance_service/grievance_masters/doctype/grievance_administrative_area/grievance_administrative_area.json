@@ -9,6 +9,7 @@
  "field_order": [
   "area_name",
   "code",
+  "ticket_code",
   "path_code",
   "level_name",
   "country",
@@ -34,11 +35,19 @@
    "reqd": 1
   },
   {
-   "description": "Short code used in ticket numbering, e.g. OROM, BISH",
+   "description": "Official administrative code from the registry, e.g. ET04 (Oromia), ET043434 (Ambo). Identity for external sync; not used in ticket numbers.",
    "fieldname": "code",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Ticket Code"
+   "label": "Administrative Code"
+  },
+  {
+   "description": "The single Base32 character this region contributes to a ticket number, e.g. 3 for Oromia. Regions only; seeded from the official code. Excludes I, L, O and U.",
+   "fieldname": "ticket_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ticket Code",
+   "length": 1
   },
   {
    "description": "Materialized dotted code path, e.g. ET.OROM.BISH.K01",

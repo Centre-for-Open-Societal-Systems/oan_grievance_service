@@ -51,7 +51,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Inputs",
-					"code": "INPT",
+					"code": "001",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
@@ -90,13 +90,28 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			).insert(ignore_permissions=True)
 			self.gtype_name = gtype.name
 
-		if not frappe.db.exists("Grievance Administrative Area", "TLW"):
+		# The woreda needs a region above it: the ticket number takes its first
+		# character from the region, so an orphan woreda cannot be filed against.
+		if not frappe.db.exists("Grievance Administrative Area", "TLR"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Test Leaf Region",
+					"level_name": "Region",
+					"code": "TLR",
+					"ticket_code": "R",
+					"is_group": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		if not frappe.db.exists("Grievance Administrative Area", "TLR.TLW"):
 			frappe.get_doc(
 				{
 					"doctype": "Grievance Administrative Area",
 					"area_name": "Test Leaf Woreda",
 					"level_name": "Woreda",
 					"code": "TLW",
+					"parent_administrative_area": "TLR",
 					"is_group": 0,
 				}
 			).insert(ignore_permissions=True)
@@ -212,16 +227,16 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		supervisor = sla.get_officer_supervisor("prim_officer@example.com", department="Unified Agri Dept")
 		self.assertEqual(supervisor, "sec_officer@example.com")
 
-		# Create fake grievance and escalate
+		# Create fake grievance and escalate. The ticket number is not passed in:
+		# autoname() generates and overwrites it, so a literal here only goes stale.
 		fake_g = frappe.get_doc(
 			{
 				"doctype": "Grievance",
-				"ticket_number": "OROM-BISH-INPT-9999",
 				"submission_channel": "Mobile App",
 				"submitter_type": "Individual Farmer",
 				"submitter_name": "Test Farmer",
 				"contact_mobile": "+251911223344",
-				"administrative_area": "TLW",
+				"administrative_area": "TLR.TLW",
 				"service_category": "Inputs",
 				"grievance_type": self.gtype_name,
 				"description": "Seed germination failed across the plot",

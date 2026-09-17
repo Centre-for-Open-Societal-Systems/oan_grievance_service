@@ -13,7 +13,7 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": self.cat_name,
-					"code": "INPT",
+					"code": "001",
 					"sort_order": 1,
 					"is_active": 1,
 				}

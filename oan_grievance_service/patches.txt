@@ -6,3 +6,4 @@
 # Patches added in this section will be executed after doctypes are migrated
 
 oan_grievance_service.patches.v1_0.link_woreda_zones
+oan_grievance_service.patches.convert_service_category_codes_to_base32

@@ -5,6 +5,73 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 
+class TestAdministrativeAreaTicketCode(FrappeTestCase):
+	"""The ticket character is checked on save, not when a farmer files.
+
+	A bad code is otherwise invisible until the first submission in that region
+	fails, and a duplicate never fails at all — it quietly gives two regions the
+	same ticket prefix.
+	"""
+
+	def _region(self, name, ticket_code):
+		existing = frappe.db.get_value("Grievance Administrative Area", {"area_name": name}, "name")
+		if existing:
+			doc = frappe.get_doc("Grievance Administrative Area", existing)
+			doc.ticket_code = ticket_code
+			return doc
+		return frappe.get_doc(
+			{
+				"doctype": "Grievance Administrative Area",
+				"area_name": name,
+				"level_name": "Region",
+				"code": name.replace(" ", "")[:8].upper(),
+				"ticket_code": ticket_code,
+				"is_group": 1,
+			}
+		)
+
+	def test_valid_single_character_is_accepted_and_uppercased(self):
+		doc = self._region("Code Valid Region", "k")
+		doc.insert(ignore_permissions=True)
+		self.assertEqual(doc.ticket_code, "K")
+
+	def test_excluded_characters_are_refused(self):
+		for char in "ILOU":
+			with self.assertRaises(frappe.ValidationError, msg=f"{char} should be refused"):
+				self._region(f"Code Excluded {char}", char).insert(ignore_permissions=True)
+
+	def test_wrong_width_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._region("Code Too Long Region", "AB").insert(ignore_permissions=True)
+
+	def test_duplicate_region_code_is_refused(self):
+		self._region("Code First Region", "Q").insert(ignore_permissions=True)
+		with self.assertRaises(frappe.ValidationError):
+			self._region("Code Second Region", "Q").insert(ignore_permissions=True)
+
+	def test_only_regions_carry_a_ticket_code(self):
+		parent = self._region("Code Parent Region", "W")
+		parent.insert(ignore_permissions=True)
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Code Child Woreda",
+					"level_name": "Woreda",
+					"code": "CCW",
+					"ticket_code": "X",
+					"parent_administrative_area": parent.name,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
+
+	def test_a_region_without_a_code_still_saves(self):
+		"""Most of the tree has none; only regions used for filing need one."""
+		doc = self._region("Code Absent Region", None)
+		doc.insert(ignore_permissions=True)
+		self.assertFalse(doc.ticket_code)
+
+
 class TestAdministrativeArea(FrappeTestCase):
 	def test_tree_structure_and_lft_rgt(self):
 		root_name = frappe.db.get_value(

@@ -1,6 +1,6 @@
 {
  "actions": [],
- "allow_rename": 1,
+ "allow_rename": 0,
  "creation": "2026-09-03 18:15:03.596772",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -67,7 +67,7 @@
  ],
  "fields": [
   {
-   "description": "FSD 3.2.3: REGION-WOREDA-CATEGORY-SEQUENCE, e.g. OROM-BISH-AGRN-12345",
+   "description": "Nine Base32 characters: region (1), category (3), sequence (4), year (1). Example 3001002A0, shown as 3-001-002A-0. Supersedes FSD 3.2.3 per the standup of 16 Sep 2026.",
    "fieldname": "ticket_number",
    "fieldtype": "Data",
    "in_list_view": 1,

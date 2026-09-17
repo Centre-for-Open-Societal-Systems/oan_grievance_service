@@ -1048,14 +1048,18 @@ Separate table rather than a row type in `audit_log` because the volumes differ 
 
 ### `sequence_counters`
 
-Gapless per-scope counters for ticket IDs.
+Per-scope counters for ticket IDs.
 
-| Column       | Type | Key | Description                                        |
-| ------------ | ---- | --- | -------------------------------------------------- |
-| `scope`      | text | PK  | `SOMA-JIG-INP` — the region/woreda/category prefix |
-| `next_value` | int  |     | Next sequence number to issue                      |
+| Column       | Type | Key | Description                              |
+| ------------ | ---- | --- | ---------------------------------------- |
+| `scope`      | text | PK  | `GRV-3001A-` — region, category and year |
+| `next_value` | int  |     | Next sequence number to issue            |
 
-A database `SEQUENCE` won't work here: the counter is per region/woreda/category scope, and gaps are unacceptable in a government audit context. Lock the row inside the creation transaction instead.
+A database `SEQUENCE` won't work here: the counter is per region/category/year scope, so the row is locked inside the creation transaction instead. Two submissions in the same scope then serialise on that row and cannot be issued the same number. Many small counters rather than one national one also means a submission contends only with others in its own region, category and year.
+
+**Ticket number format.** Nine Base32 characters — region 1, category 3, sequence 4, year 1 — agreed in the standup of 16 September 2026 and superseding FSD 3.2.3, which specified `REGION-WOREDA-CATEGORY-SEQUENCE`. The woreda is deliberately absent: grievances are handled by regional offices, and encoding the woreda would have meant hand-assigning short codes to 1,378 of them, 537 of which collide when derived from their names. See `services/ticket_number.py` for the encoding.
+
+**On gaps.** An earlier version of this document called gaps unacceptable for audit. Nothing in the FSD or the scope document requires it — FSD 3.11.8 and scope §4.1.3 both ask only that ticket numbers be unique — and the numbering scheme was explicitly agreed to carry no secrecy requirement. A plain counter is correct here. Protection against reading another submitter's grievance comes from the authorisation check on the tracking lookup, not from the number being hard to guess.
 
 ---
 
