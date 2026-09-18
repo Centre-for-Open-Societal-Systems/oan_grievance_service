@@ -770,17 +770,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.load?client_uuid={{client_uuid}}",
+              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.load",
               "host": ["{{base_url}}"],
-              "path": ["api", "method", "oan_grievance_service.api.v1.draft.load"],
-              "query": [
-                {
-                  "key": "client_uuid",
-                  "value": "{{client_uuid}}"
-                }
-              ]
+              "path": ["api", "method", "oan_grievance_service.api.v1.draft.load"]
             },
-            "description": "STG-325: Fetch a saved draft by client_uuid. Guest-allowed for anonymous drafts; claimed drafts are owner-only. 404 when not found."
+            "description": "STG-325: Returns the authenticated user's latest grievance draft. No client_uuid required. Guests are not allowed. 404 when not found."
           },
           "response": []
         }

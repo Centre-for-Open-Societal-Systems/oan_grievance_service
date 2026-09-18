@@ -21,7 +21,7 @@ Endpoints
     v1.administrative_area.get_areas   FSD 3.2.2   the location cascade and search
 
     v1.draft.save           FSD 3.2.1 / 7      persist a partial submission
-    v1.draft.load           FSD 3.2.1 / 7      resume a draft by client_uuid
+    v1.draft.load           FSD 3.2.1 / 7      resume the caller's latest draft
     v1.draft.discard        FSD 3.2.1 / 7      abandon a draft
 """
 

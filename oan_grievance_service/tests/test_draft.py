@@ -23,15 +23,21 @@ class TestDraftModuleLoads(FrappeTestCase):
 		self.assertTrue(callable(draft.load))
 		self.assertTrue(callable(draft.discard))
 
-	def test_every_endpoint_is_reachable_without_a_token(self):
-		"""A draft is saved before the submitter registers, so JWT must not gate it."""
-		for name in ("save", "load", "discard"):
+	def test_save_and_discard_remain_reachable_without_a_token(self):
+		"""Save/discard may run mid-wizard before registration (FSD 7)."""
+		for name in ("save", "discard"):
 			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
 			self.assertIn(path, middleware.EXEMPT_PATHS)
+		self.assertNotIn(
+			"/api/method/oan_grievance_service.api.v1.draft.load",
+			middleware.EXEMPT_PATHS,
+		)
 
-	def test_every_endpoint_allows_guest(self):
-		"""frappe.whitelist(allow_guest=True) registers the function in guest_methods."""
-		for fn in (draft.save, draft.load, draft.discard):
+	def test_get_draft_requires_authentication(self):
+		"""Get Draft is authenticated-only; guests must not resume drafts."""
+		self.assertIn(draft.load, frappe.whitelisted)
+		self.assertNotIn(draft.load, frappe.guest_methods)
+		for fn in (draft.save, draft.discard):
 			self.assertIn(fn, frappe.whitelisted)
 			self.assertIn(fn, frappe.guest_methods)
 
@@ -65,7 +71,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 
 	def test_a_saved_draft_loads_back(self):
 		draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=3)
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 
 		self.assertEqual(result["status"], "success")
 		self.assertEqual(result["data"]["payload"]["submitter_name"], "Test Submitter")
@@ -76,7 +82,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 		draft.save(client_uuid=self.uuid, payload=self._payload(description="First attempt text."))
 		draft.save(client_uuid=self.uuid, payload=self._payload(description="Second attempt text."))
 
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 		self.assertEqual(result["data"]["payload"]["description"], "Second attempt text.")
 
 	def test_step_reached_never_goes_backwards(self):
@@ -84,7 +90,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 		draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=3)
 		draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=1)
 
-		self.assertEqual(draft.load(client_uuid=self.uuid)["data"]["step_reached"], 3)
+		self.assertEqual(draft.load()["data"]["step_reached"], 3)
 
 	def test_a_draft_key_is_required(self):
 		"""handle_api_errors turns the throw into an envelope rather than a traceback."""
@@ -93,8 +99,10 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
 		self.assertIn("draft key", result["message"])
 
-	def test_loading_an_unknown_draft_is_a_404_not_an_empty_success(self):
-		result = draft.load(client_uuid="never-saved-anything")
+	def test_loading_with_no_draft_is_a_404_not_an_empty_success(self):
+		other = _a_submitter_user("draft.empty@example.com")
+		frappe.set_user(other.name)
+		result = draft.load()
 		self.assertEqual(result["status"], "error")
 		self.assertEqual(frappe.response["http_status_code"], 404)
 
@@ -139,7 +147,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 			desired_outcome="Deliver the allocated fertilizer this week.",
 		)
 		draft.save(client_uuid=self.uuid, payload=payload, step_reached=4)
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 
 		data = result["data"]
 		self.assertEqual(result["status"], "success")
@@ -156,32 +164,43 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertTrue(data["name"])
 		self.assertTrue(data["expires_on"])
 
-	def test_guest_can_load_an_anonymous_draft(self):
-		"""FSD 7: the wizard is saved before registration, keyed only by client_uuid."""
-		frappe.set_user("Guest")
-		result = draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=1)
-		self.assertEqual(result["status"], "success")
-		loaded = draft.load(client_uuid=self.uuid)
-		self.assertEqual(loaded["status"], "success")
-		self.assertEqual(loaded["data"]["client_uuid"], self.uuid)
+	def test_load_returns_the_latest_draft_only(self):
+		"""A user has one active draft; Get Draft returns the newest open one."""
+		older = frappe.generate_hash(length=20)
+		newer = frappe.generate_hash(length=20)
+		draft.save(
+			client_uuid=older,
+			payload=self._payload(description="Older draft text for resume."),
+			step_reached=1,
+		)
+		draft.save(
+			client_uuid=newer,
+			payload=self._payload(description="Newer draft text for resume."),
+			step_reached=3,
+		)
 
-	def test_another_user_cannot_load_my_draft(self):
+		result = draft.load()
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(result["data"]["client_uuid"], newer)
+		self.assertEqual(result["data"]["step_reached"], 3)
+		self.assertEqual(result["data"]["payload"]["description"], "Newer draft text for resume.")
+
+	def test_another_user_never_receives_my_draft(self):
 		draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=2)
 		other = _a_submitter_user("draft.other@example.com")
 		frappe.set_user(other.name)
 
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 403)
-		self.assertIn("another user", result["message"])
+		self.assertEqual(frappe.response["http_status_code"], 404)
 
-	def test_guest_cannot_load_a_claimed_draft(self):
+	def test_guest_cannot_load_a_draft(self):
 		draft.save(client_uuid=self.uuid, payload=self._payload())
 		frappe.set_user("Guest")
 
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 403)
+		self.assertIn(frappe.response["http_status_code"], (401, 403))
 
 	def test_an_expired_draft_is_a_404(self):
 		draft.save(client_uuid=self.uuid, payload=self._payload())
@@ -192,7 +211,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 			"2000-01-01 00:00:00",
 		)
 
-		result = draft.load(client_uuid=self.uuid)
+		result = draft.load()
 		self.assertEqual(result["status"], "error")
 		self.assertEqual(frappe.response["http_status_code"], 404)
 

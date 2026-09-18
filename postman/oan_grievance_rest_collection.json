@@ -972,9 +972,9 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "var uuid = pm.environment.get(\"client_uuid\") || pm.collectionVariables.get(\"client_uuid\");",
-                  "if (!uuid) {",
-                  "    console.warn(\"[Pre-request] 'client_uuid' is empty. Save a draft first or set client_uuid in variables.\");",
+                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+                  "if (!token) {",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -991,13 +991,17 @@
                   "if (pm.response.code === 200) {",
                   "    var jsonData = pm.response.json();",
                   "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Draft state covers every wizard step\", function () {",
+                  "    pm.test(\"Latest draft state covers every wizard step\", function () {",
                   "        pm.expect(data).to.have.property(\"client_uuid\");",
                   "        pm.expect(data).to.have.property(\"payload\");",
                   "        pm.expect(data).to.have.property(\"step_reached\");",
                   "        pm.expect(data).to.have.property(\"attachments\");",
                   "        pm.expect(data).to.have.property(\"expires_on\");",
                   "    });",
+                  "    if (data.client_uuid) {",
+                  "        pm.collectionVariables.set(\"client_uuid\", data.client_uuid);",
+                  "        pm.environment.set(\"client_uuid\", data.client_uuid);",
+                  "    }",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1008,11 +1012,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/drafts/{{client_uuid}}",
+              "raw": "{{base_url}}/api/v1/drafts",
               "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts", "{{client_uuid}}"]
+              "path": ["api", "v1", "drafts"]
             },
-            "description": "STG-325: Fetch a saved draft by client_uuid so the multi-step form can resume. Allowed for guests on anonymous drafts; a draft claimed by a signed-in user is returned only to that user. 404 when no draft exists."
+            "description": "STG-325: Returns the authenticated user's latest (and only active) grievance draft so the multi-step form can resume. No draft id is required. 404 when the caller has no saved draft. Guests are not allowed."
           },
           "response": []
         }

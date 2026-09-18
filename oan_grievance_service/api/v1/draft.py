@@ -16,13 +16,21 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, success_response
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
 from oan_grievance_service.services import submission
 
 DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
+
+ALLOWED_DRAFT_ROLES = [
+	"Grievance Submitter",
+	"Grievance Officer",
+	"Grievance Admin",
+	"System Manager",
+	"Administrator",
+]
 
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
@@ -70,17 +78,21 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 	)
 
 
-@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"/<client_uuid>", methods=("GET",), allow_guest=True, summary="Get a saved draft by client UUID"
-)
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
+@frappe.whitelist()
 @handle_api_errors
-def load(client_uuid: str):
-	"""Return a saved draft so the wizard resumes where it stopped."""
-	if not client_uuid:
-		frappe.throw(_("A draft key is required."), title=_("Missing Draft Key"))
+@require_role(ALLOWED_DRAFT_ROLES)
+def load():
+	"""Return the caller's latest unsubmitted draft so the wizard can resume.
 
-	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	A user has at most one active draft. Lookup is by session owner — never by a
+	client-supplied draft id — so one authenticated GET is enough to resume.
+	"""
+	user = _session_user()
+	if not user:
+		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	name = _latest_own_draft_name(user)
 	if not name:
 		# DoesNotExistError rather than a bare throw: handle_api_errors reads
 		# http_status_code off the exception, and a missing draft is a 404 the client
@@ -159,6 +171,26 @@ def _assert_not_expired(doc):
 		return
 	if get_datetime(doc.expires_on) < now_datetime():
 		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
+
+
+def _latest_own_draft_name(user):
+	"""The caller's newest unsubmitted, unexpired draft, or None.
+
+	One active draft per user: pick the most recently modified open draft that
+	has not expired. Submitted drafts are ignored (they already became cases).
+	"""
+	rows = frappe.get_all(
+		"Grievance Draft",
+		filters={"owner_user": user, "submitted_as": ["is", "not set"]},
+		fields=["name", "expires_on"],
+		order_by="modified desc",
+		limit=5,
+	)
+	now = now_datetime()
+	for row in rows:
+		if not row.expires_on or get_datetime(row.expires_on) >= now:
+			return row.name
+	return None
 
 
 def _draft_state(doc):

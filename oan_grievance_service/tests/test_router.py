@@ -288,8 +288,8 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(tl_data["status"], "success")
 		self.assertTrue(len(tl_data["data"]["timeline"]) > 0)
 
-	def test_get_draft_by_client_uuid_rest_route(self):
-		"""GET /api/v1/drafts/<client_uuid> returns the caller's own wizard state."""
+	def test_get_latest_draft_rest_route(self):
+		"""GET /api/v1/drafts returns the authenticated user's latest wizard state."""
 		import frappe.api
 
 		frappe.set_user(self.farmer_user.name)
@@ -303,7 +303,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		saved = draft.save(client_uuid=client_uuid, payload=payload, step_reached=3)
 		self.assertEqual(saved["status"], "success")
 
-		req = make_test_request(f"/api/v1/drafts/{client_uuid}", method="GET")
+		req = make_test_request("/api/v1/drafts", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
 		body = json.loads(res.get_data(as_text=True))
@@ -316,8 +316,27 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 	def test_get_draft_rest_404_when_missing(self):
 		import frappe.api
 
-		frappe.set_user(self.farmer_user.name)
-		req = make_test_request("/api/v1/drafts/never-saved-anything", method="GET")
+		# Use a fresh submitter so leftover drafts from earlier cases cannot mask a 404.
+		empty_email = "rest_draft_empty@example.com"
+		if not frappe.db.exists("User", empty_email):
+			empty_user = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": empty_email,
+					"first_name": "Empty",
+					"last_name": "Draft",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Grievance Submitter"}],
+				}
+			).insert(ignore_permissions=True)
+		else:
+			empty_user = frappe.get_doc("User", empty_email)
+
+		for name in frappe.get_all("Grievance Draft", filters={"owner_user": empty_user.name}, pluck="name"):
+			frappe.delete_doc("Grievance Draft", name, ignore_permissions=True, delete_permanently=True)
+
+		frappe.set_user(empty_user.name)
+		req = make_test_request("/api/v1/drafts", method="GET")
 		res = frappe.api.handle(req)
 		body = json.loads(res.get_data(as_text=True))
 		self.assertEqual(body["status"], "error")
@@ -325,7 +344,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		if res.status_code == 200:
 			self.assertEqual(frappe.response.get("http_status_code"), 404)
 
-	def test_get_draft_rest_forbids_another_users_draft(self):
+	def test_get_draft_rest_never_returns_another_users_draft(self):
 		import frappe.api
 
 		frappe.set_user(self.farmer_user.name)
@@ -335,11 +354,14 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		)
 
 		frappe.set_user("Administrator")
-		req = make_test_request(f"/api/v1/drafts/{client_uuid}", method="GET")
+		req = make_test_request("/api/v1/drafts", method="GET")
 		res = frappe.api.handle(req)
 		body = json.loads(res.get_data(as_text=True))
-		self.assertEqual(body["status"], "error")
-		self.assertIn("another user", (body.get("message") or "").lower())
-		self.assertIn(res.status_code, (403, 200))
-		if res.status_code == 200:
-			self.assertEqual(frappe.response.get("http_status_code"), 403)
+		# Administrator has no draft of their own — never the farmer's.
+		if body.get("status") == "success":
+			self.assertNotEqual(body["data"].get("client_uuid"), client_uuid)
+		else:
+			self.assertEqual(body["status"], "error")
+			self.assertIn(res.status_code, (404, 200))
+			if res.status_code == 200:
+				self.assertEqual(frappe.response.get("http_status_code"), 404)
