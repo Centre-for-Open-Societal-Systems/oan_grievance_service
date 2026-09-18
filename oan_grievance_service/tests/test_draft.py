@@ -126,7 +126,9 @@ class TestDraftRoundTrip(FrappeTestCase):
 	def test_logged_in_save_claims_anonymous_draft(self):
 		"""Signing in mid-wizard binds the anonymous draft to that user."""
 		frappe.set_user("Guest")
-		draft.save(client_uuid=self.uuid, payload=self._payload(description="started as guest"), step_reached=1)
+		draft.save(
+			client_uuid=self.uuid, payload=self._payload(description="started as guest"), step_reached=1
+		)
 		self.assertFalse(frappe.db.get_value("Grievance Draft", {"client_uuid": self.uuid}, "owner_user"))
 
 		user = _a_submitter_user("draft.claimer@example.com")
