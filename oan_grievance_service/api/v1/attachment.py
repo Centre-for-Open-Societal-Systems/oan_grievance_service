@@ -49,10 +49,10 @@ attachment_route = prefixed("/api/v1/attachments")
 draft_route = prefixed("/api/v1/drafts")
 
 
-@grievance_route(
+@grievance_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 	"/<grievance>/attachments", methods=("POST",), summary="Upload a supporting document to a grievance"
 )
-@draft_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@draft_route(
 	"/attachments",
 	methods=("POST",),
 	allow_guest=True,
