@@ -132,6 +132,9 @@ def load():
 	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
 
 
+@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+	"", methods=("DELETE",), allow_guest=True, summary="Discard a grievance draft"
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def discard(client_uuid: str):
@@ -152,6 +155,10 @@ def discard(client_uuid: str):
 			title=_("Already Submitted"),
 		)
 
+	# Anything uploaded against the draft goes with it -- the rows link to the
+	# draft, so leaving them would refuse the delete, and the files themselves
+	# were never scanned into anything a case could keep.
+	_purge_draft_uploads(name)
 	frappe.delete_doc("Grievance Draft", name, ignore_permissions=True, delete_permanently=True)
 	return success_response(data={"discarded": True}, message=_("Draft discarded"))
 

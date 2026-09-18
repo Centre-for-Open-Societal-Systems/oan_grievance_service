@@ -82,7 +82,14 @@ def _register() -> None:
 	ensure_auth_routes()
 
 	# 2. Importing grievance endpoint modules executes the @route(...) decorator registrations
-	from oan_grievance_service.api.v1 import administrative_area, draft, grievance, profile, submitter
+	from oan_grievance_service.api.v1 import (
+		administrative_area,
+		attachment,
+		draft,
+		grievance,
+		profile,
+		submitter,
+	)
 
 	# An unbound copy each time. On a dev hot-reload Frappe rebuilds its URL map
 	# while these Rule objects stay bound to the old one, and Werkzeug refuses to
