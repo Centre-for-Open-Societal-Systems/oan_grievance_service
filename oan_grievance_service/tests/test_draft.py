@@ -23,23 +23,23 @@ class TestDraftModuleLoads(FrappeTestCase):
 		self.assertTrue(callable(draft.load))
 		self.assertTrue(callable(draft.discard))
 
-	def test_save_and_discard_remain_reachable_without_a_token(self):
-		"""Save/discard may run mid-wizard before registration (FSD 7)."""
-		for name in ("save", "discard"):
-			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
-			self.assertIn(path, middleware.EXEMPT_PATHS)
-		self.assertNotIn(
-			"/api/method/oan_grievance_service.api.v1.draft.load",
+	def test_discard_remains_reachable_without_a_token(self):
+		"""Discard may still clear an abandoned wizard without a session."""
+		self.assertIn(
+			"/api/method/oan_grievance_service.api.v1.draft.discard",
 			middleware.EXEMPT_PATHS,
 		)
+		for name in ("save", "load"):
+			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
+			self.assertNotIn(path, middleware.EXEMPT_PATHS)
 
-	def test_get_draft_requires_authentication(self):
-		"""Get Draft is authenticated-only; guests must not resume drafts."""
-		self.assertIn(draft.load, frappe.whitelisted)
-		self.assertNotIn(draft.load, frappe.guest_methods)
-		for fn in (draft.save, draft.discard):
+	def test_save_and_get_draft_require_authentication(self):
+		"""Save Draft and Get Draft are authenticated-only (same as grievance submit)."""
+		for fn in (draft.save, draft.load):
 			self.assertIn(fn, frappe.whitelisted)
-			self.assertIn(fn, frappe.guest_methods)
+			self.assertNotIn(fn, frappe.guest_methods)
+		self.assertIn(draft.discard, frappe.whitelisted)
+		self.assertIn(draft.discard, frappe.guest_methods)
 
 
 class TestDraftRoundTrip(FrappeTestCase):
@@ -93,11 +93,83 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(draft.load()["data"]["step_reached"], 3)
 
 	def test_a_draft_key_is_required(self):
-		"""handle_api_errors turns the throw into an envelope rather than a traceback."""
+		"""Missing draft key is rejected at the schema edge."""
 		result = draft.save(client_uuid="", payload=self._payload())
 		self.assertEqual(result["status"], "error")
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
-		self.assertIn("draft key", result["message"])
+
+	def test_partial_payload_can_be_saved(self):
+		"""STG-322: incomplete wizard answers must not block a draft save."""
+		result = draft.save(
+			client_uuid=self.uuid,
+			payload={"description": "still typing"},
+			step_reached=1,
+		)
+		self.assertEqual(result["status"], "success")
+		loaded = draft.load()
+		self.assertEqual(loaded["data"]["payload"], {"description": "still typing"})
+		self.assertEqual(loaded["data"]["step_reached"], 1)
+
+	def test_empty_payload_can_be_saved(self):
+		"""A draft may be created before the submitter fills any field."""
+		result = draft.save(client_uuid=self.uuid, payload={}, step_reached=0)
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(draft.load()["data"]["payload"], {})
+
+	def test_logged_in_save_associates_owner_user(self):
+		"""Saved drafts are keyed to the session user for later resume."""
+		user = _a_submitter_user("draft.owner@example.com")
+		frappe.set_user(user.name)
+
+		result = draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=2)
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(result["data"]["owner_user"], user.name)
+		self.assertEqual(
+			frappe.db.get_value("Grievance Draft", {"client_uuid": self.uuid}, "owner_user"),
+			user.name,
+		)
+
+	def test_logged_in_save_claims_anonymous_draft(self):
+		"""A legacy anonymous draft is claimed on the first authenticated save."""
+		doc = frappe.get_doc(
+			{
+				"doctype": "Grievance Draft",
+				"client_uuid": self.uuid,
+				"payload": frappe.as_json(self._payload(description="started anonymously")),
+				"step_reached": 1,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertFalse(doc.owner_user)
+
+		user = _a_submitter_user("draft.claimer@example.com")
+		frappe.set_user(user.name)
+		result = draft.save(
+			client_uuid=self.uuid,
+			payload=self._payload(description="continued after login"),
+			step_reached=2,
+		)
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(result["data"]["owner_user"], user.name)
+
+	def test_guest_cannot_save_a_draft(self):
+		"""Save Draft requires authentication - guests are rejected."""
+		frappe.set_user("Guest")
+		result = draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=1)
+		self.assertEqual(result["status"], "error")
+		self.assertIn(frappe.response.get("http_status_code"), (401, 403))
+
+	def test_another_user_cannot_overwrite_my_draft(self):
+		owner = _a_submitter_user("draft.save.owner@example.com")
+		frappe.set_user(owner.name)
+		draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=2)
+
+		other = _a_submitter_user("draft.save.other@example.com")
+		frappe.set_user(other.name)
+		result = draft.save(client_uuid=self.uuid, payload=self._payload(description="not mine"))
+		self.assertEqual(result["status"], "error")
+		self.assertEqual(frappe.response["http_status_code"], 403)
+		self.assertIn("another user", result["message"])
 
 	def test_loading_with_no_draft_is_a_404_not_an_empty_success(self):
 		other = _a_submitter_user("draft.empty@example.com")
@@ -228,7 +300,7 @@ def _a_submitter_user(email):
 			"doctype": "User",
 			"email": email,
 			"first_name": "Draft",
-			"last_name": "Other",
+			"last_name": "User",
 			"send_welcome_email": 0,
 			"roles": [{"role": "Grievance Submitter"}],
 		}

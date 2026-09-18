@@ -23,10 +23,8 @@ EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.submission.categories",
 	"/api/method/oan_grievance_service.api.v1.submission.grievance_types",
 	"/api/method/oan_grievance_service.api.v1.submission.ticket_preview",
-	# Save/discard may run mid-wizard before registration (FSD 7). Get Draft
-	# (draft.load) is intentionally not exempt: only an authenticated user may
-	# resume their own latest draft.
-	"/api/method/oan_grievance_service.api.v1.draft.save",
+	# Draft save/load and grievance submit require an authenticated user.
+	# Discard may still run for abandoned wizard cleanup without a token.
 	"/api/method/oan_grievance_service.api.v1.draft.discard",
 ]
 

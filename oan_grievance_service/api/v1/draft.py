@@ -16,7 +16,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
+from pydantic import BaseModel, Field
 
 from oan_grievance_service.services import submission
 
@@ -33,17 +34,38 @@ ALLOWED_DRAFT_ROLES = [
 ]
 
 
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+class SaveDraftRequest(BaseModel):
+	"""Partial wizard state. Soft by design - full validation runs only at submit.
+
+	`payload` may be empty or incomplete; required grievance fields are not enforced
+	here. Only the draft key is required so the client can resume later.
+	"""
+
+	model_config = {"extra": "forbid"}
+
+	client_uuid: str = Field(..., min_length=1, description="Stable client-generated draft key")
+	payload: dict | str | None = None
+	step_reached: int | str | None = 0
+
+
+@route("", methods=("POST",), summary="Save a grievance draft")
+@frappe.whitelist()
+@validate_request(SaveDraftRequest)
 @handle_api_errors
+@require_role(ALLOWED_DRAFT_ROLES)
 def save(client_uuid: str, payload: str | dict | None = None, step_reached: int | str = 0):
 	"""Create or overwrite the draft for `client_uuid`.
 
-	Overwrites rather than merges: the client holds the whole wizard state, so a
-	partial merge would let a field the submitter cleared reappear from an earlier
-	save.
+	Authenticated only (same gate as Get Draft / grievance submit). Overwrites
+	rather than merges: the client holds the whole wizard state, so a partial
+	merge would let a field the submitter cleared reappear from an earlier save.
 	"""
 	if not client_uuid:
 		frappe.throw(_("A draft key is required."), title=_("Missing Draft Key"))
+
+	session_user = _session_user()
+	if not session_user:
+		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
 	data = submission.parse_payload(payload)
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
@@ -56,10 +78,13 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 				_("This draft has already been submitted as {0}.").format(doc.submitted_as),
 				title=_("Already Submitted"),
 			)
+		# Claim a legacy anonymous draft once the submitter is signed in.
+		if not doc.owner_user:
+			doc.owner_user = session_user
 	else:
 		doc = frappe.new_doc("Grievance Draft")
 		doc.client_uuid = client_uuid
-		doc.owner_user = _session_user()
+		doc.owner_user = session_user
 
 	doc.payload = json.dumps(data, ensure_ascii=False)
 	doc.step_reached = max(int(step_reached or 0), doc.step_reached or 0)
@@ -73,6 +98,7 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 			"step_reached": doc.step_reached,
 			"expires_on": doc.expires_on,
 			"attachment_count": _attachment_count(doc.name),
+			"owner_user": doc.owner_user,
 		},
 		message=_("Draft saved"),
 	)
@@ -85,8 +111,8 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 def load():
 	"""Return the caller's latest unsubmitted draft so the wizard can resume.
 
-	A user has at most one active draft. Lookup is by session owner — never by a
-	client-supplied draft id — so one authenticated GET is enough to resume.
+	A user has at most one active draft. Lookup is by session owner - never by a
+	client-supplied draft id - so one authenticated GET is enough to resume.
 	"""
 	user = _session_user()
 	if not user:

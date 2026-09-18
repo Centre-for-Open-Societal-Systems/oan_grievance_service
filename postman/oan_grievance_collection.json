@@ -765,7 +765,30 @@
       "name": "Drafts",
       "item": [
         {
-          "name": "5. Get Draft",
+          "name": "5a. Save Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft ? fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.save",
+              "host": ["{{base_url}}"],
+              "path": ["api", "method", "oan_grievance_service.api.v1.draft.save"]
+            },
+            "description": "STG-322: Persist an in-progress grievance draft. Requires authentication. Partial/incomplete payload is allowed; full validation applies only at final submission. Associated with the logged-in user."
+          },
+          "response": []
+        },
+        {
+          "name": "5b. Get Draft",
           "request": {
             "method": "GET",
             "header": [],
