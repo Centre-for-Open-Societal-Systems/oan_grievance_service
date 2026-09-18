@@ -13,7 +13,7 @@ from oan_auth_service.api.utils import handle_api_errors, success_response
 
 from oan_grievance_service.services import ticket_number
 
-from .grievance import CHANNELS
+from .grievance import active_channels
 
 # Reference data changes on a governance timescale and is read on every form load.
 CACHE_TTL = 3600
@@ -39,7 +39,7 @@ def form_meta():
 
 	def build():
 		return {
-			"submission_channels": list(CHANNELS),
+			"submission_channels": active_channels(),
 			"submitter_types": frappe.get_all(
 				"Grievance Submitter Type",
 				filters={"is_active": 1}

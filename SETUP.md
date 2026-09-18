@@ -16,13 +16,13 @@ container, never on the Windows host.
 | Container runtime   | Docker Desktop (WSL 2 backend)              | 29.7.2                        |
 | Dev environment     | `frappe/frappe_docker` dev container        | `frappe/bench:latest`         |
 | Bench CLI           | frappe-bench                                | 5.31.0                        |
-| Framework           | Frappe                                      | 16.0.0 (`version-16`)         |
-| Language            | Python                                      | 3.14.2 (app requires >= 3.10) |
+| Framework           | Frappe                                      | 16.33.1 (`version-16`)        |
+| Language            | Python                                      | 3.14.2 (app requires >= 3.14) |
 | Front-end toolchain | Node                                        | v24.13.0                      |
 | Database            | MariaDB                                     | 11.8.8                        |
 | Cache / queue       | Redis                                       | 8.10.1 (two instances)        |
 | Apps                | `oan_auth_service`, `oan_grievance_service` | 0.0.1                         |
-| Modules             | 6, split by FSD area                        | 22 doctypes, 6 roles          |
+| Modules             | 6, split by FSD area                        | 27 doctypes, 3 roles          |
 
 The app itself ships no server, no ORM and no migration engine. Frappe supplies all
 three. See `ARCHITECTURE` notes or the published architecture diagram for how the layers
@@ -195,7 +195,9 @@ getent hosts mariadb redis-cache redis-queue
 
 ### 3.8 Add the apps to the bench
 
-`oan_grievance_service` depends on `oan_auth_service` for authentication and user self-registration. Fetch both into the bench:
+`oan_auth_service` comes first. This app declares it in `required_apps` and imports its
+API envelope, role decorator and JWT namespace registration, so every endpoint here
+fails at import without it.
 
 ```bash
 cd /workspace/development/frappe-bench
@@ -204,7 +206,7 @@ bench get-app https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_
 ```
 
 If you are working from a local checkout instead, see
-[section 6](#6-repository-and-bench-relationship) first, because the repositories are not
+[section 7](#7-repository-and-bench-relationship) first, because the repositories are not
 mounted into the container by default.
 
 ### 3.9 Create a site
@@ -220,8 +222,13 @@ bench new-site grievance.localhost \
 The MariaDB root password `123` comes from the compose file. A site is a database, so
 each site you create gets its own schema.
 
-Two harmless messages appear here. `MariaDB version 11.8 is more than 10.8 which is not yet tested` is an upstream version check, and `*** Scheduler is disabled ***` is the
-default for a new site.
+`MariaDB version 11.8 is more than 10.8 which is not yet tested` is an upstream
+version check and is harmless.
+
+`*** Scheduler is disabled ***` is **not** harmless for this app. It is the default
+for a new site, and step 3.10 turns it back on. SLA reminders, escalation,
+notification dispatch and attachment scanning are all scheduled jobs: with the
+scheduler off the site accepts grievances and then does nothing with them.
 
 ### 3.10 Configure site, install the apps, and migrate
 
@@ -247,6 +254,7 @@ _(See [`site_config.example.json`](site_config.example.json) and [`SETUP_DOCKER.
 bench --site grievance.localhost install-app oan_auth_service
 bench --site grievance.localhost install-app oan_grievance_service
 bench --site grievance.localhost migrate
+bench --site grievance.localhost enable-scheduler
 ```
 
 Developer mode is required. Without it, doctype changes are written to the database only
@@ -261,14 +269,86 @@ bench --site grievance.localhost list-apps
 Expected:
 
 ```
-frappe                16.0.0   version-16
+frappe                16.33.1  version-16
 oan_auth_service      0.0.1    UNVERSIONED
 oan_grievance_service 0.0.1    UNVERSIONED
 ```
 
 ---
 
-## 4. Running the dev server
+## 4. External services and site configuration
+
+Everything below is optional for a site that only needs to accept and route
+grievances. Two features stay switched off until the service behind them exists,
+and both fail closed rather than quietly degrading.
+
+### 4.1 ClamAV — attachment scanning
+
+Uploads are stored as `scan_status = Pending` and withheld from officers until a
+scanner marks them `Clean`. With no scanner reachable they become `Failed`, never
+`Clean`: an outage makes attachments unavailable, it does not make them trusted.
+
+So **until ClamAV is running, no uploaded file can be downloaded by anyone.**
+
+Add the daemon as a sidecar next to MariaDB and Redis:
+
+```yaml
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - "3310:3310"
+```
+
+Then point the site at it:
+
+```bash
+bench --site grievance.localhost set-config grievance_clamav_host clamav
+bench --site grievance.localhost set-config -p grievance_clamav_port 3310
+```
+
+The container downloads its signature database on first start, which takes a few
+minutes. Until it finishes, `clamd` refuses connections and scans report `Failed`.
+
+No Python package is involved. The app talks to the daemon over a TCP socket using
+the standard library, so nothing is added to `requirements.txt` for this.
+
+### 4.2 SMS gateway
+
+Acknowledgement SMS is code complete and dispatches through core's
+`SMS Settings` doctype. Configure a gateway there — **Setup → SMS Settings** — and
+the notification queue starts sending. Until then SMS rows queue and fail; email
+is unaffected.
+
+### 4.3 Site configuration keys
+
+All optional. Each falls back to the documented default.
+
+| Key                                  | Default                                 | Effect                                             |
+| ------------------------------------ | --------------------------------------- | -------------------------------------------------- |
+| `grievance_clamav_host`              | unset                                   | ClamAV daemon host. **Unset disables scanning.**   |
+| `grievance_clamav_port`              | `3310`                                  | ClamAV daemon port                                 |
+| `grievance_sla_clock_start`          | `assignment`                            | Start the SLA clock at `assignment` or `creation`  |
+| `grievance_sla_paused_statuses`      | `More Info Needed`, `Pending Submitter` | Statuses that pause the SLA clock                  |
+| `grievance_confirmation_window_days` | `7`                                     | Days a submitter has to confirm a resolution       |
+| `grievance_auto_escalation_enabled`  | `true`                                  | Set `false` to stop automatic escalation site-wide |
+
+### 4.4 Scheduled jobs
+
+Wired in `hooks.py`, all defined in `tasks.py`. They require
+`bench --site <site> enable-scheduler`.
+
+| Frequency | Job                        | Does                                               |
+| --------- | -------------------------- | -------------------------------------------------- |
+| Hourly    | `send_sla_reminders`       | Officer reminders at 50% and 80% of the SLA window |
+| Hourly    | `escalate_breached`        | Moves overdue cases one rung up the chain          |
+| Hourly    | `dispatch_notifications`   | Drains the notification queue                      |
+| Hourly    | `scan_pending_attachments` | Sends pending uploads to ClamAV                    |
+| Daily     | `auto_close_expired`       | Closes cases whose confirmation window lapsed      |
+| Daily     | `purge_expired_drafts`     | Clears abandoned submission drafts                 |
+
+---
+
+## 5. Running the dev server
 
 ```bash
 cd /workspace/development/frappe-bench
@@ -283,7 +363,7 @@ does not, add it to `C:\Windows\System32\drivers\etc\hosts`.
 
 ---
 
-## 5. Everyday commands
+## 6. Everyday commands
 
 Run all of these from `/workspace/development/frappe-bench` inside the container.
 
@@ -309,7 +389,7 @@ Doctypes belong to the **Grievance Management** module so they land in
 
 ---
 
-## 6. Repository and bench relationship
+## 7. Repository and bench relationship
 
 There are two copies of the app on the host, and they are **not linked**:
 
@@ -348,20 +428,20 @@ set up.
 
 ---
 
-## 7. What the app contains
+## 8. What the app contains
 
-Twenty-two doctypes across six modules, split along the FSD's own functional
+Twenty-six doctypes across six modules, split along the FSD's own functional
 decomposition rather than one flat module. Moving a doctype between modules after
 deployment means a patch on every site, so the split is worth getting right early.
 
-| Module                   | Doctypes                                                                                                                        | FSD area                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request    | FR-02/04/05/06 — the case and its lifecycle    |
-| Grievance Masters        | Service Category, Grievance Type, Administrative Area, Grievance Department, Submitter Profile, Submitter Type, Submission Type | 3.2.2, 3.11.8, Appendix A — reference data     |
-| Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Escalation Log                                                   | FR-07, 3.11.7 — windows, deferrals, escalation |
-| Grievance Notification   | Grievance Notification Config, Grievance Notification Log, Grievance Response Template                                          | FR-08, Appendix C — matrix and templates       |
-| Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                          | FR-03, 3.3.1 — routing and reassignment        |
-| Grievance Access Control | Grievance RBAC Assignment, Grievance Access Audit Event                                                                         | FR-01, 3.1.1, FR-10 — scope and audit          |
+| Module                   | Doctypes                                                                                                                                                                                                | FSD area                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request, Grievance Attachment, Grievance Draft                                     | FR-02/04/05/06 — the case and its lifecycle    |
+| Grievance Masters        | Grievance Service Category, Grievance Type, Grievance Administrative Area, Grievance Department, Grievance Submitter Profile, Grievance Submitter Type, Grievance Submission Type, Grievance Role Level | 3.2.2, 3.11.8, Appendix A — reference data     |
+| Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Deferral Policy                                                                                                                          | FR-07, 3.11.7 — windows, deferrals, escalation |
+| Grievance Notification   | Grievance Notification Log, Grievance Response Template                                                                                                                                                 | FR-08, Appendix C — matrix and templates       |
+| Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                                                                                                  | FR-03, 3.3.1 — routing and reassignment        |
+| Grievance Access Control | Grievance RBAC Assignment, Grievance RBAC Assignment Officer, Grievance Access Audit Event                                                                                                              | FR-01, 3.1.1, FR-10 — scope and audit          |
 
 `grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
 dashboard charts and the FR-11.1 workspace, since those are cross-module views.
@@ -385,10 +465,17 @@ covers every filing actor, distinguished by `submitter_type` rather than by role
 ### Known incomplete work
 
 Not built yet: the portal pages (`www/` and `templates/pages/` are empty — FR-11.5
-submit wizard), SMS gateway wiring (integration point marked in
-`services/notifications.py`), Amharic translations (3.11.8), and Fayda ID
-authentication (FR-01), which is expected from `oan_auth_service`. This app covers
-authorization, not authentication.
+submit wizard), Amharic translations (3.11.8), and Fayda ID authentication (FR-01),
+which is expected from `oan_auth_service`. This app covers authorization, not
+authentication.
+
+Code complete but waiting on infrastructure — neither is a code change:
+
+- **Attachment scanning.** The pipeline runs, but no ClamAV daemon is provisioned
+  in any environment, so every upload settles at `Failed` and nothing is served.
+  See section 4.1.
+- **SMS acknowledgement.** Dispatch is wired to core's `SMS Settings`, which has no
+  gateway configured. See section 4.2.
 
 ### Two specification conflicts, resolved
 
@@ -410,7 +497,7 @@ before go-live.
 
 ---
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 **`failed to connect to the docker API at npipe:...`**
 Docker Desktop is not running. Start it and wait for the engine.
@@ -437,7 +524,7 @@ Use `--mariadb-user-host-login-scope='%'` instead, as shown in step 3.9.
 
 ---
 
-## 9. Resetting
+## 10. Resetting
 
 Drop the site and start over, keeping the bench:
 
