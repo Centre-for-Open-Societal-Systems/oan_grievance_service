@@ -27,6 +27,7 @@ when the case is finally filed.
 
 import frappe
 from frappe import _
+from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
@@ -41,7 +42,22 @@ from .grievance import ALLOWED_GRIEVANCE_ROLES
 # an unbounded one is a denial-of-service surface on a public intake form.
 MAX_ATTACHMENTS_PER_CASE = 10
 
+# REST forms of the four endpoints below. Evidence hangs off a case, so upload and
+# list live under the grievance; a single file is addressed by its own id.
+grievance_route = prefixed("/api/v1/grievances")
+attachment_route = prefixed("/api/v1/attachments")
+draft_route = prefixed("/api/v1/drafts")
 
+
+@grievance_route(
+	"/<grievance>/attachments", methods=("POST",), summary="Upload a supporting document to a grievance"
+)
+@draft_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+	"/attachments",
+	methods=("POST",),
+	allow_guest=True,
+	summary="Upload a supporting document to a draft, by client_uuid",
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def submit_document(
@@ -157,6 +173,11 @@ def submit_document(
 	)
 
 
+@grievance_route(
+	"/<grievance>/attachments",
+	methods=("GET",),
+	summary="List a grievance's attachments with their scan verdicts",
+)
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -199,6 +220,7 @@ def get_attachments(grievance: str):
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
+@attachment_route("/<attachment>/download", methods=("GET",), summary="A clean attachment's file URL")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
@@ -234,6 +256,7 @@ def download(attachment: str):
 	)
 
 
+@attachment_route("/<attachment>", methods=("DELETE",), summary="Remove an attachment from an open case")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)

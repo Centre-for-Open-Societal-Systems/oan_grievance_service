@@ -822,6 +822,32 @@
 						"description": "STG-325: Returns the authenticated user's latest grievance draft. No client_uuid required. Guests are not allowed. 404 when not found."
 					},
 					"response": []
+				},
+				{
+					"name": "5c. Discard Draft (REST)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/drafts?client_uuid={{client_uuid}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"drafts"
+							],
+							"query": [
+								{
+									"key": "client_uuid",
+									"value": "{{client_uuid}}"
+								}
+							]
+						},
+						"description": "REST form of draft.discard. Guest allowed; identifies the draft by client_uuid."
+					},
+					"response": []
 				}
 			]
 		},
@@ -1985,6 +2011,149 @@
 							}
 						}
 					]
+				},
+				{
+					"name": "Submit Document (REST — grievance)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"grievances",
+								"{{ticket_number}}",
+								"attachments"
+							]
+						},
+						"description": "REST form of attachment.submit_document. Multipart: file under key 'file', optional document_type. Returns scan_status Pending; no file_url until Clean.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "document_type",
+									"value": "Evidence",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Submit Document (REST — draft, no token)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/drafts/attachments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"drafts",
+								"attachments"
+							]
+						},
+						"description": "REST form of the draft upload path. Guest allowed; the draft is addressed by client_uuid in the form.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "client_uuid",
+									"value": "{{client_uuid}}",
+									"type": "text"
+								},
+								{
+									"key": "document_type",
+									"value": "Evidence",
+									"type": "text"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Attachments (REST)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"grievances",
+								"{{ticket_number}}",
+								"attachments"
+							]
+						},
+						"description": "REST form of attachment.get_attachments: every file on the case with its scan verdict."
+					},
+					"response": []
+				},
+				{
+					"name": "Download Attachment (REST)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/download",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"attachments",
+								"{{attachment_id}}",
+								"download"
+							]
+						},
+						"description": "REST form of attachment.download. 403 until the file is scanned Clean."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Attachment (REST)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"attachments",
+								"{{attachment_id}}"
+							]
+						},
+						"description": "REST form of attachment.delete. Only while the case is open."
+					},
+					"response": []
 				}
 			]
 		}

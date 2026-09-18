@@ -438,3 +438,145 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			self.assertIn(res.status_code, (404, 200))
 			if res.status_code == 200:
 				self.assertEqual(frappe.response.get("http_status_code"), 404)
+
+
+class TestAttachmentRESTRoutes(TestGrievanceRESTRouter):
+	"""The four attachment endpoints and draft.discard, over their REST paths.
+
+	The RPC surface has its own tests; these hold that each REST path reaches the
+	same function with the path variable bound to the right argument, and that a
+	multipart body arrives where `_uploaded_file` looks for it.
+	"""
+
+	def _submitted_ticket(self):
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		res = frappe.api.handle(
+			make_test_request(
+				"/api/v1/grievances",
+				method="POST",
+				data={
+					"submission_channel": "Mobile App",
+					"administrative_area": self.area.name,
+					"service_category": "Inputs",
+					"grievance_type": "Fertilizer Shortage",
+					"description": "REST attachment routes test: evidence on a shortage.",
+					"consent_given": 1,
+				},
+			)
+		)
+		self.assertEqual(res.status_code, 200)
+		return json.loads(res.get_data(as_text=True))["data"]["ticket_number"]
+
+	def _upload(self, path, fields):
+		"""A multipart request: the file rides on request.files, the fields on form_dict."""
+		import io
+
+		import frappe.api
+		from werkzeug.test import EnvironBuilder
+
+		from oan_grievance_service.tests.test_attachment_api import _jpeg
+
+		builder = EnvironBuilder(
+			path=path,
+			method="POST",
+			base_url="http://testsite.localhost",
+			data={**fields, "file": (io.BytesIO(_jpeg()), "receipt.jpg")},
+		)
+		req = Request(builder.get_environ())
+		frappe.local.request = req
+		frappe.local.request_ip = "127.0.0.1"
+		frappe.local.form_dict = frappe._dict(fields)
+		frappe.local.response = frappe._dict({})
+		res = frappe.api.handle(req)
+		return res.status_code, json.loads(res.get_data(as_text=True))
+
+	def _uploaded_on(self, ticket):
+		"""One file on the case, uploaded by staff. A submitter attaches through the
+		draft before filing; once filed, evidence is added by staff until the case is
+		waiting on the submitter again."""
+		frappe.set_user("Administrator")
+		code, body = self._upload(f"/api/v1/grievances/{ticket}/attachments", {"document_type": "Evidence"})
+		self.assertEqual(code, 200, body)
+		self.assertEqual(body["data"]["scan_status"], "Pending")
+		self.assertNotIn("file_url", body["data"])
+		return body["data"]["attachment"]
+
+	def test_upload_list_download_and_delete_over_rest(self):
+		import frappe.api
+
+		ticket = self._submitted_ticket()
+		attachment_id = self._uploaded_on(ticket)
+
+		# GET /api/v1/grievances/<grievance>/attachments
+		res = frappe.api.handle(make_test_request(f"/api/v1/grievances/{ticket}/attachments", method="GET"))
+		self.assertEqual(res.status_code, 200)
+		listed = json.loads(res.get_data(as_text=True))["data"]
+		self.assertEqual([row["name"] for row in listed], [attachment_id])
+
+		# GET /api/v1/attachments/<attachment>/download, once Clean
+		frappe.db.set_value("Grievance Attachment", attachment_id, "scan_status", "Clean")
+		res = frappe.api.handle(
+			make_test_request(f"/api/v1/attachments/{attachment_id}/download", method="GET")
+		)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		self.assertTrue(json.loads(res.get_data(as_text=True))["data"]["file_url"])
+
+		# DELETE /api/v1/attachments/<attachment>
+		res = frappe.api.handle(make_test_request(f"/api/v1/attachments/{attachment_id}", method="DELETE"))
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		self.assertFalse(frappe.db.exists("Grievance Attachment", attachment_id))
+
+	def test_a_pending_file_is_withheld_over_rest(self):
+		"""Its own test: an error response rolls the request's transaction back, so
+		the refusal cannot share a case with the success path above."""
+		import frappe.api
+
+		attachment_id = self._uploaded_on(self._submitted_ticket())
+		res = frappe.api.handle(
+			make_test_request(f"/api/v1/attachments/{attachment_id}/download", method="GET")
+		)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "error", body)
+		self.assertNotIn("file_url", body.get("data") or {})
+
+	def test_a_draft_upload_and_discard_over_rest(self):
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		client_uuid = frappe.generate_hash(length=20)
+		res = frappe.api.handle(
+			make_test_request(
+				"/api/v1/drafts",
+				method="POST",
+				data={"client_uuid": client_uuid, "payload": {"description": "partial"}, "step_reached": 1},
+			)
+		)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+
+		# POST /api/v1/drafts/attachments, addressed by client_uuid
+		code, body = self._upload("/api/v1/drafts/attachments", {"client_uuid": client_uuid})
+		self.assertEqual(code, 200, body)
+		self.assertEqual(body["data"]["scan_status"], "Pending")
+
+		# DELETE /api/v1/drafts?client_uuid=...
+		res = frappe.api.handle(
+			make_test_request("/api/v1/drafts", method="DELETE", data={"client_uuid": client_uuid})
+		)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		self.assertEqual(json.loads(res.get_data(as_text=True))["status"], "success")
+
+	def test_the_paths_are_registered_with_the_right_methods(self):
+		from oan_grievance_service.api.router import registered_routes
+
+		routes = {(r["path"], r["methods"]) for r in registered_routes()}
+		for path, methods in (
+			("/api/v1/grievances/<grievance>/attachments", ("POST",)),
+			("/api/v1/grievances/<grievance>/attachments", ("GET",)),
+			("/api/v1/drafts/attachments", ("POST",)),
+			("/api/v1/attachments/<attachment>/download", ("GET",)),
+			("/api/v1/attachments/<attachment>", ("DELETE",)),
+			("/api/v1/drafts", ("DELETE",)),
+		):
+			self.assertIn((path, methods), routes)
