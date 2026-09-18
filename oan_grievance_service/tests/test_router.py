@@ -9,7 +9,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
-from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
+from oan_grievance_service.api.v1 import administrative_area, draft, grievance, profile, submitter
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
@@ -131,6 +131,9 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 		meta_area = _resolve_version_meta(administrative_area.get_areas)
 		self.assertEqual(meta_area["api_version"], "v1")
+
+		meta_draft = _resolve_version_meta(draft.save)
+		self.assertEqual(meta_draft["api_version"], "v1")
 
 	def test_public_health_and_ping_endpoints(self):
 		"""Test GET /api/v1/grievances/health and /ping."""
@@ -284,3 +287,74 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		tl_data = json.loads(res_tl.get_data(as_text=True))
 		self.assertEqual(tl_data["status"], "success")
 		self.assertTrue(len(tl_data["data"]["timeline"]) > 0)
+
+	def test_save_draft_rest_route(self):
+		"""POST /api/v1/drafts persists partial wizard state for the caller."""
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		client_uuid = frappe.generate_hash(length=20)
+		payload = {
+			"client_uuid": client_uuid,
+			"payload": {
+				"submitter_name": "REST Draft Submitter",
+				"description": "still filling the form",
+			},
+			"step_reached": 2,
+		}
+		req = make_test_request("/api/v1/drafts", method="POST", data=payload)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+		self.assertEqual(body["data"]["client_uuid"], client_uuid)
+		self.assertEqual(body["data"]["step_reached"], 2)
+		self.assertEqual(body["data"]["owner_user"], self.farmer_user.name)
+
+		loaded = draft.load(client_uuid=client_uuid)
+		self.assertEqual(loaded["data"]["payload"]["description"], "still filling the form")
+
+	def test_save_draft_rest_allows_incomplete_payload(self):
+		"""Partial data must not be rejected — full validation is submit-only."""
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		client_uuid = frappe.generate_hash(length=20)
+		req = make_test_request(
+			"/api/v1/drafts",
+			method="POST",
+			data={"client_uuid": client_uuid, "payload": {"description": "hi"}, "step_reached": 1},
+		)
+		res = frappe.api.handle(req)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+		self.assertEqual(res.status_code, 200)
+
+	def test_save_draft_rest_forbids_another_users_draft(self):
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		client_uuid = frappe.generate_hash(length=20)
+		draft.save(
+			client_uuid=client_uuid,
+			payload={"description": "Farmer owned draft payload."},
+			step_reached=1,
+		)
+
+		frappe.set_user("Administrator")
+		req = make_test_request(
+			"/api/v1/drafts",
+			method="POST",
+			data={
+				"client_uuid": client_uuid,
+				"payload": {"description": "Administrator overwrite attempt."},
+				"step_reached": 2,
+			},
+		)
+		res = frappe.api.handle(req)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "error")
+		self.assertIn("another user", (body.get("message") or "").lower())
+		self.assertIn(res.status_code, (403, 200))
+		if res.status_code == 200:
+			self.assertEqual(frappe.response.get("http_status_code"), 403)

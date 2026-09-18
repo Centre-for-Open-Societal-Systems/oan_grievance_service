@@ -15,14 +15,36 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import add_days, now_datetime
-from oan_auth_service.api.utils import handle_api_errors, success_response
+from oan_auth_service.api.router import prefixed
+from oan_auth_service.api.utils import handle_api_errors, success_response, validate_request
+from pydantic import BaseModel, Field
 
 from oan_grievance_service.services import submission
 
 DRAFT_LIFETIME_DAYS = 30
 
+route = prefixed("/api/v1/drafts")
 
+
+class SaveDraftRequest(BaseModel):
+	"""Partial wizard state. Soft by design — full validation runs only at submit.
+
+	`payload` may be empty or incomplete; required grievance fields are not enforced
+	here. Only the draft key is required so the client can resume later.
+	"""
+
+	model_config = {"extra": "forbid"}
+
+	client_uuid: str = Field(..., min_length=1, description="Stable client-generated draft key")
+	payload: dict | str | None = None
+	step_reached: int | str | None = 0
+
+
+@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
+	"", methods=("POST",), allow_guest=True, summary="Save a grievance draft"
+)
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@validate_request(SaveDraftRequest)
 @handle_api_errors
 def save(client_uuid: str, payload: str | dict | None = None, step_reached: int | str = 0):
 	"""Create or overwrite the draft for `client_uuid`.
@@ -36,6 +58,7 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 
 	data = submission.parse_payload(payload)
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	session_user = _session_user()
 
 	if name:
 		doc = frappe.get_doc("Grievance Draft", name)
@@ -45,10 +68,13 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 				_("This draft has already been submitted as {0}.").format(doc.submitted_as),
 				title=_("Already Submitted"),
 			)
+		# Claim an anonymous draft once the submitter signs in mid-wizard.
+		if not doc.owner_user and session_user:
+			doc.owner_user = session_user
 	else:
 		doc = frappe.new_doc("Grievance Draft")
 		doc.client_uuid = client_uuid
-		doc.owner_user = _session_user()
+		doc.owner_user = session_user
 
 	doc.payload = json.dumps(data, ensure_ascii=False)
 	doc.step_reached = max(int(step_reached or 0), doc.step_reached or 0)
@@ -62,6 +88,7 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 			"step_reached": doc.step_reached,
 			"expires_on": doc.expires_on,
 			"attachment_count": _attachment_count(doc.name),
+			"owner_user": doc.owner_user,
 		},
 		message=_("Draft saved"),
 	)
@@ -139,12 +166,18 @@ def _assert_owner(doc):
 	"""A draft claimed by a signed-in user stays with that user.
 
 	Anonymous drafts are protected only by the unguessability of the key, which is
-	the same guarantee the ticket-number lookup already relies on.
+	the same guarantee the ticket-number lookup already relies on. Once `owner_user`
+	is set, only that user may read or mutate it -- never another session.
 	"""
-	user = _session_user()
-	if doc.owner_user and user and doc.owner_user != user:
-		if "System Manager" not in frappe.get_roles(user):
-			frappe.throw(_("This draft belongs to another user."), frappe.PermissionError)
+	if not doc.owner_user:
+		return
+	if _session_user() == doc.owner_user:
+		return
+	frappe.throw(
+		_("This draft belongs to another user."),
+		frappe.PermissionError,
+		title=_("Forbidden"),
+	)
 
 
 def _attachment_count(draft_name):

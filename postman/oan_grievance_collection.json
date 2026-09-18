@@ -47,6 +47,11 @@
       "type": "string"
     },
     {
+      "key": "client_uuid",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "profile_id",
       "value": "",
       "type": "string"
@@ -751,6 +756,34 @@
               ]
             },
             "description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Drafts",
+      "item": [
+        {
+          "name": "5. Save Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft — fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.save",
+              "host": ["{{base_url}}"],
+              "path": ["api", "method", "oan_grievance_service.api.v1.draft.save"]
+            },
+            "description": "STG-322: Persist an in-progress grievance draft. Partial/incomplete payload is allowed; full validation applies only at final submission. Associated with the logged-in user when authenticated."
           },
           "response": []
         }
