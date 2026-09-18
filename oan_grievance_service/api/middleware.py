@@ -19,10 +19,6 @@ EXEMPT_PATHS: list[str] = [
 	# form 401s at the point a farmer opens it, having typed nothing. All four are
 	# read-only reference data -- submitter types, categories, the types under a
 	# category, and a preview of the ticket number -- and carry no personal data.
-	"/api/method/oan_grievance_service.api.v1.submission.form_meta",
-	"/api/method/oan_grievance_service.api.v1.submission.categories",
-	"/api/method/oan_grievance_service.api.v1.submission.grievance_types",
-	"/api/method/oan_grievance_service.api.v1.submission.ticket_preview",
 	# Draft save/load and grievance submit require an authenticated user.
 	# Discard may still run for abandoned wizard cleanup without a token.
 	"/api/method/oan_grievance_service.api.v1.draft.discard",

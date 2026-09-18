@@ -8,6 +8,7 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
 
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
+from oan_grievance_service.services.identity import MIN_DESCRIPTION_LENGTH
 
 route = prefixed("/api/v1/submitters")
 
@@ -161,6 +162,9 @@ def options(
 		"preferred_languages": preferred_languages,
 		"service_categories": service_categories,
 		"grievance_types": grievance_types,
+		# The wizard validates the description client-side before it submits; the
+		# server rule lives in services.identity and this is the same number.
+		"min_description_length": MIN_DESCRIPTION_LENGTH,
 	}
 
 	should_include_phones = str(include_phone_extensions).lower() not in ("0", "false", "no")
