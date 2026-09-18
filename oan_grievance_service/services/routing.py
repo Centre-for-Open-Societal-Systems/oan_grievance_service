@@ -248,12 +248,7 @@ def apply_routing(grievance, commit_status=True):
 			grievance.db_set("assigned_to", officer_user, update_modified=False)
 
 		if commit_status:
-			lifecycle.change_status(
-				grievance,
-				C.ASSIGNED,
-				note=f"Auto-routed by assignment {doc.name}",
-				automated=True,
-			)
+			lifecycle.assign(grievance, note=f"Auto-routed by assignment {doc.name}", automated=True)
 			notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 		return doc
 
@@ -267,12 +262,7 @@ def apply_routing(grievance, commit_status=True):
 	grievance.db_set("routed_automatically", 1, update_modified=False)
 
 	if commit_status:
-		lifecycle.change_status(
-			grievance,
-			C.ASSIGNED,
-			note=f"Auto-routed by rule {rule.name}",
-			automated=True,
-		)
+		lifecycle.assign(grievance, note=f"Auto-routed by rule {rule.name}", automated=True)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 
 	return rule
@@ -287,11 +277,7 @@ def manual_assign(grievance, department, officer=None, assigned_by=None):
 		grievance.db_set("assigned_to", officer, update_modified=False)
 	grievance.db_set("routed_automatically", 0, update_modified=False)
 
-	lifecycle.change_status(
-		grievance,
-		C.ASSIGNED,
-		note=f"Manually assigned by {assigned_by or frappe.session.user}",
-	)
+	lifecycle.assign(grievance, note=f"Manually assigned by {assigned_by or frappe.session.user}")
 	notifications.queue(grievance, C.EVENT_ASSIGNED_MANUAL)
 
 

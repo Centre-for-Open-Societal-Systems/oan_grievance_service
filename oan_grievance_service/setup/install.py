@@ -28,6 +28,55 @@ ROLES = [
 	("Grievance Admin", 0),
 ]
 
+# FSD 3.4 as the Grievance Workflow: a native Frappe Workflow record, rebuilt from
+# these tables on every migrate so they are the one place the lifecycle is written
+# down. The engine decides whether a move is legal and who may take it; the app
+# never keeps its own copy of that answer (tests/test_workflow_contracts.py).
+#
+# docstatus is what makes a state read-only everywhere, not only in the desk. A
+# case is born Draft (0), becomes a submitted document (1) on the Submit action and
+# stays one; Rejected is a cancelled document (2). Frappe refuses a workflow that
+# goes 1 -> 0 or 0 -> 2, which is why every active state is 1 and Draft exists.
+# Closed and Rejected have no outbound transition: a reopen happens inside the
+# FSD 3.6 confirmation window, from Pending Submitter, and nowhere else.
+WORKFLOW_NAME = "Grievance Workflow"
+
+# (state, docstatus, style). Order matters: Frappe treats the first row as where a
+# new document enters.
+WORKFLOW_STATES = [
+	(C.DRAFT, "0", "Inverse"),
+	(C.SUBMITTED, "1", "Info"),
+	(C.ASSIGNED, "1", "Primary"),
+	(C.IN_PROGRESS, "1", "Primary"),
+	(C.MORE_INFO_NEEDED, "1", "Warning"),
+	(C.PENDING_SUBMITTER, "1", "Warning"),
+	(C.RESOLVED, "1", "Success"),
+	(C.CLOSED, "1", "Success"),
+	(C.REJECTED, "2", "Danger"),
+]
+
+OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
+SUBMITTER_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+
+# (from, action, to, roles that may take it)
+WORKFLOW_TRANSITIONS = [
+	(C.DRAFT, C.ACTION_SUBMIT, C.SUBMITTED, SUBMITTER_ROLES),
+	(C.SUBMITTED, C.ACTION_ASSIGN, C.ASSIGNED, OFFICER_ROLES),
+	(C.SUBMITTED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
+	(C.ASSIGNED, C.ACTION_START_WORK, C.IN_PROGRESS, OFFICER_ROLES),
+	(C.ASSIGNED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
+	(C.IN_PROGRESS, C.ACTION_REQUEST_MORE_INFO, C.MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.IN_PROGRESS, C.ACTION_SUBMIT_RESPONSE, C.PENDING_SUBMITTER, OFFICER_ROLES),
+	(C.IN_PROGRESS, C.ACTION_REFER_ONWARD, C.ASSIGNED, OFFICER_ROLES),
+	(C.IN_PROGRESS, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
+	(C.MORE_INFO_NEEDED, C.ACTION_SUBMITTER_REPLY, C.IN_PROGRESS, SUBMITTER_ROLES),
+	(C.MORE_INFO_NEEDED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
+	(C.PENDING_SUBMITTER, C.ACTION_CONFIRM_RESOLUTION, C.RESOLVED, SUBMITTER_ROLES),
+	(C.PENDING_SUBMITTER, C.ACTION_REOPEN, C.IN_PROGRESS, SUBMITTER_ROLES),
+	(C.PENDING_SUBMITTER, C.ACTION_AUTO_CLOSE, C.CLOSED, OFFICER_ROLES),
+	(C.RESOLVED, C.ACTION_CLOSE_CASE, C.CLOSED, SUBMITTER_ROLES),
+]
+
 # The escalation rungs of §10.1, as Grievance Role Level master records.
 #
 # §10.1 retired `L1 Nodal Officer`, `L2 Senior Nodal Officer` and `Department Head` as
@@ -346,6 +395,7 @@ def after_migrate():
 def seed_all():
 	created = {
 		"roles": seed_roles(),
+		"workflow": seed_workflow(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
 		"grievance_types": seed_grievance_types(),
@@ -431,6 +481,72 @@ def seed_roles():
 		)
 		made.append(role)
 	return made
+
+
+def seed_workflow():
+	"""The Grievance Workflow, rebuilt from WORKFLOW_STATES and WORKFLOW_TRANSITIONS.
+
+	Rebuilt rather than created-if-missing because the tables are the source of
+	truth: a row removed from them must disappear from the engine too.
+	"""
+	for state, _docstatus, style in WORKFLOW_STATES:
+		if not frappe.db.exists("Workflow State", state):
+			frappe.get_doc(
+				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
+			).insert(ignore_permissions=True)
+
+	for _from_state, action, _to_state, _roles in WORKFLOW_TRANSITIONS:
+		if not frappe.db.exists("Workflow Action Master", action):
+			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert(
+				ignore_permissions=True
+			)
+
+	# One workflow on Grievance, this one. Anything else -- an earlier name, a
+	# desk experiment -- would sit inactive beside it and confuse the next reader.
+	for other in frappe.get_all(
+		"Workflow", filters={"document_type": "Grievance", "name": ["!=", WORKFLOW_NAME]}, pluck="name"
+	):
+		frappe.delete_doc("Workflow", other, force=True, ignore_permissions=True)
+
+	if frappe.db.exists("Workflow", WORKFLOW_NAME):
+		workflow = frappe.get_doc("Workflow", WORKFLOW_NAME)
+		workflow.set("states", [])
+		workflow.set("transitions", [])
+	else:
+		workflow = frappe.new_doc("Workflow")
+		workflow.workflow_name = WORKFLOW_NAME
+
+	workflow.update(
+		{
+			"document_type": "Grievance",
+			"workflow_state_field": "workflow_state",
+			"is_active": 1,
+			"send_email_alert": 0,
+		}
+	)
+
+	# One state row per editing role: the desk makes the form read-only for anyone
+	# whose roles match none of a state's allow_edit rows. Submission itself is
+	# what locks a case; allow_edit only decides who sees an editable form.
+	for state, docstatus, _style in WORKFLOW_STATES:
+		for role in OFFICER_ROLES:
+			workflow.append("states", {"state": state, "doc_status": docstatus, "allow_edit": role})
+
+	for from_state, action, to_state, roles in WORKFLOW_TRANSITIONS:
+		for role in roles:
+			workflow.append(
+				"transitions",
+				{
+					"state": from_state,
+					"action": action,
+					"next_state": to_state,
+					"allowed": role,
+					"allow_self_approval": 1,
+				},
+			)
+
+	workflow.save(ignore_permissions=True)
+	return workflow.name
 
 
 def seed_role_levels():

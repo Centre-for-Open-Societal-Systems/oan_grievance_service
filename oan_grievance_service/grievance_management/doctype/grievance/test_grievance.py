@@ -13,6 +13,7 @@ from oan_grievance_service.api.v1.grievance import (
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
 from oan_grievance_service.services.identity import validate_submission_payload
+from oan_grievance_service.tests.fixtures import discard_grievance
 
 
 class TestGrievance(FrappeTestCase):
@@ -399,7 +400,7 @@ class TestGrievance(FrappeTestCase):
 		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
 		self.assertEqual(g.area_lft, self.woreda_leaf.lft)
 		self.assertTrue(bool(g.area_path_code))
-		frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
+		discard_grievance(g.name)
 
 	def test_can_file_grievance_at_woreda_level_via_api(self):
 		"""Submit API accepts woreda parameter and optional kebele free text."""
@@ -420,7 +421,7 @@ class TestGrievance(FrappeTestCase):
 		g = frappe.get_doc("Grievance", ticket)
 		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
 		self.assertEqual(g.administrative_unit, "Village 2 West")
-		frappe.delete_doc("Grievance", ticket, force=True, ignore_permissions=True)
+		discard_grievance(ticket)
 
 	def test_kebele_digit_name_does_not_silently_misroute(self):
 		"""Kebele passed as common numeric name (e.g. '1') must not match random other region."""
@@ -442,7 +443,7 @@ class TestGrievance(FrappeTestCase):
 		# Must remain attached to woreda, not random kebele '1' across the country
 		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
 		self.assertEqual(g.administrative_unit, "1")
-		frappe.delete_doc("Grievance", ticket, force=True, ignore_permissions=True)
+		discard_grievance(ticket)
 
 	def test_nearest_ancestor_routing(self):
 		# Create a broad rule on Region, and a specific rule on Woreda Leaf
@@ -491,7 +492,7 @@ class TestGrievance(FrappeTestCase):
 			self.assertEqual(matched.assigned_dept, "Agriculture Dept")
 		finally:
 			if g and frappe.db.exists("Grievance", g.name):
-				frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
+				discard_grievance(g.name)
 			if frappe.db.exists("Grievance Routing Rule", broad_rule.name):
 				frappe.delete_doc(
 					"Grievance Routing Rule", broad_rule.name, force=True, ignore_permissions=True

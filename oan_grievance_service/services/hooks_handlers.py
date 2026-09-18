@@ -6,21 +6,159 @@ out of the doctype controllers so the sequence is readable in one place.
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import add_days, now_datetime
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import lifecycle, notifications, routing, sla
+from oan_grievance_service.services import lifecycle, notifications, sla
+
+# Workflow moves
+# --------------
+# Frappe's engine drives a move by saving, submitting or cancelling the Grievance, so
+# the Grievance controller calls these from that save: `before_workflow_action` from
+# validate, where a throw abandons the move, and `after_workflow_action` once the new
+# state is written. Between them they are the whole audit and side-effect layer; a
+# desk button, an API call and a scheduled job all arrive here the same way.
 
 
-def grievance_after_insert(doc, method=None):
-	"""FSD 4.1 steps 6-8: acknowledge, then route or queue for the nodal officer."""
-	if frappe.flags.in_install or frappe.flags.in_migrate:
-		return
+def before_workflow_action(doc, from_state):
+	"""The guards a move must pass, evaluated before it is written.
 
-	# Record initial timeline event
+	The role check is not here: the Workflow's own `allowed` column settles who may
+	take an action, and Frappe refuses the rest before this runs.
+	"""
+	to_state = doc.workflow_state
+	context = frappe.flags.grievance_transition or frappe._dict()
+
+	# FSD 3.4 / 3.6: the history row will refuse a rejection or reopen with no
+	# reason; asking its rule here refuses the move before anything is written.
+	from oan_grievance_service.grievance_management.doctype.grievance_status_history.grievance_status_history import (
+		require_reason,
+	)
+
+	require_reason(from_state, to_state, context.reason)
+
+	# FSD D-2: a case only reaches the submitter, or goes back to them for more
+	# detail, on the strength of a formal response saying so.
+	if to_state == C.PENDING_SUBMITTER and not _latest_response_is(doc, "Resolved", "Partially Resolved"):
+		frappe.throw(
+			_("A grievance reaches Pending Submitter only on a Resolved or Partially Resolved response."),
+			title=_("Response Required"),
+		)
+	if to_state == C.MORE_INFO_NEEDED and not (
+		_latest_response_is(doc, "Requires further info") or _has_open_info_request(doc)
+	):
+		frappe.throw(
+			_("Ask the submitter a question before moving the grievance to More Info Needed."),
+			title=_("Information Request Required"),
+		)
+
+	# FSD 4.1 step 7 / 4.2 step 1: work starts in a department, never nowhere.
+	if to_state == C.IN_PROGRESS and not doc.assigned_dept:
+		frappe.throw(
+			_("Assign the grievance to a department before work on it starts."),
+			title=_("Assignment Required"),
+		)
+
+	# Evidence before a resolution is a per-site rule, off unless the site turns it
+	# on: a farmer reporting a missing payment often has nothing to attach.
+	if (
+		to_state == C.PENDING_SUBMITTER
+		and frappe.conf.get("grievance_require_evidence_before_resolution")
+		and not frappe.db.count("Grievance Attachment", {"grievance": doc.name})
+	):
+		frappe.throw(
+			_("Attach supporting evidence before recording a resolution."),
+			title=_("Evidence Required"),
+		)
+
+
+def after_workflow_action(doc, from_state):
+	"""Record the move and carry out what the FSD attaches to arriving in a state."""
+	context = frappe.flags.grievance_transition or frappe._dict()
+	to_state = doc.workflow_state
+
+	# A desk button arrives with no context; the Workflow still knows which
+	# action joins the two states, so the trail names it either way.
+	if not context.action:
+		context.action = _action_between(doc, from_state, to_state)
+
+	if to_state == C.SUBMITTED:
+		_record_submission(doc)
+
+	user = None if context.automated else frappe.session.user
+	if user == "Guest":
+		user = None
+
+	# Refuses, and with it the whole move, when the FSD wants a reason and none came.
+	history = frappe.get_doc(
+		{
+			"doctype": "Grievance Status History",
+			"grievance": doc.name,
+			"from_status": from_state,
+			"to_status": to_state,
+			"transition": context.action,
+			"closure_type": context.closure_type,
+			"is_automated": 1 if context.automated else 0,
+			"changed_by": user,
+			"timestamp": now_datetime(),
+			"reason": context.reason,
+			"notes": context.reason or context.note,
+		}
+	).insert(ignore_permissions=True)
+	context.history = history
+
+	timeline_body = f"Status changed from {from_state} to {to_state}"
+	if context.reason:
+		timeline_body += f": {context.reason}"
+	elif context.note:
+		timeline_body += f" ({context.note})"
+	GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="status_change",
+		is_internal=False,
+		body=timeline_body,
+		author_user=user,
+		ref_doctype="Grievance Status History",
+		ref_docname=history.name,
+	)
+
+	# FSD 4.2 step 1: the SLA clock starts when the case reaches a department.
+	if to_state == C.ASSIGNED:
+		sla.start_clock(doc)
+
+	# The clock stops while the case waits on the submitter and the deadline is
+	# pushed out by the hold when they reply. A response says which it wants
+	# (Grievance Response.sla_behaviour); every other move reads the site's list.
+	# Terminal states freeze the clock as it stands: nothing resumes it.
+	paused = sla.paused_statuses()
+	if to_state in C.TERMINAL_STATUSES:
+		pass
+	elif context.sla_behaviour == "paused" or (not context.sla_behaviour and to_state in paused):
+		sla.pause_clock(doc)
+	elif context.sla_behaviour == "running" or (not context.sla_behaviour and from_state in paused):
+		sla.resume_clock(doc)
+
+	# FSD 3.6: entering Pending Submitter opens the confirmation window.
+	if to_state == C.PENDING_SUBMITTER:
+		doc.db_set(
+			"confirmation_deadline",
+			add_days(now_datetime(), lifecycle.confirmation_window_days()),
+			update_modified=False,
+		)
+
+	if context.get("notify", True):
+		event = lifecycle.STATUS_EVENT.get(to_state)
+		if event:
+			notifications.queue(doc, event)
+
+
+def _record_submission(doc):
+	"""FSD 4.1 step 5: the first timeline entry. Routing and the acknowledgement are
+	the intake API's next steps, not this hook's, so a test that submits a fixture
+	does not route it."""
 	user = frappe.session.user if frappe.session.user != "Guest" else None
 	GrievanceTimeline.record(
 		grievance=doc.name,
@@ -33,8 +171,29 @@ def grievance_after_insert(doc, method=None):
 		ref_docname=doc.name,
 	)
 
-	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
-	routing.apply_routing(doc)
+
+def _action_between(doc, from_state, to_state):
+	from frappe.model.workflow import get_workflow
+
+	for row in get_workflow(doc.doctype).transitions:
+		if row.state == from_state and row.next_state == to_state:
+			return row.action
+	return None
+
+
+def _latest_response_is(doc, *response_types):
+	latest = frappe.get_all(
+		"Grievance Response",
+		filters={"grievance": doc.name},
+		fields=["response_type"],
+		order_by="response_date desc, creation desc",
+		limit=1,
+	)
+	return bool(latest) and latest[0].response_type in response_types
+
+
+def _has_open_info_request(doc):
+	return bool(frappe.db.exists("Grievance Timeline", {"grievance": doc.name, "entry_type": "info_request"}))
 
 
 def response_after_insert(doc, method=None):
@@ -58,11 +217,18 @@ def response_after_insert(doc, method=None):
 		ref_docname=doc.name,
 	)
 
-	next_status = C.RESPONSE_OUTCOME_NEXT_STATUS.get(doc.response_type)
-	if next_status and next_status != grievance.status:
-		lifecycle.change_status(grievance, next_status, note=f"Response {doc.name} ({doc.response_type})")
+	# D-2: the outcome names the move; the Workflow decides whether it is open from
+	# here (a response filed against a case that is not In Progress is refused).
+	action = C.RESPONSE_OUTCOME_ACTION.get(doc.response_type)
+	if action and action in lifecycle.actions_available(grievance):
+		lifecycle.transition(
+			grievance,
+			action,
+			note=f"Response {doc.name} ({doc.response_type})",
+			sla_behaviour=doc.sla_behaviour,
+		)
 
-	doc.db_set("new_status", next_status or grievance.status, update_modified=False)
+	doc.db_set("new_status", grievance.status, update_modified=False)
 
 	# FSD 4.3: a structured response clears the escalation flag.
 	sla.clear_escalation(grievance)
@@ -185,7 +351,7 @@ def anonymity_on_update(doc, method=None):
 		grievance.db_set("anonymity_approved_by", frappe.session.user, update_modified=False)
 	elif doc.status == "Rejected":
 		grievance.db_set("is_anonymous", 0, update_modified=False)
-		lifecycle.reject(grievance, "Anonymity refused and identity not disclosed")
+		lifecycle.reject(grievance, "Anonymity refused and identity not disclosed", automated=True)
 
 
 def on_user_registered(user_doc, role=None, roles=None, **kwargs):

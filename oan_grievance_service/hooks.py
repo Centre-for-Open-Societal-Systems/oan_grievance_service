@@ -45,9 +45,10 @@ has_permission = {
 
 # Document Events
 # ------------------
-# FSD 4.1 step 7 routes on submission. FSD 3.5 advances the lifecycle when a
-# structured response is filed. FSD 3.3.1 gates reassignment on L2 approval.
-# FR-10 records every read of a case.
+# FSD 3.4's lifecycle is the Grievance Workflow record (setup/install.py); the
+# Grievance controller records each move from the save Frappe's engine makes.
+# FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
+# gates reassignment on L2 approval. FR-10 records every read of a case.
 
 _CLEAR_LOOKUP_CACHE = {
 	"on_update": "oan_grievance_service.api.v1.submission.clear_reference_cache",
@@ -56,7 +57,6 @@ _CLEAR_LOOKUP_CACHE = {
 
 doc_events = {
 	"Grievance": {
-		"after_insert": "oan_grievance_service.services.hooks_handlers.grievance_after_insert",
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
 	},
 	"Grievance Response": {

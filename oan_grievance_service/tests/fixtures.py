@@ -102,7 +102,7 @@ def a_grievance(**overrides):
 	"""
 	values = {
 		"doctype": "Grievance",
-		"status": "Submitted",
+		"workflow_state": "Draft",
 		"submission_channel": "Web Portal",
 		"submitter_type": a_submitter_type(),
 		"submitter_name": "Test Submitter",
@@ -115,7 +115,49 @@ def a_grievance(**overrides):
 		"consent_recorded_at": now_datetime(),
 	}
 	values.update(overrides)
-	return frappe.get_doc(values).insert(ignore_permissions=True)
+	doc = frappe.get_doc(values).insert(ignore_permissions=True)
+
+	# A Draft is the moment between insert and the Submit action. A test wanting
+	# a case at Draft says so; every other test gets a submitted grievance, which
+	# is what "a grievance" means everywhere else in the app. Routing is the
+	# intake API's step, not the workflow's, so the fixture stays at Submitted.
+	if doc.workflow_state == "Draft" and "workflow_state" not in overrides:
+		from oan_grievance_service.services import lifecycle
+
+		lifecycle.submit(doc)
+	return doc
+
+
+def discard_grievance(name):
+	"""Remove a grievance a test made, submitted or not.
+
+	Every state past Draft is a submitted document and Frappe refuses to delete
+	one, `force` or not; cancelling it instead would be a workflow move with a
+	history row and a reason to justify. A test tidying up wants neither, so the
+	docstatus is reset straight in the table first. Test-only, by design.
+	"""
+	if not frappe.db.exists("Grievance", name):
+		return
+	frappe.db.set_value("Grievance", name, "docstatus", 0, update_modified=False)
+	frappe.delete_doc("Grievance", name, force=True, ignore_permissions=True)
+
+
+def a_department():
+	"""A department for a case to be assigned to; work cannot start without one."""
+	existing = frappe.db.get_value("Grievance Department", {}, "name")
+	if existing:
+		return existing
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": "Test Department",
+				"email_account": "test.department@example.com",
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
 
 
 def a_submitter_type():
