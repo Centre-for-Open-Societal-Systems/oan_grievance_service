@@ -148,8 +148,9 @@
   },
   {
    "fieldname": "contact_email",
-   "fieldtype": "Email",
-   "label": "Contact Email"
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
   },
   {
    "description": "FSD 2.2: officer ID retained for audit; the farmer remains primary owner",
