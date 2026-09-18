@@ -47,6 +47,11 @@
       "type": "string"
     },
     {
+      "key": "client_uuid",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "profile_id",
       "value": "",
       "type": "string"
@@ -751,6 +756,31 @@
               ]
             },
             "description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Drafts",
+      "item": [
+        {
+          "name": "5. Get Draft",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.load?client_uuid={{client_uuid}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "method", "oan_grievance_service.api.v1.draft.load"],
+              "query": [
+                {
+                  "key": "client_uuid",
+                  "value": "{{client_uuid}}"
+                }
+              ]
+            },
+            "description": "STG-325: Fetch a saved draft by client_uuid. Guest-allowed for anonymous drafts; claimed drafts are owner-only. 404 when not found."
           },
           "response": []
         }
