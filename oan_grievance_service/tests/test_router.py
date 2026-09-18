@@ -330,7 +330,9 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 		frappe.set_user(self.farmer_user.name)
 		client_uuid = frappe.generate_hash(length=20)
-		draft.save(client_uuid=client_uuid, payload={"description": "Farmer owned draft payload."}, step_reached=1)
+		draft.save(
+			client_uuid=client_uuid, payload={"description": "Farmer owned draft payload."}, step_reached=1
+		)
 
 		frappe.set_user("Administrator")
 		req = make_test_request(f"/api/v1/drafts/{client_uuid}", method="GET")

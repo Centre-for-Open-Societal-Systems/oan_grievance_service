@@ -199,7 +199,9 @@ class TestDraftRoundTrip(FrappeTestCase):
 
 def _a_submitter_user(email):
 	if not frappe.db.exists("Role", "Grievance Submitter"):
-		frappe.get_doc({"doctype": "Role", "role_name": "Grievance Submitter"}).insert(ignore_permissions=True)
+		frappe.get_doc({"doctype": "Role", "role_name": "Grievance Submitter"}).insert(
+			ignore_permissions=True
+		)
 	if frappe.db.exists("User", email):
 		return frappe.get_doc("User", email)
 	return frappe.get_doc(
