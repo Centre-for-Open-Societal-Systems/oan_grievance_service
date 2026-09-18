@@ -14,9 +14,9 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, now_datetime
+from frappe.utils import add_days, get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, success_response, validate_request
+from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
 from pydantic import BaseModel, Field
 
 from oan_grievance_service.services import submission
@@ -25,9 +25,17 @@ DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
 
+ALLOWED_DRAFT_ROLES = [
+	"Grievance Submitter",
+	"Grievance Officer",
+	"Grievance Admin",
+	"System Manager",
+	"Administrator",
+]
+
 
 class SaveDraftRequest(BaseModel):
-	"""Partial wizard state. Soft by design — full validation runs only at submit.
+	"""Partial wizard state. Soft by design - full validation runs only at submit.
 
 	`payload` may be empty or incomplete; required grievance fields are not enforced
 	here. Only the draft key is required so the client can resume later.
@@ -94,11 +102,21 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 	)
 
 
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
+@frappe.whitelist()
 @handle_api_errors
-def load(client_uuid: str):
-	"""Return a saved draft so the wizard resumes where it stopped."""
-	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+@require_role(ALLOWED_DRAFT_ROLES)
+def load():
+	"""Return the caller's latest unsubmitted draft so the wizard can resume.
+
+	A user has at most one active draft. Lookup is by session owner - never by a
+	client-supplied draft id - so one authenticated GET is enough to resume.
+	"""
+	user = _session_user()
+	if not user:
+		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	name = _latest_own_draft_name(user)
 	if not name:
 		# DoesNotExistError rather than a bare throw: handle_api_errors reads
 		# http_status_code off the exception, and a missing draft is a 404 the client
@@ -107,18 +125,9 @@ def load(client_uuid: str):
 
 	doc = frappe.get_doc("Grievance Draft", name)
 	_assert_owner(doc)
+	_assert_not_expired(doc)
 
-	return success_response(
-		data={
-			"client_uuid": doc.client_uuid,
-			"payload": submission.parse_payload(doc.payload),
-			"step_reached": doc.step_reached,
-			"expires_on": doc.expires_on,
-			"submitted_as": doc.submitted_as,
-			"attachment_count": _attachment_count(doc.name),
-		},
-		message=_("Draft loaded"),
-	)
+	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
 
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
@@ -177,6 +186,59 @@ def _assert_owner(doc):
 		_("This draft belongs to another user."),
 		frappe.PermissionError,
 		title=_("Forbidden"),
+	)
+
+
+def _assert_not_expired(doc):
+	"""An expired unsubmitted draft is gone as far as resume is concerned."""
+	if doc.submitted_as or not doc.expires_on:
+		return
+	if get_datetime(doc.expires_on) < now_datetime():
+		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
+
+
+def _latest_own_draft_name(user):
+	"""The caller's newest unsubmitted, unexpired draft, or None.
+
+	One active draft per user: pick the most recently modified open draft that
+	has not expired. Submitted drafts are ignored (they already became cases).
+	"""
+	rows = frappe.get_all(
+		"Grievance Draft",
+		filters={"owner_user": user, "submitted_as": ["is", "not set"]},
+		fields=["name", "expires_on"],
+		order_by="modified desc",
+		limit=5,
+	)
+	now = now_datetime()
+	for row in rows:
+		if not row.expires_on or get_datetime(row.expires_on) >= now:
+			return row.name
+	return None
+
+
+def _draft_state(doc):
+	"""Everything the multi-step form needs to repopulate every step."""
+	attachments = _attachments(doc.name)
+	return {
+		"name": doc.name,
+		"client_uuid": doc.client_uuid,
+		"payload": submission.parse_payload(doc.payload),
+		"step_reached": doc.step_reached,
+		"contact_mobile": doc.contact_mobile,
+		"expires_on": doc.expires_on,
+		"submitted_as": doc.submitted_as,
+		"attachments": attachments,
+		"attachment_count": len(attachments),
+	}
+
+
+def _attachments(draft_name):
+	return frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Grievance Draft", "attached_to_name": draft_name},
+		fields=["name", "file_name", "file_url", "file_size", "is_private"],
+		order_by="creation asc",
 	)
 
 
