@@ -972,6 +972,10 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
+                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+                  "if (!token) {",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first ? Save Draft requires authentication.\");",
+                  "}",
                   "var uuid = pm.environment.get(\"client_uuid\") || pm.collectionVariables.get(\"client_uuid\");",
                   "if (!uuid) {",
                   "    uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36);",
@@ -1017,14 +1021,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft — fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
+              "raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft ? fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/drafts",
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "drafts"]
             },
-            "description": "STG-322: Persist an in-progress (not yet submitted) grievance as a draft. Partial/incomplete data is allowed; full validation applies only at final submission. When authenticated, the draft is associated with the logged-in user."
+            "description": "STG-322: Persist an in-progress (not yet submitted) grievance as a draft. Requires authentication (same as Get Draft / submit). Partial/incomplete data is allowed; full validation applies only at final submission. Draft is associated with the logged-in user."
           },
           "response": []
         },
@@ -1037,7 +1041,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first ? Get Draft requires authentication.\");",
                   "}"
                 ],
                 "type": "text/javascript"

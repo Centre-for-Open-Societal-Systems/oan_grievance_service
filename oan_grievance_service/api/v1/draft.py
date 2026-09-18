@@ -48,25 +48,27 @@ class SaveDraftRequest(BaseModel):
 	step_reached: int | str | None = 0
 
 
-@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"", methods=("POST",), allow_guest=True, summary="Save a grievance draft"
-)
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@route("", methods=("POST",), summary="Save a grievance draft")
+@frappe.whitelist()
 @validate_request(SaveDraftRequest)
 @handle_api_errors
+@require_role(ALLOWED_DRAFT_ROLES)
 def save(client_uuid: str, payload: str | dict | None = None, step_reached: int | str = 0):
 	"""Create or overwrite the draft for `client_uuid`.
 
-	Overwrites rather than merges: the client holds the whole wizard state, so a
-	partial merge would let a field the submitter cleared reappear from an earlier
-	save.
+	Authenticated only (same gate as Get Draft / grievance submit). Overwrites
+	rather than merges: the client holds the whole wizard state, so a partial
+	merge would let a field the submitter cleared reappear from an earlier save.
 	"""
 	if not client_uuid:
 		frappe.throw(_("A draft key is required."), title=_("Missing Draft Key"))
 
+	session_user = _session_user()
+	if not session_user:
+		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
 	data = submission.parse_payload(payload)
 	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
-	session_user = _session_user()
 
 	if name:
 		doc = frappe.get_doc("Grievance Draft", name)
@@ -76,8 +78,8 @@ def save(client_uuid: str, payload: str | dict | None = None, step_reached: int 
 				_("This draft has already been submitted as {0}.").format(doc.submitted_as),
 				title=_("Already Submitted"),
 			)
-		# Claim an anonymous draft once the submitter signs in mid-wizard.
-		if not doc.owner_user and session_user:
+		# Claim a legacy anonymous draft once the submitter is signed in.
+		if not doc.owner_user:
 			doc.owner_user = session_user
 	else:
 		doc = frappe.new_doc("Grievance Draft")
