@@ -3,6 +3,7 @@
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from pydantic import ValidationError as PydanticValidationError
 
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
@@ -11,6 +12,7 @@ from oan_grievance_service.api.v1.grievance import (
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
+from oan_grievance_service.services.identity import validate_submission_payload
 
 
 class TestGrievance(FrappeTestCase):
@@ -49,6 +51,10 @@ class TestGrievance(FrappeTestCase):
 			).insert(ignore_permissions=True)
 		else:
 			self.region_area = frappe.get_doc("Grievance Administrative Area", region_name)
+			# Existing region rows from older fixtures may lack ticket_code.
+			if not self.region_area.ticket_code:
+				self.region_area.db_set("ticket_code", "T", update_modified=False)
+				self.region_area.reload()
 
 		woreda_name = frappe.db.get_value(
 			"Grievance Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
@@ -319,6 +325,44 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+	def test_submission_payload_validates_domain_rules(self):
+		"""Domain-only checks: ET mobile, description length, type↔category, filing area."""
+		base = {
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+
+		validate_submission_payload(base)
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_mobile": "+255911334455"})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "description": "too short"})
+
+		# Cross-field rule beyond Link: type must belong to the chosen category.
+		other_cat = "Credit"
+		if not frappe.db.exists("Grievance Service Category", other_cat):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": other_cat,
+					"code": "004",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "service_category": other_cat})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "administrative_area": self.region_area.name})
+
 	def test_can_attach_grievance_to_woreda_group_area(self):
 		"""Woredas with child kebeles (is_group=1) must still be allowed for grievance filing."""
 		# Create a child kebele under woreda to ensure it is marked as a group
@@ -579,6 +623,38 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		"""The area snapshot and ownership columns are not settable by the caller."""
 		for field in ("submitter", "assisted_by_officer", "area_lft", "area_path_code", "status"):
 			self.assertIn(field, CLIENT_IMMUTABLE_FIELDS)
+
+	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
+		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
+		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.services import submission as submission_svc
+
+		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
+		req = SubmitGrievanceRequest(
+			submission_channel="Mobile App",
+			administrative_area="placeholder-area",
+			service_category="Inputs",
+			grievance_type="placeholder-type",
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		self.assertIsNone(req.submitter_type)
+		self.assertIsNone(req.submitter_name)
+		self.assertIsNone(req.contact_mobile)
+
+		frappe.set_user(self.owner_user)
+		resolved = {**req.model_dump(), **_resolve_submitter_identity({})}
+
+		self.assertEqual(resolved["submitter"], self.owner_profile.name)
+		self.assertEqual(resolved["submitter_name"], "Alemayehu Bekele")
+		self.assertEqual(resolved["contact_mobile"], "+251911000111")
+		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
+
+		# Domain Ethiopian normalisation (SafePhone would reject bare 9-digit).
+		self.assertEqual(
+			submission_svc.normalise_mobile(resolved["contact_mobile"]),
+			"+251911000111",
+		)
+		self.assertEqual(submission_svc.normalise_mobile("911000111"), "+251911000111")
 
 
 class TestGrievanceStaffOptions(FrappeTestCase):

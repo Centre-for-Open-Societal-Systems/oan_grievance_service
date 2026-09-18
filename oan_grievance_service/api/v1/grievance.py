@@ -10,17 +10,20 @@ from frappe import _
 from frappe.utils import now_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
+	SafeEmail,
 	handle_api_errors,
 	parse_multi_value,
 	require_role,
 	success_response,
+	validate_request,
 )
+from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
-from oan_grievance_service.services import audit, lifecycle, routing, sla, submission
+from oan_grievance_service.services import audit, identity, lifecycle, routing, sla, submission
 from oan_grievance_service.services import constants as C
 
 # Aliased: several entry points take a `ticket_number` argument, which would
@@ -28,6 +31,41 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
 
 route = prefixed("/api/v1/grievances")
+
+
+class SubmitGrievanceRequest(BaseModel):
+	"""Case fields are required at the HTTP edge; identity may come from the profile.
+
+	Authenticated submitters omit type/name/mobile — `_resolve_submitter_identity`
+	fills them from the session profile, and `CLIENT_IMMUTABLE_FIELDS` ignores any
+	client-supplied copies. Walk-in/IVR staff still send them; domain validation
+	after resolve enforces presence.
+
+	`administrative_area` is optional at the edge because intake may send `woreda`
+	and/or `kebele` instead; those are resolved before domain validation.
+
+	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
+	9-digit numbers are accepted and normalised in the domain layer, then checked
+	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail
+	(Frappe `validate_email_address` via auth). Required fields, Link targets, and
+	Select options are left to Frappe / `@validate_request` — not re-checked in
+	`identity.validate_submission_payload`.
+	"""
+
+	model_config = {"extra": "allow"}
+
+	submitter_type: str | None = None
+	submitter_name: str | None = None
+	contact_mobile: str | None = None
+	submission_channel: str = Field(..., min_length=1)
+	administrative_area: str | None = None
+	service_category: str = Field(..., min_length=1)
+	grievance_type: str = Field(..., min_length=1)
+	description: str = Field(..., min_length=20)
+	contact_email: SafeEmail | None = None
+	assisted_by_officer: str | None = None
+	is_anonymous: int | None = Field(0, ge=0, le=1)
+
 
 ALLOWED_GRIEVANCE_ROLES = [
 	"Grievance Submitter",
@@ -152,6 +190,7 @@ def resolve_administrative_area(area_identifier):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
+@validate_request(SubmitGrievanceRequest)
 def submit(**kwargs):
 	"""FSD 4.1: validate, generate the ticket, acknowledge, then route.
 
@@ -162,10 +201,10 @@ def submit(**kwargs):
 
 	# Identity is resolved first so the required-field check sees the profile snapshot:
 	# a submitter filing for themselves need not send back their own name and number.
-	identity = _resolve_submitter_identity(kwargs)
+	resolved_identity = _resolve_submitter_identity(kwargs)
 	resolved = {
 		**{field: value for field, value in kwargs.items() if field not in CLIENT_IMMUTABLE_FIELDS},
-		**identity,
+		**resolved_identity,
 	}
 
 	# Support intake forms providing woreda and optional kebele:
@@ -183,40 +222,6 @@ def submit(**kwargs):
 		if resolved.get("administrative_area") != kwargs.get("kebele"):
 			resolved["administrative_unit"] = kwargs.get("kebele")
 
-	required = (
-		"submitter_type",
-		"submitter_name",
-		"contact_mobile",
-		"submission_channel",
-		"administrative_area",
-		"service_category",
-		"grievance_type",
-		"description",
-	)
-	missing = [field for field in required if not resolved.get(field)]
-	if missing:
-		frappe.throw(
-			_("Missing required fields: {0}").format(", ".join(missing)),
-			title=_("Incomplete Submission"),
-		)
-
-	if resolved["submission_channel"] not in CHANNELS:
-		frappe.throw(_("Unknown submission channel."), title=_("Invalid Channel"))
-
-	# A retry must not lodge a second case. This read settles the ordinary retry --
-	# one that arrives after the first attempt committed. It cannot settle two
-	# retries in flight at once, because both would read nothing and both would
-	# insert; that case is caught on the unique index at insert time below.
-	client_uuid = kwargs.get("client_submission_uuid")
-	if client_uuid:
-		original = _existing_submission(client_uuid)
-		if original:
-			return original
-
-	resolved["contact_mobile"] = submission.normalise_mobile(resolved.get("contact_mobile"))
-	if "contact_mobile" in kwargs:
-		kwargs["contact_mobile"] = resolved["contact_mobile"]
-
 	# Resolve grievance_type if caller provided the type_name instead of document ID
 	gtype = resolved.get("grievance_type")
 	if gtype and not frappe.db.exists("Grievance Type", gtype):
@@ -227,6 +232,24 @@ def submit(**kwargs):
 		)
 		if gtype_id:
 			resolved["grievance_type"] = gtype_id
+
+	# Normalise before insert so the doc (and find_or_create_submitter) get +251…
+	# form even when contact_mobile came from the profile snapshot, not kwargs.
+	if resolved.get("contact_mobile"):
+		resolved["contact_mobile"] = submission.normalise_mobile(resolved["contact_mobile"])
+	kwargs["contact_mobile"] = resolved.get("contact_mobile")
+
+	identity.validate_submission_payload(resolved)
+
+	# A retry must not lodge a second case. This read settles the ordinary retry --
+	# one that arrives after the first attempt committed. It cannot settle two
+	# retries in flight at once, because both would read nothing and both would
+	# insert; that case is caught on the unique index at insert time below.
+	client_uuid = kwargs.get("client_submission_uuid")
+	if client_uuid:
+		original = _existing_submission(client_uuid)
+		if original:
+			return original
 
 	doc = frappe.new_doc("Grievance")
 	for field, value in resolved.items():
