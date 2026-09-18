@@ -325,7 +325,8 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-	def test_submission_payload_validates_required_and_format_rules(self):
+	def test_submission_payload_validates_domain_rules(self):
+		"""Domain-only checks: ET mobile, description length, type↔category, filing area."""
 		base = {
 			"submitter_type": "Individual Farmer",
 			"submitter_name": "Tesfaye",
@@ -343,13 +344,24 @@ class TestGrievance(FrappeTestCase):
 			validate_submission_payload({**base, "contact_mobile": "+255911334455"})
 
 		with self.assertRaises(PydanticValidationError):
-			validate_submission_payload({**base, "contact_email": "not-an-email"})
+			validate_submission_payload({**base, "description": "too short"})
+
+		# Cross-field rule beyond Link: type must belong to the chosen category.
+		other_cat = "Credit"
+		if not frappe.db.exists("Grievance Service Category", other_cat):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": other_cat,
+					"code": "004",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "service_category": other_cat})
 
 		with self.assertRaises(PydanticValidationError):
-			validate_submission_payload({**base, "fayda_id": "bad id!"})
-
-		with self.assertRaises(PydanticValidationError):
-			validate_submission_payload({**base, "grievance_type": "not-a-real-type"})
+			validate_submission_payload({**base, "administrative_area": self.region_area.name})
 
 	def test_can_attach_grievance_to_woreda_group_area(self):
 		"""Woredas with child kebeles (is_group=1) must still be allowed for grievance filing."""

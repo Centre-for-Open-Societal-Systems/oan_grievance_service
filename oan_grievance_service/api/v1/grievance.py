@@ -44,9 +44,12 @@ class SubmitGrievanceRequest(BaseModel):
 	`administrative_area` is optional at the edge because intake may send `woreda`
 	and/or `kebele` instead; those are resolved before domain validation.
 
-	Phone is plain optional str (not SafePhone): oan_auth SafePhone requires 10-15
-	digits and rejects bare Ethiopian 9-digit subscriber numbers that
-	`submission.normalise_mobile` accepts. Ethiopian rules stay in the domain layer.
+	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
+	9-digit numbers are accepted and normalised in the domain layer, then checked
+	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail
+	(Frappe `validate_email_address` via auth). Required fields, Link targets, and
+	Select options are left to Frappe / `@validate_request` — not re-checked in
+	`identity.validate_submission_payload`.
 	"""
 
 	model_config = {"extra": "allow"}
@@ -236,7 +239,7 @@ def submit(**kwargs):
 		resolved["contact_mobile"] = submission.normalise_mobile(resolved["contact_mobile"])
 	kwargs["contact_mobile"] = resolved.get("contact_mobile")
 
-	identity.validate_submission_payload(resolved, allowed_channels=CHANNELS)
+	identity.validate_submission_payload(resolved)
 
 	# A retry must not lodge a second case. This read settles the ordinary retry --
 	# one that arrives after the first attempt committed. It cannot settle two

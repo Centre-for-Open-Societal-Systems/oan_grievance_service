@@ -148,7 +148,7 @@
   },
   {
    "fieldname": "contact_email",
-   "fieldtype": "Data",
+   "fieldtype": "Email",
    "label": "Contact Email"
   },
   {
