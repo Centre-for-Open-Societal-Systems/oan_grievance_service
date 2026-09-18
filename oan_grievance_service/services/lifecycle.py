@@ -64,11 +64,13 @@ def transition(
 	grievance.flags.ignore_permissions = True
 	try:
 		if automated and user != "Administrator":
-			frappe.set_user("Administrator")
+			# Audited: a system move (auto-route, auto-close, anonymity ruling) taken
+			# with the system's authority; the caller's user is restored in `finally`.
+			frappe.set_user("Administrator")  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
 		apply_workflow(grievance, action)
 	finally:
 		if frappe.session.user != user:
-			frappe.set_user(user)
+			frappe.set_user(user)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
 		frappe.flags.grievance_transition = outer
 	return context.history
 
