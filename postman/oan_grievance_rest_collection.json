@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "bf085058-1f56-4563-a5e4-007519dff627",
     "name": "OAN Grievance Service REST API",
-    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, and reopen flows.",
+    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, draft resume, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, and reopen flows.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -43,6 +43,11 @@
     },
     {
       "key": "ticket_number",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "client_uuid",
       "value": "",
       "type": "string"
     },
@@ -952,6 +957,66 @@
               ]
             },
             "description": "Deprecated endpoint to retrieve submitter profile. Prefer GET /api/v1/auth/me."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Drafts",
+      "item": [
+        {
+          "name": "5. Get Draft",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+                  "if (!token) {",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "    pm.test(\"Latest draft state covers every wizard step\", function () {",
+                  "        pm.expect(data).to.have.property(\"client_uuid\");",
+                  "        pm.expect(data).to.have.property(\"payload\");",
+                  "        pm.expect(data).to.have.property(\"step_reached\");",
+                  "        pm.expect(data).to.have.property(\"attachments\");",
+                  "        pm.expect(data).to.have.property(\"expires_on\");",
+                  "    });",
+                  "    if (data.client_uuid) {",
+                  "        pm.collectionVariables.set(\"client_uuid\", data.client_uuid);",
+                  "        pm.environment.set(\"client_uuid\", data.client_uuid);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/drafts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "drafts"]
+            },
+            "description": "STG-325: Returns the authenticated user's latest (and only active) grievance draft so the multi-step form can resume. No draft id is required. 404 when the caller has no saved draft. Guests are not allowed."
           },
           "response": []
         }

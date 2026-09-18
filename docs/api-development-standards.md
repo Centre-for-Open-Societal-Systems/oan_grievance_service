@@ -31,6 +31,7 @@ oan_grievance_service/api/
 └── v1/                        # Version 1 API package
     ├── __init__.py            # Module index & endpoint catalog
     ├── grievance.py           # Case submission, tracking & lifecycle actions
+    ├── draft.py               # Save, resume and discard partial submissions
     ├── submitter.py           # Submitter profile & lookup options
     └── administrative_area.py # Cascading geo-hierarchy lookups
 ```
@@ -57,6 +58,7 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
 | Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
 | List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
+| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.load`                             | GET    |
 | Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
 | Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
 | Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |

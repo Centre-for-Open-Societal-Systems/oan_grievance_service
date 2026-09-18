@@ -47,6 +47,11 @@
       "type": "string"
     },
     {
+      "key": "client_uuid",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "profile_id",
       "value": "",
       "type": "string"
@@ -751,6 +756,25 @@
               ]
             },
             "description": "Fetches the Submitter Profile associated with the currently authenticated user, including decomposed identity scheme and value variables (Fayda ID / registration number)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Drafts",
+      "item": [
+        {
+          "name": "5. Get Draft",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.load",
+              "host": ["{{base_url}}"],
+              "path": ["api", "method", "oan_grievance_service.api.v1.draft.load"]
+            },
+            "description": "STG-325: Returns the authenticated user's latest grievance draft. No client_uuid required. Guests are not allowed. 404 when not found."
           },
           "response": []
         }
