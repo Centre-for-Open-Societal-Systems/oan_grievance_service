@@ -6,6 +6,12 @@ FSD 3.4's canonical list lives here once.
 
 # FSD 3.4 canonical lifecycle. "More Info Needed" is absent from the 3.4 table but
 # required by 3.5, Appendix C and Appendix D-2, so it is part of the canonical set.
+#
+# Draft is the state a grievance is born in: docstatus 0, the moment between insert
+# and the Submit action. Every other state is a submitted document, and Rejected is a
+# cancelled one, which is what makes the two terminal states read-only on every path
+# rather than only in the desk (see setup.install.WORKFLOW_STATES).
+DRAFT = "Draft"
 SUBMITTED = "Submitted"
 ASSIGNED = "Assigned"
 IN_PROGRESS = "In Progress"
@@ -31,22 +37,36 @@ TERMINAL_STATUSES = (CLOSED, REJECTED)
 # per site with the `grievance_sla_paused_statuses` config key.
 SLA_PAUSED_STATUSES = frozenset({MORE_INFO_NEEDED, PENDING_SUBMITTER})
 
-# FSD 3.4: the only legal moves. Anything not listed here is refused.
-ALLOWED_TRANSITIONS = {
-	SUBMITTED: {ASSIGNED, REJECTED},
-	ASSIGNED: {IN_PROGRESS, REJECTED},
-	IN_PROGRESS: {MORE_INFO_NEEDED, PENDING_SUBMITTER, ASSIGNED, REJECTED},
-	MORE_INFO_NEEDED: {IN_PROGRESS, REJECTED},
-	PENDING_SUBMITTER: {RESOLVED, IN_PROGRESS, CLOSED},
-	RESOLVED: {CLOSED, IN_PROGRESS},
-	CLOSED: {IN_PROGRESS},  # FSD 3.6 reopen
-	REJECTED: set(),
-}
+# FSD 3.4: the legal moves live in the Grievance Workflow record, seeded by
+# setup/install.py from WORKFLOW_TRANSITIONS there and enforced by Frappe's workflow
+# engine. Code asks for a move by action name; it never decides for itself whether
+# the move is legal. These are the Workflow Action Master names.
+ACTION_SUBMIT = "Submit"
+ACTION_ASSIGN = "Assign"
+ACTION_REJECT = "Reject"
+ACTION_START_WORK = "Start Work"
+ACTION_REQUEST_MORE_INFO = "Request More Info"
+ACTION_SUBMIT_RESPONSE = "Submit Response"
+ACTION_REFER_ONWARD = "Refer Onward"
+ACTION_SUBMITTER_REPLY = "Submitter Reply"
+ACTION_CONFIRM_RESOLUTION = "Confirm Resolution"
+ACTION_REOPEN = "Reopen"
+ACTION_AUTO_CLOSE = "Auto Close"
+ACTION_CLOSE_CASE = "Close Case"
 
-# FSD 3.4: transitions the submitter must justify.
-REASON_REQUIRED_TO = {REJECTED}
-# FSD 3.6 / 4.2 step 6b: a reopen always carries a mandatory reason.
-REOPEN_TARGET = IN_PROGRESS
+# FSD 3.4 / 3.6: the moves a person must justify. Enforced once, in
+# GrievanceStatusHistory.validate, so no path -- desk, API or scheduled job -- can
+# make them silently. A reopen is only possible inside the confirmation window
+# (FSD 3.6); Closed and Rejected have no way out.
+REASON_REQUIRED_MOVES = frozenset(
+	{
+		(SUBMITTED, REJECTED),
+		(ASSIGNED, REJECTED),
+		(IN_PROGRESS, REJECTED),
+		(MORE_INFO_NEEDED, REJECTED),
+		(PENDING_SUBMITTER, IN_PROGRESS),
+	}
+)
 
 # FSD 3.11.3: display groups mapped to canonical statuses. The mapping is required
 # to be configurable and documented; this is the documented default.
@@ -59,12 +79,20 @@ DISPLAY_GROUPS = {
 	"Rejected": (REJECTED,),
 }
 
-# FSD Appendix D-2: the response outcome drives the next status.
-RESPONSE_OUTCOME_NEXT_STATUS = {
-	"Resolved": PENDING_SUBMITTER,
-	"Partially Resolved": PENDING_SUBMITTER,
-	"Referred to another dept": ASSIGNED,
-	"Requires further info": MORE_INFO_NEEDED,
+# FSD Appendix D-2: the response outcome drives the next move, and with it what the
+# SLA clock does. `running` keeps counting, `paused` stops it while the case waits on
+# the submitter, `stopped` is for terminal outcomes (none of the four is one).
+RESPONSE_OUTCOME_ACTION = {
+	"Resolved": ACTION_SUBMIT_RESPONSE,
+	"Partially Resolved": ACTION_SUBMIT_RESPONSE,
+	"Referred to another dept": ACTION_REFER_ONWARD,
+	"Requires further info": ACTION_REQUEST_MORE_INFO,
+}
+RESPONSE_OUTCOME_SLA_BEHAVIOUR = {
+	"Resolved": "paused",
+	"Partially Resolved": "paused",
+	"Referred to another dept": "running",
+	"Requires further info": "paused",
 }
 
 # FSD Appendix C event codes. Each is the "method" on one core Notification record per

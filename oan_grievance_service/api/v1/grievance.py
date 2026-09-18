@@ -255,7 +255,8 @@ def submit(**kwargs):
 	for field, value in resolved.items():
 		if doc.meta.has_field(field):
 			doc.set(field, value)
-	doc.status = C.SUBMITTED
+	# Born a Draft; the Submit action below is what makes it a grievance.
+	doc.workflow_state = C.DRAFT
 	# FR-02 duplicate detection matches on the submitter, so a grievance without one
 	# can never be found to duplicate anything. Only fall back to creating a profile
 	# when identity resolution found none -- staff taking a walk-in or IVR report
@@ -279,6 +280,10 @@ def submit(**kwargs):
 		if not original:
 			raise
 		return original
+
+	# FSD 4.1 step 5: Draft to Submitted through the workflow, which submits the
+	# document and, with it, freezes what the submitter filed.
+	lifecycle.submit(doc)
 
 	if kwargs.get("is_anonymous"):
 		_request_anonymity(doc, kwargs.get("anonymity_justification"))
@@ -761,6 +766,24 @@ def reopen(ticket_number: str, reason: str):
 	return success_response(
 		data={"ticket_number": doc.ticket_number, "status": doc.status},
 		message=_("Grievance reopened successfully"),
+	)
+
+
+@route("/<ticket_number>/reject", methods=("POST",), summary="Reject a grievance with a reason")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def reject(ticket_number: str, reason: str):
+	"""FSD 3.4: an officer rejects an invalid or out-of-scope grievance.
+
+	The reason is mandatory and the history row is what insists on it; the
+	Workflow decides whether Reject is open from where the case is.
+	"""
+	doc = _load(ticket_number, ptype="write")
+	lifecycle.reject(doc, reason)
+	return success_response(
+		data={"ticket_number": doc.ticket_number, "status": doc.status},
+		message=_("Grievance rejected"),
 	)
 
 

@@ -6,7 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import add_note, message, timeline
 from oan_grievance_service.services import lifecycle
-from oan_grievance_service.tests.fixtures import a_leaf_area
+from oan_grievance_service.tests.fixtures import a_department, a_leaf_area, discard_grievance
 
 
 class TestTimelineAPI(FrappeTestCase):
@@ -100,13 +100,15 @@ class TestTimelineAPI(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
+		# Inserted as a Draft; the officer's first move below needs a submitted case.
+		lifecycle.submit(self.grievance)
 		frappe.local.message_log = []
 		self.addCleanup(frappe.set_user, "Administrator")
 
 	def tearDown(self):
 		frappe.flags.in_test = True
-		if hasattr(self, "grievance") and frappe.db.exists("Grievance", self.grievance.name):
-			frappe.delete_doc("Grievance", self.grievance.name, force=True, ignore_permissions=True)
+		if hasattr(self, "grievance"):
+			discard_grievance(self.grievance.name)
 		if hasattr(self, "farmer_profile") and frappe.db.exists(
 			"Grievance Submitter Profile", self.farmer_profile.name
 		):
@@ -124,8 +126,10 @@ class TestTimelineAPI(FrappeTestCase):
 		)
 		self.assertTrue(note_res["data"]["is_internal"])
 
-		# Move grievance through Assigned -> In Progress
-		lifecycle.change_status(self.grievance, "Assigned")
+		# Move grievance through Assigned -> In Progress. Work starts in a department.
+		if not self.grievance.assigned_dept:
+			self.grievance.db_set("assigned_dept", a_department(), update_modified=False)
+		lifecycle.assign(self.grievance)
 		lifecycle.accept(self.grievance)
 
 		# 2. Officer requests more info

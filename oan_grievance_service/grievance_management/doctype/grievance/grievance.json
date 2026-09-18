@@ -8,6 +8,7 @@
  "field_order": [
   "ticket_number",
   "status",
+  "workflow_state",
   "col_flags",
   "escalated",
   "submission_channel",
@@ -76,20 +77,36 @@
    "unique": 1
   },
   {
-   "default": "Submitted",
+   "allow_on_submit": 1,
+   "default": "Draft",
+   "description": "Mirrors workflow_state, which the Grievance Workflow drives. Not edited directly.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
+   "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
+   "read_only": 1,
    "reqd": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "FSD 3.4 lifecycle state, driven by the Grievance Workflow (setup/install.py).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "col_flags",
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "description": "FSD 3.4: overlay flag, does not replace the lifecycle status",
    "fieldname": "escalated",
@@ -177,6 +194,7 @@
    "label": "Anonymity"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "description": "FSD 9.2: absent from the section 5 data model, added for the approval workflow",
    "fieldname": "is_anonymous",
@@ -184,6 +202,7 @@
    "label": "Anonymous Submission"
   },
   {
+   "allow_on_submit": 1,
    "depends_on": "is_anonymous",
    "fieldname": "anonymity_status",
    "fieldtype": "Select",
@@ -195,6 +214,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "depends_on": "is_anonymous",
    "fieldname": "anonymity_approved_by",
    "fieldtype": "Link",
@@ -270,6 +290,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "description": "FSD 3.2.2: pre-filled from the OAN registry when available",
    "fieldname": "associated_service_provider",
    "fieldtype": "Data",
@@ -298,6 +319,7 @@
    "label": "Assignment"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "assigned_dept",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -306,6 +328,7 @@
    "options": "Grievance Department"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "assigned_to",
    "fieldtype": "Link",
    "in_standard_filter": 1,
@@ -317,6 +340,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "description": "FSD 3.3: false means the case entered the nodal officer manual queue",
    "fieldname": "routed_automatically",
@@ -325,6 +349,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "routing_rule",
    "fieldtype": "Link",
    "label": "Matched Routing Rule",
@@ -337,12 +362,14 @@
    "label": "SLA Tracking"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "label": "SLA Days",
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "description": "UNRESOLVED: FSD 4.2 starts the clock at assignment, UC-04 uses the creation date",
    "fieldname": "sla_start_at",
    "fieldtype": "Datetime",
@@ -350,12 +377,14 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "sla_due_date",
    "fieldtype": "Datetime",
    "label": "SLA Due Date",
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "description": "Set while the clock is paused awaiting the submitter. Null means the clock is running.",
    "fieldname": "on_hold_since",
    "fieldtype": "Datetime",
@@ -367,6 +396,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "description": "Banked hold time, excluded from SLA consumption. The due date is shifted by each hold on resume.",
    "fieldname": "total_hold_time",
    "fieldtype": "Duration",
@@ -374,6 +404,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "description": "FSD section 5 places this on SLA Configuration; it is per-grievance state",
    "fieldname": "reminder_50_sent",
@@ -382,6 +413,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "default": "0",
    "fieldname": "reminder_80_sent",
    "fieldtype": "Check",
@@ -389,6 +421,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "description": "When the next escalation is due. Set to the SLA deadline when the clock starts, then pushed out by the current level's escalation hours on every reassignment upward. Empty once the case reaches a terminal level.",
    "fieldname": "next_escalation_at",
    "fieldtype": "Datetime",
@@ -401,6 +434,7 @@
    "label": "Closure and Feedback"
   },
   {
+   "allow_on_submit": 1,
    "description": "FSD 3.6: configurable window, default 7 days",
    "fieldname": "confirmation_deadline",
    "fieldtype": "Datetime",
@@ -408,6 +442,7 @@
    "read_only": 1
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "reopen_count",
    "fieldtype": "Int",
    "label": "Reopen Count",
@@ -418,17 +453,20 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "description": "FSD 3.6 requires this; it is absent from the section 5 data model",
    "fieldname": "satisfaction_rating",
    "fieldtype": "Int",
    "label": "Satisfaction Rating (1-5)"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "satisfaction_comments",
    "fieldtype": "Small Text",
    "label": "Satisfaction Comments"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "closure_reason",
    "fieldtype": "Small Text",
    "label": "Closure Reason",
@@ -437,6 +475,7 @@
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
  "max_attachments": 5,
  "modified": "2026-09-03 19:13:24.197198",
@@ -446,64 +485,60 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "cancel": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "Grievance Admin",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 0,
-   "submit": 0,
-   "cancel": 0,
-   "amend": 0,
-   "report": 1,
-   "export": 1,
    "share": 1,
-   "print": 1,
-   "email": 1
+   "submit": 1,
+   "write": 1
   },
   {
+   "cancel": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "System Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 0,
-   "submit": 0,
-   "cancel": 0,
-   "amend": 0,
-   "report": 1,
-   "export": 1,
    "share": 1,
-   "print": 1,
-   "email": 1
+   "submit": 1,
+   "write": 1
   },
   {
-   "role": "Grievance Officer",
-   "read": 1,
-   "write": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
-   "submit": 0,
-   "cancel": 0,
-   "amend": 0,
-   "report": 1,
+   "email": 1,
    "export": 1,
-   "share": 1,
    "print": 1,
-   "email": 1
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "submit": 1,
+   "write": 1
   },
   {
-   "role": "Grievance Submitter",
-   "read": 1,
-   "write": 1,
+   "cancel": 0,
    "create": 1,
    "delete": 0,
-   "submit": 0,
-   "cancel": 0,
-   "amend": 0,
-   "report": 1,
+   "email": 1,
    "export": 1,
-   "share": 1,
    "print": 1,
-   "email": 1
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Submitter",
+   "share": 1,
+   "submit": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

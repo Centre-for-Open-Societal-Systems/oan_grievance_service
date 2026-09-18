@@ -6,6 +6,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from oan_grievance_service.services import constants as C
+
 # FSD Appendix D-1: the action taken is capped at 500 characters.
 ACTION_TAKEN_LIMIT = 500
 
@@ -25,6 +27,10 @@ class GrievanceResponse(Document):
 			)
 		if not self.prior_status and self.grievance:
 			self.prior_status = frappe.db.get_value("Grievance", self.grievance, "status")
+		# D-2: the outcome says what the SLA clock does next. Derived from the type
+		# every time -- an officer never sets it -- but held on the row so the
+		# audit shows what the clock was told.
+		self.sla_behaviour = C.RESPONSE_OUTCOME_SLA_BEHAVIOUR.get(self.response_type, "running")
 
 	def validate(self):
 		self.validate_action_taken_length()
