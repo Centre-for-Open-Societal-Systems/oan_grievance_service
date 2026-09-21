@@ -267,13 +267,31 @@ def _draft_state(doc):
 
 
 def _attachments(draft_name):
+	"""Evidence uploaded against this wizard.
+
+	Uploads create a `Grievance Attachment` with `draft=<name>` and attach the
+	`File` to that row -- never to the draft itself. Counting Files on the draft
+	therefore always returned zero after a real upload.
+	"""
 	return frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": "Grievance Draft", "attached_to_name": draft_name},
-		fields=["name", "file_name", "file_url", "file_size", "is_private"],
+		"Grievance Attachment",
+		filters={"draft": draft_name},
+		fields=[
+			"name",
+			"file_name",
+			"mime_type",
+			"size_bytes",
+			"document_type",
+			"scan_status",
+			"creation",
+		],
 		order_by="creation asc",
+		# Pending rows deny DocType read; the draft owner still needs the list so
+		# the wizard can show what was already uploaded. file_url is omitted until
+		# download() gates on a Clean scan.
+		ignore_permissions=True,
 	)
 
 
 def _attachment_count(draft_name):
-	return frappe.db.count("File", {"attached_to_doctype": "Grievance Draft", "attached_to_name": draft_name})
+	return frappe.db.count("Grievance Attachment", {"draft": draft_name})
