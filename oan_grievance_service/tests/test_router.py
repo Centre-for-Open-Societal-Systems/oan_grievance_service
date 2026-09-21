@@ -86,6 +86,15 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		if not frappe.db.exists("Grievance Submission Type", "Mobile App"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Submission Type",
+					"submission_type_name": "Mobile App",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+
 		self.area_name = a_leaf_area()
 		self.area = frappe.get_doc("Grievance Administrative Area", self.area_name)
 
@@ -262,6 +271,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(submit_data["status"], "success")
 		ticket_number = submit_data["data"]["ticket_number"]
 		self.assertTrue(bool(ticket_number))
+		self.assertEqual(submit_data["data"]["status"], "Submitted")
 
 		# 2. Track status via GET /api/v1/grievances/<ticket_number>
 		req_track = make_test_request(f"/api/v1/grievances/{ticket_number}", method="GET")
@@ -289,6 +299,73 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		tl_data = json.loads(res_tl.get_data(as_text=True))
 		self.assertEqual(tl_data["status"], "success")
 		self.assertTrue(len(tl_data["data"]["timeline"]) > 0)
+
+	def test_submit_rest_carries_draft_payload(self):
+		"""STG-328: POST /api/v1/grievances with client_uuid merges the saved draft."""
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		client_uuid = frappe.generate_hash(length=20)
+		draft.save(
+			client_uuid=client_uuid,
+			payload={
+				"submission_channel": "Mobile App",
+				"administrative_area": self.area.name,
+				"service_category": "Inputs",
+				"grievance_type": "Fertilizer Shortage",
+				"description": "REST draft carry-over: shortage reported from offline wizard.",
+				"desired_outcome": "Restock fertilizer depot.",
+				"consent_given": 1,
+			},
+			step_reached=4,
+		)
+
+		req = make_test_request(
+			"/api/v1/grievances",
+			method="POST",
+			data={"client_uuid": client_uuid},
+		)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+		ticket = body["data"]["ticket_number"]
+		self.assertTrue(ticket)
+		self.assertEqual(body["data"]["status"], "Submitted")
+
+		doc = frappe.get_doc("Grievance", ticket)
+		self.assertEqual(
+			doc.description,
+			"REST draft carry-over: shortage reported from offline wizard.",
+		)
+		self.assertEqual(doc.desired_outcome, "Restock fertilizer depot.")
+		self.assertEqual(
+			frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "submitted_as"),
+			doc.name,
+		)
+
+	def test_submit_rest_validation_returns_per_field_details(self):
+		"""STG-328: failed submit returns VALIDATION_ERROR with field details."""
+		import frappe.api
+
+		frappe.set_user(self.farmer_user.name)
+		req = make_test_request(
+			"/api/v1/grievances",
+			method="POST",
+			data={
+				"submission_channel": "Mobile App",
+				"description": "short",
+				"consent_given": 0,
+			},
+		)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 400)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "error")
+		self.assertEqual(body["code"], "VALIDATION_ERROR")
+		self.assertIsInstance(body.get("details"), dict)
+		self.assertTrue(body["details"])
+
 
 	def test_save_draft_rest_route(self):
 		"""POST /api/v1/drafts persists partial wizard state for the caller."""

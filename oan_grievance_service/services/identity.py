@@ -153,7 +153,51 @@ def validate_filing_area(administrative_area: str):
 	return area
 
 
-def validate_submission_payload(payload):
+# Fields that must be present on the resolved API submit payload (STG-321 / STG-328).
+# Checked here — not only by DocType MandatoryError — so the client gets a per-field
+# `details` map. Desk / DocType `validate` passes a subset and leaves presence to Frappe.
+SUBMISSION_REQUIRED_FIELDS = (
+	"submitter_type",
+	"submitter_name",
+	"contact_mobile",
+	"submission_channel",
+	"administrative_area",
+	"service_category",
+	"grievance_type",
+	"description",
+)
+
+
+def validate_required_submission_fields(payload):
+	"""Raise per-field errors when resolved submit fields are still missing.
+
+	Call after identity and area resolution so profile-filled and woreda/kebele
+	values are visible. Consent is included: `record_consent` would otherwise
+	throw a single title-only error without a field key.
+	"""
+	if not isinstance(payload, dict):
+		frappe.throw(_("Submission payload must be an object."), title=_("Invalid Payload"))
+
+	errors: list[dict] = []
+	for field in SUBMISSION_REQUIRED_FIELDS:
+		value = payload.get(field)
+		if value is None or (isinstance(value, str) and not str(value).strip()):
+			errors.append(_field_error(field, _("This field is required."), input_value=value))
+
+	if not payload.get("consent_given"):
+		errors.append(
+			_field_error(
+				"consent_given",
+				_("The submitter must consent to the processing of their personal data."),
+				input_value=payload.get("consent_given"),
+			)
+		)
+
+	_raise_field_errors(errors)
+	return True
+
+
+def validate_submission_payload(payload, *, require_presence: bool = False):
 	"""Domain rules Frappe reqd / Link / Select do not cover.
 
 	Required fields, Link targets, and Select options are enforced by the Grievance
@@ -162,9 +206,15 @@ def validate_submission_payload(payload):
 	- Description minimum length (FSD 3.2.2)
 	- Grievance type belonging to the chosen service category
 	- Filing-level / dissolved administrative area rules
+
+	When `require_presence` is True (API submit path), also emit per-field errors
+	for missing required fields and consent (STG-328).
 	"""
 	if not isinstance(payload, dict):
 		frappe.throw(_("Submission payload must be an object."), title=_("Invalid Payload"))
+
+	if require_presence:
+		validate_required_submission_fields(payload)
 
 	errors: list[dict] = []
 
