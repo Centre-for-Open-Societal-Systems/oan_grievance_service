@@ -366,7 +366,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIsInstance(body.get("details"), dict)
 		self.assertTrue(body["details"])
 
-
 	def test_save_draft_rest_route(self):
 		"""POST /api/v1/drafts persists partial wizard state for the caller."""
 		import frappe.api

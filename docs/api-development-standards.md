@@ -146,11 +146,11 @@ Finalizes a case: validates input, allocates a ticket ID (STG-327), moves status
 `Draft`, and returns the ticket to the caller. Draft wizard state (STG-322 / STG-325)
 carries over when `client_uuid` is provided.
 
-| | |
-|---|---|
-| REST | `POST /api/v1/grievances` |
-| RPC | `POST /api/method/oan_grievance_service.api.v1.grievance.submit` |
-| Auth | Required (`Grievance Submitter` and staff roles) |
+|      |                                                                  |
+| ---- | ---------------------------------------------------------------- |
+| REST | `POST /api/v1/grievances`                                        |
+| RPC  | `POST /api/method/oan_grievance_service.api.v1.grievance.submit` |
+| Auth | Required (`Grievance Submitter` and staff roles)                 |
 
 **Full-body example**
 
