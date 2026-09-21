@@ -52,6 +52,7 @@ class SaveDraftRequest(BaseModel):
 	description: str | None = None
 	desired_outcome: str | None = None
 	is_anonymous: int | None = Field(0, ge=0, le=1)
+	validate: bool | int | None = Field(False, description="If true, execute validation on the draft payload")
 
 
 @route("", methods=("POST",), summary="Save a grievance draft")
@@ -59,7 +60,7 @@ class SaveDraftRequest(BaseModel):
 @validate_request(SaveDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-def save(
+def save_draft(
 	client_submission_uuid: str,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
@@ -74,6 +75,7 @@ def save(
 	description: str | None = None,
 	desired_outcome: str | None = None,
 	is_anonymous: int = 0,
+	validate: bool | int = False,
 ):
 	"""Create or overwrite a draft directly on Grievance doctype with status='Draft'."""
 	session_user = _session_user()
@@ -110,22 +112,34 @@ def save(
 				doc.submitter = ident["submitter"]
 				doc.submitter_type = ident.get("submitter_type") or doc.submitter_type
 				doc.submitter_name = ident.get("submitter_name") or doc.submitter_name
+				doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
+				doc.contact_email = ident.get("contact_email") or doc.contact_email
 		except Exception:
 			pass
 
 	doc.submission_channel = submission_channel or doc.submission_channel or "Web Portal"
 	doc.submitter_type = submitter_type or doc.submitter_type or "Individual Farmer"
-	doc.submitter_name = submitter_name
-	doc.contact_mobile = contact_mobile
-	doc.contact_email = contact_email
-	doc.administrative_area = administrative_area
-	doc.administrative_unit = administrative_unit
-	doc.service_category = service_category
-	doc.grievance_type = grievance_type
-	doc.associated_service_provider = associated_service_provider
-	doc.description = description
-	doc.desired_outcome = desired_outcome
+	doc.submitter_name = submitter_name or doc.submitter_name
+	doc.contact_mobile = contact_mobile or doc.contact_mobile
+	doc.contact_email = contact_email or doc.contact_email
+	doc.administrative_area = administrative_area or doc.administrative_area
+	doc.administrative_unit = administrative_unit or doc.administrative_unit
+	doc.service_category = service_category or doc.service_category
+	doc.grievance_type = grievance_type or doc.grievance_type
+	doc.associated_service_provider = associated_service_provider or doc.associated_service_provider
+	doc.description = description or doc.description
+	doc.desired_outcome = desired_outcome or doc.desired_outcome
 	doc.is_anonymous = 1 if is_anonymous else 0
+
+	if validate:
+		if doc.contact_mobile:
+			from oan_grievance_service.services import identity
+
+			doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
+
+		from oan_grievance_service.services import identity
+
+		identity.validate_submission_payload(doc.as_dict())
 
 	doc.flags.ignore_mandatory = True
 	doc.flags.is_draft_wizard = True
@@ -134,18 +148,11 @@ def save(
 	return success_response(data=_draft_state(doc), message=_("Draft saved"))
 
 
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def save_draft(**kwargs):
-	return save(**kwargs)
-
-
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-def load():
+def get_draft():
 	"""Return the caller's latest unsubmitted draft."""
 	user = _session_user()
 	if not user:
@@ -159,13 +166,6 @@ def load():
 	_assert_owner(doc, user)
 
 	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
-
-
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def get_draft():
-	return load()
 
 
 class SubmitDraftRequest(BaseModel):
@@ -272,13 +272,34 @@ def submit_draft(
 		from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
 		from oan_grievance_service.services.identity import find_or_create_submitter
 
-		ident = _resolve_submitter_identity(doc.as_dict())
+		try:
+			ident = _resolve_submitter_identity(doc.as_dict())
+		except Exception:
+			ident = {}
+
 		if ident.get("submitter"):
 			doc.submitter = ident["submitter"]
 			doc.submitter_type = ident.get("submitter_type") or doc.submitter_type
 			doc.submitter_name = ident.get("submitter_name") or doc.submitter_name
+			doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
+			doc.contact_email = ident.get("contact_email") or doc.contact_email
+			if ident.get("assisted_by_officer"):
+				doc.assisted_by_officer = ident.get("assisted_by_officer")
 		else:
 			doc.submitter = find_or_create_submitter(doc.as_dict())
+
+	if doc.submitter:
+		profile = frappe.db.get_value(
+			"Grievance Submitter Profile",
+			doc.submitter,
+			["submitter_type", "submitter_name", "contact_mobile", "contact_email"],
+			as_dict=True,
+		)
+		if profile:
+			doc.submitter_type = doc.submitter_type or profile.submitter_type
+			doc.submitter_name = doc.submitter_name or profile.submitter_name
+			doc.contact_mobile = doc.contact_mobile or profile.contact_mobile
+			doc.contact_email = doc.contact_email or profile.contact_email
 
 	if doc.contact_mobile:
 		from oan_grievance_service.services import identity

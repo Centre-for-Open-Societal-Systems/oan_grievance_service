@@ -974,14 +974,14 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first ? Save Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Save Draft requires authentication.\");",
                   "}",
-                  "var uuid = pm.environment.get(\"client_uuid\") || pm.collectionVariables.get(\"client_uuid\");",
+                  "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
                   "if (!uuid) {",
                   "    uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36);",
-                  "    pm.environment.set(\"client_uuid\", uuid);",
-                  "    pm.collectionVariables.set(\"client_uuid\", uuid);",
-                  "    console.log(\"[Pre-request] Generated client_uuid:\", uuid);",
+                  "    pm.environment.set(\"client_submission_uuid\", uuid);",
+                  "    pm.collectionVariables.set(\"client_submission_uuid\", uuid);",
+                  "    console.log(\"[Pre-request] Generated client_submission_uuid:\", uuid);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -997,14 +997,15 @@
                   "",
                   "var jsonData = pm.response.json();",
                   "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Draft saved with client_uuid and step_reached\", function () {",
-                  "    pm.expect(data).to.have.property(\"client_uuid\");",
-                  "    pm.expect(data).to.have.property(\"step_reached\");",
-                  "    pm.expect(data).to.have.property(\"expires_on\");",
+                  "pm.test(\"Draft saved with client_submission_uuid and status Draft\", function () {",
+                  "    pm.expect(data).to.have.property(\"client_submission_uuid\");",
+                  "    pm.expect(data).to.have.property(\"status\");",
+                  "    pm.expect(data.status).to.eql(\"Draft\");",
+                  "    pm.expect(data.workflow_state).to.eql(\"Draft\");",
                   "});",
-                  "if (data && data.client_uuid) {",
-                  "    pm.environment.set(\"client_uuid\", data.client_uuid);",
-                  "    pm.collectionVariables.set(\"client_uuid\", data.client_uuid);",
+                  "if (data && data.client_submission_uuid) {",
+                  "    pm.environment.set(\"client_submission_uuid\", data.client_submission_uuid);",
+                  "    pm.collectionVariables.set(\"client_submission_uuid\", data.client_submission_uuid);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1012,6 +1013,16 @@
             }
           ],
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -1021,14 +1032,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft ? fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
+              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\",\n  \"submission_channel\": \"{{submission_channel}}\",\n  \"submitter_type\": \"{{submitter_type}}\",\n  \"submitter_name\": \"{{submitter_name}}\",\n  \"contact_mobile\": \"{{contact_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{service_category}}\",\n  \"grievance_type\": \"{{grievance_type}}\",\n  \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n  \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\",\n  \"is_anonymous\": 0,\n  \"validate\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/drafts",
               "host": ["{{base_url}}"],
               "path": ["api", "v1", "drafts"]
             },
-            "description": "STG-322: Persist an in-progress (not yet submitted) grievance as a draft. Requires authentication (same as Get Draft / submit). Partial/incomplete data is allowed; full validation applies only at final submission. Draft is associated with the logged-in user."
+            "description": "Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'. Optional 'validate' boolean performs validation without committing if errors exist."
           },
           "response": []
         },
@@ -1041,7 +1052,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first ? Get Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1058,75 +1069,17 @@
                   "if (pm.response.code === 200) {",
                   "    var jsonData = pm.response.json();",
                   "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Latest draft state covers every wizard step\", function () {",
-                  "        pm.expect(data).to.have.property(\"client_uuid\");",
-                  "        pm.expect(data).to.have.property(\"payload\");",
-                  "        pm.expect(data).to.have.property(\"step_reached\");",
+                  "    pm.test(\"Latest draft returned with client_submission_uuid and status\", function () {",
+                  "        pm.expect(data).to.have.property(\"client_submission_uuid\");",
+                  "        pm.expect(data).to.have.property(\"status\");",
+                  "        pm.expect(data).to.have.property(\"workflow_state\");",
                   "        pm.expect(data).to.have.property(\"attachments\");",
-                  "        pm.expect(data).to.have.property(\"expires_on\");",
                   "    });",
-                  "    if (data.client_uuid) {",
-                  "        pm.collectionVariables.set(\"client_uuid\", data.client_uuid);",
-                  "        pm.environment.set(\"client_uuid\", data.client_uuid);",
+                  "    if (data.client_submission_uuid) {",
+                  "        pm.collectionVariables.set(\"client_submission_uuid\", data.client_submission_uuid);",
+                  "        pm.environment.set(\"client_submission_uuid\", data.client_submission_uuid);",
                   "    }",
                   "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts"]
-            },
-            "description": "STG-325: Returns the authenticated user's latest (and only active) grievance draft so the multi-step form can resume. No draft id is required. 404 when the caller has no saved draft. Guests are not allowed."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Grievance Operations",
-      "item": [
-        {
-          "name": "7a. Get Grievance Management Options (Staff - Officers/Admins)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Please log in as an officer or admin.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test(\"Staff options returned with departments and statuses\", function () {",
-                  "    var jsonData = pm.response.json();",
-                  "    var envelope = jsonData.message || jsonData;",
-                  "    var data = envelope.data || envelope;",
-                  "    pm.expect(data).to.have.property(\"departments\");",
-                  "    pm.expect(data).to.have.property(\"statuses\");",
-                  "    pm.expect(data).to.have.property(\"service_categories\");",
-                  "    pm.expect(data).to.have.property(\"grievance_types\");",
-                  "    pm.expect(data).to.have.property(\"submission_channels\");",
-                  "    pm.expect(Array.isArray(data.departments)).to.be.true;",
-                  "    pm.expect(Array.isArray(data.statuses)).to.be.true;",
-                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -1146,123 +1099,28 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/options",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "options"
-              ]
+              "raw": "{{base_url}}/api/v1/drafts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "drafts"]
             },
-            "description": "Protected management reference endpoint for Grievance Officers and Administrators. Retrieves reference data for case triage, assignment, and status filters, including departments, lifecycle statuses with open/terminal flags, categories, grievance types, and channels."
+            "description": "Returns the authenticated user's latest (and only active) unsubmitted grievance draft. 404 when the caller has no saved draft."
           },
           "response": []
         },
         {
-          "name": "7b. List Grievances (Filtered, Paginated, Multi-select)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Grievances list returned with pagination and items\", function () {",
-                  "    pm.expect(data).to.have.property(\"items\");",
-                  "    pm.expect(data).to.have.property(\"pagination\");",
-                  "    pm.expect(Array.isArray(data.items)).to.be.true;",
-                  "    pm.expect(data.pagination).to.have.property(\"page\");",
-                  "    pm.expect(data.pagination).to.have.property(\"page_size\");",
-                  "    pm.expect(data.pagination).to.have.property(\"total_count\");",
-                  "    pm.expect(data.pagination).to.have.property(\"total_pages\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&status={{status}}&category={{category}}&region={{region}}&search={{search}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances"
-              ],
-              "query": [
-                {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "page_size",
-                  "value": "20"
-                },
-                {
-                  "key": "status",
-                  "value": "{{status}}",
-                  "description": "Supports multi-select comma separated: Submitted,Under Investigation"
-                },
-                {
-                  "key": "category",
-                  "value": "{{category}}",
-                  "description": "Supports multi-select comma separated: Inputs,Credit"
-                },
-                {
-                  "key": "region",
-                  "value": "{{region}}",
-                  "description": "Supports multi-select comma separated: Oromia,Amhara"
-                },
-                {
-                  "key": "search",
-                  "value": "{{search}}",
-                  "description": "Search by ID, submitter, or grievance type"
-                },
-                {
-                  "key": "from_date",
-                  "value": "{{from_date}}",
-                  "disabled": true
-                },
-                {
-                  "key": "to_date",
-                  "value": "{{to_date}}",
-                  "disabled": true
-                }
-              ]
-            },
-            "description": "Retrieves a paginated list of grievances matching RBAC permissions and optional multi-select filters for status, category, region, date range, and text search (ID, submitter, grievance type)."
-          },
-          "response": []
-        },
-        {
-          "name": "7. Submit Grievance",
+          "name": "5c. Submit Draft (Final Submission)",
           "event": [
             {
               "listen": "prerequest",
               "script": {
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "var area = pm.environment.get(\"administrative_area\") || pm.collectionVariables.get(\"administrative_area\");",
-                  "var cat = pm.environment.get(\"service_category\") || pm.collectionVariables.get(\"service_category\");",
-                  "var gtype = pm.environment.get(\"grievance_type\") || pm.collectionVariables.get(\"grievance_type\");",
-                  "",
+                  "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Please log in or register before submitting.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first.\");",
                   "}",
-                  "if (!area || !cat || !gtype) {",
-                  "    console.warn(\"[Pre-request] Grievance parameters missing (area, category, or grievance type).\");",
+                  "if (!uuid) {",
+                  "    console.warn(\"[Pre-request] 'client_submission_uuid' is missing. Save a draft first.\");",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1274,7 +1132,7 @@
                 "exec": [
                   "pm.test(\"Status code is 200\", function () {",
                   "    if (pm.response.code !== 200) {",
-                  "        console.error(\"[Post-response 7 Error]:\", pm.response.text());",
+                  "        console.error(\"[Submit Draft Error]:\", pm.response.text());",
                   "    }",
                   "    pm.response.to.have.status(200);",
                   "});",
@@ -1282,13 +1140,11 @@
                   "if (pm.response.code === 200) {",
                   "    var jsonData = pm.response.json();",
                   "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    ",
-                  "    pm.test(\"Ticket number and initial status generated\", function () {",
+                  "    pm.test(\"Ticket number and Submitted status generated\", function () {",
                   "        pm.expect(data).to.have.property(\"ticket_number\");",
                   "        pm.expect(data).to.have.property(\"status\");",
                   "        pm.expect(data.status).to.eql(\"Submitted\");",
                   "    });",
-                  "    ",
                   "    if (data.ticket_number) {",
                   "        pm.collectionVariables.set(\"ticket_number\", data.ticket_number);",
                   "        if (pm.environment.name) {",
@@ -1303,6 +1159,16 @@
             }
           ],
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [
               {
@@ -1312,23 +1178,144 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n    \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\"\n}"
+              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\",\n  \"consent_given\": 1,\n  \"is_anonymous\": 0\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances"
-              ]
+              "raw": "{{base_url}}/api/v1/drafts/submit",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "drafts", "submit"]
             },
-            "description": "FSD 4.1: Submits a new grievance. Validates required fields, snapshots administrative path code, executes nearest-ancestor routing, generates ticket number, queues acknowledgement notification, and returns ticket summary."
+            "description": "Formally submits a saved grievance draft, generating ticket number and transitioning state to Submitted."
           },
           "response": []
         },
+        {
+          "name": "5d. Discard Draft",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "pm.test(\"Draft discard confirmed\", function () {",
+                  "    pm.expect(data).to.have.property(\"discarded\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/drafts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "drafts"]
+            },
+            "description": "Deletes an unsubmitted draft and associated temporary files."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Attachments",
+      "item": [
+        {
+          "name": "Upload Supporting Documents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "grievance",
+                  "value": "{{ticket_number}}",
+                  "type": "text"
+                },
+                {
+                  "key": "files",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "attachments"]
+            },
+            "description": "Upload one or more supporting documents against a grievance or draft."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Attachments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments?grievance={{ticket_number}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "attachments"],
+              "query": [
+                {
+                  "key": "grievance",
+                  "value": "{{ticket_number}}"
+                }
+              ]
+            },
+            "description": "List all uploaded attachments for a case."
+          },
+          "response": []
+        }
+      ]
+    },
         {
           "name": "8. Track Grievance",
           "event": [
@@ -1895,5 +1882,3 @@
         }
       ]
     }
-  ]
-}

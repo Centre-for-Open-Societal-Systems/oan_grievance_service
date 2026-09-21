@@ -9,7 +9,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
-from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
+from oan_grievance_service.api.v1 import administrative_area, draft, grievance, profile, submitter
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
@@ -76,8 +76,8 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		else:
 			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
-		if not frappe.db.exists("Grievance Type", "Fertilizer Shortage"):
-			frappe.get_doc(
+		if not frappe.db.exists("Grievance Type", {"type_name": "Fertilizer Shortage"}):
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -85,27 +85,34 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+		else:
+			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
-		self.area_name = a_leaf_area()
-		self.area = frappe.get_doc("Grievance Administrative Area", self.area_name)
+		self.area = a_leaf_area()
 
-		# Setup test farmer user & profile
-		farmer_email = "rest_test_farmer@example.com"
-		if not frappe.db.exists("User", farmer_email):
+		# Create a test farmer user and profile
+		self.farmer_user = frappe.db.get_value("User", {"email": "rest_farmer@test.org"}, "*")
+		if not self.farmer_user:
 			self.farmer_user = frappe.get_doc(
 				{
 					"doctype": "User",
-					"email": farmer_email,
+					"email": "rest_farmer@test.org",
 					"first_name": "REST Farmer",
-					"send_welcome_email": 0,
 					"roles": [{"role": "Grievance Submitter"}],
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.farmer_user = frappe.get_doc("User", farmer_email)
+			self.farmer_user = frappe.get_doc("User", self.farmer_user.name)
 
 		profile_name = frappe.db.get_value(
-			"Grievance Submitter Profile", {"user": self.farmer_user.name}, "name"
+			"Grievance Submitter Profile",
+			{"user": self.farmer_user.name},
+			"name",
+		) or frappe.db.get_value(
+			"Grievance Submitter Profile",
+			{"dedupe_key": "phone:+251911998877"},
+			"name",
 		)
 		if not profile_name:
 			self.farmer_profile = frappe.get_doc(
@@ -119,10 +126,13 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			).insert(ignore_permissions=True)
 		else:
 			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+			if self.farmer_profile.user != self.farmer_user.name:
+				self.farmer_profile.user = self.farmer_user.name
+				self.farmer_profile.save(ignore_permissions=True)
 
 	def test_version_meta_isolation(self):
 		"""Verify that version_meta resolves from oan_grievance_service and not oan_auth_service."""
-		meta_grv = _resolve_version_meta(grievance.submit)
+		meta_grv = _resolve_version_meta(draft.submit_draft)
 		self.assertEqual(meta_grv["api_version"], "v1")
 		self.assertEqual(meta_grv["status"], "current")
 
@@ -219,19 +229,30 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 	def test_grievance_submission_tracking_and_timeline_rest_flow(self):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""
+		import uuid
+
 		import frappe.api
 
-		# 1. Submit a grievance via POST /api/v1/grievances
+		# 1. Save and submit a grievance draft via REST
 		frappe.set_user(self.farmer_user.name)
-		submit_payload = {
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
 			"submission_channel": "Mobile App",
-			"administrative_area": self.area.name,
+			"administrative_area": self.area,
 			"service_category": "Inputs",
-			"grievance_type": "Fertilizer Shortage",
+			"grievance_type": self.gtype.name,
 			"description": "REST API submission test: severe shortage in sector 4.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		res_save = frappe.api.handle(req_save)
+		self.assertEqual(res_save.status_code, 200)
+
+		submit_payload = {
+			"client_submission_uuid": draft_uuid,
 			"consent_given": 1,
 		}
-		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		self.assertEqual(res_submit.status_code, 200)
 		submit_data = json.loads(res_submit.get_data(as_text=True))
@@ -269,21 +290,32 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 	def test_unified_action_rest_endpoint(self):
 		"""Test POST /api/v1/grievances/<ticket_number>/action for workflow moves."""
+		import uuid
+
 		import frappe.api
 
 		from oan_grievance_service.services import lifecycle
 
-		# 1. Submit a grievance
+		# 1. Save and submit a grievance draft via REST
 		frappe.set_user(self.farmer_user.name)
-		submit_payload = {
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
 			"submission_channel": "Mobile App",
-			"administrative_area": self.area.name,
+			"administrative_area": self.area,
 			"service_category": "Inputs",
-			"grievance_type": "Fertilizer Shortage",
+			"grievance_type": self.gtype.name,
 			"description": "Unified action endpoint test with minimum length.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		res_save = frappe.api.handle(req_save)
+		self.assertEqual(res_save.status_code, 200)
+
+		submit_payload = {
+			"client_submission_uuid": draft_uuid,
 			"consent_given": 1,
 		}
-		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
 		frappe.db.commit()

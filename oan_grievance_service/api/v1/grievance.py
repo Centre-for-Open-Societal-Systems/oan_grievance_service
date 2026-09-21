@@ -39,40 +39,6 @@ from oan_grievance_service.services import ticket_number as tn
 route = prefixed("/api/v1/grievances")
 
 
-class SubmitGrievanceRequest(BaseModel):
-	"""Case fields are required at the HTTP edge; identity may come from the profile.
-
-	Authenticated submitters omit type/name/mobile — `_resolve_submitter_identity`
-	fills them from the session profile, and `CLIENT_IMMUTABLE_FIELDS` ignores any
-	client-supplied copies. Walk-in/IVR staff still send them; domain validation
-	after resolve enforces presence.
-
-	`administrative_area` is optional at the edge because intake may send `woreda`
-	and/or `kebele` instead; those are resolved before domain validation.
-
-	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
-	9-digit numbers are accepted and normalised in the domain layer, then checked
-	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail
-	(Frappe `validate_email_address` via auth). Required fields, Link targets, and
-	Select options are left to Frappe / `@validate_request` — not re-checked in
-	`identity.validate_submission_payload`.
-	"""
-
-	model_config = {"extra": "allow"}
-
-	submitter_type: str | None = None
-	submitter_name: str | None = None
-	contact_mobile: str | None = None
-	submission_channel: str = Field(..., min_length=1)
-	administrative_area: str | None = None
-	service_category: str = Field(..., min_length=1)
-	grievance_type: str = Field(..., min_length=1)
-	description: str = Field(..., min_length=20)
-	contact_email: SafeEmail | None = None
-	assisted_by_officer: str | None = None
-	is_anonymous: int | None = Field(0, ge=0, le=1)
-
-
 class ListGrievancesRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
@@ -233,204 +199,6 @@ def resolve_administrative_area(area_identifier):
 	) or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
 
 
-@route("", methods=("POST",), summary="Submit a new grievance")
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-@validate_request(SubmitGrievanceRequest)
-def submit(**kwargs):
-	"""FSD 4.1: validate, generate the ticket, acknowledge, then route.
-
-	Returns the ticket number and the acknowledgement outcome, which is what the
-	FSD 3.11.5 wizard success state displays.
-	"""
-	from oan_grievance_service.services import notifications
-
-	# Identity is resolved first so the required-field check sees the profile snapshot:
-	# a submitter filing for themselves need not send back their own name and number.
-	resolved_identity = _resolve_submitter_identity(kwargs)
-	resolved = {
-		**{field: value for field, value in kwargs.items() if field not in CLIENT_IMMUTABLE_FIELDS},
-		**resolved_identity,
-	}
-
-	# Support intake forms providing woreda and optional kebele:
-	canonical_area = resolve_administrative_area(resolved.get("administrative_area"))
-	if not canonical_area and kwargs.get("kebele"):
-		canonical_area = resolve_administrative_area(kwargs.get("kebele"))
-	if not canonical_area and kwargs.get("woreda"):
-		canonical_area = resolve_administrative_area(kwargs.get("woreda"))
-
-	if canonical_area:
-		resolved["administrative_area"] = canonical_area
-
-	# If kebele was provided as free text and administrative_unit is empty, preserve it
-	if kwargs.get("kebele") and not resolved.get("administrative_unit"):
-		if resolved.get("administrative_area") != kwargs.get("kebele"):
-			resolved["administrative_unit"] = kwargs.get("kebele")
-
-	# Resolve grievance_type if caller provided the type_name instead of document ID
-	gtype = resolved.get("grievance_type")
-	if gtype and not frappe.db.exists("Grievance Type", gtype):
-		gtype_id = frappe.db.get_value(
-			"Grievance Type",
-			{"type_name": gtype, "is_active": 1},
-			"name",
-		)
-		if gtype_id:
-			resolved["grievance_type"] = gtype_id
-
-	# Validate contact mobile with strict Frappe country code checking
-	if resolved.get("contact_mobile"):
-		resolved["contact_mobile"] = identity.validate_mobile(resolved["contact_mobile"])
-	kwargs["contact_mobile"] = resolved.get("contact_mobile")
-
-	identity.validate_submission_payload(resolved)
-
-	# The Link field already refuses a channel that does not exist. This refuses one
-	# that exists but has been switched off, which the link check cannot see.
-	if resolved.get("submission_channel") not in active_channels():
-		frappe.throw(_("Unknown or closed submission channel."), title=_("Invalid Channel"))
-
-	# A retry must not lodge a second case. This read settles the ordinary retry --
-	# one that arrives after the first attempt committed. It cannot settle two
-	# retries in flight at once, because both would read nothing and both would
-	# insert; that case is caught on the unique index at insert time below.
-	client_uuid = kwargs.get("client_submission_uuid")
-	existing_name = None
-	if client_uuid:
-		existing_name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_uuid}, "name")
-
-	if existing_name:
-		doc = frappe.get_doc("Grievance", existing_name)
-		if doc.workflow_state != "Draft" and doc.docstatus != 0:
-			return _existing_submission(client_uuid)
-
-		# Submitting an existing draft
-		for field, value in resolved.items():
-			if doc.meta.has_field(field):
-				doc.set(field, value)
-		doc.workflow_state = "Draft"
-		doc.flags.in_submit = True
-		if not doc.submitter:
-			from oan_grievance_service.services.identity import find_or_create_submitter
-
-			doc.submitter = find_or_create_submitter(resolved)
-		if not doc.consent_given:
-			frappe.throw(
-				_("The submitter must consent to the processing of their personal data."),
-				title=_("Consent Required"),
-			)
-		if not doc.consent_recorded_at:
-			doc.consent_recorded_at = now_datetime()
-
-		doc.save(ignore_permissions=True)
-
-		if doc.name.startswith("DRAFT-") or not doc.ticket_number:
-			t_num = tn.generate(doc.administrative_area, doc.service_category)
-			frappe.rename_doc("Grievance", doc.name, t_num, force=True)
-			doc = frappe.get_doc("Grievance", t_num)
-			doc.flags.in_submit = True
-		doc.ticket_number = doc.name
-		doc.save(ignore_permissions=True)
-	else:
-		doc = frappe.new_doc("Grievance")
-		for field, value in resolved.items():
-			if doc.meta.has_field(field):
-				doc.set(field, value)
-		# Born a Draft; the Submit action below is what makes it a grievance.
-		doc.workflow_state = "Draft"
-		doc.flags.in_submit = True
-		# FR-02 duplicate detection matches on the submitter, so a grievance without one
-		# can never be found to duplicate anything. Only fall back to creating a profile
-		# when identity resolution found none -- staff taking a walk-in or IVR report
-		# from someone who has never registered. Overwriting unconditionally would throw
-		# away the session-resolved profile and let a submitter file against a profile of
-		# their own choosing by varying contact_mobile.
-		if not doc.submitter:
-			from oan_grievance_service.services.identity import find_or_create_submitter
-
-			doc.submitter = find_or_create_submitter(resolved)
-		if not doc.consent_given:
-			frappe.throw(
-				_("The submitter must consent to the processing of their personal data."),
-				title=_("Consent Required"),
-			)
-		if not doc.consent_recorded_at:
-			doc.consent_recorded_at = now_datetime()
-		try:
-			doc.insert(ignore_permissions=True)
-		except frappe.UniqueValidationError:
-			# Another retry carrying the same client_submission_uuid committed while this
-			# one was building its document. The index is the only thing that can settle
-			# that race, and it just did: hand back the ticket the winner created rather
-			# than a 500 the client cannot act on.
-			if not client_uuid:
-				raise
-			frappe.db.rollback()
-			original = _existing_submission(client_uuid)
-			if not original:
-				raise
-			return original
-
-	# FSD 4.1 step 5: Draft to Submitted through the workflow, which submits the
-	# document and, with it, freezes what the submitter filed.
-	lifecycle.transition(doc, "Submit")
-
-	if kwargs.get("is_anonymous"):
-		_request_anonymity(doc, kwargs.get("anonymity_justification"))
-
-	duplicates = detect_duplicates(doc)
-
-	# FSD 4.1 step 6: acknowledge before routing, so the submitter always gets a ticket.
-	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
-	if duplicates:
-		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
-
-	# FSD 4.1 step 7: routing decides auto-assignment or the manual queue.
-	rule = routing.apply_routing(doc)
-	doc.reload()
-
-	return success_response(
-		data={
-			"ticket_number": doc.ticket_number,
-			"status": doc.status,
-			"assigned_department": doc.assigned_dept,
-			"auto_routed": bool(rule),
-			"sla_due_date": doc.sla_due_date,
-			"possible_duplicates": [d.duplicate_of for d in duplicates],
-			"area_path_code": doc.area_path_code,
-			"duplicate_submission": False,
-		},
-		message=_("Grievance submitted successfully"),
-	)
-
-
-def _existing_submission(client_uuid):
-	"""The response for an already-lodged submission, or None if there isn't one.
-
-	Shared by the pre-insert check and the unique-index recovery so a retry gets the
-	same answer whichever of the two settles it.
-	"""
-	existing = frappe.db.get_value(
-		"Grievance",
-		{"client_submission_uuid": client_uuid},
-		["name", "ticket_number", "status"],
-		as_dict=True,
-	)
-	if not existing:
-		return None
-
-	return success_response(
-		data={
-			"ticket_number": existing.ticket_number,
-			"status": existing.status,
-			"duplicate_submission": True,
-		},
-		message=_("Grievance already submitted"),
-	)
-
-
 def _request_anonymity(doc, justification):
 	"""FSD 9.2: anonymity is requested at submission and approved separately."""
 	frappe.get_doc(
@@ -510,9 +278,9 @@ def _resolve_area_filter_identifier(identifier: str) -> str:
 
 @route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
 @frappe.whitelist()
+@validate_request(ListGrievancesRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@validate_request(ListGrievancesRequest)
 def list_grievances(
 	page: int = 1,
 	page_size: int = 20,
@@ -778,9 +546,9 @@ def _get_available_actions_for_user(doc):
 
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
 @frappe.whitelist()
+@validate_request(GrievanceActionRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@validate_request(GrievanceActionRequest)
 def action(
 	ticket_number: str,
 	action: str,
@@ -1048,9 +816,9 @@ track = timeline
 
 @route("/<ticket_number>/note", methods=("POST",), summary="Add internal or public note (staff only)")
 @frappe.whitelist()
+@validate_request(AddNoteRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
-@validate_request(AddNoteRequest)
 def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
 	"""Staff-only endpoint to add an internal or public note to the case timeline."""
 	doc = _load(ticket_number)
@@ -1082,9 +850,9 @@ def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
 
 @route("/<ticket_number>/message", methods=("POST",), summary="Post a public message to the conversation")
 @frappe.whitelist()
+@validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@validate_request(PostMessageRequest)
 def message(ticket_number: str, body: str):
 	"""Post a public message to the case conversation thread."""
 	doc = _load(ticket_number)

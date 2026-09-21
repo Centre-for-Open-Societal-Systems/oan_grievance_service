@@ -5,10 +5,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from pydantic import ValidationError as PydanticValidationError
 
+from oan_grievance_service.api.v1 import draft
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
 	_resolve_submitter_identity,
-	submit,
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
@@ -403,19 +403,24 @@ class TestGrievance(FrappeTestCase):
 		discard_grievance(g.name)
 
 	def test_can_file_grievance_at_woreda_level_via_api(self):
-		"""Submit API accepts woreda parameter and optional kebele free text."""
-		res = submit(
+		"""Draft save & submit accepts woreda area and optional kebele free text."""
+		import uuid
+
+		u = str(uuid.uuid4())
+		save_res = draft.save(
+			client_submission_uuid=u,
 			submitter_type="Individual Farmer",
 			submitter_name="Tesfaye",
 			contact_mobile="+251911334455",
 			submission_channel="Mobile App",
-			woreda=self.woreda_leaf.name,
-			kebele="Village 2 West",
+			administrative_area=self.woreda_leaf.name,
+			administrative_unit="Village 2 West",
 			service_category="Inputs",
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
-			consent_given=1,
 		)
+		self.assertEqual(save_res["status"], "success")
+		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
 		g = frappe.get_doc("Grievance", ticket)
@@ -425,18 +430,23 @@ class TestGrievance(FrappeTestCase):
 
 	def test_kebele_digit_name_does_not_silently_misroute(self):
 		"""Kebele passed as common numeric name (e.g. '1') must not match random other region."""
-		res = submit(
+		import uuid
+
+		u = str(uuid.uuid4())
+		save_res = draft.save(
+			client_submission_uuid=u,
 			submitter_type="Individual Farmer",
 			submitter_name="Tesfaye",
 			contact_mobile="+251911334455",
 			submission_channel="Mobile App",
-			woreda=self.woreda_leaf.name,
-			kebele="1",
+			administrative_area=self.woreda_leaf.name,
+			administrative_unit="1",
 			service_category="Inputs",
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
-			consent_given=1,
 		)
+		self.assertEqual(save_res["status"], "success")
+		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
 		g = frappe.get_doc("Grievance", ticket)
@@ -627,11 +637,12 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
 		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
-		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.api.v1.draft import SubmitDraftRequest
 		from oan_grievance_service.services.identity import validate_mobile
 
 		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
-		req = SubmitGrievanceRequest(
+		req = SubmitDraftRequest(
+			client_submission_uuid="test-draft-uuid",
 			submission_channel="Mobile App",
 			administrative_area="placeholder-area",
 			service_category="Inputs",

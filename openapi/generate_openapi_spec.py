@@ -311,6 +311,49 @@ data(
 	),
 )
 
+# Grievance Drafts
+data(
+	"DraftData",
+	OBJ(
+		{
+			"name": S(description="Draft document name"),
+			"ticket_number": S(nullable=True, description="Assigned ticket number if submitted"),
+			"client_submission_uuid": S(description="Stable client-generated draft key"),
+			"status": S(example="Draft"),
+			"workflow_state": S(example="Draft"),
+			"submission_channel": S(nullable=True),
+			"submitter_type": S(nullable=True),
+			"submitter_name": S(nullable=True),
+			"contact_mobile": S(nullable=True),
+			"contact_email": S(nullable=True),
+			"administrative_area": S(nullable=True),
+			"administrative_unit": S(nullable=True),
+			"service_category": S(nullable=True),
+			"grievance_type": S(nullable=True),
+			"associated_service_provider": S(nullable=True),
+			"description": S(nullable=True),
+			"desired_outcome": S(nullable=True),
+			"is_anonymous": I(enum=[0, 1]),
+			"attachments": ARR(OBJ({})),
+			"attachment_count": I(),
+			"owner": S(nullable=True),
+		},
+		required=["client_submission_uuid", "status", "workflow_state"],
+		description="Draft grievance state",
+	),
+)
+
+data(
+	"DraftDiscardData",
+	OBJ(
+		{
+			"discarded": B(description="Whether the draft was successfully discarded"),
+		},
+		required=["discarded"],
+		description="Outcome of draft discard operation",
+	),
+)
+
 # Grievance Core & Lifecycle
 data(
 	"GrievanceSubmitResultData",
@@ -494,37 +537,57 @@ data(
 # ---------------------------------------------------------------------------
 REQ = {}
 
-REQ["SubmitGrievanceRequest"] = OBJ(
+REQ["SaveDraftRequest"] = OBJ(
 	{
-		"grievance_type": S(description="Name or ID of Grievance Type e.g. 'Fertilizer Shortage'"),
-		"description": S(
-			minLength=20,
-			description="Detailed narrative of the citizen grievance (minimum 20 characters)",
-		),
-		"submission_channel": S(
-			example="Mobile App",
-			enum=["Mobile App", "Web Portal", "Mobile Call", "IVR Helpline", "Development Agent Assisted"],
-			description="Channel through which the case is filed",
-		),
-		"administrative_area": S(
-			example="kebele-ET140108101008",
-			description="Canonical area ID, code, or path_code of the incident location",
-		),
-		"service_category": S(nullable=True, description="Service Category name e.g. 'Inputs'"),
-		"administrative_unit": S(nullable=True, description="Specific local landmark or village"),
-		"preferred_language": S(
-			example="en", nullable=True, description="Preferred language code ('am', 'en')"
-		),
-		"is_anonymous": I(enum=[0, 1], default=0, description="1 to request anonymity under FSD 9.2"),
-		"client_submission_uuid": S(nullable=True, description="Idempotency submission UUID"),
-		"submitter": S(nullable=True, description="Staff-assisted filing: existing submitter profile ID"),
-		"submitter_name": S(nullable=True, description="Staff-assisted filing: submitter citizen name"),
-		"contact_mobile": S(nullable=True, description="Staff-assisted filing: citizen mobile phone"),
-		"contact_email": S(format="email", nullable=True, description="Staff-assisted filing: citizen email"),
+		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key"),
+		"submission_channel": S(nullable=True, description="Submission channel"),
+		"submitter_type": S(nullable=True, description="Submitter type"),
+		"submitter_name": S(nullable=True, description="Submitter citizen name"),
+		"contact_mobile": S(nullable=True, description="Contact mobile phone"),
+		"contact_email": S(format="email", nullable=True, description="Contact email address"),
+		"administrative_area": S(nullable=True, description="Administrative area ID or path_code"),
+		"administrative_unit": S(nullable=True, description="Specific local landmark or unit"),
+		"service_category": S(nullable=True, description="Service category name"),
+		"grievance_type": S(nullable=True, description="Grievance type name"),
+		"associated_service_provider": S(nullable=True, description="Associated service provider"),
+		"description": S(nullable=True, description="Draft narrative description"),
+		"desired_outcome": S(nullable=True, description="Desired resolution outcome"),
+		"is_anonymous": I(enum=[0, 1], default=0, nullable=True, description="1 if anonymous"),
+		"validate": B(default=False, description="If true, execute validation on the draft payload"),
 	},
-	required=["grievance_type", "description", "submission_channel", "administrative_area"],
-	additionalProperties=True,
-	description="Payload for lodging a new grievance ticket",
+	required=["client_submission_uuid"],
+	description="Payload for saving or updating a grievance draft",
+)
+
+REQ["SubmitDraftRequest"] = OBJ(
+	{
+		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key to submit"),
+		"consent_given": I(enum=[0, 1], default=1, description="1 to record citizen consent"),
+		"is_anonymous": I(enum=[0, 1], default=0, description="1 to request anonymity"),
+		"anonymity_justification": S(nullable=True, description="Justification for anonymity"),
+		"submission_channel": S(nullable=True, description="Submission channel"),
+		"submitter_type": S(nullable=True, description="Submitter type"),
+		"submitter_name": S(nullable=True, description="Submitter citizen name"),
+		"contact_mobile": S(nullable=True, description="Contact mobile phone"),
+		"contact_email": S(format="email", nullable=True, description="Contact email"),
+		"administrative_area": S(nullable=True, description="Administrative area"),
+		"administrative_unit": S(nullable=True, description="Administrative unit"),
+		"service_category": S(nullable=True, description="Service category"),
+		"grievance_type": S(nullable=True, description="Grievance type"),
+		"associated_service_provider": S(nullable=True, description="Associated service provider"),
+		"description": S(nullable=True, description="Narrative description"),
+		"desired_outcome": S(nullable=True, description="Desired outcome"),
+	},
+	required=["client_submission_uuid"],
+	description="Payload for submitting a saved grievance draft",
+)
+
+REQ["DiscardDraftRequest"] = OBJ(
+	{
+		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key to discard"),
+	},
+	required=["client_submission_uuid"],
+	description="Payload for discarding an unsubmitted grievance draft",
 )
 
 REQ["PostMessageRequest"] = OBJ(
@@ -597,6 +660,11 @@ ENVELOPES = {
 		"AdministrativeAreasListData", description="Administrative areas list response"
 	),
 	"AreaAncestorsResponse": make_envelope("AreaAncestorsData", description="Area ancestors response"),
+	"DraftResponse": make_envelope("DraftData", description="Grievance draft response"),
+	"DraftSubmitResultResponse": make_envelope(
+		"GrievanceSubmitResultData", description="Grievance draft submission outcome response"
+	),
+	"DraftDiscardResponse": make_envelope("DraftDiscardData", description="Draft discard outcome response"),
 	"GrievanceSubmitResultResponse": make_envelope(
 		"GrievanceSubmitResultData", description="Grievance submission outcome response"
 	),
@@ -901,22 +969,54 @@ ROUTES = [
 		legacy="oan_grievance_service.api.v1.administrative_area.get_area_ancestors",
 		description="Fetches the full hierarchical ancestor breadcrumb chain from root down to the specified node.",
 	),
-	# Domain 4: Grievances Core
+	# Domain 3b: Grievance Drafts
 	R(
 		"post",
-		"/api/v1/grievances",
-		summary="Submit a new grievance",
-		tag="Grievances Core",
+		"/api/v1/drafts",
+		summary="Save or update a grievance draft",
+		tag="Grievance Drafts",
 		security=[{"BearerAuth": []}],
-		request="SubmitGrievanceRequest",
-		response="GrievanceSubmitResultResponse",
-		legacy="oan_grievance_service.api.v1.grievance.submit",
+		request="SaveDraftRequest",
+		response="DraftResponse",
+		legacy="oan_grievance_service.api.v1.draft.save",
+		description="Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'.",
+	),
+	R(
+		"get",
+		"/api/v1/drafts",
+		summary="Get authenticated user's latest grievance draft",
+		tag="Grievance Drafts",
+		security=[{"BearerAuth": []}],
+		response="DraftResponse",
+		legacy="oan_grievance_service.api.v1.draft.load",
+		description="Fetches the caller's latest unsubmitted grievance draft.",
+	),
+	R(
+		"post",
+		"/api/v1/drafts/submit",
+		summary="Submit a grievance draft into an active case",
+		tag="Grievance Drafts",
+		security=[{"BearerAuth": []}],
+		request="SubmitDraftRequest",
+		response="DraftSubmitResultResponse",
+		legacy="oan_grievance_service.api.v1.draft.submit_draft",
 		description=(
-			"FSD 4.1: Lodges a citizen grievance on any valid channel (mobile, web, call, IVR, assisted). "
-			+ "Derives geographic snapshot, assigns ticket prefix and sequence, triggers acknowledgement, "
-			+ "and routes the case to an administrative area / category queue."
+			"Formally submits a saved draft, generating ticket number, transitioning status to Submitted, "
+			+ "queuing notifications, and applying routing rules."
 		),
 	),
+	R(
+		"delete",
+		"/api/v1/drafts",
+		summary="Discard an unsubmitted grievance draft",
+		tag="Grievance Drafts",
+		security=[{"BearerAuth": []}],
+		request="DiscardDraftRequest",
+		response="DraftDiscardResponse",
+		legacy="oan_grievance_service.api.v1.draft.discard",
+		description="Deletes an unsubmitted draft and purges its temporary uploaded files.",
+	),
+	# Domain 4: Grievances Core
 	R(
 		"get",
 		"/api/v1/grievances",
@@ -1143,6 +1243,10 @@ def build_openapi():
 			{
 				"name": "Administrative Areas",
 				"description": "Cascading geographic drill-downs, breadcrumbs, and search",
+			},
+			{
+				"name": "Grievance Drafts",
+				"description": "Draft grievance persistence, resume, submit, and discard",
 			},
 			{"name": "Grievances Core", "description": "Case intake, tracking, and filtered list views"},
 			{

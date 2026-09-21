@@ -227,9 +227,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertIn(frappe.response["http_status_code"], (401, 403))
 
 	def test_submit_draft_end_to_end(self):
-		"""Saving a draft and then submitting it via POST /api/v1/grievances transitions to Submitted."""
-		from oan_grievance_service.api.v1 import grievance
-
+		"""Saving a draft and then submitting it via POST /api/v1/drafts/submit transitions to Submitted."""
 		area = a_leaf_area()
 		category = a_service_category()
 		gtype = frappe.db.get_value("Grievance Type", {"service_category": category, "is_active": 1}, "name")
@@ -242,8 +240,8 @@ class TestDraftRoundTrip(FrappeTestCase):
 		)
 		self.assertEqual(save_res["status"], "success")
 
-		# 2. Final submission via grievance.submit
-		submit_res = grievance.submit(
+		# 2. Final submission via draft.submit_draft
+		submit_res = draft.submit_draft(
 			client_submission_uuid=self.uuid,
 			submission_channel="Web Portal",
 			submitter_type="Individual Farmer",
@@ -307,6 +305,24 @@ class TestDraftRoundTrip(FrappeTestCase):
 		res = draft.submit_draft(client_submission_uuid=self.uuid, consent_given=0)
 		self.assertEqual(res["status"], "error")
 		self.assertIn("consent", res["message"].lower())
+
+	def test_draft_save_with_validate_flag(self):
+		# Short description (<20 chars) should pass when validate=False
+		res = draft.save(
+			client_submission_uuid=self.uuid,
+			description="Too short",
+			validate=False,
+		)
+		self.assertEqual(res["status"], "success")
+
+		# Short description (<20 chars) should fail validation when validate=True
+		res_val = draft.save(
+			client_submission_uuid=self.uuid,
+			description="Too short",
+			validate=True,
+		)
+		self.assertEqual(res_val["status"], "error")
+		self.assertIn("at least 20", str(res_val))
 
 
 def _a_submitter_user(email):

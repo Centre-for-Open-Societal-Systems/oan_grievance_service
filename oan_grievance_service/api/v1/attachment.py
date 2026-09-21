@@ -173,7 +173,11 @@ class SubmitDocumentsRequest(BaseModel):
 
 	@model_validator(mode="after")
 	def validate_upload_limits(self):
-		uploads = get_uploaded_files()
+		try:
+			uploads = get_uploaded_files()
+		except Exception as exc:
+			msg = str(exc.args[0]) if getattr(exc, "args", None) else str(exc)
+			raise ValueError(msg) from exc
 		if not uploads:
 			raise ValueError(_("At least one document file must be attached."))
 		if len(uploads) > MAX_ATTACHMENTS_PER_CASE:
@@ -191,9 +195,9 @@ class SubmitDocumentsRequest(BaseModel):
 @grievance_route("/<grievance>/attachments", methods=("POST",), summary="Upload supporting documents")
 @route("", methods=("POST",), summary="Upload supporting documents")
 @frappe.whitelist(methods=["POST"])
+@validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@validate_request(SubmitDocumentsRequest)
 def submit_documents(
 	grievance: str,
 	document_type: str | list[str] | None = None,

@@ -22,6 +22,8 @@ tags:
   description: Intake reference options and submitter profiles
 - name: Administrative Areas
   description: Cascading geographic drill-downs, breadcrumbs, and search
+- name: Grievance Drafts
+  description: Draft grievance persistence, resume, submit, and discard
 - name: Grievances Core
   description: Case intake, tracking, and filtered list views
 - name: Grievance Lifecycle & Actions
@@ -380,22 +382,20 @@ paths:
         description: Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')
       x-legacy-rpc-method: oan_grievance_service.api.v1.administrative_area.get_area_ancestors
       security: []
-  /api/v1/grievances:
+  /api/v1/drafts:
     post:
       tags:
-      - Grievances Core
-      summary: Submit a new grievance
-      description: 'FSD 4.1: Lodges a citizen grievance on any valid channel (mobile, web, call, IVR,
-        assisted). Derives geographic snapshot, assigns ticket prefix and sequence, triggers acknowledgement,
-        and routes the case to an administrative area / category queue.'
-      operationId: post_api_v1_grievances
+      - Grievance Drafts
+      summary: Save or update a grievance draft
+      description: Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'.
+      operationId: post_api_v1_drafts
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GrievanceSubmitResultResponse'
+                $ref: '#/components/schemas/DraftResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -426,7 +426,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
-      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.submit
+      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.save
       security:
       - BearerAuth: []
       requestBody:
@@ -434,7 +434,160 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubmitGrievanceRequest'
+              $ref: '#/components/schemas/SaveDraftRequest'
+    get:
+      tags:
+      - Grievance Drafts
+      summary: Get authenticated user's latest grievance draft
+      description: Fetches the caller's latest unsubmitted grievance draft.
+      operationId: get_api_v1_drafts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.load
+      security:
+      - BearerAuth: []
+    delete:
+      tags:
+      - Grievance Drafts
+      summary: Discard an unsubmitted grievance draft
+      description: Deletes an unsubmitted draft and purges its temporary uploaded files.
+      operationId: delete_api_v1_drafts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDiscardResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.discard
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscardDraftRequest'
+  /api/v1/drafts/submit:
+    post:
+      tags:
+      - Grievance Drafts
+      summary: Submit a grievance draft into an active case
+      description: Formally submits a saved draft, generating ticket number, transitioning status to Submitted,
+        queuing notifications, and applying routing rules.
+      operationId: post_api_v1_drafts_submit
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftSubmitResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.submit_draft
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/grievances:
     get:
       tags:
       - Grievances Core
@@ -1295,6 +1448,90 @@ components:
       required:
       - breadcrumbs
       description: Ancestor hierarchy breadcrumbs from country root to the node
+    DraftData:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Draft document name
+        ticket_number:
+          type: string
+          nullable: true
+          description: Assigned ticket number if submitted
+        client_submission_uuid:
+          type: string
+          description: Stable client-generated draft key
+        status:
+          type: string
+          example: Draft
+        workflow_state:
+          type: string
+          example: Draft
+        submission_channel:
+          type: string
+          nullable: true
+        submitter_type:
+          type: string
+          nullable: true
+        submitter_name:
+          type: string
+          nullable: true
+        contact_mobile:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          nullable: true
+        administrative_area:
+          type: string
+          nullable: true
+        administrative_unit:
+          type: string
+          nullable: true
+        service_category:
+          type: string
+          nullable: true
+        grievance_type:
+          type: string
+          nullable: true
+        associated_service_provider:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        desired_outcome:
+          type: string
+          nullable: true
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+        attachments:
+          type: array
+          items:
+            type: object
+            properties: {}
+        attachment_count:
+          type: integer
+        owner:
+          type: string
+          nullable: true
+      required:
+      - client_submission_uuid
+      - status
+      - workflow_state
+      description: Draft grievance state
+    DraftDiscardData:
+      type: object
+      properties:
+        discarded:
+          type: boolean
+          description: Whether the draft was successfully discarded
+      required:
+      - discarded
+      description: Outcome of draft discard operation
     GrievanceSubmitResultData:
       type: object
       properties:
@@ -1620,78 +1857,164 @@ components:
       - grievance_types
       - submission_channels
       description: Grievance management options and active dropdown choices for staff
-    SubmitGrievanceRequest:
+    SaveDraftRequest:
       type: object
       properties:
-        grievance_type:
+        client_submission_uuid:
           type: string
-          description: Name or ID of Grievance Type e.g. 'Fertilizer Shortage'
-        description:
-          type: string
-          minLength: 20
-          description: Detailed narrative of the citizen grievance (minimum 20 characters)
+          minLength: 1
+          description: Stable client-generated draft key
         submission_channel:
           type: string
-          example: Mobile App
-          enum:
-          - Mobile App
-          - Web Portal
-          - Mobile Call
-          - IVR Helpline
-          - Development Agent Assisted
-          description: Channel through which the case is filed
-        administrative_area:
-          type: string
-          example: kebele-ET140108101008
-          description: Canonical area ID, code, or path_code of the incident location
-        service_category:
+          nullable: true
+          description: Submission channel
+        submitter_type:
           type: string
           nullable: true
-          description: Service Category name e.g. 'Inputs'
+          description: Submitter type
+        submitter_name:
+          type: string
+          nullable: true
+          description: Submitter citizen name
+        contact_mobile:
+          type: string
+          nullable: true
+          description: Contact mobile phone
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          description: Contact email address
+        administrative_area:
+          type: string
+          nullable: true
+          description: Administrative area ID or path_code
         administrative_unit:
           type: string
           nullable: true
-          description: Specific local landmark or village
-        preferred_language:
+          description: Specific local landmark or unit
+        service_category:
           type: string
-          example: en
           nullable: true
-          description: Preferred language code ('am', 'en')
+          description: Service category name
+        grievance_type:
+          type: string
+          nullable: true
+          description: Grievance type name
+        associated_service_provider:
+          type: string
+          nullable: true
+          description: Associated service provider
+        description:
+          type: string
+          nullable: true
+          description: Draft narrative description
+        desired_outcome:
+          type: string
+          nullable: true
+          description: Desired resolution outcome
         is_anonymous:
           type: integer
           enum:
           - 0
           - 1
           default: 0
-          description: 1 to request anonymity under FSD 9.2
+          nullable: true
+          description: 1 if anonymous
+        validate:
+          type: boolean
+          default: false
+          description: If true, execute validation on the draft payload
+      required:
+      - client_submission_uuid
+      description: Payload for saving or updating a grievance draft
+    SubmitDraftRequest:
+      type: object
+      properties:
         client_submission_uuid:
           type: string
-          nullable: true
-          description: Idempotency submission UUID
-        submitter:
+          minLength: 1
+          description: Stable client-generated draft key to submit
+        consent_given:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 1
+          description: 1 to record citizen consent
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+          description: 1 to request anonymity
+        anonymity_justification:
           type: string
           nullable: true
-          description: 'Staff-assisted filing: existing submitter profile ID'
+          description: Justification for anonymity
+        submission_channel:
+          type: string
+          nullable: true
+          description: Submission channel
+        submitter_type:
+          type: string
+          nullable: true
+          description: Submitter type
         submitter_name:
           type: string
           nullable: true
-          description: 'Staff-assisted filing: submitter citizen name'
+          description: Submitter citizen name
         contact_mobile:
           type: string
           nullable: true
-          description: 'Staff-assisted filing: citizen mobile phone'
+          description: Contact mobile phone
         contact_email:
           type: string
           format: email
           nullable: true
-          description: 'Staff-assisted filing: citizen email'
-      additionalProperties: true
+          description: Contact email
+        administrative_area:
+          type: string
+          nullable: true
+          description: Administrative area
+        administrative_unit:
+          type: string
+          nullable: true
+          description: Administrative unit
+        service_category:
+          type: string
+          nullable: true
+          description: Service category
+        grievance_type:
+          type: string
+          nullable: true
+          description: Grievance type
+        associated_service_provider:
+          type: string
+          nullable: true
+          description: Associated service provider
+        description:
+          type: string
+          nullable: true
+          description: Narrative description
+        desired_outcome:
+          type: string
+          nullable: true
+          description: Desired outcome
       required:
-      - grievance_type
-      - description
-      - submission_channel
-      - administrative_area
-      description: Payload for lodging a new grievance ticket
+      - client_submission_uuid
+      description: Payload for submitting a saved grievance draft
+    DiscardDraftRequest:
+      type: object
+      properties:
+        client_submission_uuid:
+          type: string
+          minLength: 1
+          description: Stable client-generated draft key to discard
+      required:
+      - client_submission_uuid
+      description: Payload for discarding an unsubmitted grievance draft
     PostMessageRequest:
       type: object
       properties:
@@ -1899,6 +2222,81 @@ components:
       - status
       - data
       description: Area ancestors response
+    DraftResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DraftData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance draft response
+    DraftSubmitResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceSubmitResultData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance draft submission outcome response
+    DraftDiscardResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DraftDiscardData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Draft discard outcome response
     GrievanceSubmitResultResponse:
       type: object
       properties:
