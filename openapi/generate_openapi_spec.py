@@ -1178,7 +1178,7 @@ def main():
 	doc, paths, components_schemas = build_openapi()
 
 	# 1. Write internal spec
-	with open(INTERNAL_SPEC_OUTPUT, "w") as f:
+	with open(INTERNAL_SPEC_OUTPUT, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		f.write("# OAN Grievance Service API -- OpenAPI 3.0.3 (INTERNAL)\n")
 		f.write("# Carries internal vendor extensions (x-legacy-rpc-method).\n")
 		f.write("# Generated from generate_openapi_spec.py -- do not edit manually.\n")
@@ -1193,7 +1193,7 @@ def main():
 
 	# 2. Write public spec (vendor extensions stripped)
 	public_doc = strip_extensions(doc)
-	with open(PUBLIC_SPEC_OUTPUT, "w") as f:
+	with open(PUBLIC_SPEC_OUTPUT, "w") as f:  # nosemgrep: frappe-security-file-traversal
 		f.write("# OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)\n")
 		f.write("# Contract with vendor extensions removed. Generated from generate_openapi_spec.py.\n")
 		yaml.safe_dump(

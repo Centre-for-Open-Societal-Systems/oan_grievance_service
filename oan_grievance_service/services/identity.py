@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import frappe
 from frappe import _
-from oan_auth_service.api.utils import validate_mobile, validate_phone_string
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
@@ -133,6 +132,17 @@ def validate_filing_area(administrative_area: str):
 			title=_("Dissolved Administrative Area"),
 		)
 	return area
+
+
+def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
+	"""Strict Frappe phone validation with country code (E.164 via libphonenumber)."""
+	from frappe.utils import validate_phone_number_with_country_code
+
+	raw = str(v or "").strip()
+	if not raw:
+		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
+	validate_phone_number_with_country_code(raw, fieldname)
+	return raw
 
 
 class GrievanceSubmissionPayload(BaseModel):

@@ -15,7 +15,6 @@ from oan_auth_service.api.utils import (
 	parse_multi_value,
 	require_role,
 	success_response,
-	validate_mobile,
 	validate_request,
 )
 from pydantic import BaseModel, Field
@@ -283,7 +282,7 @@ def submit(**kwargs):
 
 	# Validate contact mobile with strict Frappe country code checking
 	if resolved.get("contact_mobile"):
-		resolved["contact_mobile"] = validate_mobile(resolved["contact_mobile"])
+		resolved["contact_mobile"] = identity.validate_mobile(resolved["contact_mobile"])
 	kwargs["contact_mobile"] = resolved.get("contact_mobile")
 
 	identity.validate_submission_payload(resolved)

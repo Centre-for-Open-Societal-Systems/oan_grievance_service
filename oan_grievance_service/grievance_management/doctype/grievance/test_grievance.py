@@ -627,9 +627,8 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
 		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
-		from oan_auth_service.api.utils import validate_mobile
-
 		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.services.identity import validate_mobile
 
 		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
 		req = SubmitGrievanceRequest(

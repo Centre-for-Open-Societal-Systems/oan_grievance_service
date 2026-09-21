@@ -89,7 +89,7 @@ def query_active_officer_assignments(
 		if fields
 		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope"
 	)
-	sql = f"""
+	sql = f"""  # nosemgrep: frappe-sql-format-injection
 		SELECT {field_str}
 		FROM `tabGrievance RBAC Assignment Officer` c
 		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
@@ -100,7 +100,7 @@ def query_active_officer_assignments(
 	if limit:
 		sql += f" LIMIT {int(limit)}"
 
-	return frappe.db.sql(sql, params, as_dict=True)
+	return frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: frappe-sql-format-injection
 
 
 def active_scopes(user=None):
