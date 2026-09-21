@@ -18,21 +18,14 @@ class TestDraftModuleLoads(FrappeTestCase):
 		self.assertTrue(callable(draft.discard))
 		self.assertTrue(callable(draft.submit_draft))
 
-	def test_discard_remains_reachable_without_a_token(self):
-		self.assertIn(
-			"/api/method/oan_grievance_service.api.v1.draft.discard",
-			middleware.EXEMPT_PATHS,
-		)
-		for name in ("save", "load", "submit_draft"):
+	def test_draft_endpoints_require_authentication(self):
+		for name in ("save", "load", "submit_draft", "discard", "delete_draft"):
 			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
 			self.assertNotIn(path, middleware.EXEMPT_PATHS)
 
-	def test_save_and_get_draft_require_authentication(self):
-		for fn in (draft.save, draft.load, draft.submit_draft):
+		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard, draft.delete_draft):
 			self.assertIn(fn, frappe.whitelisted)
 			self.assertNotIn(fn, frappe.guest_methods)
-		self.assertIn(draft.discard, frappe.whitelisted)
-		self.assertIn(draft.discard, frappe.guest_methods)
 
 
 class TestDraftRoundTrip(FrappeTestCase):
@@ -102,7 +95,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 
 		result = draft.save(client_submission_uuid=self.uuid, **self._params())
 		self.assertEqual(result["status"], "success")
-		self.assertEqual(result["data"]["owner_user"], user.name)
+		self.assertEqual(result["data"]["owner"], user.name)
 		self.assertEqual(
 			frappe.db.get_value("Grievance", {"client_submission_uuid": self.uuid}, "owner"),
 			user.name,
@@ -135,13 +128,13 @@ class TestDraftRoundTrip(FrappeTestCase):
 
 	def test_discarding_removes_it(self):
 		draft.save(client_submission_uuid=self.uuid, **self._params())
-		result = draft.discard(client_uuid=self.uuid)
+		result = draft.discard(client_submission_uuid=self.uuid)
 
 		self.assertTrue(result["data"]["discarded"])
 		self.assertFalse(frappe.db.exists("Grievance", {"client_submission_uuid": self.uuid}))
 
 	def test_discarding_nothing_succeeds_quietly(self):
-		result = draft.discard(client_uuid="never-saved-anything")
+		result = draft.discard(client_submission_uuid="never-saved-anything")
 		self.assertEqual(result["status"], "success")
 		self.assertFalse(result["data"]["discarded"])
 
@@ -155,7 +148,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 			update_modified=False,
 		)
 
-		result = draft.discard(client_uuid=self.uuid)
+		result = draft.discard(client_submission_uuid=self.uuid)
 		self.assertEqual(result["status"], "error")
 		self.assertIn("cannot be discarded", result["message"])
 
@@ -274,7 +267,7 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(doc.client_submission_uuid, self.uuid)
 
 		# 4. Attempting to discard or save draft again now fails
-		discard_res = draft.discard(client_uuid=self.uuid)
+		discard_res = draft.discard(client_submission_uuid=self.uuid)
 		self.assertEqual(discard_res["status"], "error")
 
 	def test_draft_submit_endpoint_changes_status_to_submitted(self):

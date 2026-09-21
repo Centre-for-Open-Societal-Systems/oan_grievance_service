@@ -3,9 +3,8 @@
 
 """Save and resume a partially completed submission directly on Grievance doctype.
 
-A draft is working state, persisted directly as a Grievance with status 'Draft'
-and workflow_state 'Draft' (docstatus = 0). Full submission validation runs when
-the case is formally submitted.
+A draft is persisted directly as a Grievance with status 'Draft' and workflow_state 'Draft'.
+Full submission validation runs when the case is formally submitted.
 """
 
 import frappe
@@ -21,8 +20,6 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field
 
-from oan_grievance_service.api.v1.grievance import CLIENT_IMMUTABLE_FIELDS
-
 DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
@@ -35,39 +32,18 @@ ALLOWED_DRAFT_ROLES = [
 	"Administrator",
 ]
 
-DRAFT_FIELDS = (
-	"submission_channel",
-	"submitter_type",
-	"submitter_name",
-	"contact_mobile",
-	"contact_email",
-	"administrative_area",
-	"administrative_unit",
-	"service_category",
-	"grievance_type",
-	"associated_service_provider",
-	"description",
-	"desired_outcome",
-	"is_anonymous",
-)
-
 
 class SaveDraftRequest(BaseModel):
-	"""Partial grievance state for saving a draft.
+	"""Partial grievance state for saving a draft."""
 
-	Fields are optional so a user can save at any stage of input.
-	"""
+	model_config = {"extra": "forbid"}
 
-	model_config = {"extra": "allow"}
-
-	client_submission_uuid: str | None = Field(None, description="Stable client-generated draft key")
-	client_uuid: str | None = Field(None, description="Alias for client_submission_uuid")
-
+	client_submission_uuid: str = Field(..., min_length=1, description="Stable client-generated draft key")
 	submission_channel: str | None = None
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
-	contact_email: SafeEmail | str | None = None
+	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
 	service_category: str | None = None
@@ -75,7 +51,7 @@ class SaveDraftRequest(BaseModel):
 	associated_service_provider: str | None = None
 	description: str | None = None
 	desired_outcome: str | None = None
-	is_anonymous: int | bool | None = None
+	is_anonymous: int | None = Field(0, ge=0, le=1)
 
 
 @route("", methods=("POST",), summary="Save a grievance draft")
@@ -84,8 +60,7 @@ class SaveDraftRequest(BaseModel):
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
 def save(
-	client_submission_uuid: str | None = None,
-	client_uuid: str | None = None,
+	client_submission_uuid: str,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
 	submitter_name: str | None = None,
@@ -98,58 +73,14 @@ def save(
 	associated_service_provider: str | None = None,
 	description: str | None = None,
 	desired_outcome: str | None = None,
-	is_anonymous: int | bool | None = None,
-	**kwargs,
+	is_anonymous: int = 0,
 ):
-	"""Create or overwrite the draft directly on the Grievance doctype with status='Draft'.
-
-	Parameters are accepted as standard grievance fields and validated via Pydantic.
-	"""
-	uuid_key = (
-		client_submission_uuid
-		or client_uuid
-		or kwargs.get("client_submission_uuid")
-		or kwargs.get("client_uuid")
-	)
-	# Also inspect payload dict if provided for backwards compatibility
-	payload_arg = kwargs.get("payload")
-	if not uuid_key and isinstance(payload_arg, dict):
-		uuid_key = payload_arg.get("client_submission_uuid") or payload_arg.get("client_uuid")
-
-	if not uuid_key:
-		frappe.throw(_("A draft key (client_submission_uuid) is required."), title=_("Missing Draft Key"))
-
+	"""Create or overwrite a draft directly on Grievance doctype with status='Draft'."""
 	session_user = _session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
-	data = {
-		"submission_channel": submission_channel,
-		"submitter_type": submitter_type,
-		"submitter_name": submitter_name,
-		"contact_mobile": contact_mobile,
-		"contact_email": contact_email,
-		"administrative_area": administrative_area,
-		"administrative_unit": administrative_unit,
-		"service_category": service_category,
-		"grievance_type": grievance_type,
-		"associated_service_provider": associated_service_provider,
-		"description": description,
-		"desired_outcome": desired_outcome,
-		"is_anonymous": is_anonymous,
-	}
-
-	# Merge payload dict or extra kwargs if passed
-	if isinstance(payload_arg, dict):
-		for k, v in payload_arg.items():
-			if data.get(k) is None and v is not None:
-				data[k] = v
-
-	for k, v in kwargs.items():
-		if k not in ("payload", "step_reached", "expires_on") and data.get(k) is None and v is not None:
-			data[k] = v
-
-	name = frappe.db.get_value("Grievance", {"client_submission_uuid": uuid_key}, "name")
+	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 
 	if name:
 		doc = frappe.get_doc("Grievance", name)
@@ -163,7 +94,7 @@ def save(
 			doc.owner = session_user
 	else:
 		doc = frappe.new_doc("Grievance")
-		doc.client_submission_uuid = uuid_key
+		doc.client_submission_uuid = client_submission_uuid
 		doc.owner = session_user
 		doc.workflow_state = "Draft"
 		doc.status = "Draft"
@@ -182,46 +113,32 @@ def save(
 		except Exception:
 			pass
 
-	# Apply provided grievance fields directly
-	for field in DRAFT_FIELDS:
-		if field in data and data[field] is not None:
-			val = data[field]
-			field_def = doc.meta.get_field(field)
-			if field_def and field_def.fieldtype == "Link":
-				if not frappe.db.exists(field_def.options, val):
-					continue
-			doc.set(field, val)
-		elif name and field in data and data[field] is None:
-			doc.set(field, None)
-
-	# Set any other valid Grievance doc fields passed
-	for field, value in data.items():
-		if field in DRAFT_FIELDS or field in CLIENT_IMMUTABLE_FIELDS or not doc.meta.has_field(field):
-			continue
-		if value is None or value == "":
-			doc.set(field, None)
-			continue
-		field_def = doc.meta.get_field(field)
-		if field_def and field_def.fieldtype == "Link":
-			if not frappe.db.exists(field_def.options, value):
-				continue
-		doc.set(field, value)
+	doc.submission_channel = submission_channel or doc.submission_channel or "Web Portal"
+	doc.submitter_type = submitter_type or doc.submitter_type or "Individual Farmer"
+	doc.submitter_name = submitter_name
+	doc.contact_mobile = contact_mobile
+	doc.contact_email = contact_email
+	doc.administrative_area = administrative_area
+	doc.administrative_unit = administrative_unit
+	doc.service_category = service_category
+	doc.grievance_type = grievance_type
+	doc.associated_service_provider = associated_service_provider
+	doc.description = description
+	doc.desired_outcome = desired_outcome
+	doc.is_anonymous = 1 if is_anonymous else 0
 
 	doc.flags.ignore_mandatory = True
 	doc.flags.is_draft_wizard = True
 	doc.save(ignore_permissions=True)
 
-	return success_response(
-		data=_draft_state(doc),
-		message=_("Draft saved"),
-	)
+	return success_response(data=_draft_state(doc), message=_("Draft saved"))
 
 
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-def save_draft(*args, **kwargs):
-	return save(*args, **kwargs)
+def save_draft(**kwargs):
+	return save(**kwargs)
 
 
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
@@ -229,10 +146,7 @@ def save_draft(*args, **kwargs):
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
 def load():
-	"""Return the caller's latest unsubmitted draft.
-
-	A user has at most one active draft. Lookup is by session owner.
-	"""
+	"""Return the caller's latest unsubmitted draft."""
 	user = _session_user()
 	if not user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
@@ -255,12 +169,11 @@ def get_draft():
 
 
 class SubmitDraftRequest(BaseModel):
-	model_config = {"extra": "allow"}
+	model_config = {"extra": "forbid"}
 
-	client_submission_uuid: str | None = Field(
-		None, description="Draft key to submit; defaults to latest active draft"
+	client_submission_uuid: str = Field(
+		..., min_length=1, description="Stable client-generated draft key to submit"
 	)
-	client_uuid: str | None = Field(None, description="Alias for client_submission_uuid")
 	consent_given: int | bool = 1
 	is_anonymous: int | bool = 0
 	anonymity_justification: str | None = None
@@ -268,7 +181,7 @@ class SubmitDraftRequest(BaseModel):
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
-	contact_email: str | None = None
+	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
 	service_category: str | None = None
@@ -279,14 +192,12 @@ class SubmitDraftRequest(BaseModel):
 
 
 @route("/submit", methods=("POST",), summary="Submit a draft grievance into an active case")
-@route("/<client_uuid>/submit", methods=("POST",), summary="Submit a draft grievance by UUID")
 @frappe.whitelist()
 @validate_request(SubmitDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
 def submit_draft(
-	client_submission_uuid: str | None = None,
-	client_uuid: str | None = None,
+	client_submission_uuid: str,
 	consent_given: int | bool = 1,
 	is_anonymous: int | bool = 0,
 	anonymity_justification: str | None = None,
@@ -302,25 +213,13 @@ def submit_draft(
 	associated_service_provider: str | None = None,
 	description: str | None = None,
 	desired_outcome: str | None = None,
-	**kwargs,
 ):
 	"""Submit an existing draft grievance, transitioning its status to Submitted."""
 	session_user = _session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
-	uuid_key = (
-		client_submission_uuid
-		or client_uuid
-		or kwargs.get("client_submission_uuid")
-		or kwargs.get("client_uuid")
-	)
-	name = None
-	if uuid_key:
-		name = frappe.db.get_value("Grievance", {"client_submission_uuid": uuid_key}, "name")
-	if not name:
-		name = _latest_own_draft_name(session_user)
-
+	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 	if not name:
 		frappe.throw(_("No saved draft found to submit."), frappe.DoesNotExistError, title=_("Not Found"))
 
@@ -332,35 +231,30 @@ def submit_draft(
 			title=_("Already Submitted"),
 		)
 
-	# Apply any overrides supplied in call
-	overrides = {
-		"submission_channel": submission_channel,
-		"submitter_type": submitter_type,
-		"submitter_name": submitter_name,
-		"contact_mobile": contact_mobile,
-		"contact_email": contact_email,
-		"administrative_area": administrative_area,
-		"administrative_unit": administrative_unit,
-		"service_category": service_category,
-		"grievance_type": grievance_type,
-		"associated_service_provider": associated_service_provider,
-		"description": description,
-		"desired_outcome": desired_outcome,
-	}
-	# Also unpack payload if provided
-	payload_arg = kwargs.get("payload")
-	if isinstance(payload_arg, dict):
-		for k, v in payload_arg.items():
-			if overrides.get(k) is None and v is not None:
-				overrides[k] = v
-
-	for k, v in kwargs.items():
-		if k not in ("payload", "step_reached", "expires_on") and overrides.get(k) is None and v is not None:
-			overrides[k] = v
-
-	for field in DRAFT_FIELDS:
-		if overrides.get(field) is not None:
-			doc.set(field, overrides[field])
+	if submission_channel:
+		doc.submission_channel = submission_channel
+	if submitter_type:
+		doc.submitter_type = submitter_type
+	if submitter_name:
+		doc.submitter_name = submitter_name
+	if contact_mobile:
+		doc.contact_mobile = contact_mobile
+	if contact_email:
+		doc.contact_email = contact_email
+	if administrative_area:
+		doc.administrative_area = administrative_area
+	if administrative_unit:
+		doc.administrative_unit = administrative_unit
+	if service_category:
+		doc.service_category = service_category
+	if grievance_type:
+		doc.grievance_type = grievance_type
+	if associated_service_provider:
+		doc.associated_service_provider = associated_service_provider
+	if description:
+		doc.description = description
+	if desired_outcome:
+		doc.desired_outcome = desired_outcome
 
 	doc.consent_given = 1 if consent_given else 0
 	if not doc.consent_given:
@@ -431,36 +325,36 @@ def submit_draft(
 			"status": doc.status,
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
-			"client_uuid": doc.client_submission_uuid,
 			"routing_rule": rule.name if hasattr(rule, "name") else str(rule) if rule else None,
 		},
 		message=_("Grievance submitted successfully"),
 	)
 
 
-@route("/<client_uuid>", methods=("DELETE",), allow_guest=True, summary="Discard a grievance draft by UUID")
-@route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"", methods=("DELETE",), allow_guest=True, summary="Discard a grievance draft"
-)
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
-@handle_api_errors
-def discard(client_uuid: str | None = None, client_submission_uuid: str | None = None):
-	"""Delete a draft the submitter abandoned."""
-	uuid_key = client_submission_uuid or client_uuid
-	if not uuid_key:
-		session_user = _session_user()
-		if session_user:
-			name = _latest_own_draft_name(session_user)
-		else:
-			return success_response(data={"discarded": False}, message=_("No draft to discard"))
-	else:
-		name = frappe.db.get_value("Grievance", {"client_submission_uuid": uuid_key}, "name")
+class DiscardDraftRequest(BaseModel):
+	model_config = {"extra": "forbid"}
 
+	client_submission_uuid: str = Field(
+		..., min_length=1, description="Stable client-generated draft key to discard"
+	)
+
+
+@route("", methods=("DELETE",), summary="Discard a grievance draft")
+@frappe.whitelist()
+@validate_request(DiscardDraftRequest)
+@handle_api_errors
+@require_role(ALLOWED_DRAFT_ROLES)
+def discard(client_submission_uuid: str):
+	"""Delete a draft the submitter abandoned."""
+	session_user = _session_user()
+	if not session_user:
+		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 	if not name:
 		return success_response(data={"discarded": False}, message=_("No draft to discard"))
 
 	doc = frappe.get_doc("Grievance", name)
-	session_user = _session_user()
 	_assert_owner(doc, session_user)
 	if doc.workflow_state != "Draft" and doc.docstatus != 0:
 		frappe.throw(
@@ -475,10 +369,11 @@ def discard(client_uuid: str | None = None, client_submission_uuid: str | None =
 	return success_response(data={"discarded": True}, message=_("Draft discarded"))
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist()
 @handle_api_errors
-def delete_draft(client_uuid: str | None = None, client_submission_uuid: str | None = None):
-	return discard(client_uuid=client_uuid, client_submission_uuid=client_submission_uuid)
+@require_role(ALLOWED_DRAFT_ROLES)
+def delete_draft(client_submission_uuid: str):
+	return discard(client_submission_uuid=client_submission_uuid)
 
 
 def purge_expired_drafts():
@@ -556,7 +451,6 @@ def _draft_state(doc):
 		"name": doc.name,
 		"ticket_number": doc.ticket_number,
 		"client_submission_uuid": doc.client_submission_uuid,
-		"client_uuid": doc.client_submission_uuid,
 		"status": doc.status,
 		"workflow_state": doc.workflow_state,
 		"submission_channel": doc.submission_channel,
@@ -575,7 +469,6 @@ def _draft_state(doc):
 		"attachments": attachments,
 		"attachment_count": len(attachments),
 		"owner": doc.owner,
-		"owner_user": doc.owner,
 	}
 
 

@@ -14,8 +14,6 @@ API_NAMESPACE = "/api/method/oan_grievance_service."
 EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.submitter.options",
 	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
-	"/api/method/oan_grievance_service.api.v1.draft.discard",
-	"/api/method/oan_grievance_service.api.v1.draft.delete_draft",
 ]
 
 
