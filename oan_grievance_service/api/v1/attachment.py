@@ -29,13 +29,123 @@ import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
-	get_uploaded_files,
 	handle_api_errors,
 	require_role,
 	success_response,
 	validate_request,
 )
 from pydantic import BaseModel, Field, model_validator
+
+
+class UploadedFile:
+	def __init__(self, file_name: str, content: bytes):
+		self.file_name = file_name
+		self.content = content
+
+	@property
+	def size_bytes(self) -> int:
+		return len(self.content)
+
+
+def get_uploaded_files(
+	key: str | None = None,
+	allow_empty: bool = False,
+	max_count: int | None = None,
+	max_size_bytes: int | None = None,
+) -> list[UploadedFile]:
+	"""Extract multipart files from frappe.request.files.
+
+	Supports single or multiple files under a specific key or any keys.
+	Validates presence and non-empty content.
+	"""
+	req = getattr(frappe, "request", None)
+	files = getattr(req, "files", None) if req else None
+	if not files:
+		frappe.throw(
+			_("No file was uploaded. Send it as multipart form data under the key 'file' or 'files'."),
+			title=_("No File"),
+		)
+
+	file_objects = []
+	if key:
+		if hasattr(files, "getlist"):
+			file_objects = [item for item in files.getlist(key) if item]
+		elif isinstance(files, dict) and key in files:
+			val = files[key]
+			file_objects = list(val) if isinstance(val, list | tuple) else ([val] if val else [])
+	else:
+		if hasattr(files, "getlist"):
+			for k in files.keys():
+				for item in files.getlist(k):
+					if item:
+						file_objects.append(item)
+		elif isinstance(files, dict):
+			for val in files.values():
+				if isinstance(val, list | tuple):
+					file_objects.extend(item for item in val if item)
+				elif val:
+					file_objects.append(val)
+		elif isinstance(files, list | tuple):
+			file_objects.extend(item for item in files if item)
+
+	if not file_objects:
+		frappe.throw(
+			_("No file was uploaded. Send it as multipart form data under the key 'file' or 'files'."),
+			title=_("No File"),
+		)
+
+	if max_count and len(file_objects) > max_count:
+		frappe.throw(
+			_("Too many files. Maximum {0} files allowed.").format(max_count),
+			title=_("Too Many Files"),
+		)
+
+	results = []
+	for item in file_objects:
+		file_name = (
+			getattr(item, "filename", None)
+			or getattr(item, "file_name", None)
+			or getattr(item, "name", "unnamed")
+		)
+		stream = getattr(item, "stream", None)
+		if stream:
+			try:
+				stream.seek(0)
+			except Exception:
+				pass
+			content = stream.read()
+			try:
+				stream.seek(0)
+			except Exception:
+				pass
+		elif hasattr(item, "read"):
+			content = item.read()
+		elif hasattr(item, "content"):
+			content = item.content
+		elif isinstance(item, bytes):
+			content = item
+		else:
+			content = b""
+
+		if not content and not allow_empty:
+			if len(file_objects) == 1:
+				frappe.throw(_("The uploaded file is empty."), title=_("Empty File"))
+			else:
+				frappe.throw(
+					_("The uploaded file {0} is empty.").format(frappe.bold(file_name)),
+					title=_("Empty File"),
+				)
+
+		if max_size_bytes and len(content) > max_size_bytes:
+			frappe.throw(
+				_("File '{0}' exceeds maximum size of {1} bytes.").format(file_name, max_size_bytes),
+				title=_("File Too Large"),
+			)
+
+		results.append(UploadedFile(file_name=file_name, content=content))
+
+	return results
+
 
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	SCAN_CLEAN,
