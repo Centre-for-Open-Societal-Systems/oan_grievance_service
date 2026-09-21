@@ -297,48 +297,81 @@ def submit(**kwargs):
 	# retries in flight at once, because both would read nothing and both would
 	# insert; that case is caught on the unique index at insert time below.
 	client_uuid = kwargs.get("client_submission_uuid")
+	existing_name = None
 	if client_uuid:
-		original = _existing_submission(client_uuid)
-		if original:
+		existing_name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_uuid}, "name")
+
+	if existing_name:
+		doc = frappe.get_doc("Grievance", existing_name)
+		if doc.workflow_state != "Draft" and doc.docstatus != 0:
+			return _existing_submission(client_uuid)
+
+		# Submitting an existing draft
+		for field, value in resolved.items():
+			if doc.meta.has_field(field):
+				doc.set(field, value)
+		doc.workflow_state = "Draft"
+		doc.flags.in_submit = True
+		if not doc.submitter:
+			from oan_grievance_service.services.identity import find_or_create_submitter
+
+			doc.submitter = find_or_create_submitter(resolved)
+		if not doc.consent_given:
+			frappe.throw(
+				_("The submitter must consent to the processing of their personal data."),
+				title=_("Consent Required"),
+			)
+		if not doc.consent_recorded_at:
+			doc.consent_recorded_at = now_datetime()
+
+		doc.save(ignore_permissions=True)
+
+		if doc.name.startswith("DRAFT-") or not doc.ticket_number:
+			t_num = tn.generate(doc.administrative_area, doc.service_category)
+			frappe.rename_doc("Grievance", doc.name, t_num, force=True)
+			doc = frappe.get_doc("Grievance", t_num)
+			doc.flags.in_submit = True
+		doc.ticket_number = doc.name
+		doc.save(ignore_permissions=True)
+	else:
+		doc = frappe.new_doc("Grievance")
+		for field, value in resolved.items():
+			if doc.meta.has_field(field):
+				doc.set(field, value)
+		# Born a Draft; the Submit action below is what makes it a grievance.
+		doc.workflow_state = "Draft"
+		doc.flags.in_submit = True
+		# FR-02 duplicate detection matches on the submitter, so a grievance without one
+		# can never be found to duplicate anything. Only fall back to creating a profile
+		# when identity resolution found none -- staff taking a walk-in or IVR report
+		# from someone who has never registered. Overwriting unconditionally would throw
+		# away the session-resolved profile and let a submitter file against a profile of
+		# their own choosing by varying contact_mobile.
+		if not doc.submitter:
+			from oan_grievance_service.services.identity import find_or_create_submitter
+
+			doc.submitter = find_or_create_submitter(resolved)
+		if not doc.consent_given:
+			frappe.throw(
+				_("The submitter must consent to the processing of their personal data."),
+				title=_("Consent Required"),
+			)
+		if not doc.consent_recorded_at:
+			doc.consent_recorded_at = now_datetime()
+		try:
+			doc.insert(ignore_permissions=True)
+		except frappe.UniqueValidationError:
+			# Another retry carrying the same client_submission_uuid committed while this
+			# one was building its document. The index is the only thing that can settle
+			# that race, and it just did: hand back the ticket the winner created rather
+			# than a 500 the client cannot act on.
+			if not client_uuid:
+				raise
+			frappe.db.rollback()
+			original = _existing_submission(client_uuid)
+			if not original:
+				raise
 			return original
-
-	doc = frappe.new_doc("Grievance")
-	for field, value in resolved.items():
-		if doc.meta.has_field(field):
-			doc.set(field, value)
-	# Born a Draft; the Submit action below is what makes it a grievance.
-	doc.workflow_state = "Draft"
-	# FR-02 duplicate detection matches on the submitter, so a grievance without one
-	# can never be found to duplicate anything. Only fall back to creating a profile
-	# when identity resolution found none -- staff taking a walk-in or IVR report
-	# from someone who has never registered. Overwriting unconditionally would throw
-	# away the session-resolved profile and let a submitter file against a profile of
-	# their own choosing by varying contact_mobile.
-	if not doc.submitter:
-		from oan_grievance_service.services.identity import find_or_create_submitter
-
-		doc.submitter = find_or_create_submitter(resolved)
-	if not doc.consent_given:
-		frappe.throw(
-			_("The submitter must consent to the processing of their personal data."),
-			title=_("Consent Required"),
-		)
-	if not doc.consent_recorded_at:
-		doc.consent_recorded_at = now_datetime()
-	try:
-		doc.insert(ignore_permissions=True)
-	except frappe.UniqueValidationError:
-		# Another retry carrying the same client_submission_uuid committed while this
-		# one was building its document. The index is the only thing that can settle
-		# that race, and it just did: hand back the ticket the winner created rather
-		# than a 500 the client cannot act on.
-		if not client_uuid:
-			raise
-		frappe.db.rollback()
-		original = _existing_submission(client_uuid)
-		if not original:
-			raise
-		return original
 
 	# FSD 4.1 step 5: Draft to Submitted through the workflow, which submits the
 	# document and, with it, freezes what the submitter filed.

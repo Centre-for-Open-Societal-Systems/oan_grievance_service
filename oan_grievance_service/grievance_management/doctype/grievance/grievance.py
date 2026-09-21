@@ -23,10 +23,34 @@ class Grievance(Document):
 		an attribute of the grievance, and reports and notifications read it by
 		name.
 		"""
+		if self.name:
+			return
+		if getattr(self.flags, "is_draft_wizard", False):
+			if self.administrative_area and self.service_category:
+				try:
+					self.name = ticket_number.generate(self.administrative_area, self.service_category)
+					self.ticket_number = self.name
+					return
+				except Exception:
+					pass
+			key = self.client_submission_uuid or frappe.generate_hash(length=12)
+			self.name = f"DRAFT-{key}"
+			self.ticket_number = None
+			return
+
 		self.name = ticket_number.generate(self.administrative_area, self.service_category)
 		self.ticket_number = self.name
 
+	def _validate_mandatory(self):
+		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
+			return
+		super()._validate_mandatory()
+
 	def validate(self):
+		self.keep_status_in_step_with_the_workflow()
+		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
+			return
+
 		# Frappe already enforces reqd / Link / Select. Domain-only rules below.
 		try:
 			identity.validate_submission_payload(
@@ -46,7 +70,6 @@ class Grievance(Document):
 				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
 			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
 		self.set_administrative_area_metadata()
-		self.keep_status_in_step_with_the_workflow()
 		self.guard_the_workflow_move()
 
 	# Workflow

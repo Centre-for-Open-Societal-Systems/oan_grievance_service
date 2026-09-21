@@ -62,6 +62,19 @@ def transition(
 	frappe.flags.grievance_transition = context
 	user = frappe.session.user
 	grievance.flags.ignore_permissions = True
+	if action == "Submit":
+		from oan_grievance_service.services import ticket_number as tn
+
+		grievance.flags.in_submit = True
+		if grievance.name.startswith("DRAFT-") or not grievance.ticket_number:
+			t_num = tn.generate(grievance.administrative_area, grievance.service_category)
+			if grievance.name != t_num:
+				frappe.rename_doc("Grievance", grievance.name, t_num, force=True)
+				grievance = frappe.get_doc("Grievance", t_num)
+			grievance.ticket_number = grievance.name
+			grievance.flags.ignore_permissions = True
+			grievance.flags.in_submit = True
+
 	try:
 		if automated and user != "Administrator":
 			# Audited: a system move (auto-route, auto-close, anonymity ruling) taken

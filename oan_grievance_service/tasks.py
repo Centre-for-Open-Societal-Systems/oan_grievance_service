@@ -154,6 +154,13 @@ def scan_pending_attachments():
 	return scanning.scan_pending()
 
 
+def purge_expired_drafts():
+	"""Daily: clear abandoned drafts that expired without being submitted."""
+	from oan_grievance_service.api.v1 import draft
+
+	return draft.purge_expired_drafts()
+
+
 def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
@@ -165,3 +172,4 @@ def hourly():
 def daily():
 	"""Entry point wired to the daily scheduler event."""
 	auto_close_expired()
+	purge_expired_drafts()

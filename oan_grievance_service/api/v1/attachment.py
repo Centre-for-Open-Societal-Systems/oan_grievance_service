@@ -307,10 +307,16 @@ def _case_for_read(grievance):
 	"""The grievance, if this user may read it. Raises otherwise."""
 	from oan_grievance_service.permissions import has_grievance_permission
 
-	if not frappe.db.exists("Grievance", grievance):
+	name = grievance
+	if not frappe.db.exists("Grievance", name):
+		name = frappe.db.get_value("Grievance", {"ticket_number": grievance}, "name") or frappe.db.get_value(
+			"Grievance", {"client_submission_uuid": grievance}, "name"
+		)
+
+	if not name or not frappe.db.exists("Grievance", name):
 		frappe.throw(_("No such grievance."), frappe.DoesNotExistError, title=_("Not Found"))
 
-	doc = frappe.get_doc("Grievance", grievance)
+	doc = frappe.get_doc("Grievance", name)
 	if not has_grievance_permission(doc, "read"):
 		audit.log_denied(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.name)
 		frappe.throw(_("You do not have access to this grievance."), frappe.PermissionError)

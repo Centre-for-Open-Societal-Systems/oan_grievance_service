@@ -224,6 +224,7 @@ def grievance_query_conditions(user=None):
 		if profiles:
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
 		clauses.append(f"`tabGrievance`.assisted_by_officer = {frappe.db.escape(user)}")
+		clauses.append(f"`tabGrievance`.owner = {frappe.db.escape(user)}")
 
 	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
@@ -231,7 +232,7 @@ def grievance_query_conditions(user=None):
 		scopes = active_scopes(user)
 		bounds = area_bounds(scopes)
 		for scope in scopes:
-			parts = []
+			parts = ["`tabGrievance`.workflow_state != 'Draft'"]
 			dept_scope = (
 				scope.get("department_scope")
 				if isinstance(scope, dict)
@@ -263,7 +264,9 @@ def grievance_query_conditions(user=None):
 				scope_clauses.append("(" + " and ".join(parts) + ")")
 
 		team = get_subordinate_officers(user)
-		scope_clauses.append(f"`tabGrievance`.assigned_to in ({_quote(team)})")
+		scope_clauses.append(
+			f"(`tabGrievance`.assigned_to in ({_quote(team)}) and `tabGrievance`.workflow_state != 'Draft')"
+		)
 		clauses.append("(" + " or ".join(scope_clauses) + ")")
 
 	if not clauses:
@@ -280,6 +283,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		return True
 
 	if ROLE_SUBMITTER in roles:
+		owner = doc.get("owner") if isinstance(doc, dict) else getattr(doc, "owner", None)
 		submitter = doc.get("submitter") if isinstance(doc, dict) else getattr(doc, "submitter", None)
 		assisted = (
 			doc.get("assisted_by_officer")
@@ -287,13 +291,20 @@ def has_grievance_permission(doc, ptype="read", user=None):
 			else getattr(doc, "assisted_by_officer", None)
 		)
 		docstatus = doc.get("docstatus", 0) if isinstance(doc, dict) else getattr(doc, "docstatus", 0)
-		owns = bool(submitter) and submitter in _submitter_profiles(user)
+		owns = (bool(submitter) and submitter in _submitter_profiles(user)) or (bool(owner) and owner == user)
 		if owns or assisted == user:
 			if ptype == "read":
 				return True
 			return ptype == "write" and int(docstatus or 0) != 2
 
 	if ROLE_OFFICER not in roles:
+		return False
+
+	status = doc.get("status") if isinstance(doc, dict) else getattr(doc, "status", None)
+	workflow_state = (
+		doc.get("workflow_state") if isinstance(doc, dict) else getattr(doc, "workflow_state", None)
+	)
+	if workflow_state == "Draft" or status == "Draft":
 		return False
 
 	team = get_subordinate_officers(user)
