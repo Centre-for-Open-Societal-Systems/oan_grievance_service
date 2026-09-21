@@ -39,6 +39,10 @@ class SaveDraftRequest(BaseModel):
 
 	`payload` may be empty or incomplete; required grievance fields are not enforced
 	here. Only the draft key is required so the client can resume later.
+
+	Keys inside `payload` MUST use the same names as POST /api/v1/grievances
+	(see `submission.SHARED_SUBMISSION_FIELD_KEYS`). They are stored and later
+	merged into submit without renaming.
 	"""
 
 	model_config = {"extra": "forbid"}

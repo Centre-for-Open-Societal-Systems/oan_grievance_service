@@ -172,6 +172,19 @@ Authenticated submitters omit identity fields (`submitter_type`, `submitter_name
 `contact_mobile`, `contact_email`); the server snapshots them from the session profile.
 `woreda` / `kebele` may be sent instead of `administrative_area`.
 
+**Shared field names (draft `payload` ↔ submit body)**
+
+Keys inside draft `payload` are the **same names** as the submit body. They are
+never renamed on save or on merge (`submission.SHARED_SUBMISSION_FIELD_KEYS`):
+
+`submitter_type`, `submitter_name`, `contact_mobile`, `contact_email`,
+`submission_channel`, `administrative_area`, `administrative_unit`, `woreda`,
+`kebele`, `service_category`, `grievance_type`, `description`, `desired_outcome`,
+`consent_given`, `is_anonymous`, `assisted_by_officer`, `client_submission_uuid`.
+
+Only the envelope differs: draft wraps those keys in `payload` (+ `client_uuid`,
+`step_reached`); submit sends them at the top level (+ optional `client_uuid`).
+
 **Draft-only submit** (payload already saved via `POST /api/v1/drafts`):
 
 ```json

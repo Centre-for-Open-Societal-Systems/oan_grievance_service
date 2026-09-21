@@ -155,13 +155,37 @@ def parse_payload(payload):
 	return parsed
 
 
+# Wizard / case field names shared by draft.payload and POST /api/v1/grievances.
+# Keys are never renamed on save or on submit merge — only the envelope differs
+# (draft wraps them in `payload`; submit sends them at the top level).
+SHARED_SUBMISSION_FIELD_KEYS = (
+	"submitter_type",
+	"submitter_name",
+	"contact_mobile",
+	"contact_email",
+	"submission_channel",
+	"administrative_area",
+	"administrative_unit",
+	"woreda",
+	"kebele",
+	"service_category",
+	"grievance_type",
+	"description",
+	"desired_outcome",
+	"consent_given",
+	"is_anonymous",
+	"assisted_by_officer",
+	"client_submission_uuid",
+)
+
+
 def merge_draft_into_submission(request_kwargs):
 	"""Carry a saved draft's wizard state into the final submit payload (STG-328).
 
-	Draft fields are the base; non-null request values win so the client can
-	correct a field on the review step without re-saving the draft. Returns
-	`(merged_kwargs, already_submitted)` where `already_submitted` is the
-	grievance name the draft became, or None when this is a fresh submit.
+	Draft `payload` keys are copied as-is (same names as submit body fields).
+	Non-null request values win so the client can correct a field on the review
+	step without re-saving the draft. Returns `(merged_kwargs, already_submitted)`
+	where `already_submitted` is the grievance name the draft became, or None.
 
 	Ownership matches the draft API: a claimed draft is only usable by its owner.
 	A missing draft is a no-op so `client_uuid` can still be sent for attachment
@@ -183,6 +207,7 @@ def merge_draft_into_submission(request_kwargs):
 		return kwargs, draft.submitted_as
 
 	payload = parse_payload(draft.payload)
+	# Shallow merge only — do not rename or remap keys.
 	merged = {**payload}
 	for key, value in kwargs.items():
 		if value is not None:

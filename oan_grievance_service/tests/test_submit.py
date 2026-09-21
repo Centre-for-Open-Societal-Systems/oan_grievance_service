@@ -178,6 +178,12 @@ class TestSubmitGrievanceAPI(FrappeTestCase):
 		self.assertEqual(doc.desired_outcome, "Immediate voucher disbursement.")
 		self.assertEqual(doc.administrative_area, self.area)
 		self.assertEqual(doc.service_category, "Inputs")
+		# Draft payload keys are carried with the same names (no remapping).
+		self.assertEqual(doc.submission_channel, "Mobile App")
+		expected_type = frappe.db.get_value(
+			"Grievance Type", {"type_name": "Fertilizer Shortage"}, "name"
+		) or "Fertilizer Shortage"
+		self.assertEqual(doc.grievance_type, expected_type)
 
 		draft_row = frappe.db.get_value(
 			"Grievance Draft",
@@ -187,6 +193,22 @@ class TestSubmitGrievanceAPI(FrappeTestCase):
 		)
 		self.assertEqual(draft_row.submitted_as, doc.name)
 		self.assertEqual(draft_row.owner_user, self.user.name)
+
+	def test_draft_and_submit_share_the_same_field_key_names(self):
+		"""Contract: draft.payload keys match submit body keys — no renaming."""
+		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.services.submission import SHARED_SUBMISSION_FIELD_KEYS
+
+		submit_fields = set(SubmitGrievanceRequest.model_fields) - {
+			"client_uuid",  # envelope / link key, not a case column from payload
+		}
+		# Every shared wizard key is either a submit schema field or an allowed extra
+		# (woreda/kebele) used by submit resolution via model extra="allow".
+		for key in SHARED_SUBMISSION_FIELD_KEYS:
+			self.assertTrue(
+				key in submit_fields or key in {"woreda", "kebele"},
+				msg=f"Shared key {key!r} is missing from submit contract",
+			)
 
 	def test_resubmitting_claimed_draft_returns_original_ticket(self):
 		frappe.set_user(self.user.name)

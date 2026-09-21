@@ -45,6 +45,9 @@ class SubmitGrievanceRequest(BaseModel):
 	`identity.validate_submission_payload(require_presence=True)` enforces them
 	with per-field errors (STG-321 / STG-328).
 
+	Field names match draft `payload` keys exactly
+	(`submission.SHARED_SUBMISSION_FIELD_KEYS`) — no renaming on carry-over.
+
 	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
 	9-digit numbers are accepted and normalised in the domain layer, then checked
 	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail.
@@ -67,6 +70,7 @@ class SubmitGrievanceRequest(BaseModel):
 	client_uuid: str | None = None
 	client_submission_uuid: str | None = None
 	desired_outcome: str | None = None
+	administrative_unit: str | None = None
 
 
 ALLOWED_GRIEVANCE_ROLES = [
