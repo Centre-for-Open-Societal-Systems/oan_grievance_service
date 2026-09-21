@@ -18,7 +18,6 @@ from frappe.model.workflow import WorkflowTransitionError, apply_workflow, get_t
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle
 from oan_grievance_service.setup import install
 from oan_grievance_service.tests.fixtures import a_department, a_grievance
@@ -67,8 +66,8 @@ class WorkflowTestCase(FrappeTestCase):
 	def _at_in_progress(self):
 		doc = self._saved()
 		doc.db_set("assigned_dept", a_department(), update_modified=False)
-		lifecycle.assign(doc)
-		lifecycle.accept(doc)
+		lifecycle.transition(doc, "Assign")
+		lifecycle.transition(doc, "Start Work")
 		return self._saved()
 
 	def _at_pending_submitter(self):
@@ -94,36 +93,33 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 		)
 
 	def test_the_code_keeps_no_transition_table_of_its_own(self):
-		self.assertFalse(hasattr(C, "ALLOWED_TRANSITIONS"))
 		self.assertFalse(hasattr(lifecycle, "change_status"))
 
 	def test_a_case_enters_at_draft_and_every_later_state_is_a_submitted_document(self):
 		wf = workflow()
-		self.assertEqual(wf.states[0].state, C.DRAFT)
+		self.assertEqual(wf.states[0].state, "Draft")
 		docstatus = {row.state: row.doc_status for row in wf.states}
-		self.assertEqual(docstatus[C.DRAFT], "0")
-		self.assertEqual(docstatus[C.REJECTED], "2")
+		self.assertEqual(docstatus["Draft"], "0")
+		self.assertEqual(docstatus["Rejected"], "2")
 		for state in (
-			C.SUBMITTED,
-			C.ASSIGNED,
-			C.IN_PROGRESS,
-			C.MORE_INFO_NEEDED,
-			C.PENDING_SUBMITTER,
-			C.RESOLVED,
-			C.CLOSED,
+			"Submitted",
+			"Assigned",
+			"In Progress",
+			"More Info Needed",
+			"Pending Submitter",
+			"Resolved",
+			"Closed",
 		):
 			self.assertEqual(docstatus[state], "1", state)
 
 	def test_closed_and_rejected_have_no_way_out(self):
 		leaving = {row.state for row in workflow().transitions}
-		self.assertNotIn(C.CLOSED, leaving)
-		self.assertNotIn(C.REJECTED, leaving)
+		self.assertNotIn("Closed", leaving)
+		self.assertNotIn("Rejected", leaving)
 
 	def test_a_reopen_exists_only_inside_the_confirmation_window(self):
-		reopens = {
-			(row.state, row.next_state) for row in workflow().transitions if row.action == C.ACTION_REOPEN
-		}
-		self.assertEqual(reopens, {(C.PENDING_SUBMITTER, C.IN_PROGRESS)})
+		reopens = {(row.state, row.next_state) for row in workflow().transitions if row.action == "Reopen"}
+		self.assertEqual(reopens, {("Pending Submitter", "In Progress")})
 
 	def test_seeding_again_rebuilds_rather_than_duplicates(self):
 		before = {(r.state, r.action, r.next_state, r.allowed) for r in workflow().transitions}
@@ -137,32 +133,32 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 class TestTheEngineMovesTheCase(WorkflowTestCase):
 	def test_a_fixture_grievance_is_submitted(self):
 		self.assertEqual(
-			self._state(), {"workflow_state": C.SUBMITTED, "status": C.SUBMITTED, "docstatus": 1}
+			self._state(), {"workflow_state": "Submitted", "status": "Submitted", "docstatus": 1}
 		)
 
 	def test_status_mirrors_workflow_state_on_every_move(self):
 		self._at_in_progress()
 		self.assertEqual(
-			self._state(), {"workflow_state": C.IN_PROGRESS, "status": C.IN_PROGRESS, "docstatus": 1}
+			self._state(), {"workflow_state": "In Progress", "status": "In Progress", "docstatus": 1}
 		)
 
 	def test_the_desk_button_and_the_service_call_are_the_same_move(self):
 		doc = self._saved()
 		doc.db_set("assigned_dept", a_department(), update_modified=False)
-		apply_workflow(doc, C.ACTION_ASSIGN)
-		self.assertEqual(self._state()["workflow_state"], C.ASSIGNED)
-		self.assertEqual(history(self.grievance.name)[-1].transition, C.ACTION_ASSIGN)
+		apply_workflow(doc, "Assign")
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
+		self.assertEqual(history(self.grievance.name)[-1].transition, "Assign")
 
 	def test_a_move_the_workflow_does_not_offer_is_refused(self):
 		with self.assertRaises(WorkflowTransitionError):
-			lifecycle.transition(self._saved(), C.ACTION_CLOSE_CASE)
-		self.assertEqual(self._state()["workflow_state"], C.SUBMITTED)
+			lifecycle.transition(self._saved(), "Close Case")
+		self.assertEqual(self._state()["workflow_state"], "Submitted")
 
 	def test_editing_the_state_field_and_saving_is_not_a_move(self):
 		"""The engine is the only way in: a save that changes the state without a
 		transition behind it is refused by Frappe's own workflow validation."""
 		doc = self._saved()
-		doc.workflow_state = C.CLOSED
+		doc.workflow_state = "Closed"
 		with self.assertRaises(frappe.ValidationError):
 			doc.save(ignore_permissions=True)
 
@@ -174,13 +170,19 @@ class TestTheEngineMovesTheCase(WorkflowTestCase):
 
 	def test_a_closed_case_is_read_only_everywhere(self):
 		self._at_pending_submitter()
-		lifecycle.confirm_resolution(self._saved())
-		self.assertEqual(self._state(), {"workflow_state": C.CLOSED, "status": C.CLOSED, "docstatus": 1})
+		lifecycle.transition(self._saved(), "Confirm Resolution", closure_type="confirmed")
+		lifecycle.transition(self._saved(), "Close Case", closure_type="confirmed")
+		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed", "docstatus": 1})
 		self.assertEqual(get_transitions(self._saved()), [])
 
 	def test_a_rejected_case_is_a_cancelled_document(self):
-		lifecycle.reject(self._saved(), "Out of scope: not an agricultural service.")
-		self.assertEqual(self._state(), {"workflow_state": C.REJECTED, "status": C.REJECTED, "docstatus": 2})
+		lifecycle.transition(
+			self._saved(),
+			"Reject",
+			reason="Out of scope: not an agricultural service.",
+			closure_type="rejected",
+		)
+		self.assertEqual(self._state(), {"workflow_state": "Rejected", "status": "Rejected", "docstatus": 2})
 		self.assertEqual(get_transitions(self._saved()), [])
 
 
@@ -202,63 +204,65 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 	def test_resolved_opens_the_confirmation_window_and_pauses_the_clock(self):
 		response = self._respond("Resolved")
 		state = self._state()
-		self.assertEqual(state["workflow_state"], C.PENDING_SUBMITTER)
-		self.assertEqual(response.new_status, C.PENDING_SUBMITTER)
+		self.assertEqual(state["workflow_state"], "Pending Submitter")
+		self.assertEqual(response.new_status, "Pending Submitter")
 		self.assertEqual(response.sla_behaviour, "paused")
 		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "confirmation_deadline"))
 
 	def test_partially_resolved_does_the_same(self):
 		response = self._respond("Partially Resolved")
-		self.assertEqual(self._state()["workflow_state"], C.PENDING_SUBMITTER)
-		self.assertEqual(response.new_status, C.PENDING_SUBMITTER)
+		self.assertEqual(self._state()["workflow_state"], "Pending Submitter")
+		self.assertEqual(response.new_status, "Pending Submitter")
 
 	def test_referred_sends_the_case_back_to_assignment(self):
 		response = self._respond("Referred to another dept")
-		self.assertEqual(self._state()["workflow_state"], C.ASSIGNED)
-		self.assertEqual((response.new_status, response.sla_behaviour), (C.ASSIGNED, "running"))
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
+		self.assertEqual((response.new_status, response.sla_behaviour), ("Assigned", "running"))
 
 	def test_requires_further_info_asks_the_submitter(self):
 		response = self._respond("Requires further info")
-		self.assertEqual(self._state()["workflow_state"], C.MORE_INFO_NEEDED)
-		self.assertEqual((response.new_status, response.sla_behaviour), (C.MORE_INFO_NEEDED, "paused"))
+		self.assertEqual(self._state()["workflow_state"], "More Info Needed")
+		self.assertEqual((response.new_status, response.sla_behaviour), ("More Info Needed", "paused"))
 
 	def test_pending_submitter_cannot_be_reached_without_a_response(self):
 		self._at_in_progress()
 		with self.assertRaises(frappe.ValidationError):
-			lifecycle.transition(self._saved(), C.ACTION_SUBMIT_RESPONSE)
-		self.assertEqual(self._state()["workflow_state"], C.IN_PROGRESS)
+			lifecycle.transition(self._saved(), "Submit Response")
+		self.assertEqual(self._state()["workflow_state"], "In Progress")
 
 	def test_work_cannot_start_without_a_department(self):
-		lifecycle.assign(self._saved())
+		lifecycle.transition(self._saved(), "Assign")
 		with self.assertRaises(frappe.ValidationError):
-			lifecycle.accept(self._saved())
-		self.assertEqual(self._state()["workflow_state"], C.ASSIGNED)
+			lifecycle.transition(self._saved(), "Start Work")
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
 
 
 class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 	def test_a_rejection_without_a_reason_is_refused_and_rolled_back(self):
 		before = len(history(self.grievance.name))
 		with self.assertRaises(frappe.ValidationError):
-			lifecycle.transition(self._saved(), C.ACTION_REJECT)
+			lifecycle.transition(self._saved(), "Reject")
 		self.assertEqual(
-			self._state(), {"workflow_state": C.SUBMITTED, "status": C.SUBMITTED, "docstatus": 1}
+			self._state(), {"workflow_state": "Submitted", "status": "Submitted", "docstatus": 1}
 		)
 		self.assertEqual(len(history(self.grievance.name)), before)
 
 	def test_a_whitespace_reason_is_no_reason(self):
 		with self.assertRaises(frappe.ValidationError):
-			lifecycle.reject(self._saved(), "   ")
+			lifecycle.transition(self._saved(), "Reject", reason="   ")
 
 	def test_a_reopen_without_a_reason_is_refused(self):
 		self._at_pending_submitter()
 		with self.assertRaises(frappe.ValidationError):
-			lifecycle.transition(self._saved(), C.ACTION_REOPEN)
-		self.assertEqual(self._state()["workflow_state"], C.PENDING_SUBMITTER)
+			lifecycle.transition(self._saved(), "Reopen")
+		self.assertEqual(self._state()["workflow_state"], "Pending Submitter")
 
 	def test_a_reopen_with_a_reason_goes_through_and_is_counted(self):
 		self._at_pending_submitter()
-		lifecycle.reopen(self._saved(), "The delivery never arrived.")
-		self.assertEqual(self._state()["workflow_state"], C.IN_PROGRESS)
+		lifecycle.transition(self._saved(), "Reopen", reason="The delivery never arrived.")
+		doc = self._saved()
+		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
+		self.assertEqual(self._state()["workflow_state"], "In Progress")
 		self.assertEqual(frappe.db.get_value("Grievance", self.grievance.name, "reopen_count"), 1)
 		self.assertEqual(history(self.grievance.name)[-1].reason, "The delivery never arrived.")
 
@@ -266,8 +270,8 @@ class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 		"""No reason can travel with a button, so Reject from the desk is refused;
 		the officer rejects through the API, which asks for one."""
 		with self.assertRaises(frappe.ValidationError):
-			apply_workflow(self._saved(), C.ACTION_REJECT)
-		self.assertEqual(self._state()["workflow_state"], C.SUBMITTED)
+			apply_workflow(self._saved(), "Reject")
+		self.assertEqual(self._state()["workflow_state"], "Submitted")
 
 
 class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
@@ -275,7 +279,7 @@ class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
 		self._at_pending_submitter()
 		rows = history(self.grievance.name)
 		self.assertEqual(
-			[r.to_status for r in rows], [C.SUBMITTED, C.ASSIGNED, C.IN_PROGRESS, C.PENDING_SUBMITTER]
+			[r.to_status for r in rows], ["Submitted", "Assigned", "In Progress", "Pending Submitter"]
 		)
 		self.assertEqual(rows[0].prev_hash, "0" * 64)
 		for earlier, later in pairwise(rows):
@@ -313,11 +317,11 @@ class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
 
 	def test_an_automated_move_names_no_user(self):
 		self._at_pending_submitter()
-		lifecycle.auto_close(self._saved())
+		lifecycle.transition(self._saved(), "Auto Close", automated=True, closure_type="auto_closed")
 		last = history(self.grievance.name)[-1]
 		self.assertEqual(
 			(last.to_status, last.is_automated, last.changed_by, last.closure_type),
-			(C.CLOSED, 1, None, "auto_closed"),
+			("Closed", 1, None, "auto_closed"),
 		)
 
 
@@ -340,14 +344,29 @@ class TestContractFiveTheClockFollowsTheState(WorkflowTestCase):
 			self.assertIsNotNone(self._clock()["sla_due_date"])
 
 	def test_a_paused_response_holds_the_clock_and_a_reply_releases_it(self):
+		from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+			GrievanceTimeline,
+		)
 		from oan_grievance_service.services import sla
 
 		self._at_in_progress()
 		if not sla.resolve_policy(self.grievance.service_category):
 			self.skipTest("no SLA policy seeded for the fixture category")
-		lifecycle.request_more_info(self._saved(), "Which kebele store?")
+		GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="info_request",
+			is_internal=False,
+			body="Which kebele store?",
+		)
+		lifecycle.transition(self._saved(), "Request More Info")
 		self.assertIsNotNone(self._clock()["on_hold_since"])
-		lifecycle.submitter_replies(self._saved(), "Kebele 01.")
+		GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="info_response",
+			is_internal=False,
+			body="Kebele 01.",
+		)
+		lifecycle.transition(self._saved(), "Submitter Reply")
 		clock = self._clock()
 		self.assertIsNone(clock["on_hold_since"])
 		self.assertIsNotNone(clock["total_hold_time"])

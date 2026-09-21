@@ -266,12 +266,12 @@ class TestGrievance(FrappeTestCase):
 	def test_segments_are_read_only(self):
 		"""Describing a ticket must not consume a sequence number."""
 		before = ticket_number.segments(self.woreda_leaf.name, "Inputs")
-		self.assertEqual(before, {"region": "T", "category": "001", "year": before["year"]})
+		self.assertEqual((before.region, before.category, before.year), ("T", "001", before.year))
 
 		g = self._submit()
 		after = ticket_number.segments(self.woreda_leaf.name, "Inputs")
 		self.assertEqual(before, after)
-		self.assertTrue(g.ticket_number.startswith(before["region"] + before["category"]))
+		self.assertTrue(g.ticket_number.startswith(before.region + before.category))
 
 	def test_display_grouping_is_presentation_only(self):
 		self.assertEqual(ticket_number.display("3001002A0"), "3-001-002A-0")
@@ -627,8 +627,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
 		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
+		from oan_auth_service.api.utils import validate_mobile
+
 		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
-		from oan_grievance_service.services import submission as submission_svc
 
 		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
 		req = SubmitGrievanceRequest(
@@ -650,12 +651,15 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertEqual(resolved["contact_mobile"], "+251911000111")
 		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
 
-		# Domain Ethiopian normalisation (SafePhone would reject bare 9-digit).
+		# Strict Frappe phone validation with country code
 		self.assertEqual(
-			submission_svc.normalise_mobile(resolved["contact_mobile"]),
+			validate_mobile(resolved["contact_mobile"]),
 			"+251911000111",
 		)
-		self.assertEqual(submission_svc.normalise_mobile("911000111"), "+251911000111")
+		self.assertEqual(
+			validate_mobile("+251911000111"),
+			"+251911000111",
+		)
 
 
 class TestGrievanceStaffOptions(FrappeTestCase):

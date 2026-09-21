@@ -21,14 +21,21 @@ An upload is not stored and then checked. It is checked and then stored:
 
 Files may be attached before the Grievance exists. The wizard uploads while the
 submitter is still filling it in, so an upload carries either a `grievance` or a
-draft's `client_uuid`; `submission.attach_draft_files` re-parents the draft ones
+draft's `client_uuid`; `attach_draft_files` re-parents the draft ones
 when the case is finally filed.
 """
 
 import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
+from oan_auth_service.api.utils import (
+	get_uploaded_files,
+	handle_api_errors,
+	require_role,
+	success_response,
+	validate_request,
+)
+from pydantic import BaseModel, Field, model_validator
 
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	SCAN_CLEAN,
@@ -38,147 +45,149 @@ from oan_grievance_service.services import audit, scanning
 
 from .grievance import ALLOWED_GRIEVANCE_ROLES
 
+route = prefixed("/api/v1/attachments")
+
 # A grievance is evidence, not a file share. The prototype shows a small panel, and
 # an unbounded one is a denial-of-service surface on a public intake form.
 MAX_ATTACHMENTS_PER_CASE = 10
 
-# REST forms of the four endpoints below. Evidence hangs off a case, so upload and
-# list live under the grievance; a single file is addressed by its own id.
 grievance_route = prefixed("/api/v1/grievances")
-attachment_route = prefixed("/api/v1/attachments")
-draft_route = prefixed("/api/v1/drafts")
 
 
-@grievance_route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"/<grievance>/attachments", methods=("POST",), summary="Upload a supporting document to a grievance"
-)
-@draft_route(
-	"/attachments",
-	methods=("POST",),
-	allow_guest=True,
-	summary="Upload a supporting document to a draft, by client_uuid",
-)
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+class SubmitDocumentsRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	grievance: str = Field(..., min_length=1, description="Unique Grievance document identifier")
+	document_type: str | list[str] | None = None
+	response: str | None = None
+
+	@model_validator(mode="after")
+	def validate_upload_limits(self):
+		uploads = get_uploaded_files()
+		if not uploads:
+			raise ValueError(_("At least one document file must be attached."))
+		if len(uploads) > MAX_ATTACHMENTS_PER_CASE:
+			raise ValueError(
+				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
+			)
+		existing_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance})
+		if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_CASE:
+			raise ValueError(
+				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
+			)
+		return self
+
+
+@grievance_route("/<grievance>/attachments", methods=("POST",), summary="Upload supporting documents")
+@route("", methods=("POST",), summary="Upload supporting documents")
+@frappe.whitelist(methods=["POST"])
 @handle_api_errors
-def submit_document(
-	grievance: str | None = None,
-	client_uuid: str | None = None,
-	document_type: str | None = None,
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+@validate_request(SubmitDocumentsRequest)
+def submit_documents(
+	grievance: str,
+	document_type: str | list[str] | None = None,
 	response: str | None = None,
+	**kwargs,
 ):
-	"""Upload one supporting document against a grievance or an open draft.
+	"""Upload one or more supporting documents against a grievance.
 
-	The file arrives as multipart form data, which is how a browser sends a file
-	the submitter picked; nothing about it is trusted until the bytes are read.
-
-	Guests reach the draft path only. A draft is already reachable without a token
-	-- the wizard saves progress before the submitter has registered -- and an
-	upload that cannot follow it there leaves a farmer able to describe their
-	evidence but not attach it. The draft's `client_uuid` is the capability, the
-	same one draft.load already trusts. The grievance path still requires a role,
-	because by then there is a case with an owner.
+	Requires authentication (Grievance Submitter, Officer, or Admin role).
+	Accepts single or multiple files in multipart form data.
+	Always returns a list of created attachment records.
 	"""
-	if not (grievance or client_uuid):
-		frappe.throw(
-			_("An attachment must name either a grievance or a draft."),
-			title=_("Nothing To Attach To"),
+	case = _case_for_write(grievance)
+	owner = {"grievance": case.name}
+	submitter = case.submitter
+
+	uploads = get_uploaded_files()
+
+	# 1. Validate each file and strip location metadata before storing
+	prepared_files = []
+	for upload in uploads:
+		file_name = upload.file_name
+		content = upload.content
+
+		validated = scanning.validate_upload(file_name, content)
+		cleaned_content = scanning.strip_location_metadata(content, validated.mime_type)
+
+		prepared_files.append(
+			{
+				"file_name": validated.file_name,
+				"content": cleaned_content,
+				"mime_type": validated.mime_type,
+				"size_bytes": len(cleaned_content),
+				"checksum_sha256": scanning.sha256_of(cleaned_content),
+			}
 		)
 
-	upload = _uploaded_file()
-	content = upload["content"]
-	file_name = upload["file_name"]
+	# 2. Persist File and Grievance Attachment records
+	results = []
+	attachment_names = []
+	for idx, item in enumerate(prepared_files):
+		stored = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": item["file_name"],
+				"content": item["content"],
+				"is_private": 1,
+			}
+		).insert(ignore_permissions=True)
 
-	# Refuses on size, on an unrecognised or disallowed type, and on an extension
-	# that disagrees with the bytes. Returns the sniffed type, which is what gets
-	# recorded -- the client's claim never does.
-	mime = scanning.validate_upload(file_name, content)
+		doc_type = (
+			document_type[idx]
+			if isinstance(document_type, list | tuple) and idx < len(document_type)
+			else (str(document_type) if document_type else None)
+		)
 
-	owner = {}
-	if grievance:
-		_require_grievance_role()
-		case = _case_for_write(grievance)
-		owner = {"grievance": case.name}
-		submitter = case.submitter
-		_enforce_attachment_limit(owner)
-	else:
-		owner = {"draft": _draft_for_write(client_uuid)}
-		submitter = None
-		_enforce_attachment_limit(owner)
+		attachment = frappe.get_doc(
+			{
+				"doctype": "Grievance Attachment",
+				**owner,
+				"response": response,
+				"document_type": doc_type,
+				"file_name": stored.file_name,
+				"file_url": stored.file_url,
+				"mime_type": item["mime_type"],
+				"size_bytes": item["size_bytes"],
+				"checksum_sha256": item["checksum_sha256"],
+				"uploaded_by_submitter": submitter,
+				"uploaded_by_user": None if submitter else _acting_user(),
+				"scan_status": SCAN_PENDING,
+			}
+		).insert(ignore_permissions=True)
 
-	# Re-encoded before storage, not after: the stripped copy is the only one that
-	# is ever written, so a crash between write and strip cannot leave coordinates
-	# on disk.
-	content = scanning.strip_location_metadata(content, mime)
+		frappe.db.set_value(
+			"File",
+			stored.name,
+			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
+			update_modified=False,
+		)
 
-	# The File is created unattached and re-pointed once the row it belongs to has a
-	# name. It cannot be attached at insert because the attachment row needs the
-	# file_url the insert returns, and it must not stay unattached because core
-	# resolves a private file's permission through whatever it is attached to.
-	stored = frappe.get_doc(
-		{
-			"doctype": "File",
-			"file_name": file_name,
-			"content": content,
-			"is_private": 1,
-		}
-	).insert(ignore_permissions=True)
+		attachment_names.append(attachment.name)
+		results.append(
+			{
+				"attachment": attachment.name,
+				"file_name": stored.file_name,
+				"mime_type": item["mime_type"],
+				"size_bytes": item["size_bytes"],
+				"checksum_sha256": attachment.checksum_sha256,
+				"scan_status": attachment.scan_status,
+			}
+		)
 
-	attachment = frappe.get_doc(
-		{
-			"doctype": "Grievance Attachment",
-			**owner,
-			"response": response,
-			"document_type": document_type,
-			"file_name": stored.file_name,
-			"file_url": stored.file_url,
-			"mime_type": mime,
-			"size_bytes": len(content),
-			"checksum_sha256": scanning.sha256_of(content),
-			"uploaded_by_submitter": submitter,
-			"uploaded_by_user": None if submitter else _acting_user(),
-			"scan_status": SCAN_PENDING,
-		}
-	).insert(ignore_permissions=True)
-
-	frappe.db.set_value(
-		"File",
-		stored.name,
-		{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
-		update_modified=False,
-	)
-
-	# Scanned on arrival rather than on the hour. The hourly job stays as the net
-	# that catches anything this enqueue dropped -- a worker restart, a scanner that
-	# was down at the moment of upload.
-	frappe.enqueue(
-		"oan_grievance_service.services.scanning.scan_attachment",
-		queue="short",
-		name=attachment.name,
-		enqueue_after_commit=True,
-	)
+	# 3. Asynchronously enqueue scanning for all created attachments
+	scanning.enqueue_scan_attachments(attachment_names)
 
 	return success_response(
-		data={
-			"attachment": attachment.name,
-			"file_name": stored.file_name,
-			"mime_type": mime,
-			"size_bytes": len(content),
-			"checksum_sha256": attachment.checksum_sha256,
-			# Pending is the honest answer and the client should show it. No file_url
-			# is returned: until a scanner clears it there is nothing safe to point at,
-			# and download() is where that decision is made.
-			"scan_status": attachment.scan_status,
-		},
-		message=_("Document uploaded and queued for scanning"),
+		data=results,
+		message=_("{0} document(s) uploaded and queued for scanning").format(len(results)),
 	)
 
 
-@grievance_route(
-	"/<grievance>/attachments",
-	methods=("GET",),
-	summary="List a grievance's attachments with their scan verdicts",
-)
-@frappe.whitelist()
+@grievance_route("/<grievance>/attachments", methods=("GET",), summary="List a grievance's attachments")
+@route("", methods=("GET",), summary="List attachments for a grievance")
+@frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def get_attachments(grievance: str):
@@ -213,15 +222,12 @@ def get_attachments(grievance: str):
 		# The case-level check above is what authorises this read.
 		ignore_permissions=True,
 	)
-	for row in rows:
-		row["servable"] = row["scan_status"] == SCAN_CLEAN
 
-	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=case.name)
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@attachment_route("/<attachment>/download", methods=("GET",), summary="A clean attachment's file URL")
-@frappe.whitelist()
+@route("/<attachment>/download", methods=("GET",), summary="Get attachment download URL")
+@frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def download(attachment: str):
@@ -256,8 +262,8 @@ def download(attachment: str):
 	)
 
 
-@attachment_route("/<attachment>", methods=("DELETE",), summary="Remove an attachment from an open case")
-@frappe.whitelist()
+@route("/<attachment>", methods=("DELETE", "POST"), summary="Delete an attachment")
+@frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def delete(attachment: str):
@@ -267,12 +273,10 @@ def delete(attachment: str):
 	is part of what the decision rested on and removing it would rewrite the record
 	after the fact.
 	"""
-	from oan_grievance_service.services import constants as C
-
 	doc = frappe.get_doc("Grievance Attachment", attachment)
 	case = _case_for_write(doc.grievance)
 
-	if case.status in C.TERMINAL_STATUSES or case.status == C.RESOLVED:
+	if case.status in ("Closed", "Rejected", "Resolved"):
 		frappe.throw(
 			_("Evidence cannot be removed once the grievance is {0}.").format(case.status),
 			title=_("Case Is Closed"),
@@ -299,41 +303,6 @@ def _acting_user():
 	return None if user in ("Guest", None) else user
 
 
-def _require_grievance_role():
-	"""The role check submit_document used to carry as a decorator.
-
-	Applied here instead so it covers the grievance path only: the draft path is
-	reachable by a guest, exactly as draft.save and draft.load already are.
-	"""
-	roles = set(frappe.get_roles(frappe.session.user))
-	if not roles & set(ALLOWED_GRIEVANCE_ROLES):
-		frappe.throw(
-			_("You do not have permission to attach documents to a grievance."),
-			frappe.PermissionError,
-		)
-
-
-def _uploaded_file():
-	"""The multipart file on this request, as a name and its bytes.
-
-	Frappe puts the parsed upload on `frappe.request.files`. Reading it here keeps
-	every caller above working in bytes, which is what the checks need.
-	"""
-	files = getattr(frappe.request, "files", None) if frappe.request else None
-	if not files or "file" not in files:
-		frappe.throw(
-			_("No file was uploaded. Send it as multipart form data under the key 'file'."),
-			title=_("No File"),
-		)
-
-	upload = files["file"]
-	content = upload.stream.read()
-	if not content:
-		frappe.throw(_("The uploaded file is empty."), title=_("Empty File"))
-
-	return {"file_name": upload.filename, "content": content}
-
-
 def _case_for_read(grievance):
 	"""The grievance, if this user may read it. Raises otherwise."""
 	from oan_grievance_service.permissions import has_grievance_permission
@@ -356,31 +325,3 @@ def _case_for_write(grievance):
 		audit.log_denied(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.name)
 		frappe.throw(_("You cannot add evidence to this grievance."), frappe.PermissionError)
 	return doc
-
-
-def _draft_for_write(client_uuid):
-	"""The draft's name, if it exists and has not already been submitted."""
-	name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
-	if not name:
-		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
-
-	if frappe.db.get_value("Grievance Draft", name, "submitted_as"):
-		frappe.throw(
-			_("This draft has already been submitted."),
-			title=_("Already Submitted"),
-		)
-	return name
-
-
-def _enforce_attachment_limit(owner):
-	"""The cap applies to a draft as well as a case.
-
-	Enforcing it only on the grievance path made it a suggestion: fill a draft with
-	a hundred files, submit it, and they all arrive at once.
-	"""
-	count = frappe.db.count("Grievance Attachment", owner)
-	if count >= MAX_ATTACHMENTS_PER_CASE:
-		frappe.throw(
-			_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE),
-			title=_("Too Many Attachments"),
-		)

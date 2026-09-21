@@ -59,7 +59,10 @@ class TestTypeSniffing(FrappeTestCase):
 			scanning.validate_upload("scan.jpg", PDF_HEADER)
 
 	def test_a_matching_file_passes_and_returns_its_type(self):
-		self.assertEqual(scanning.validate_upload("receipt.jpg", JPEG_HEADER), "image/jpeg")
+		validated = scanning.validate_upload("receipt.jpg", JPEG_HEADER)
+		self.assertEqual(validated.mime_type, "image/jpeg")
+		self.assertEqual(validated.file_name, "receipt.jpg")
+		self.assertEqual(validated.size_bytes, len(JPEG_HEADER))
 
 	def test_a_file_over_the_limit_is_refused(self):
 		oversized = JPEG_HEADER + b"\x00" * scanning.MAX_SIZE_BYTES

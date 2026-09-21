@@ -58,8 +58,9 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
 | Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
 | List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
-| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save`                            | POST   |
-| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.load`                             | GET    |
+| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
+| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
+| Delete Draft              | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
 | Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
 | Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
 | Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
@@ -328,9 +329,9 @@ class TestAPIEndpoints(FrappeTestCase):
 
 When introducing a new API or modifying parameters:
 
-1. Open [`postman/oan_grievance_collection.json`](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/postman/oan_grievance_collection.json).
+1. Open [`postman/oan_grievance_rest_collection.json`](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/postman/oan_grievance_rest_collection.json).
 2. Add the request definition under the appropriate folder with:
-   - Method (`POST` / `GET`).
-   - URL: `{{base_url}}/api/method/oan_grievance_service.api.v1.<module>.<endpoint>`.
+   - Method (`POST` / `GET` / `DELETE`).
+   - URL: `{{base_url}}/api/v1/<endpoint>`.
    - Headers: `Authorization: Bearer {{auth_token}}`, `Content-Type: application/json`.
    - Sample request payload and example response body.

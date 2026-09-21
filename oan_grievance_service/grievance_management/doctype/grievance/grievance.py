@@ -6,7 +6,6 @@ from frappe import _
 from frappe.model.document import Document
 from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import hooks_handlers, identity, ticket_number
 
 # Re-export for callers; single source of truth lives on identity.
@@ -60,7 +59,7 @@ class Grievance(Document):
 		"""`workflow_state` is what the engine drives; `status` mirrors it so every
 		reader -- the API, the list filters, the reports -- keeps its field."""
 		if not self.workflow_state:
-			self.workflow_state = self.status or C.DRAFT
+			self.workflow_state = self.status or "Draft"
 		self.status = self.workflow_state
 
 	def workflow_move_from(self):
@@ -135,3 +134,6 @@ def on_doctype_update():
 	frappe.db.add_index("Grievance", ["area_lft"])
 	# The escalation batch selects on this alone, so it is the whole schedule.
 	frappe.db.add_index("Grievance", ["next_escalation_at"])
+	frappe.db.add_index("Grievance", ["status", "sla_due_date"])
+	frappe.db.add_index("Grievance", ["assigned_to", "status"])
+	frappe.db.add_index("Grievance", ["submitter", "status"])

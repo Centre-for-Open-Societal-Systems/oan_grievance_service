@@ -8,7 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "grievance",
-  "draft",
   "response",
   "document_type",
   "col_source",
@@ -29,22 +28,15 @@
  ],
  "fields": [
   {
+   "description": "The grievance case this supporting document belongs to.",
    "fieldname": "grievance",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Grievance",
    "options": "Grievance",
    "read_only": 1,
-   "reqd": 0,
-   "description": "Set once the case exists. A file uploaded from the wizard carries `draft` instead, and is re-pointed here when the draft is submitted."
-  },
-  {
-   "fieldname": "draft",
-   "fieldtype": "Link",
-   "label": "Draft",
-   "options": "Grievance Draft",
-   "read_only": 1,
-   "description": "The open wizard this file was uploaded from, before the grievance existed."
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "description": "Set when the file arrived with an officer response rather than the original submission.",
@@ -139,7 +131,8 @@
    "in_standard_filter": 1,
    "label": "Scan Status",
    "options": "Pending\nClean\nInfected\nFailed",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "scanned_at",

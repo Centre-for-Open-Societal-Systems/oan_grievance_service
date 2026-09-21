@@ -14,18 +14,6 @@ API_NAMESPACE = "/api/method/oan_grievance_service."
 EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.submitter.options",
 	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
-	# The submission wizard fills its dropdowns on page load, before the submitter
-	# has registered and therefore before any token exists. Without these four the
-	# form 401s at the point a farmer opens it, having typed nothing. All four are
-	# read-only reference data -- submitter types, categories, the types under a
-	# category, and a preview of the ticket number -- and carry no personal data.
-	# Draft save/load and grievance submit require an authenticated user.
-	# Discard may still run for abandoned wizard cleanup without a token.
-	"/api/method/oan_grievance_service.api.v1.draft.discard",
-	# Attaching to a draft is part of the same unauthenticated wizard. The endpoint
-	# gates the grievance path on a role itself; a guest reaches only the draft
-	# path, by holding its client_uuid.
-	"/api/method/oan_grievance_service.api.v1.attachment.submit_document",
 ]
 
 

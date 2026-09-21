@@ -5,6 +5,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import add_note, message, timeline
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
 from oan_grievance_service.services import lifecycle
 from oan_grievance_service.tests.fixtures import a_department, a_leaf_area, discard_grievance
 
@@ -101,7 +104,7 @@ class TestTimelineAPI(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		# Inserted as a Draft; the officer's first move below needs a submitted case.
-		lifecycle.submit(self.grievance)
+		lifecycle.transition(self.grievance, "Submit")
 		frappe.local.message_log = []
 		self.addCleanup(frappe.set_user, "Administrator")
 
@@ -129,15 +132,29 @@ class TestTimelineAPI(FrappeTestCase):
 		# Move grievance through Assigned -> In Progress. Work starts in a department.
 		if not self.grievance.assigned_dept:
 			self.grievance.db_set("assigned_dept", a_department(), update_modified=False)
-		lifecycle.assign(self.grievance)
-		lifecycle.accept(self.grievance)
+		lifecycle.transition(self.grievance, "Assign")
+		lifecycle.transition(self.grievance, "Start Work")
 
 		# 2. Officer requests more info
-		lifecycle.request_more_info(self.grievance, "Please provide the receipt number.")
+		GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="info_request",
+			is_internal=False,
+			body="Please provide the receipt number.",
+			author_user=self.officer.name,
+		)
+		lifecycle.transition(self.grievance, "Request More Info")
 
 		# 3. Submitter replies
 		frappe.set_user(self.farmer.name)
-		lifecycle.submitter_replies(self.grievance, "Receipt is #REC-98765.")
+		GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="info_response",
+			is_internal=False,
+			body="Receipt is #REC-98765.",
+			author_submitter=self.grievance.submitter,
+		)
+		lifecycle.transition(self.grievance, "Submitter Reply")
 
 		# 4. Verify Officer timeline view (sees public + internal)
 		frappe.set_user(self.officer.name)

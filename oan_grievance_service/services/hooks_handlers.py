@@ -42,12 +42,12 @@ def before_workflow_action(doc, from_state):
 
 	# FSD D-2: a case only reaches the submitter, or goes back to them for more
 	# detail, on the strength of a formal response saying so.
-	if to_state == C.PENDING_SUBMITTER and not _latest_response_is(doc, "Resolved", "Partially Resolved"):
+	if to_state == "Pending Submitter" and not _latest_response_is(doc, "Resolved", "Partially Resolved"):
 		frappe.throw(
 			_("A grievance reaches Pending Submitter only on a Resolved or Partially Resolved response."),
 			title=_("Response Required"),
 		)
-	if to_state == C.MORE_INFO_NEEDED and not (
+	if to_state == "More Info Needed" and not (
 		_latest_response_is(doc, "Requires further info") or _has_open_info_request(doc)
 	):
 		frappe.throw(
@@ -56,7 +56,7 @@ def before_workflow_action(doc, from_state):
 		)
 
 	# FSD 4.1 step 7 / 4.2 step 1: work starts in a department, never nowhere.
-	if to_state == C.IN_PROGRESS and not doc.assigned_dept:
+	if to_state == "In Progress" and not doc.assigned_dept:
 		frappe.throw(
 			_("Assign the grievance to a department before work on it starts."),
 			title=_("Assignment Required"),
@@ -65,7 +65,7 @@ def before_workflow_action(doc, from_state):
 	# Evidence before a resolution is a per-site rule, off unless the site turns it
 	# on: a farmer reporting a missing payment often has nothing to attach.
 	if (
-		to_state == C.PENDING_SUBMITTER
+		to_state == "Pending Submitter"
 		and frappe.conf.get("grievance_require_evidence_before_resolution")
 		and not frappe.db.count("Grievance Attachment", {"grievance": doc.name})
 	):
@@ -85,7 +85,7 @@ def after_workflow_action(doc, from_state):
 	if not context.action:
 		context.action = _action_between(doc, from_state, to_state)
 
-	if to_state == C.SUBMITTED:
+	if to_state == "Submitted":
 		_record_submission(doc)
 
 	user = None if context.automated else frappe.session.user
@@ -126,7 +126,7 @@ def after_workflow_action(doc, from_state):
 	)
 
 	# FSD 4.2 step 1: the SLA clock starts when the case reaches a department.
-	if to_state == C.ASSIGNED:
+	if to_state == "Assigned":
 		sla.start_clock(doc)
 
 	# The clock stops while the case waits on the submitter and the deadline is
@@ -134,7 +134,7 @@ def after_workflow_action(doc, from_state):
 	# (Grievance Response.sla_behaviour); every other move reads the site's list.
 	# Terminal states freeze the clock as it stands: nothing resumes it.
 	paused = sla.paused_statuses()
-	if to_state in C.TERMINAL_STATUSES:
+	if to_state in ("Closed", "Rejected"):
 		pass
 	elif context.sla_behaviour == "paused" or (not context.sla_behaviour and to_state in paused):
 		sla.pause_clock(doc)
@@ -142,10 +142,10 @@ def after_workflow_action(doc, from_state):
 		sla.resume_clock(doc)
 
 	# FSD 3.6: entering Pending Submitter opens the confirmation window.
-	if to_state == C.PENDING_SUBMITTER:
+	if to_state == "Pending Submitter":
 		doc.db_set(
 			"confirmation_deadline",
-			add_days(now_datetime(), lifecycle.confirmation_window_days()),
+			add_days(now_datetime(), lifecycle.confirmation_window_days(doc.service_category)),
 			update_modified=False,
 		)
 
@@ -217,9 +217,11 @@ def response_after_insert(doc, method=None):
 		ref_docname=doc.name,
 	)
 
-	# D-2: the outcome names the move; the Workflow decides whether it is open from
-	# here (a response filed against a case that is not In Progress is refused).
-	action = C.RESPONSE_OUTCOME_ACTION.get(doc.response_type)
+	# Dynamic Master Resolution: the linked Grievance Response Type names the action.
+	action = None
+	if doc.response_type and frappe.db.exists("Grievance Response Type", doc.response_type):
+		action = frappe.db.get_value("Grievance Response Type", doc.response_type, "workflow_action")
+
 	if action and action in lifecycle.actions_available(grievance):
 		lifecycle.transition(
 			grievance,
@@ -234,8 +236,7 @@ def response_after_insert(doc, method=None):
 	sla.clear_escalation(grievance)
 
 	notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
-	doc.db_set("notification_sent", 1, update_modified=False)
-	doc.db_set("notification_sent_at", now_datetime(), update_modified=False)
+	doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)
 
 
 def reassignment_on_update(doc, method=None):
@@ -254,31 +255,38 @@ def reassignment_on_update(doc, method=None):
 	if doc.get_doc_before_save() and doc.get_doc_before_save().decision != "Pending":
 		return
 
-	if not can_approve_reassignment():
+	if not can_approve_reassignment(request_doc=doc):
 		frappe.throw(
-			_("Only a supervising officer may approve or reject a reassignment."),
+			_(
+				"Only a supervising officer may approve or reject a reassignment (self-approval is not permitted)."
+			),
 			title=_("Approval Not Permitted"),
 		)
 
-	doc.db_set("decided_at", now_datetime(), update_modified=False)
-	doc.db_set("approver", frappe.session.user, update_modified=False)
+	doc.db_set({"decided_at": now_datetime(), "approver": frappe.session.user}, update_modified=False)
 
 	if doc.decision != "Approved":
 		return
 
 	grievance = frappe.get_doc("Grievance", doc.grievance)
-	grievance.db_set("assigned_dept", doc.target_department, update_modified=False)
+	g_updates = {"assigned_dept": doc.target_department}
 	if doc.target_officer:
-		grievance.db_set("assigned_to", doc.target_officer, update_modified=False)
+		g_updates["assigned_to"] = doc.target_officer
 
 	# FSD 3.3.1: SLA treatment follows configured policy and is never implicit.
 	# Appendix D-2 assumes a reset for a referral; 3.3.1 makes it a decision. The
 	# field carries that decision, and an unset field means the clock continues.
 	if doc.sla_treatment == "Reset":
-		grievance.db_set("sla_due_date", None, update_modified=False)
-		grievance.db_set("sla_start_at", None, update_modified=False)
-		grievance.db_set("reminder_50_sent", 0, update_modified=False)
-		grievance.db_set("reminder_80_sent", 0, update_modified=False)
+		g_updates.update(
+			{
+				"sla_due_date": None,
+				"sla_start_at": None,
+				"reminder_50_sent": 0,
+				"reminder_80_sent": 0,
+			}
+		)
+	grievance.db_set(g_updates, update_modified=False)
+	if doc.sla_treatment == "Reset":
 		sla.start_clock(grievance)
 
 	# Record assignment event in unified timeline (not as a fake status change)
@@ -311,8 +319,7 @@ def deferral_on_update(doc, method=None):
 			title=_("Approval Not Permitted"),
 		)
 
-	doc.db_set("approver", frappe.session.user, update_modified=False)
-	doc.db_set("decided_at", now_datetime(), update_modified=False)
+	doc.db_set({"approver": frappe.session.user, "decided_at": now_datetime()}, update_modified=False)
 
 	if doc.status != "Approved":
 		return
@@ -340,18 +347,26 @@ def anonymity_on_update(doc, method=None):
 	if before and before.status != "Pending":
 		return
 
-	doc.db_set("decided_by", frappe.session.user, update_modified=False)
-	doc.db_set("decided_at", now_datetime(), update_modified=False)
+	doc.db_set({"decided_by": frappe.session.user, "decided_at": now_datetime()}, update_modified=False)
 
 	grievance = frappe.get_doc("Grievance", doc.grievance)
-	grievance.db_set("anonymity_status", doc.status, update_modified=False)
+	g_updates = {"anonymity_status": doc.status}
 
 	if doc.status == "Approved":
-		grievance.db_set("is_anonymous", 1, update_modified=False)
-		grievance.db_set("anonymity_approved_by", frappe.session.user, update_modified=False)
+		g_updates["is_anonymous"] = 1
+		g_updates["anonymity_approved_by"] = frappe.session.user
 	elif doc.status == "Rejected":
-		grievance.db_set("is_anonymous", 0, update_modified=False)
-		lifecycle.reject(grievance, "Anonymity refused and identity not disclosed", automated=True)
+		g_updates["is_anonymous"] = 0
+	grievance.db_set(g_updates, update_modified=False)
+
+	if doc.status == "Rejected":
+		lifecycle.transition(
+			grievance,
+			"Reject",
+			reason="Anonymity refused and identity not disclosed",
+			automated=True,
+			closure_type="rejected",
+		)
 
 
 def on_user_registered(user_doc, role=None, roles=None, **kwargs):
