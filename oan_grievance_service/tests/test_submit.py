@@ -180,9 +180,10 @@ class TestSubmitGrievanceAPI(FrappeTestCase):
 		self.assertEqual(doc.service_category, "Inputs")
 		# Draft payload keys are carried with the same names (no remapping).
 		self.assertEqual(doc.submission_channel, "Mobile App")
-		expected_type = frappe.db.get_value(
-			"Grievance Type", {"type_name": "Fertilizer Shortage"}, "name"
-		) or "Fertilizer Shortage"
+		expected_type = (
+			frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+			or "Fertilizer Shortage"
+		)
 		self.assertEqual(doc.grievance_type, expected_type)
 
 		draft_row = frappe.db.get_value(
