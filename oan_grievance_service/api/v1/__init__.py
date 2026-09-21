@@ -13,16 +13,16 @@ Endpoints
     v1.grievance.reopen     FSD FR-06         reopen with a mandatory reason
     v1.grievance.escalate   FSD FR-07         escalate once the SLA has elapsed
 
-    v1.submission.form_meta        FSD 3.11.5   wizard enums in one call
-    v1.submission.categories       FSD 3.2.2    service categories
-    v1.submission.grievance_types  FSD 3.2.2    types for one category
-    v1.submission.ticket_preview   FSD 3.2.3    the ticket prefix, before submitting
 
     v1.administrative_area.get_areas   FSD 3.2.2   the location cascade and search
 
     v1.draft.save           FSD 3.2.1 / 7      persist a partial submission (POST /api/v1/drafts)
     v1.draft.load           FSD 3.2.1 / 7      resume the caller's latest draft (GET /api/v1/drafts)
-    v1.draft.discard        FSD 3.2.1 / 7      abandon a draft
+    v1.draft.discard        FSD 3.2.1 / 7      abandon a draft (DELETE /api/v1/drafts)
+    v1.attachment.submit_document   FSD 3.2.1  upload evidence (POST /api/v1/grievances/<g>/attachments, POST /api/v1/drafts/attachments)
+    v1.attachment.get_attachments   FSD 3.2.1  list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)
+    v1.attachment.download          FSD 3.2.1  a clean file's URL (GET /api/v1/attachments/<id>/download)
+    v1.attachment.delete            FSD 3.2.1  remove evidence from an open case (DELETE /api/v1/attachments/<id>)
 """
 
 VERSION = "v1"

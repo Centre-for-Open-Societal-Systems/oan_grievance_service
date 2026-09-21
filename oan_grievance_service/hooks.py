@@ -57,11 +57,6 @@ has_permission = {
 # FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
 # gates reassignment on L2 approval. FR-10 records every read of a case.
 
-_CLEAR_LOOKUP_CACHE = {
-	"on_update": "oan_grievance_service.api.v1.submission.clear_reference_cache",
-	"after_delete": "oan_grievance_service.api.v1.submission.clear_reference_cache",
-}
-
 doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
@@ -78,12 +73,6 @@ doc_events = {
 	"Grievance Anonymity Request": {
 		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
 	},
-	# The submission wizard caches its lookups. An administrator adding a woreda
-	# or deactivating a category must see it in the form immediately, not after
-	# the cache expires.
-	"Grievance Administrative Area": _CLEAR_LOOKUP_CACHE,
-	"Grievance Service Category": _CLEAR_LOOKUP_CACHE,
-	"Grievance Type": _CLEAR_LOOKUP_CACHE,
 	# FSD 3.8: our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
 	# text. Extends a core doctype through the supported hook rather than editing it.
