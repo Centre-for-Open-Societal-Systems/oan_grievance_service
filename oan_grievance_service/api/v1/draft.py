@@ -60,7 +60,7 @@ class SaveDraftRequest(BaseModel):
 @validate_request(SaveDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-def save_draft(
+def save(
 	client_submission_uuid: str,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
@@ -148,11 +148,18 @@ def save_draft(
 	return success_response(data=_draft_state(doc), message=_("Draft saved"))
 
 
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_DRAFT_ROLES)
+def save_draft(**kwargs):
+	return save(**kwargs)
+
+
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-def get_draft():
+def load():
 	"""Return the caller's latest unsubmitted draft."""
 	user = _session_user()
 	if not user:
@@ -166,6 +173,13 @@ def get_draft():
 	_assert_owner(doc, user)
 
 	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
+
+
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_DRAFT_ROLES)
+def get_draft():
+	return load()
 
 
 class SubmitDraftRequest(BaseModel):
