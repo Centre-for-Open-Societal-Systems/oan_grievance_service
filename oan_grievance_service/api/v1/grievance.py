@@ -34,22 +34,23 @@ route = prefixed("/api/v1/grievances")
 
 
 class SubmitGrievanceRequest(BaseModel):
-	"""Case fields are required at the HTTP edge; identity may come from the profile.
+	"""Case fields may arrive on the request, from a draft, or from the profile.
 
 	Authenticated submitters omit type/name/mobile — `_resolve_submitter_identity`
 	fills them from the session profile, and `CLIENT_IMMUTABLE_FIELDS` ignores any
-	client-supplied copies. Walk-in/IVR staff still send them; domain validation
-	after resolve enforces presence.
+	client-supplied copies. Walk-in/IVR staff still send them.
 
-	`administrative_area` is optional at the edge because intake may send `woreda`
-	and/or `kebele` instead; those are resolved before domain validation.
+	`administrative_area` may be omitted when intake sends `woreda` / `kebele`.
+	Wizard fields may live only on the draft (`client_uuid`); after merge,
+	`identity.validate_submission_payload(require_presence=True)` enforces them
+	with per-field errors (STG-321 / STG-328).
+
+	Field names match draft `payload` keys exactly
+	(`submission.SHARED_SUBMISSION_FIELD_KEYS`) — no renaming on carry-over.
 
 	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
 	9-digit numbers are accepted and normalised in the domain layer, then checked
-	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail
-	(Frappe `validate_email_address` via auth). Required fields, Link targets, and
-	Select options are left to Frappe / `@validate_request` — not re-checked in
-	`identity.validate_submission_payload`.
+	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail.
 	"""
 
 	model_config = {"extra": "allow"}
@@ -57,14 +58,19 @@ class SubmitGrievanceRequest(BaseModel):
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
-	submission_channel: str = Field(..., min_length=1)
+	submission_channel: str | None = None
 	administrative_area: str | None = None
-	service_category: str = Field(..., min_length=1)
-	grievance_type: str = Field(..., min_length=1)
-	description: str = Field(..., min_length=20)
+	service_category: str | None = None
+	grievance_type: str | None = None
+	description: str | None = None
 	contact_email: SafeEmail | None = None
 	assisted_by_officer: str | None = None
 	is_anonymous: int | None = Field(0, ge=0, le=1)
+	consent_given: int | None = Field(None, ge=0, le=1)
+	client_uuid: str | None = None
+	client_submission_uuid: str | None = None
+	desired_outcome: str | None = None
+	administrative_unit: str | None = None
 
 
 ALLOWED_GRIEVANCE_ROLES = [
@@ -208,6 +214,11 @@ def submit(**kwargs):
 	"""
 	from oan_grievance_service.services import notifications
 
+	# STG-328 / STG-325: draft wizard state is the base; request values overlay.
+	kwargs, already_from_draft = submission.merge_draft_into_submission(kwargs)
+	if already_from_draft:
+		return _existing_grievance_response(already_from_draft)
+
 	# Identity is resolved first so the required-field check sees the profile snapshot:
 	# a submitter filing for themselves need not send back their own name and number.
 	resolved_identity = _resolve_submitter_identity(kwargs)
@@ -248,7 +259,8 @@ def submit(**kwargs):
 		resolved["contact_mobile"] = submission.normalise_mobile(resolved["contact_mobile"])
 	kwargs["contact_mobile"] = resolved.get("contact_mobile")
 
-	identity.validate_submission_payload(resolved)
+	# Per-field required + format validation (STG-321 / STG-328) before DocType insert.
+	identity.validate_submission_payload(resolved, require_presence=True)
 
 	# The Link field already refuses a channel that does not exist. This refuses one
 	# that exists but has been switched off, which the link check cannot see.
@@ -259,9 +271,9 @@ def submit(**kwargs):
 	# one that arrives after the first attempt committed. It cannot settle two
 	# retries in flight at once, because both would read nothing and both would
 	# insert; that case is caught on the unique index at insert time below.
-	client_uuid = kwargs.get("client_submission_uuid")
-	if client_uuid:
-		original = _existing_submission(client_uuid)
+	client_submission_uuid = kwargs.get("client_submission_uuid")
+	if client_submission_uuid:
+		original = _existing_submission(client_submission_uuid)
 		if original:
 			return original
 
@@ -287,10 +299,10 @@ def submit(**kwargs):
 		# one was building its document. The index is the only thing that can settle
 		# that race, and it just did: hand back the ticket the winner created rather
 		# than a 500 the client cannot act on.
-		if not client_uuid:
+		if not client_submission_uuid:
 			raise
 		frappe.db.rollback()
-		original = _existing_submission(client_uuid)
+		original = _existing_submission(client_submission_uuid)
 		if not original:
 			raise
 		return original
@@ -355,6 +367,26 @@ def _existing_submission(client_uuid):
 	)
 
 
+def _existing_grievance_response(grievance_name):
+	"""Idempotent reply when a draft was already claimed as this grievance."""
+	existing = frappe.db.get_value(
+		"Grievance",
+		grievance_name,
+		["name", "ticket_number", "status"],
+		as_dict=True,
+	)
+	if not existing:
+		frappe.throw(_("No grievance found for that draft."), title=_("Not Found"))
+	return success_response(
+		data={
+			"ticket_number": existing.ticket_number,
+			"status": existing.status,
+			"duplicate_submission": True,
+		},
+		message=_("Grievance already submitted"),
+	)
+
+
 def _request_anonymity(doc, justification):
 	"""FSD 9.2: anonymity is requested at submission and approved separately."""
 	frappe.get_doc(
@@ -377,12 +409,20 @@ def _claim_draft(client_uuid, doc):
 	if not client_uuid:
 		return 0
 
-	draft = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
-	if not draft:
+	draft_name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	if not draft_name:
 		return 0
 
-	moved = submission.attach_draft_files(draft, doc.name)
-	frappe.db.set_value("Grievance Draft", draft, "submitted_as", doc.name, update_modified=False)
+	draft = frappe.get_doc("Grievance Draft", draft_name)
+	submission._assert_draft_owner(draft)
+	if draft.submitted_as and draft.submitted_as != doc.name:
+		frappe.throw(
+			_("This draft has already been submitted as {0}.").format(draft.submitted_as),
+			title=_("Already Submitted"),
+		)
+
+	moved = submission.attach_draft_files(draft_name, doc.name)
+	frappe.db.set_value("Grievance Draft", draft_name, "submitted_as", doc.name, update_modified=False)
 	return moved
 
 

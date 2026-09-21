@@ -110,21 +110,25 @@ All `POST` / mutation endpoints must define an explicit `pydantic.BaseModel` sch
 
 ```python
 from pydantic import BaseModel, Field
-from oan_auth_service.api.utils import RequiredPhone, SafeEmail
+from oan_auth_service.api.utils import SafeEmail
 
 class SubmitGrievanceRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	submitter_type: str = Field(..., min_length=1, description="Type of submitter")
-	submitter_name: str = Field(..., min_length=1, description="Full name of citizen/org")
-	contact_mobile: RequiredPhone
-	submission_channel: str = Field(..., min_length=1)
-	administrative_area: str = Field(..., min_length=1)
-	service_category: str = Field(..., min_length=1)
-	grievance_type: str = Field(..., min_length=1)
-	description: str = Field(..., min_length=20)
+	# Soft at the edge: draft (`client_uuid`) and profile may supply values.
+	# Presence + format are enforced after merge via identity.validate_submission_payload.
+	submitter_type: str | None = None
+	submitter_name: str | None = None
+	contact_mobile: str | None = None
+	submission_channel: str | None = None
+	administrative_area: str | None = None
+	service_category: str | None = None
+	grievance_type: str | None = None
+	description: str | None = None
 	contact_email: SafeEmail | None = None
-	assisted_by_officer: str | None = None
+	consent_given: int | None = Field(None, ge=0, le=1)
+	client_uuid: str | None = None
+	client_submission_uuid: str | None = None
 	is_anonymous: int | None = Field(0, ge=0, le=1)
 ```
 
@@ -133,6 +137,69 @@ class SubmitGrievanceRequest(BaseModel):
 - Use `RequiredPhone` and `SafeEmail` utility types from `oan_auth_service.api.utils`.
 - Enforce sensible length and boundary constraints using `Field(..., min_length=...)` or `ge`/`le`.
 - Set `model_config = {"extra": "allow"}` if forward compatibility with client parameters is required, or `"forbid"` if strict parameter policing is desired.
+
+---
+
+## 4.1 Submit Grievance API (STG-328)
+
+Finalizes a case: validates input, allocates a ticket ID (STG-327), moves status out of
+`Draft`, and returns the ticket to the caller. Draft wizard state (STG-322 / STG-325)
+carries over when `client_uuid` is provided.
+
+|      |                                                                  |
+| ---- | ---------------------------------------------------------------- |
+| REST | `POST /api/v1/grievances`                                        |
+| RPC  | `POST /api/method/oan_grievance_service.api.v1.grievance.submit` |
+| Auth | Required (`Grievance Submitter` and staff roles)                 |
+
+**Full-body example**
+
+```json
+{
+  "submission_channel": "Mobile App",
+  "administrative_area": "<area id or path_code>",
+  "service_category": "Inputs",
+  "grievance_type": "Fertilizer Shortage",
+  "description": "At least twenty characters describing the grievance.",
+  "desired_outcome": "Optional outcome text",
+  "consent_given": 1,
+  "client_uuid": "<optional draft key>",
+  "client_submission_uuid": "<optional idempotency key>"
+}
+```
+
+Authenticated submitters omit identity fields (`submitter_type`, `submitter_name`,
+`contact_mobile`, `contact_email`); the server snapshots them from the session profile.
+`woreda` / `kebele` may be sent instead of `administrative_area`.
+
+**Shared field names (draft `payload` ↔ submit body)**
+
+Keys inside draft `payload` are the **same names** as the submit body. They are
+never renamed on save or on merge (`submission.SHARED_SUBMISSION_FIELD_KEYS`):
+
+`submitter_type`, `submitter_name`, `contact_mobile`, `contact_email`,
+`submission_channel`, `administrative_area`, `administrative_unit`, `woreda`,
+`kebele`, `service_category`, `grievance_type`, `description`, `desired_outcome`,
+`consent_given`, `is_anonymous`, `assisted_by_officer`, `client_submission_uuid`.
+
+Only the envelope differs: draft wraps those keys in `payload` (+ `client_uuid`,
+`step_reached`); submit sends them at the top level (+ optional `client_uuid`).
+
+**Draft-only submit** (payload already saved via `POST /api/v1/drafts`):
+
+```json
+{ "client_uuid": "<draft key>", "consent_given": 1 }
+```
+
+Request fields overlay the draft. A re-submit of an already-claimed draft returns the
+original `ticket_number` with `duplicate_submission: true`.
+
+**Success `data`:** `ticket_number`, `status` (`Submitted`), routing/SLA summary,
+`attachments`, `duplicate_submission`.
+
+**Validation failure:** HTTP 400, `code: VALIDATION_ERROR`, per-field `details` map
+(STG-321). Missing consent, short description, wrong mobile country code, and
+type↔category mismatches are included.
 
 ---
 

@@ -236,6 +236,39 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertTrue(data["name"])
 		self.assertTrue(data["expires_on"])
 
+	def test_draft_reports_grievance_attachment_rows(self):
+		"""Uploads attach Files to Grievance Attachment, not to the draft DocType."""
+		saved = draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=2)
+		draft_name = frappe.db.get_value("Grievance Draft", {"client_uuid": self.uuid}, "name")
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Attachment",
+				"draft": draft_name,
+				"file_name": "receipt.jpg",
+				"file_url": "/private/files/receipt-test.jpg",
+				"mime_type": "image/jpeg",
+				"size_bytes": 128,
+				"document_type": "Receipt",
+				"scan_status": "Pending",
+			}
+		).insert(ignore_permissions=True)
+
+		loaded = draft.load()
+		self.assertEqual(loaded["status"], "success")
+		self.assertEqual(loaded["data"]["attachment_count"], 1)
+		self.assertEqual(len(loaded["data"]["attachments"]), 1)
+		row = loaded["data"]["attachments"][0]
+		self.assertEqual(row["file_name"], "receipt.jpg")
+		self.assertEqual(row["document_type"], "Receipt")
+		self.assertEqual(row["scan_status"], "Pending")
+		self.assertEqual(row["mime_type"], "image/jpeg")
+		self.assertEqual(row["size_bytes"], 128)
+		self.assertNotIn("file_url", row)
+
+		resaved = draft.save(client_uuid=self.uuid, payload=self._payload(), step_reached=2)
+		self.assertEqual(resaved["data"]["attachment_count"], 1)
+		self.assertEqual(saved["data"]["attachment_count"], 0)
+
 	def test_load_returns_the_latest_draft_only(self):
 		"""A user has one active draft; Get Draft returns the newest open one."""
 		older = frappe.generate_hash(length=20)

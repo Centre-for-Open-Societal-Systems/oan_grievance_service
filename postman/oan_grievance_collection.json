@@ -786,7 +786,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"description\": \"Partial draft ? fields may be incomplete.\"\n  },\n  \"step_reached\": 2\n}"
+							"raw": "{\n  \"client_uuid\": \"{{client_uuid}}\",\n  \"payload\": {\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Partial draft ? fields may be incomplete.\",\n    \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\",\n    \"consent_given\": 1\n  },\n  \"step_reached\": 2\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.draft.save",
@@ -1073,7 +1073,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n    \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\"\n}"
+							"raw": "{\n    \"client_uuid\": \"{{client_uuid}}\",\n    \"submitter_type\": \"{{submitter_type}}\",\n    \"submitter_name\": \"{{submitter_name}}\",\n    \"contact_mobile\": \"{{contact_mobile}}\",\n    \"submission_channel\": \"{{submission_channel}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"service_category\": \"{{service_category}}\",\n    \"grievance_type\": \"{{grievance_type}}\",\n    \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n    \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\",\n    \"consent_given\": 1\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.grievance.submit",
@@ -1086,7 +1086,7 @@
 								"oan_grievance_service.api.v1.grievance.submit"
 							]
 						},
-						"description": "FSD 4.1: Submits a new grievance. Validates required fields, snapshots administrative path code, executes nearest-ancestor routing, generates ticket number, queues acknowledgement notification, and returns ticket summary."
+						"description": "STG-328 / FSD 4.1: Finalizes and submits a grievance. Validates required fields and formats with per-field errors (STG-321), carries over a saved draft when client_uuid is provided (STG-325), generates a unique ticket ID (STG-327), moves status out of Draft, and returns the ticket summary."
 					},
 					"response": []
 				},
@@ -2013,7 +2013,7 @@
 					]
 				},
 				{
-					"name": "Submit Document (REST — grievance)",
+					"name": "Submit Document (REST ? grievance)",
 					"request": {
 						"method": "POST",
 						"header": [],
@@ -2050,7 +2050,7 @@
 					"response": []
 				},
 				{
-					"name": "Submit Document (REST — draft, no token)",
+					"name": "Submit Document (REST ? draft, no token)",
 					"request": {
 						"method": "POST",
 						"header": [],

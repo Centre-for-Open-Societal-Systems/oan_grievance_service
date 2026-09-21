@@ -153,3 +153,77 @@ def parse_payload(payload):
 	if not isinstance(parsed, dict):
 		frappe.throw(_("Draft payload must be an object."), title=_("Malformed Draft"))
 	return parsed
+
+
+# Wizard / case field names shared by draft.payload and POST /api/v1/grievances.
+# Keys are never renamed on save or on submit merge — only the envelope differs
+# (draft wraps them in `payload`; submit sends them at the top level).
+SHARED_SUBMISSION_FIELD_KEYS = (
+	"submitter_type",
+	"submitter_name",
+	"contact_mobile",
+	"contact_email",
+	"submission_channel",
+	"administrative_area",
+	"administrative_unit",
+	"woreda",
+	"kebele",
+	"service_category",
+	"grievance_type",
+	"description",
+	"desired_outcome",
+	"consent_given",
+	"is_anonymous",
+	"assisted_by_officer",
+	"client_submission_uuid",
+)
+
+
+def merge_draft_into_submission(request_kwargs):
+	"""Carry a saved draft's wizard state into the final submit payload (STG-328).
+
+	Draft `payload` keys are copied as-is (same names as submit body fields).
+	Non-null request values win so the client can correct a field on the review
+	step without re-saving the draft. Returns `(merged_kwargs, already_submitted)`
+	where `already_submitted` is the grievance name the draft became, or None.
+
+	Ownership matches the draft API: a claimed draft is only usable by its owner.
+	A missing draft is a no-op so `client_uuid` can still be sent for attachment
+	claiming when the wizard state was already in the request body.
+	"""
+	kwargs = dict(request_kwargs or {})
+	client_uuid = kwargs.get("client_uuid")
+	if not client_uuid:
+		return kwargs, None
+
+	draft_name = frappe.db.get_value("Grievance Draft", {"client_uuid": client_uuid}, "name")
+	if not draft_name:
+		return kwargs, None
+
+	draft = frappe.get_doc("Grievance Draft", draft_name)
+	_assert_draft_owner(draft)
+
+	if draft.submitted_as:
+		return kwargs, draft.submitted_as
+
+	payload = parse_payload(draft.payload)
+	# Shallow merge only — do not rename or remap keys.
+	merged = {**payload}
+	for key, value in kwargs.items():
+		if value is not None:
+			merged[key] = value
+	merged["client_uuid"] = client_uuid
+	return merged, None
+
+
+def _assert_draft_owner(draft):
+	"""Same rule as api.v1.draft: claimed drafts stay with their owner."""
+	if not draft.owner_user:
+		return
+	user = frappe.session.user
+	if user in (None, "Guest") or user != draft.owner_user:
+		frappe.throw(
+			_("This draft belongs to another user."),
+			frappe.PermissionError,
+			title=_("Forbidden"),
+		)
