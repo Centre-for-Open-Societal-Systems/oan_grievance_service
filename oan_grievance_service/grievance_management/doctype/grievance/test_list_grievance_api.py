@@ -220,14 +220,14 @@ class TestListGrievanceAPI(FrappeTestCase):
 		res = list_grievances(search=target.ticket_number)
 		items = res.get("data", {}).get("items", [])
 		self.assertEqual(len(items), 1)
-		self.assertEqual(items[0].get("ticket_number"), target.ticket_number)
-		self.assertEqual(items[0].get("ticket_number_display"), tn.display(target.ticket_number))
+		self.assertEqual(items[0].get("ticket_number"), tn.display(target.ticket_number))
+		self.assertNotIn("ticket_number_display", items[0])
 
 		# Search by formatted ticket display (with hyphens)
 		res_formatted = list_grievances(search=tn.display(target.ticket_number))
 		items_fmt = res_formatted.get("data", {}).get("items", [])
 		self.assertEqual(len(items_fmt), 1)
-		self.assertEqual(items_fmt[0].get("ticket_number"), target.ticket_number)
+		self.assertEqual(items_fmt[0].get("ticket_number"), tn.display(target.ticket_number))
 
 	def test_list_grievances_search_by_type_and_submitter(self):
 		"""Search by grievance type and submitter name."""
@@ -263,7 +263,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		res = timeline(target.ticket_number)
 		self.assertEqual(res.get("status"), "success")
 		data = res.get("data", {})
-		self.assertEqual(data.get("ticket_number"), target.ticket_number)
+		self.assertEqual(data.get("ticket_number"), tn.display(target.ticket_number))
 		self.assertEqual(data.get("submitter_name"), target.submitter_name)
 		self.assertEqual(data.get("service_category"), "Inputs")
 		self.assertIn("attachments", data)

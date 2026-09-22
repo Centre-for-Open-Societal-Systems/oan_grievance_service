@@ -10,6 +10,7 @@ from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
 from oan_grievance_service.api.v1 import administrative_area, draft, grievance, profile, submitter
+from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
@@ -265,7 +266,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		res_tl = frappe.api.handle(req_tl)
 		self.assertEqual(res_tl.status_code, 200)
 		tl_data = json.loads(res_tl.get_data(as_text=True))
-		self.assertEqual(tl_data["data"]["ticket_number"], ticket_number)
+		self.assertEqual(tl_data["data"]["ticket_number"], tn.display(ticket_number))
 		self.assertIn("attachments", tl_data["data"])
 
 		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/note

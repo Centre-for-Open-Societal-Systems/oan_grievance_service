@@ -39,6 +39,30 @@ from oan_grievance_service.services import ticket_number as tn
 route = prefixed("/api/v1/grievances")
 
 
+class SubmitGrievanceRequest(BaseModel):
+	"""Request body for the one-step submission endpoint."""
+
+	model_config = {"extra": "allow"}
+
+	submitter_type: str | None = None
+	submitter_name: str | None = None
+	contact_mobile: str | None = None
+	contact_email: SafeEmail | None = None
+	submission_channel: str | None = None
+	administrative_area: str | None = None
+	administrative_unit: str | None = None
+	service_category: str | None = None
+	grievance_type: str | None = None
+	associated_service_provider: str | None = None
+	description: str | None = None
+	desired_outcome: str | None = None
+	is_anonymous: int | bool = 0
+	consent_given: int | bool = 1
+	anonymity_justification: str | None = None
+	client_submission_uuid: str | None = None
+	client_uuid: str | None = None
+
+
 class ListGrievancesRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
@@ -495,10 +519,9 @@ def list_grievances(
 		item["escalated"] = bool(item.get("escalated"))
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["department"] = item.get("assigned_dept")
-		# Grouped for reading, as `track` returns it. Stored flat, so a caller
-		# rendering a list and a caller rendering one grievance would otherwise
-		# print the same number two different ways.
-		item["ticket_number_display"] = tn.display(item.get("ticket_number"))
+		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
+		# but exposed formatted to clients as ticket_number.
+		item["ticket_number"] = tn.display(item.get("ticket_number"))
 
 	audit.record_access(audit.ACTION_VIEW_LIST)
 
@@ -557,6 +580,44 @@ def _get_available_actions_for_user(doc):
 	return result
 
 
+@route("", methods=("POST",), summary="Submit a new grievance")
+@frappe.whitelist()
+@validate_request(SubmitGrievanceRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def submit(**kwargs):
+	"""Submit a grievance in one request using the current draft flow."""
+	from oan_grievance_service.api.v1 import draft
+
+	client_submission_uuid = (
+		kwargs.get("client_submission_uuid") or kwargs.get("client_uuid") or frappe.generate_hash(length=32)
+	)
+	fields = (
+		"submission_channel",
+		"submitter_type",
+		"submitter_name",
+		"contact_mobile",
+		"contact_email",
+		"administrative_area",
+		"administrative_unit",
+		"service_category",
+		"grievance_type",
+		"associated_service_provider",
+		"description",
+		"desired_outcome",
+		"is_anonymous",
+	)
+	save_kwargs = {field: kwargs[field] for field in fields if kwargs.get(field) is not None}
+	draft.save(client_submission_uuid=client_submission_uuid, **save_kwargs)
+
+	return draft.submit_draft(
+		client_submission_uuid=client_submission_uuid,
+		consent_given=kwargs.get("consent_given", 1),
+		is_anonymous=kwargs.get("is_anonymous", 0),
+		anonymity_justification=kwargs.get("anonymity_justification"),
+	)
+
+
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
 @frappe.whitelist()
 @validate_request(GrievanceActionRequest)
@@ -590,7 +651,7 @@ def action(
 		doc.reload()
 		return success_response(
 			data={
-				"ticket_number": doc.ticket_number,
+				"ticket_number": tn.display(doc.ticket_number),
 				"status": doc.status,
 				"escalated": bool(doc.escalated),
 				"action": "Escalate",
@@ -668,7 +729,7 @@ def action(
 	doc.reload()
 	return success_response(
 		data={
-			"ticket_number": doc.ticket_number,
+			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"action": matching_action,
 			"available_actions": _get_available_actions_for_user(doc),
@@ -775,8 +836,7 @@ def timeline(
 	return success_response(
 		data={
 			"name": doc.name,
-			"ticket_number": doc.ticket_number,
-			"ticket_number_display": tn.display(doc.ticket_number),
+			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
 			"submitter_name": doc.submitter_name,
