@@ -78,10 +78,9 @@ def normalise_mobile(value, default_region: str | None = None):
 	allowed = _jurisdiction_phone_regions()
 	if allowed and number_region and number_region not in allowed:
 		frappe.throw(
-			_(
-				"{0} belongs to a country outside the active jurisdiction. "
-				"Use a number from: {1}."
-			).format(value, ", ".join(sorted(allowed))),
+			_("{0} belongs to a country outside the active jurisdiction. " "Use a number from: {1}.").format(
+				value, ", ".join(sorted(allowed))
+			),
 			title=_("Wrong Country Code"),
 			exc=frappe.InvalidPhoneNumberError,
 		)
