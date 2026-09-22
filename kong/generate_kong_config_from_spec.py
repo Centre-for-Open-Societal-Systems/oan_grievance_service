@@ -71,6 +71,10 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/grievances/{ticket_number}/message"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/note"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
+	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
+	("GET", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
+	("GET", "/api/v1/attachments/{attachment_id}/download"): "citizen-intake",
+	("DELETE", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
 }
 
 
@@ -159,9 +163,9 @@ def build_config(routes):
 				"name": "cors",
 				"config": {
 					"origins": ["*"],
-					"methods": ["GET", "POST", "OPTIONS"],
+					"methods": ["GET", "POST", "DELETE", "OPTIONS"],
 					"headers": ["Authorization", "Content-Type", "X-Request-Id"],
-					"credentials": True,
+					"credentials": False,
 					"max_age": 3600,
 				},
 			},
@@ -228,13 +232,6 @@ def build_config(routes):
 		{
 			"username": "oan-auth-jwt-issuer",
 			"tags": ["oan", "auth", "issuer"],
-			"jwt_secrets": [
-				{
-					"algorithm": "HS256",
-					"key": "https://auth.openagrinet.org",
-					"secret": "REPLACE_WITH_OAN_AUTH_JWT_SECRET",
-				}
-			],
 		},
 		{
 			"username": "oan-citizen-mobile-client",

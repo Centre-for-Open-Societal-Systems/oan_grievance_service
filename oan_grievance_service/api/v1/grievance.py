@@ -251,6 +251,8 @@ def detect_duplicates(grievance, window_days=7):
 			"submitter": grievance.submitter,
 			"grievance_type": grievance.grievance_type,
 			"creation": [">=", frappe.utils.add_days(now_datetime(), -window_days)],
+			"status": ["!=", "Draft"],
+			"workflow_state": ["!=", "Draft"],
 		},
 		pluck="name",
 	)
@@ -515,9 +517,22 @@ def list_grievances(
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0
 	total_pages = math.ceil(total_count / effective_limit) if total_count > 0 else 1
 
+	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
+
+	user = frappe.session.user
+	user_roles = set(frappe.get_roles(user))
+	is_admin = bool(user_roles & UNRESTRICTED_ROLES)
+	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
+
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
-		item["is_anonymous"] = bool(item.get("is_anonymous"))
+		is_anon = bool(item.get("is_anonymous"))
+		item["is_anonymous"] = is_anon
+		if is_anon and not is_admin:
+			if not (item.get("submitter") and item.get("submitter") in user_profiles):
+				item["submitter_name"] = _("Anonymous Submitter")
+				item["contact_mobile"] = None
+				item["contact_email"] = None
 		item["department"] = item.get("assigned_dept")
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
 		# but exposed formatted to clients as ticket_number.
@@ -641,13 +656,19 @@ def action(
 	if not action_name:
 		frappe.throw(_("Action is required."), title=_("Missing Action"))
 
-	doc = _load(ticket_number, ptype="read")
+	# Allow 'Assign' for unassigned in-scope cases; all other mutations require write permission
+	if action_name.lower() == "assign":
+		doc = _load(ticket_number, ptype="read")
+	else:
+		doc = _load(ticket_number, ptype="write")
 
 	# 1. Manual Escalation handler
 	if action_name.lower() in ("escalate", "manual escalation"):
 		if not reason or not reason.strip():
 			frappe.throw(_("A reason is required to escalate a grievance."), title=_("Reason Required"))
-		sla.manual_escalate(doc, reason.strip(), by_submitter=True)
+		user_roles = set(frappe.get_roles(frappe.session.user))
+		is_staff = bool(user_roles & STAFF_ROLES)
+		sla.manual_escalate(doc, reason.strip(), by_submitter=not is_staff)
 		doc.reload()
 		return success_response(
 			data={
@@ -683,9 +704,6 @@ def action(
 			doc, "Confirm Resolution", note="Confirmed by submitter", closure_type="confirmed"
 		)
 		doc.db_set("closure_reason", "Confirmed by submitter", update_modified=False)
-		lifecycle.transition(
-			doc, "Close Case", note="Closed after submitter confirmation", closure_type="confirmed"
-		)
 
 	elif matching_action == "Reopen":
 		if not reason or not reason.strip():
@@ -796,11 +814,24 @@ def timeline(
 
 	next_cursor = entries[-1]["created_on"].isoformat() if (has_more and entries) else None
 
+	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
+
+	is_anon = bool(doc.is_anonymous) or getattr(doc, "anonymity_status", None) == "Approved"
+	is_admin = bool(roles & UNRESTRICTED_ROLES)
+	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
+	is_owner = (doc.submitter and doc.submitter in user_profiles) or doc.owner == user
+
+	masked_name = (
+		_("Anonymous Submitter") if (is_anon and not is_admin and not is_owner) else doc.submitter_name
+	)
+	masked_mobile = None if (is_anon and not is_admin and not is_owner) else doc.contact_mobile
+	masked_email = None if (is_anon and not is_admin and not is_owner) else doc.contact_email
+
 	for entry in entries:
 		entry["is_internal"] = bool(entry.get("is_internal"))
 		if entry["author_submitter"]:
 			entry["author_type"] = "submitter"
-			entry["author_name"] = doc.submitter_name or entry["author_submitter"]
+			entry["author_name"] = masked_name or entry["author_submitter"]
 		elif entry["author_user"]:
 			entry["author_type"] = "officer"
 			entry["author_name"] = (
@@ -839,7 +870,7 @@ def timeline(
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
-			"submitter_name": doc.submitter_name,
+			"submitter_name": masked_name,
 			"service_category": doc.service_category,
 			"grievance_type": doc.grievance_type,
 			"administrative_area": doc.administrative_area,
@@ -853,9 +884,9 @@ def timeline(
 				"submission_channel": doc.submission_channel,
 			},
 			"submitter": {
-				"name": doc.submitter_name,
-				"mobile": doc.contact_mobile,
-				"email": doc.contact_email,
+				"name": masked_name,
+				"mobile": masked_mobile,
+				"email": masked_email,
 				"submitter_type": doc.submitter_type,
 				"is_anonymous": bool(doc.is_anonymous),
 				"assisted_by_officer": doc.assisted_by_officer,
@@ -894,7 +925,7 @@ track = timeline
 @require_role(STAFF_ROLES)
 def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
 	"""Staff-only endpoint to add an internal or public note to the case timeline."""
-	doc = _load(ticket_number)
+	doc = _load(ticket_number, ptype="write")
 	internal = (
 		str(is_internal).lower() not in ("0", "false", "no")
 		if isinstance(is_internal, str)
@@ -928,7 +959,7 @@ def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def message(ticket_number: str, body: str):
 	"""Post a public message to the case conversation thread."""
-	doc = _load(ticket_number)
+	doc = _load(ticket_number, ptype="write")
 	user = frappe.session.user
 	is_staff = bool(set(frappe.get_roles(user)) & STAFF_ROLES)
 
@@ -971,7 +1002,12 @@ def _load(ticket_number, ptype="read"):
 		else:
 			frappe.throw(_("No grievance found with that ticket number."), title=_("Not Found"))
 	doc = frappe.get_doc("Grievance", name)
-	doc.check_permission(ptype)
+	from oan_grievance_service.permissions import has_grievance_permission
+
+	if not has_grievance_permission(doc, ptype):
+		frappe.throw(
+			_("Not permitted to access this grievance."), frappe.PermissionError, title=_("Forbidden")
+		)
 	return doc
 
 

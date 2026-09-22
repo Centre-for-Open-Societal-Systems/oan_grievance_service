@@ -18,7 +18,7 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 DRAFT_LIFETIME_DAYS = 30
 
@@ -38,7 +38,10 @@ class SaveDraftRequest(BaseModel):
 
 	model_config = {"extra": "forbid"}
 
-	client_submission_uuid: str = Field(..., min_length=1, description="Stable client-generated draft key")
+	client_submission_uuid: str | None = Field(
+		None, min_length=1, description="Stable client-generated draft key"
+	)
+	client_uuid: str | None = Field(None, min_length=1, description="Alias for client_submission_uuid")
 	submission_channel: str | None = None
 	submitter_type: str | None = None
 	submitter_name: str | None = None
@@ -51,8 +54,16 @@ class SaveDraftRequest(BaseModel):
 	associated_service_provider: str | None = None
 	description: str | None = None
 	desired_outcome: str | None = None
-	is_anonymous: int | None = Field(0, ge=0, le=1)
+	is_anonymous: int | None = Field(None, ge=0, le=1)
 	validate: bool | int | None = Field(False, description="If true, execute validation on the draft payload")
+
+	@model_validator(mode="after")
+	def validate_uuids(self):
+		if not self.client_submission_uuid and not self.client_uuid:
+			raise ValueError(_("client_submission_uuid or client_uuid is required"))
+		if not self.client_submission_uuid:
+			self.client_submission_uuid = self.client_uuid
+		return self
 
 
 @route("", methods=("POST",), summary="Save a grievance draft")
@@ -61,7 +72,8 @@ class SaveDraftRequest(BaseModel):
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
 def save(
-	client_submission_uuid: str,
+	client_submission_uuid: str | None = None,
+	client_uuid: str | None = None,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
 	submitter_name: str | None = None,
@@ -74,10 +86,15 @@ def save(
 	associated_service_provider: str | None = None,
 	description: str | None = None,
 	desired_outcome: str | None = None,
-	is_anonymous: int = 0,
+	is_anonymous: int | None = None,
 	validate: bool | int = False,
+	**kwargs,
 ):
 	"""Create or overwrite a draft directly on Grievance doctype with status='Draft'."""
+	client_submission_uuid = client_submission_uuid or client_uuid
+	if not client_submission_uuid:
+		frappe.throw(_("client_submission_uuid or client_uuid is required."), frappe.ValidationError)
+
 	session_user = _session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
@@ -117,19 +134,41 @@ def save(
 		except Exception:
 			pass
 
-	doc.submission_channel = submission_channel or doc.submission_channel or "Web Portal"
-	doc.submitter_type = submitter_type or doc.submitter_type or "Individual Farmer"
-	doc.submitter_name = submitter_name or doc.submitter_name
-	doc.contact_mobile = contact_mobile or doc.contact_mobile
-	doc.contact_email = contact_email or doc.contact_email
-	doc.administrative_area = administrative_area or doc.administrative_area
-	doc.administrative_unit = administrative_unit or doc.administrative_unit
-	doc.service_category = service_category or doc.service_category
-	doc.grievance_type = grievance_type or doc.grievance_type
-	doc.associated_service_provider = associated_service_provider or doc.associated_service_provider
-	doc.description = description or doc.description
-	doc.desired_outcome = desired_outcome or doc.desired_outcome
-	doc.is_anonymous = 1 if is_anonymous else 0
+	# If no profile was resolved, allow client-supplied contact details
+	if not doc.submitter:
+		if submitter_name is not None:
+			doc.submitter_name = submitter_name
+		if contact_mobile is not None:
+			doc.contact_mobile = contact_mobile
+		if contact_email is not None:
+			doc.contact_email = contact_email
+		if submitter_type is not None:
+			doc.submitter_type = submitter_type
+
+	if submission_channel is not None:
+		doc.submission_channel = submission_channel
+	elif not doc.submission_channel:
+		doc.submission_channel = "Web Portal"
+
+	if not doc.submitter_type:
+		doc.submitter_type = "Individual Farmer"
+
+	if administrative_area is not None:
+		doc.administrative_area = administrative_area
+	if administrative_unit is not None:
+		doc.administrative_unit = administrative_unit
+	if service_category is not None:
+		doc.service_category = service_category
+	if grievance_type is not None:
+		doc.grievance_type = grievance_type
+	if associated_service_provider is not None:
+		doc.associated_service_provider = associated_service_provider
+	if description is not None:
+		doc.description = description
+	if desired_outcome is not None:
+		doc.desired_outcome = desired_outcome
+	if is_anonymous is not None:
+		doc.is_anonymous = 1 if is_anonymous else 0
 
 	if validate:
 		if doc.contact_mobile:

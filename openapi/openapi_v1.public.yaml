@@ -27,6 +27,8 @@ tags:
   description: Case intake, tracking, and filtered list views
 - name: Grievance Lifecycle & Actions
   description: Communication threads, notes, reopen, reject, escalate, and resolution confirmation
+- name: Attachments
+  description: Supporting document and evidence upload, listing, download, and deletion
 paths:
   /api/v1/grievances/health:
     get:
@@ -1048,6 +1050,223 @@ paths:
         description: Ticket number
       security:
       - BearerAuth: []
+  /api/v1/grievances/{ticket_number}/attachments:
+    post:
+      tags:
+      - Attachments
+      summary: Upload supporting documents against a grievance
+      description: Upload one or more supporting documents against a grievance in multipart/form-data.
+      operationId: post_api_v1_grievances_ticket_number_attachments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUploadResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Grievance ticket number or document identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubmitDocumentsRequest'
+    get:
+      tags:
+      - Attachments
+      summary: List attachments for a grievance
+      description: List the evidence attachments on a case with scan verdicts.
+      operationId: get_api_v1_grievances_ticket_number_attachments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Grievance ticket number or document identifier
+      security:
+      - BearerAuth: []
+  /api/v1/attachments/{attachment_id}/download:
+    get:
+      tags:
+      - Attachments
+      summary: Get attachment download URL
+      description: Hand back one attachment's URL once it has been scanned clean.
+      operationId: get_api_v1_attachments_attachment_id_download
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentDownloadResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique attachment record ID
+      security:
+      - BearerAuth: []
+  /api/v1/attachments/{attachment_id}:
+    delete:
+      tags:
+      - Attachments
+      summary: Delete an attachment from an open case
+      description: Remove an attachment added by mistake, permitted only while the case is open.
+      operationId: delete_api_v1_attachments_attachment_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteAttachmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique attachment record ID
+      security:
+      - BearerAuth: []
 components:
   securitySchemes:
     BearerAuth:
@@ -1849,13 +2068,93 @@ components:
       - grievance_types
       - submission_channels
       description: Grievance management options and active dropdown choices for staff
+    AttachmentItem:
+      type: object
+      properties:
+        attachment:
+          type: string
+          description: Unique identifier of the attachment record
+        name:
+          type: string
+          description: Document name (alias for attachment)
+          nullable: true
+        file_name:
+          type: string
+          description: Original filename
+        file_url:
+          type: string
+          description: URL to the uploaded file
+          nullable: true
+        mime_type:
+          type: string
+          description: MIME type of the file
+        size_bytes:
+          type: integer
+          description: File size in bytes
+        checksum_sha256:
+          type: string
+          description: SHA-256 checksum
+        scan_status:
+          type: string
+          description: Antivirus scan status (Pending, Clean, Infected)
+        document_type:
+          type: string
+          nullable: true
+          description: Classification of document
+        creation:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - file_name
+      - mime_type
+      - size_bytes
+      description: Metadata for an uploaded evidence attachment
+    AttachmentDownloadData:
+      type: object
+      properties:
+        file_name:
+          type: string
+          description: Original filename
+        file_url:
+          type: string
+          description: Downloadable file URL
+        mime_type:
+          type: string
+          description: MIME type
+        size_bytes:
+          type: integer
+          description: Size in bytes
+        checksum_sha256:
+          type: string
+          description: SHA-256 checksum
+      required:
+      - file_name
+      - file_url
+      - mime_type
+      - size_bytes
+      description: Download metadata for a clean attachment
+    DeleteAttachmentData:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+          description: True if attachment was successfully deleted
+      required:
+      - deleted
+      description: Confirmation of attachment removal
     SaveDraftRequest:
       type: object
       properties:
         client_submission_uuid:
           type: string
           minLength: 1
+          nullable: true
           description: Stable client-generated draft key
+        client_uuid:
+          type: string
+          nullable: true
+          description: Alias for client_submission_uuid
         submission_channel:
           type: string
           nullable: true
@@ -1917,9 +2216,24 @@ components:
           type: boolean
           default: false
           description: If true, execute validation on the draft payload
-      required:
-      - client_submission_uuid
       description: Payload for saving or updating a grievance draft
+    SubmitDocumentsRequest:
+      type: object
+      properties:
+        grievance:
+          type: string
+          description: Grievance ticket number or document identifier
+        document_type:
+          type: string
+          nullable: true
+          description: Document type or category
+        response:
+          type: string
+          nullable: true
+          description: Associated formal response ID if applicable
+      required:
+      - grievance
+      description: Supporting document upload request
     SubmitDraftRequest:
       type: object
       properties:
@@ -2439,3 +2753,107 @@ components:
       - status
       - data
       description: Action result response
+    AttachmentUploadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment upload response
+    AttachmentListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment list response
+    AttachmentDownloadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AttachmentDownloadData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment download URL response
+    DeleteAttachmentResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DeleteAttachmentData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment deletion response

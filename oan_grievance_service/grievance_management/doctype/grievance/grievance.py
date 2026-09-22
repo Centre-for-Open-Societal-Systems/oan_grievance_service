@@ -25,14 +25,7 @@ class Grievance(Document):
 		"""
 		if self.name:
 			return
-		if getattr(self.flags, "is_draft_wizard", False):
-			if self.administrative_area and self.service_category:
-				try:
-					self.name = ticket_number.generate(self.administrative_area, self.service_category)
-					self.ticket_number = self.name
-					return
-				except Exception:
-					pass
+		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
 			key = self.client_submission_uuid or frappe.generate_hash(length=12)
 			self.name = f"DRAFT-{key}"
 			self.ticket_number = None

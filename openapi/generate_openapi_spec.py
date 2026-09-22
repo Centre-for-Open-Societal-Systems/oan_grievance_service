@@ -537,6 +537,50 @@ data(
 	),
 )
 
+data(
+	"AttachmentItem",
+	OBJ(
+		{
+			"attachment": S(description="Unique identifier of the attachment record"),
+			"name": S(description="Document name (alias for attachment)", nullable=True),
+			"file_name": S(description="Original filename"),
+			"file_url": S(description="URL to the uploaded file", nullable=True),
+			"mime_type": S(description="MIME type of the file"),
+			"size_bytes": I(description="File size in bytes"),
+			"checksum_sha256": S(description="SHA-256 checksum"),
+			"scan_status": S(description="Antivirus scan status (Pending, Clean, Infected)"),
+			"document_type": S(nullable=True, description="Classification of document"),
+			"creation": S(format="date-time", nullable=True),
+		},
+		required=["file_name", "mime_type", "size_bytes"],
+		description="Metadata for an uploaded evidence attachment",
+	),
+)
+
+data(
+	"AttachmentDownloadData",
+	OBJ(
+		{
+			"file_name": S(description="Original filename"),
+			"file_url": S(description="Downloadable file URL"),
+			"mime_type": S(description="MIME type"),
+			"size_bytes": I(description="Size in bytes"),
+			"checksum_sha256": S(description="SHA-256 checksum"),
+		},
+		required=["file_name", "file_url", "mime_type", "size_bytes"],
+		description="Download metadata for a clean attachment",
+	),
+)
+
+data(
+	"DeleteAttachmentData",
+	OBJ(
+		{"deleted": B(description="True if attachment was successfully deleted")},
+		required=["deleted"],
+		description="Confirmation of attachment removal",
+	),
+)
+
 
 # ---------------------------------------------------------------------------
 # Request Body Schemas
@@ -545,7 +589,10 @@ REQ = {}
 
 REQ["SaveDraftRequest"] = OBJ(
 	{
-		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key"),
+		"client_submission_uuid": S(
+			minLength=1, nullable=True, description="Stable client-generated draft key"
+		),
+		"client_uuid": S(nullable=True, description="Alias for client_submission_uuid"),
 		"submission_channel": S(nullable=True, description="Submission channel"),
 		"submitter_type": S(nullable=True, description="Submitter type"),
 		"submitter_name": S(nullable=True, description="Submitter citizen name"),
@@ -561,8 +608,18 @@ REQ["SaveDraftRequest"] = OBJ(
 		"is_anonymous": I(enum=[0, 1], default=0, nullable=True, description="1 if anonymous"),
 		"validate": B(default=False, description="If true, execute validation on the draft payload"),
 	},
-	required=["client_submission_uuid"],
+	required=[],
 	description="Payload for saving or updating a grievance draft",
+)
+
+REQ["SubmitDocumentsRequest"] = OBJ(
+	{
+		"grievance": S(description="Grievance ticket number or document identifier"),
+		"document_type": S(nullable=True, description="Document type or category"),
+		"response": S(nullable=True, description="Associated formal response ID if applicable"),
+	},
+	required=["grievance"],
+	description="Supporting document upload request",
 )
 
 REQ["SubmitDraftRequest"] = OBJ(
@@ -686,6 +743,18 @@ ENVELOPES = {
 	),
 	"GrievanceActionResultResponse": make_envelope(
 		"GrievanceActionResultData", description="Action result response"
+	),
+	"AttachmentUploadResponse": make_envelope(
+		"AttachmentItem", is_list=True, description="Attachment upload response"
+	),
+	"AttachmentListResponse": make_envelope(
+		"AttachmentItem", is_list=True, description="Attachment list response"
+	),
+	"AttachmentDownloadResponse": make_envelope(
+		"AttachmentDownloadData", description="Attachment download URL response"
+	),
+	"DeleteAttachmentResponse": make_envelope(
+		"DeleteAttachmentData", description="Attachment deletion response"
 	),
 }
 
@@ -867,6 +936,7 @@ def R(
 	tag,
 	security,
 	request=None,
+	request_content_type="application/json",
 	query=None,
 	response=None,
 	path_params=None,
@@ -881,6 +951,7 @@ def R(
 		tag=tag,
 		security=security,
 		request=request,
+		request_content_type=request_content_type,
 		query=query or [],
 		response=response,
 		path_params=path_params or [],
@@ -1146,6 +1217,85 @@ ROUTES = [
 		legacy="oan_grievance_service.api.v1.grievance.timeline",
 		description="Retrieves the complete chronological audit log, state transitions, and conversation thread.",
 	),
+	# Domain: Attachments
+	R(
+		"post",
+		"/api/v1/grievances/{ticket_number}/attachments",
+		summary="Upload supporting documents against a grievance",
+		tag="Attachments",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "ticket_number",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Grievance ticket number or document identifier",
+			}
+		],
+		request="SubmitDocumentsRequest",
+		request_content_type="multipart/form-data",
+		response="AttachmentUploadResponse",
+		legacy="oan_grievance_service.api.v1.attachment.submit_documents",
+		description="Upload one or more supporting documents against a grievance in multipart/form-data.",
+	),
+	R(
+		"get",
+		"/api/v1/grievances/{ticket_number}/attachments",
+		summary="List attachments for a grievance",
+		tag="Attachments",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "ticket_number",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Grievance ticket number or document identifier",
+			}
+		],
+		response="AttachmentListResponse",
+		legacy="oan_grievance_service.api.v1.attachment.get_attachments",
+		description="List the evidence attachments on a case with scan verdicts.",
+	),
+	R(
+		"get",
+		"/api/v1/attachments/{attachment_id}/download",
+		summary="Get attachment download URL",
+		tag="Attachments",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "attachment_id",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Unique attachment record ID",
+			}
+		],
+		response="AttachmentDownloadResponse",
+		legacy="oan_grievance_service.api.v1.attachment.download",
+		description="Hand back one attachment's URL once it has been scanned clean.",
+	),
+	R(
+		"delete",
+		"/api/v1/attachments/{attachment_id}",
+		summary="Delete an attachment from an open case",
+		tag="Attachments",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "attachment_id",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Unique attachment record ID",
+			}
+		],
+		response="DeleteAttachmentResponse",
+		legacy="oan_grievance_service.api.v1.attachment.delete",
+		description="Remove an attachment added by mistake, permitted only while the case is open.",
+	),
 ]
 
 
@@ -1211,9 +1361,10 @@ def build_openapi():
 			op["security"] = r["security"]
 
 		if r["request"]:
+			ct = r.get("request_content_type", "application/json")
 			op["requestBody"] = {
 				"required": True,
-				"content": {"application/json": {"schema": REF(r["request"])}},
+				"content": {ct: {"schema": REF(r["request"])}},
 			}
 
 		paths[p][m] = op
@@ -1258,6 +1409,10 @@ def build_openapi():
 			{
 				"name": "Grievance Lifecycle & Actions",
 				"description": "Communication threads, notes, reopen, reject, escalate, and resolution confirmation",
+			},
+			{
+				"name": "Attachments",
+				"description": "Supporting document and evidence upload, listing, download, and deletion",
 			},
 		],
 		"paths": paths,

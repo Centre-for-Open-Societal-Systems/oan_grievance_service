@@ -101,6 +101,7 @@ scheduler_events = {
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",
+		"oan_grievance_service.tasks.purge_expired_drafts",
 	],
 }
 

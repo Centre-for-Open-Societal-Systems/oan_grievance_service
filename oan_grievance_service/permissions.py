@@ -232,7 +232,6 @@ def grievance_query_conditions(user=None):
 		scopes = active_scopes(user)
 		bounds = area_bounds(scopes)
 		for scope in scopes:
-			parts = ["`tabGrievance`.workflow_state != 'Draft'"]
 			dept_scope = (
 				scope.get("department_scope")
 				if isinstance(scope, dict)
@@ -249,19 +248,23 @@ def grievance_query_conditions(user=None):
 				else getattr(scope, "administrative_area_scope", None)
 			)
 
+			include_parts = []
+
 			if dept_scope:
-				parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
+				include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
 			if cat_scope:
-				parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
+				include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
 			if area_scope:
 				area_lft, area_rgt = bounds.get(area_scope, (None, None))
 				if area_lft is not None and area_rgt is not None:
-					parts.append(
+					include_parts.append(
 						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
 					)
 
-			if parts:
-				scope_clauses.append("(" + " and ".join(parts) + ")")
+			if include_parts:
+				scope_clauses.append(
+					"(`tabGrievance`.workflow_state != 'Draft' and " + " and ".join(include_parts) + ")"
+				)
 
 		team = get_subordinate_officers(user)
 		scope_clauses.append(
@@ -309,9 +312,9 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 	team = get_subordinate_officers(user)
 	assigned = doc.get("assigned_to") if isinstance(doc, dict) else getattr(doc, "assigned_to", None)
-	if assigned in team:
-		# Visibility granted for all cases in reporting chain; editing requires explicit assignment or supervisor
-		return True if ptype == "read" else assigned == user
+	if assigned and assigned in team:
+		# Visibility granted for all cases in reporting chain; editing permitted for assignee or supervisor
+		return True
 
 	dept = doc.get("assigned_dept") if isinstance(doc, dict) else getattr(doc, "assigned_dept", None)
 	category = (
@@ -339,6 +342,9 @@ def has_grievance_permission(doc, ptype="read", user=None):
 			if isinstance(scope, dict)
 			else getattr(scope, "administrative_area_scope", None)
 		)
+
+		if not (dept_scope or cat_scope or area_scope):
+			continue
 
 		if dept_scope and dept != dept_scope:
 			continue

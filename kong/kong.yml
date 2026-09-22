@@ -23,12 +23,13 @@ services:
       methods:
       - GET
       - POST
+      - DELETE
       - OPTIONS
       headers:
       - Authorization
       - Content-Type
       - X-Request-Id
-      credentials: true
+      credentials: false
       max_age: 3600
   - name: request-size-limiting
     config:
@@ -519,16 +520,132 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: post-api-v1-grievances-ticket_number-attachments
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-ticket_number-attachments
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-attachments-attachment_id-download
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)/download$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: delete-api-v1-attachments-attachment_id
+    methods:
+    - DELETE
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
 consumers:
 - username: oan-auth-jwt-issuer
   tags:
   - oan
   - auth
   - issuer
-  jwt_secrets:
-  - algorithm: HS256
-    key: https://auth.openagrinet.org
-    secret: REPLACE_WITH_OAN_AUTH_JWT_SECRET
 - username: oan-citizen-mobile-client
   tags:
   - oan

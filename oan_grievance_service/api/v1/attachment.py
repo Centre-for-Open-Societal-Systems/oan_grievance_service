@@ -19,10 +19,8 @@ An upload is not stored and then checked. It is checked and then stored:
    and `is_servable()` passes only on Clean, so an unscanned file never reaches an
    officer's browser.
 
-Files may be attached before the Grievance exists. The wizard uploads while the
-submitter is still filling it in, so an upload carries either a `grievance` or a
-draft's `client_uuid`; `attach_draft_files` re-parents the draft ones
-when the case is finally filed.
+Files may be attached directly to open grievances or in-progress drafts
+persisted on the Grievance DocType with status 'Draft'.
 """
 
 import frappe
