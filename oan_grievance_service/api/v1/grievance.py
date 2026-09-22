@@ -410,7 +410,8 @@ def list_grievances(
 
 	or_filters = []
 	if search:
-		search_pattern = f"%{search.strip()}%"
+		term = search.strip()
+		search_pattern = f"%{term}%"
 		matching_types = frappe.get_all(
 			"Grievance Type",
 			filters={"type_name": ["like", search_pattern]},
@@ -421,6 +422,14 @@ def list_grievances(
 			["name", "like", search_pattern],
 			["submitter_name", "like", search_pattern],
 		]
+		# A ticket is printed grouped and read back over a phone line, but
+		# stored flat, so a pasted `B-001-0012-0` matches nothing on the raw
+		# pattern alone. Added beside the raw clause rather than replacing it:
+		# grievances numbered under FSD 3.2.3 carry real hyphens in the stored
+		# value, and cleaning the term would stop those matching.
+		ticket_term = tn.clean(term)
+		if ticket_term and ticket_term != term:
+			or_filters.append(["ticket_number", "like", f"%{ticket_term}%"])
 		if matching_types:
 			or_filters.append(["grievance_type", "in", matching_types])
 		else:
@@ -486,6 +495,10 @@ def list_grievances(
 		item["escalated"] = bool(item.get("escalated"))
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["department"] = item.get("assigned_dept")
+		# Grouped for reading, as `track` returns it. Stored flat, so a caller
+		# rendering a list and a caller rendering one grievance would otherwise
+		# print the same number two different ways.
+		item["ticket_number_display"] = tn.display(item.get("ticket_number"))
 
 	audit.record_access(audit.ACTION_VIEW_LIST)
 

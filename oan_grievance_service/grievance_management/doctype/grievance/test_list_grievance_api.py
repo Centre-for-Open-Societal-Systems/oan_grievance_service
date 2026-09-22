@@ -5,6 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import list_grievances, timeline
+from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
@@ -213,13 +214,20 @@ class TestListGrievanceAPI(FrappeTestCase):
 			self.assertIn(item.get("service_category"), ("Inputs", "Credit"))
 
 	def test_list_grievances_search(self):
-		"""Search by ticket number."""
+		"""Search by ticket number and formatted display."""
 		frappe.set_user("Administrator")
 		target = self.created_docs[2]
 		res = list_grievances(search=target.ticket_number)
 		items = res.get("data", {}).get("items", [])
 		self.assertEqual(len(items), 1)
 		self.assertEqual(items[0].get("ticket_number"), target.ticket_number)
+		self.assertEqual(items[0].get("ticket_number_display"), tn.display(target.ticket_number))
+
+		# Search by formatted ticket display (with hyphens)
+		res_formatted = list_grievances(search=tn.display(target.ticket_number))
+		items_fmt = res_formatted.get("data", {}).get("items", [])
+		self.assertEqual(len(items_fmt), 1)
+		self.assertEqual(items_fmt[0].get("ticket_number"), target.ticket_number)
 
 	def test_list_grievances_search_by_type_and_submitter(self):
 		"""Search by grievance type and submitter name."""

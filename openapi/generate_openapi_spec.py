@@ -377,7 +377,10 @@ data(
 	OBJ(
 		{
 			"name": S(description="Internal document ID"),
-			"ticket_number": S(example="ET14IN000012026"),
+			"ticket_number": S(example="3001002A0"),
+			"ticket_number_display": S(
+				example="3-001-002A-0", nullable=True, description="Grouped ticket number for human reading"
+			),
 			"status": S(
 				example="Submitted",
 				enum=[
@@ -424,7 +427,10 @@ data(
 	"GrievanceDetailData",
 	OBJ(
 		{
-			"ticket_number": S(example="ET14IN000012026"),
+			"ticket_number": S(example="3001002A0"),
+			"ticket_number_display": S(
+				example="3-001-002A-0", nullable=True, description="Grouped ticket number for human reading"
+			),
 			"name": S(),
 			"status": S(),
 			"service_category": S(),
