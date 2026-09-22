@@ -13,53 +13,87 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-# FSD 3.11.8 fixes the country to Ethiopia. Ethiopian subscriber numbers are nine
-# digits after the country code; mobile ranges open with 9 or 7.
-COUNTRY_CODE = "251"
-MOBILE_PATTERN = re.compile(r"^[79]\d{8}$")
-
-# The prototype's number field defaults to +255, which is Tanzania. Reject it
-# explicitly rather than letting it through as an unrecognised prefix, because a
-# wrong-but-plausible country code silently sends every SMS to another network.
-CONFUSABLE_CODES = {"255": "Tanzania", "254": "Kenya", "252": "Somalia", "249": "Sudan"}
+# Bare / national numbers (no +ISD) are parsed against Ethiopia — primary
+# jurisdiction and the historical FSD default. International numbers carry their
+# own country code and are validated by that country's numbering plan.
+DEFAULT_PHONE_REGION = "ET"
 
 
-def normalise_mobile(value):
-	"""Return a mobile number as +251XXXXXXXXX, or raise.
+def normalise_mobile(value, default_region: str | None = None):
+	"""Return an E.164 mobile number validated by libphonenumber, or raise.
 
-	Accepts the three forms a submitter actually types: the international form,
-	the national form with a leading zero, and the bare subscriber number.
+	Uses Frappe's shipped `phonenumbers` (Google libphonenumber). Accepts
+	international (+ISD…), national-with-leading-zero, and bare subscriber forms.
+	Numbers without a country code use `default_region` (Ethiopia by default).
+	The region must also appear in jurisdiction phone extensions when those are
+	configured, so a plausible neighbouring ISD cannot slip SMS onto another network.
 	"""
-	raw = re.sub(r"[^\d+]", "", value or "")
+	from phonenumbers import (
+		NumberParseException,
+		PhoneNumberFormat,
+		format_number,
+		is_valid_number,
+		parse,
+		region_code_for_number,
+	)
+
+	raw = (value or "").strip()
 	if not raw:
 		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
 
-	digits = raw.lstrip("+")
-
-	for code, country in CONFUSABLE_CODES.items():
-		if digits.startswith(code) and len(digits) > len(code):
-			frappe.throw(
-				_("+{0} is the country code for {1}. Ethiopian numbers begin +251.").format(code, country),
-				title=_("Wrong Country Code"),
-			)
-
-	if digits.startswith(COUNTRY_CODE):
-		subscriber = digits[len(COUNTRY_CODE) :]
-	elif digits.startswith("0"):
-		subscriber = digits[1:]
-	else:
-		subscriber = digits
-
-	if not MOBILE_PATTERN.match(subscriber):
+	# Keep a leading +; drop spaces, hyphens, and desk-style separators.
+	candidate = re.sub(r"[^\d+]", "", raw)
+	if candidate.count("+") > 1 or (candidate and "+" in candidate[1:]):
 		frappe.throw(
-			_(
-				"{0} is not a valid Ethiopian mobile number. Expected nine digits "
-				"beginning 9 or 7, for example +251911234567."
-			).format(value),
+			_("{0} is not a valid phone number.").format(value),
 			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
 		)
 
-	return f"+{COUNTRY_CODE}{subscriber}"
+	region = (default_region or DEFAULT_PHONE_REGION).upper()
+	try:
+		# International form needs no default region; national form does.
+		parsed = parse(candidate, None if candidate.startswith("+") else region)
+	except NumberParseException as exc:
+		if exc.error_type == NumberParseException.INVALID_COUNTRY_CODE:
+			frappe.throw(
+				_("Please include a country code, for example +251…."),
+				title=_("Country Code Required"),
+				exc=frappe.InvalidPhoneNumberError,
+			)
+		frappe.throw(
+			_("{0} is not a valid phone number.").format(value),
+			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	if not is_valid_number(parsed):
+		frappe.throw(
+			_("{0} is not a valid phone number for its country.").format(value),
+			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	number_region = region_code_for_number(parsed)
+	allowed = _jurisdiction_phone_regions()
+	if allowed and number_region and number_region not in allowed:
+		frappe.throw(
+			_(
+				"{0} belongs to a country outside the active jurisdiction. "
+				"Use a number from: {1}."
+			).format(value, ", ".join(sorted(allowed))),
+			title=_("Wrong Country Code"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	return format_number(parsed, PhoneNumberFormat.E164)
+
+
+def _jurisdiction_phone_regions() -> set[str]:
+	"""ISO region codes from Administrative Area jurisdictions (phone_extensions)."""
+	from oan_grievance_service.api.v1.submitter import get_phone_extensions
+
+	return {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
 
 
 def find_or_create_submitter(payload):

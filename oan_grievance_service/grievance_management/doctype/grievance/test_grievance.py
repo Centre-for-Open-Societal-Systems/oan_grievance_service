@@ -327,7 +327,7 @@ class TestGrievance(FrappeTestCase):
 			).insert(ignore_permissions=True)
 
 	def test_submission_payload_validates_domain_rules(self):
-		"""Domain-only checks: ET mobile, description length, type↔category, filing area."""
+		"""Domain-only checks: country-aware mobile, description length, type↔category, filing area."""
 		base = {
 			"submitter_type": "Individual Farmer",
 			"submitter_name": "Tesfaye",
@@ -341,6 +341,7 @@ class TestGrievance(FrappeTestCase):
 
 		validate_submission_payload(base)
 
+		# Invalid for Tanzania's numbering plan (libphonenumber) — and outside jurisdiction.
 		with self.assertRaises(PydanticValidationError):
 			validate_submission_payload({**base, "contact_mobile": "+255911334455"})
 
@@ -650,12 +651,13 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertEqual(resolved["contact_mobile"], "+251911000111")
 		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
 
-		# Domain Ethiopian normalisation (SafePhone would reject bare 9-digit).
+		# Domain phonenumbers normalisation (bare national digits → ET E.164).
 		self.assertEqual(
 			submission_svc.normalise_mobile(resolved["contact_mobile"]),
 			"+251911000111",
 		)
 		self.assertEqual(submission_svc.normalise_mobile("911000111"), "+251911000111")
+		self.assertEqual(submission_svc.normalise_mobile("0911000111"), "+251911000111")
 
 
 class TestGrievanceStaffOptions(FrappeTestCase):

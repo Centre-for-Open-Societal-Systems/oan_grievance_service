@@ -57,7 +57,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Ethiopia country code +251 per FSD 3.11.8",
+   "description": "E.164 mobile validated by country via phonenumbers (libphonenumber)",
    "fieldname": "contact_mobile",
    "fieldtype": "Data",
    "label": "Contact Mobile",

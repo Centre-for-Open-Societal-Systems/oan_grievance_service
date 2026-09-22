@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 import frappe
 from frappe import _
-from oan_auth_service.api.utils import validate_phone_string
 from pydantic import ValidationError as PydanticValidationError
 
 from oan_grievance_service.services import submission
@@ -202,7 +201,7 @@ def validate_submission_payload(payload, *, require_presence: bool = False):
 
 	Required fields, Link targets, and Select options are enforced by the Grievance
 	DocType (and by `@validate_request` at the API edge). This function only adds:
-	- Ethiopian mobile normalisation + shared auth phone shape check
+	- Mobile normalisation via Frappe's phonenumbers (libphonenumber), country-aware
 	- Description minimum length (FSD 3.2.2)
 	- Grievance type belonging to the chosen service category
 	- Filing-level / dissolved administrative area rules
@@ -221,10 +220,8 @@ def validate_submission_payload(payload, *, require_presence: bool = False):
 	contact_mobile = (payload.get("contact_mobile") or "").strip()
 	if contact_mobile:
 		try:
-			# Ethiopia-specific canonical form first (bare 9-digit / 0-prefix),
-			# then shared auth phone shape check on the +251… result.
-			canonical_mobile = submission.normalise_mobile(contact_mobile)
-			validate_phone_string(canonical_mobile)
+			# Country-aware E.164 via phonenumbers; bare national digits default to ET.
+			submission.normalise_mobile(contact_mobile)
 		except frappe.ValidationError as exc:
 			message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
 			errors.append(_field_error("contact_mobile", message, input_value=contact_mobile))

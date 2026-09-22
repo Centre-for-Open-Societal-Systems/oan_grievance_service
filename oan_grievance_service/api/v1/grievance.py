@@ -48,9 +48,9 @@ class SubmitGrievanceRequest(BaseModel):
 	Field names match draft `payload` keys exactly
 	(`submission.SHARED_SUBMISSION_FIELD_KEYS`) — no renaming on carry-over.
 
-	Phone is plain optional str at the schema edge (not SafePhone): bare Ethiopian
-	9-digit numbers are accepted and normalised in the domain layer, then checked
-	with `oan_auth_service.api.utils.validate_phone_string`. Email uses SafeEmail.
+	Phone is plain optional str at the schema edge (not SafePhone): bare national
+	digits and +ISD forms are accepted and normalised to E.164 in the domain layer
+	via Frappe's phonenumbers (libphonenumber). Email uses SafeEmail.
 	"""
 
 	model_config = {"extra": "allow"}
