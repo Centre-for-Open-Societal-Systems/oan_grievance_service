@@ -7,4 +7,3 @@
 
 oan_grievance_service.patches.convert_service_category_codes_to_base32
 oan_grievance_service.patches.bind_existing_grievances_to_the_workflow
-oan_grievance_service.patches.migrate_legacy_grievance_drafts

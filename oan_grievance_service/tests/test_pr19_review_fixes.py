@@ -266,12 +266,16 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		self.assertEqual(res_msg["status"], "error")
 		self.assertEqual(res_msg["code"], "PERMISSION_DENIED")
 
-		# Officer B attempts to execute workflow action
+		# Officer B attempts to execute workflow action (Request More Info or Assign)
 		res_act = grievance.action(
 			case.ticket_number or case.name, action="Request More Info", reason="Need info"
 		)
 		self.assertEqual(res_act["status"], "error")
 		self.assertEqual(res_act["code"], "PERMISSION_DENIED")
+
+		res_assign = grievance.action(case.ticket_number or case.name, action="Assign")
+		self.assertEqual(res_assign["status"], "error")
+		self.assertEqual(res_assign["code"], "PERMISSION_DENIED")
 
 		# Assigned Officer A can add note
 		frappe.set_user(officer_a_email)

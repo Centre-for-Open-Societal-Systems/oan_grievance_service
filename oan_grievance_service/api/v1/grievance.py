@@ -656,11 +656,8 @@ def action(
 	if not action_name:
 		frappe.throw(_("Action is required."), title=_("Missing Action"))
 
-	# Allow 'Assign' for unassigned in-scope cases; all other mutations require write permission
-	if action_name.lower() == "assign":
-		doc = _load(ticket_number, ptype="read")
-	else:
-		doc = _load(ticket_number, ptype="write")
+	# All mutations, including workflow actions, require write permission
+	doc = _load(ticket_number, ptype="write")
 
 	# 1. Manual Escalation handler
 	if action_name.lower() in ("escalate", "manual escalation"):
