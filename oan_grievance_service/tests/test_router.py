@@ -654,5 +654,6 @@ class TestAttachmentRESTRoutes(TestGrievanceRESTRouter):
 			("/api/v1/attachments/<attachment>/download", ("GET",)),
 			("/api/v1/attachments/<attachment>", ("DELETE",)),
 			("/api/v1/drafts", ("DELETE",)),
+			("/api/v1/dashboard-statistics", ("GET",)),
 		):
 			self.assertIn((path, methods), routes)

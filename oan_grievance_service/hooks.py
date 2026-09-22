@@ -85,6 +85,7 @@ doc_events = {
 # ------------------
 # FSD 4.3: a background process monitors open grievances against their SLA deadlines.
 # FSD 7 requires the batch to complete within 30 minutes.
+# FR-09 / STG-330: daily rebuild of the dashboard reporting projection.
 
 scheduler_events = {
 	"hourly": [
@@ -98,6 +99,9 @@ scheduler_events = {
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",
 		"oan_grievance_service.tasks.purge_expired_drafts",
+		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
+		# stay off the live Grievance table.
+		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 }
 

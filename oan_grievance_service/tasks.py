@@ -160,7 +160,19 @@ def hourly():
 	dispatch_notifications()
 
 
+def refresh_dashboard_projection():
+	"""FR-09 / STG-330: rebuild the dashboard reporting projection.
+
+	Dashboard Statistics API reads only this projection so request paths never
+	scan the live Grievance table for national-scale aggregates.
+	"""
+	from oan_grievance_service.services import dashboard_stats
+
+	return dashboard_stats.refresh_projection()
+
+
 def daily():
 	"""Entry point wired to the daily scheduler event."""
 	auto_close_expired()
 	purge_expired_drafts()
+	refresh_dashboard_projection()

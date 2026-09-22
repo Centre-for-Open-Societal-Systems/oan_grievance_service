@@ -851,8 +851,43 @@
 				}
 			]
 		},
-		{
-			"name": "Grievance Operations",
+			{
+				"name": "Dashboard",
+				"item": [
+					{
+						"name": "Get Dashboard Statistics",
+						"request": {
+							"method": "GET",
+							"header": [
+								{
+									"key": "Authorization",
+									"value": "Bearer {{access_token}}",
+									"type": "text"
+								}
+							],
+							"url": {
+								"raw": "{{base_url}}/api/method/oan_grievance_service.api.v1.dashboard.get_statistics?months=12",
+								"host": ["{{base_url}}"],
+								"path": [
+									"api",
+									"method",
+									"oan_grievance_service.api.v1.dashboard.get_statistics"
+								],
+								"query": [
+									{
+										"key": "months",
+										"value": "12"
+									}
+								]
+							},
+							"description": "STG-330 / FR-09: scoped dashboard KPIs from Grievance Dashboard Projection."
+						},
+						"response": []
+					}
+				]
+			},
+			{
+				"name": "Grievance Operations",
 			"item": [
 				{
 					"name": "7a. Get Grievance Management Options (Staff - Officers/Admins)",

@@ -33,6 +33,7 @@ oan_grievance_service/api/
     ├── grievance.py           # Case submission, tracking & lifecycle actions
     ├── draft.py               # Save, resume and discard partial submissions
     ├── submitter.py           # Submitter profile & lookup options
+    ├── dashboard.py           # FR-09 / STG-330 scoped dashboard statistics
     └── administrative_area.py # Cascading geo-hierarchy lookups
 ```
 
@@ -70,6 +71,7 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
 | Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
 | Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
+| Dashboard Statistics      | `GET /api/v1/dashboard-statistics`                       | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics`               | GET    |
 
 ---
 
@@ -83,13 +85,13 @@ from oan_auth_service.api.utils import handle_api_errors, require_role, success_
 
 route = prefixed("/api/v1/grievances")
 
+
 @route("/your-action", methods=("POST",), summary="Action description")
-@frappe.whitelist()                               # Exposes method via HTTP RPC
-@handle_api_errors                                # Catches exceptions and formats error JSON
-@require_role(ALLOWED_ROLES)                      # Enforces RBAC permissions
-@validate_request(YourRequestModel)               # Validates payload schema via Pydantic
-def your_endpoint(**kwargs):
-    ...
+@frappe.whitelist()  # Exposes method via HTTP RPC
+@handle_api_errors  # Catches exceptions and formats error JSON
+@require_role(ALLOWED_ROLES)  # Enforces RBAC permissions
+@validate_request(YourRequestModel)  # Validates payload schema via Pydantic
+def your_endpoint(**kwargs): ...
 ```
 
 ### Decorator Responsibilities
@@ -111,6 +113,7 @@ All `POST` / mutation endpoints must define an explicit `pydantic.BaseModel` sch
 ```python
 from pydantic import BaseModel, Field
 from oan_auth_service.api.utils import SafeEmail
+
 
 class SubmitGrievanceRequest(BaseModel):
 	model_config = {"extra": "allow"}
@@ -203,12 +206,50 @@ type↔category mismatches are included.
 
 ---
 
+## 4.2 Dashboard Statistics API (STG-330)
+
+Aggregates grievance counts for officer/admin dashboard KPI cards and charts.
+Reads the FR-09 **reporting projection** (`Grievance Dashboard Projection`), never
+a live `COUNT(*)` over `Grievance` on the request path. Projection rows are rebuilt
+daily by `tasks.refresh_dashboard_projection` (and can be refreshed manually via
+`services.dashboard_stats.refresh_projection`).
+
+|      |                                                                         |
+| ---- | ----------------------------------------------------------------------- |
+| REST | `GET /api/v1/dashboard-statistics?months=12`                            |
+| RPC  | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics` |
+| Auth | Required (`Grievance Officer`, `Grievance Admin`, System Manager)       |
+
+**Query**
+
+- `months` (int, 1–36, default 12) — length of `monthly_trend`.
+
+**Scoping**
+
+Results are filtered to the caller's RBAC assignment (administrative area subtree,
+department, category). Admins / System Managers are unrestricted. Submitters and
+guests receive `PERMISSION_DENIED`.
+
+**Success `data` keys (frontend mapping)**
+
+| Key              | Consumer                      | Contents                                                                                                       |
+| ---------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `kpis`           | `KpiCards.tsx`                | `total`, `open`, `pending`, `in_progress`, `under_review`, `resolved`, `rejected`, `sla_breached`, `escalated` |
+| `by_status`      | `StatusDistributionChart.tsx` | `[{ status, count }, …]`                                                                                       |
+| `by_category`    | `ServiceCategoryChart.tsx`    | `[{ category, count }, …]`                                                                                     |
+| `sla_breach`     | KPI / SLA card                | `breached`, `within_sla`, `open_breached`                                                                      |
+| `monthly_trend`  | `MonthlyTrendChart.tsx`       | `[{ month, label, submitted, resolved }, …]`                                                                   |
+| `scope` / `meta` | diagnostics                   | Applied RBAC scope; `source: "projection"`, `snapshot_at`                                                      |
+
+---
+
 ## 5. Response Format & Standard Envelopes
 
 All successful responses **MUST** use the `success_response()` helper from `oan_auth_service.api.utils`. `@handle_api_errors` automatically resolves and attaches the `meta` block directly from `api/__init__.py`.
 
 ```python
 from oan_auth_service.api.utils import handle_api_errors, success_response
+
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
@@ -373,6 +414,7 @@ Every new API endpoint must have automated tests validating:
 ```python
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
 
 class TestAPIEndpoints(FrappeTestCase):
 	def setUp(self):
