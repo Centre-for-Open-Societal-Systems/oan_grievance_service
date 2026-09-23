@@ -657,7 +657,8 @@ paths:
         required: false
         schema:
           type: string
-        description: Comma-separated status filters e.g. 'Submitted,Under Investigation'
+        description: 'Comma-separated queue statuses: All, In Progress, Require More Info, Rejected, Resolved,
+          Closed. Draft is excluded.'
       - name: category
         in: query
         required: false
@@ -726,6 +727,55 @@ paths:
           - desc
         description: Sort direction
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.list_grievances
+      security:
+      - BearerAuth: []
+  /api/v1/grievances/summary:
+    get:
+      tags:
+      - Grievances Core
+      summary: KPI cards summarising grievance status
+      description: Counts visible grievances on All, In Progress, Require More Info, Rejected, Resolved
+        and Closed. Draft is excluded. Other workflow states roll up into In Progress. Each card includes
+        display order and whether it is terminal.
+      operationId: get_api_v1_grievances_summary
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceStatusSummaryResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.summary
       security:
       - BearerAuth: []
   /api/v1/grievances/options:
@@ -2057,10 +2107,14 @@ components:
                 type: string
               label:
                 type: string
+              order:
+                type: integer
+                description: Display order of the queue status
               is_open:
                 type: integer
               is_terminal:
                 type: integer
+                description: 1 when every mapped Frappe workflow state is terminal; 0 when absent
         departments:
           type: array
           items:
@@ -2090,6 +2144,54 @@ components:
       - grievance_types
       - submission_channels
       description: Grievance management options and active dropdown choices for staff
+    StatusCard:
+      type: object
+      properties:
+        status:
+          type: string
+          example: In Progress
+        label:
+          type: string
+          example: In Progress
+        order:
+          type: integer
+          description: Display order of the queue status
+          example: 2
+        is_open:
+          type: integer
+          enum:
+          - 0
+          - 1
+          example: 1
+        is_terminal:
+          type: integer
+          description: 1 when every mapped Frappe workflow state is terminal. Absent workflow states
+            are non-terminal.
+          enum:
+          - 0
+          - 1
+          example: 0
+        count:
+          type: integer
+          description: Grievances on this card visible to the caller. Omitted on the options list.
+          example: 12
+      required:
+      - status
+      - label
+      - order
+      - is_open
+      - is_terminal
+      description: One queue status for the all-grievances KPI cards
+    GrievanceStatusSummaryData:
+      type: object
+      properties:
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusCard'
+      required:
+      - cards
+      description: Status summary for the all-grievances queue. Draft is excluded.
     AttachmentItem:
       type: object
       properties:
@@ -2725,6 +2827,31 @@ components:
       - status
       - data
       description: Grievance options response
+    GrievanceStatusSummaryResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceStatusSummaryData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: KPI status card counts
     GrievanceTimelineResponse:
       type: object
       properties:
