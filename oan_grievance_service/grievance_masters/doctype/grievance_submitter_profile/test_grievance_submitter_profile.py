@@ -309,13 +309,14 @@ class TestSubmitterProfile(FrappeTestCase):
 	def test_submitter_options_filtering_parameters(self):
 		from oan_grievance_service.api.v1.submitter import options
 
-		# 1. Base extensions list with Ethiopia prioritized
+		# 1. Jurisdiction phone extensions (Ethiopia by default on this site)
 		res = options()
 		phones = res["data"]["phone_extensions"]
-		self.assertGreater(len(phones), 1)
+		self.assertGreaterEqual(len(phones), 1)
 		self.assertEqual(phones[0]["country"], "Ethiopia")
 		self.assertEqual(phones[0]["code"], "ET")
 		self.assertEqual(phones[0]["isd"], "+251")
+		self.assertNotIn("Kenya", [p["country"] for p in phones])
 
 		# 2. Add test Grievance Types for category filtering test
 		if not frappe.db.exists("Grievance Service Category", "Inputs"):
@@ -356,23 +357,22 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		try:
-			res_multi = options()
-			countries = [p["country"] for p in res_multi["data"]["phone_extensions"]]
-			self.assertIn("Ethiopia", countries)
-			self.assertIn("Kenya", countries)
+			# Exact country filter within jurisdiction
+			res_et = options(country="ET")
+			phones_et = res_et["data"]["phone_extensions"]
+			self.assertEqual(len(phones_et), 1)
+			self.assertEqual(phones_et[0]["code"], "ET")
+			self.assertEqual(phones_et[0]["isd"], "+251")
 
-			# Exact country filter
+			# Non-jurisdiction country filter returns empty
 			res_ken = options(country="KE")
-			phones_ken = res_ken["data"]["phone_extensions"]
-			self.assertEqual(len(phones_ken), 1)
-			self.assertEqual(phones_ken[0]["code"], "KE")
-			self.assertEqual(phones_ken[0]["isd"], "+254")
+			self.assertEqual(res_ken["data"]["phone_extensions"], [])
 
 			# Search filter
-			res_search = options(search_country="ken")
+			res_search = options(search_country="eth")
 			phones_search = res_search["data"]["phone_extensions"]
 			self.assertEqual(len(phones_search), 1)
-			self.assertEqual(phones_search[0]["country"], "Kenya")
+			self.assertEqual(phones_search[0]["country"], "Ethiopia")
 
 			# Service Category filter on grievance types
 			res_cat = options(service_category="Inputs")

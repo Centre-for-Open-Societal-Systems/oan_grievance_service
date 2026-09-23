@@ -327,7 +327,7 @@ class TestGrievance(FrappeTestCase):
 			).insert(ignore_permissions=True)
 
 	def test_submission_payload_validates_domain_rules(self):
-		"""Domain-only checks: ET mobile, description length, type↔category, filing area."""
+		"""Domain-only checks: country-aware mobile, description length, type↔category, filing area."""
 		base = {
 			"submitter_type": "Individual Farmer",
 			"submitter_name": "Tesfaye",
@@ -341,8 +341,12 @@ class TestGrievance(FrappeTestCase):
 
 		validate_submission_payload(base)
 
+		# Valid Kenyan / Tanzanian mobiles must still fail the jurisdiction gate
+		# (libphonenumber alone would accept them).
 		with self.assertRaises(PydanticValidationError):
-			validate_submission_payload({**base, "contact_mobile": "+255911334455"})
+			validate_submission_payload({**base, "contact_mobile": "+254712345678"})
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_mobile": "+255712345678"})
 
 		with self.assertRaises(PydanticValidationError):
 			validate_submission_payload({**base, "description": "too short"})
@@ -661,11 +665,13 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertEqual(resolved["contact_mobile"], "+251911000111")
 		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
 
-		# Strict Frappe phone validation with country code
+		# Domain phonenumbers normalisation (national digits → ET E.164).
 		self.assertEqual(
 			validate_mobile(resolved["contact_mobile"]),
 			"+251911000111",
 		)
+		self.assertEqual(validate_mobile("911000111"), "+251911000111")
+		self.assertEqual(validate_mobile("0911000111"), "+251911000111")
 		self.assertEqual(
 			validate_mobile("+251911000111"),
 			"+251911000111",

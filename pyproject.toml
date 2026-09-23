@@ -18,6 +18,9 @@ dependencies = [
     # EXIF strip fail open if the import disappears, so neither is left transitive.
     "filetype>=1.2",
     "Pillow>=10.0",
+    # Same pattern as above: Frappe ships phonenumbers (libphonenumber), but we
+    # import it directly for country-aware contact_mobile validation.
+    "phonenumbers~=9.0.23",
 ]
 
 [project.optional-dependencies]
