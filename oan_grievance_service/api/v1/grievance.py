@@ -104,7 +104,7 @@ class ListGrievancesRequest(BaseModel):
 class GrievanceActionRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	ticket_number: str
+	ticket_number: str | None = None
 	action: str = Field(..., min_length=1)
 	reason: str | None = None
 	note: str | None = None
@@ -116,7 +116,7 @@ class GrievanceActionRequest(BaseModel):
 class AddNoteRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	ticket_number: str
+	ticket_number: str | None = None
 	body: str = Field(..., min_length=1)
 	is_internal: bool | str = True
 
@@ -124,8 +124,34 @@ class AddNoteRequest(BaseModel):
 class PostMessageRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	ticket_number: str
+	ticket_number: str | None = None
 	body: str = Field(..., min_length=1)
+
+
+class ReassignGrievanceRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	target_department: str = Field(..., min_length=1)
+	target_officer: str | None = None
+	sla_treatment: str | None = Field("Continue", description="Reset or Continue")
+	reason: str | None = None
+
+
+class DeferSLARequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	additional_days: int = Field(..., ge=1)
+	reason: str = Field(..., min_length=1)
+
+
+class AnonymityDecisionRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	decision: str = Field(..., min_length=1)
+	reason: str | None = None
 
 
 ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
@@ -703,6 +729,48 @@ def submit(**kwargs):
 	)
 
 
+def _format_timeline_event(entry, doc, from_status=None, to_status=None):
+	if not entry:
+		return None
+	user = frappe.session.user
+	user_roles = set(frappe.get_roles(user))
+	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
+
+	is_anon = bool(doc.is_anonymous) or getattr(doc, "anonymity_status", None) == "Approved"
+	is_admin = bool(user_roles & UNRESTRICTED_ROLES)
+	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
+	is_owner = (doc.submitter and doc.submitter in user_profiles) or doc.owner == user
+
+	masked_name = (
+		_("Anonymous Submitter") if (is_anon and not is_admin and not is_owner) else doc.submitter_name
+	)
+	author_type = "submitter" if entry.author_submitter else "officer" if entry.author_user else "system"
+	if entry.author_submitter:
+		author_name = masked_name or entry.author_submitter
+		author_role = doc.submitter_type or "Grievance Submitter"
+	elif entry.author_user:
+		author_name = frappe.db.get_value("User", entry.author_user, "full_name") or entry.author_user
+		author_role = "Grievance Officer"
+	else:
+		author_name = "System"
+		author_role = "System"
+
+	return {
+		"id": entry.name,
+		"entry_type": entry.entry_type,
+		"body": entry.body,
+		"is_internal": bool(entry.is_internal),
+		"author_name": author_name,
+		"author_role": author_role,
+		"author_type": author_type,
+		"from_status": from_status,
+		"to_status": to_status or doc.status,
+		"created_on": entry.created_on.isoformat()
+		if hasattr(entry.created_on, "isoformat")
+		else str(entry.created_on),
+	}
+
+
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
 @frappe.whitelist()
 @validate_request(GrievanceActionRequest)
@@ -728,6 +796,8 @@ def action(
 
 	# All mutations, including workflow actions, require write permission
 	doc = _load(ticket_number, ptype="write")
+	from_status = doc.status
+	timeline_entry = None
 
 	# 1. Manual Escalation handler
 	if action_name.lower() in ("escalate", "manual escalation"):
@@ -736,14 +806,34 @@ def action(
 		user_roles = set(frappe.get_roles(frappe.session.user))
 		is_staff = bool(user_roles & STAFF_ROLES)
 		sla.manual_escalate(doc, reason.strip(), by_submitter=not is_staff)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="escalation",
+			is_internal=False,
+			body=reason.strip(),
+			author_user=frappe.session.user if is_staff else None,
+			author_submitter=doc.submitter if not is_staff else None,
+		)
 		doc.reload()
+		current_state = {
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"assigned_to": doc.assigned_to,
+			"department": doc.assigned_dept,
+			"updated_at": doc.modified.isoformat()
+			if hasattr(doc.modified, "isoformat")
+			else str(doc.modified),
+			"available_actions": _get_available_actions_for_user(doc),
+		}
 		return success_response(
 			data={
 				"ticket_number": tn.display(doc.ticket_number),
 				"status": doc.status,
 				"escalated": bool(doc.escalated),
 				"action": "Escalate",
-				"available_actions": _get_available_actions_for_user(doc),
+				"current_state": current_state,
+				"timeline_event": _format_timeline_event(timeline_entry, doc, from_status, doc.status),
+				"available_actions": current_state["available_actions"],
 			},
 			message=_("Grievance escalated successfully"),
 		)
@@ -771,6 +861,13 @@ def action(
 			doc, "Confirm Resolution", note="Confirmed by submitter", closure_type="confirmed"
 		)
 		doc.db_set("closure_reason", "Confirmed by submitter", update_modified=False)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="resolution",
+			is_internal=False,
+			body=comments or "Confirmed resolution",
+			author_submitter=doc.submitter,
+		)
 
 	elif matching_action == "Reopen":
 		if not reason or not reason.strip():
@@ -780,6 +877,16 @@ def action(
 		from oan_grievance_service.services import notifications
 
 		notifications.queue(doc, C.EVENT_REOPENED)
+		user_roles = set(frappe.get_roles(frappe.session.user))
+		is_staff = bool(user_roles & STAFF_ROLES)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="status_change",
+			is_internal=False,
+			body=f"Reopened: {reason.strip()}",
+			author_user=frappe.session.user if is_staff else None,
+			author_submitter=doc.submitter if not is_staff else None,
+		)
 
 	elif matching_action == "Reject":
 		roles = set(frappe.get_roles(frappe.session.user))
@@ -788,6 +895,13 @@ def action(
 		if not reason or not reason.strip():
 			frappe.throw(_("A reason is required to reject a grievance."), title=_("Reason Required"))
 		lifecycle.transition(doc, "Reject", reason=reason.strip(), closure_type="rejected")
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="rejection",
+			is_internal=False,
+			body=reason.strip(),
+			author_user=frappe.session.user,
+		)
 
 	elif matching_action == "Submitter Reply":
 		reply_text = body or reason or note
@@ -796,7 +910,7 @@ def action(
 				_("A response body is required to reply to an information request."),
 				title=_("Reply Required"),
 			)
-		GrievanceTimeline.record(
+		timeline_entry = GrievanceTimeline.record(
 			grievance=doc.name,
 			entry_type="info_response",
 			is_internal=False,
@@ -808,16 +922,45 @@ def action(
 
 		notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
 
-	else:
+	elif matching_action in ("Request More Info", "More Info Needed"):
+		req_text = body or reason or note or "Additional information requested"
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="info_request",
+			is_internal=False,
+			body=req_text,
+			author_user=frappe.session.user,
+		)
 		lifecycle.transition(doc, matching_action, reason=reason, note=note)
 
+	else:
+		lifecycle.transition(doc, matching_action, reason=reason, note=note)
+		if matching_action != "Assign":
+			timeline_entry = GrievanceTimeline.record(
+				grievance=doc.name,
+				entry_type="status_change",
+				is_internal=False,
+				body=reason or note or f"Status changed to {doc.status}",
+				author_user=frappe.session.user,
+			)
+
 	doc.reload()
+	current_state = {
+		"status": doc.status,
+		"escalated": bool(doc.escalated),
+		"assigned_to": doc.assigned_to,
+		"department": doc.assigned_dept,
+		"updated_at": doc.modified.isoformat() if hasattr(doc.modified, "isoformat") else str(doc.modified),
+		"available_actions": _get_available_actions_for_user(doc),
+	}
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"action": matching_action,
-			"available_actions": _get_available_actions_for_user(doc),
+			"current_state": current_state,
+			"timeline_event": _format_timeline_event(timeline_entry, doc, from_status, doc.status),
+			"available_actions": current_state["available_actions"],
 		},
 		message=_("Grievance updated successfully"),
 	)
@@ -922,6 +1065,7 @@ def timeline(
 			"mime_type",
 			"document_type",
 			"scan_status",
+			"timeline_entry",
 			"uploaded_by_user",
 			"uploaded_by_submitter",
 			"creation",
@@ -930,6 +1074,15 @@ def timeline(
 		ignore_permissions=True,
 	)
 	attachments = list(file_attachments) + list(grievance_attachments)
+
+	attachments_by_timeline = {}
+	for att in grievance_attachments:
+		tl_id = att.get("timeline_entry")
+		if tl_id:
+			attachments_by_timeline.setdefault(tl_id, []).append(att)
+
+	for entry in entries:
+		entry["attachments"] = attachments_by_timeline.get(entry["name"], [])
 
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
@@ -1060,6 +1213,282 @@ def message(ticket_number: str, body: str):
 			"created_on": entry.created_on,
 		},
 		message=_("Message posted successfully"),
+	)
+
+
+@route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
+@frappe.whitelist()
+@validate_request(ReassignGrievanceRequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def reassign(
+	ticket_number: str,
+	target_department: str,
+	target_officer: str | None = None,
+	sla_treatment: str | None = "Continue",
+	reason: str | None = None,
+	**kwargs,
+):
+	"""Reassign a grievance to a new department and/or officer directly."""
+	from oan_grievance_service.permissions import can_approve_reassignment
+
+	doc = _load(ticket_number, ptype="write")
+	if not can_approve_reassignment(user=frappe.session.user):
+		frappe.throw(
+			_("Only a supervising officer may approve or execute a reassignment."),
+			frappe.PermissionError,
+			title=_("Approval Not Permitted"),
+		)
+
+	if not frappe.db.exists("Grievance Department", target_department):
+		frappe.throw(
+			_("Department '{0}' does not exist.").format(target_department),
+			frappe.ValidationError,
+			title=_("Invalid Department"),
+		)
+
+	if target_officer and not frappe.db.exists("User", target_officer):
+		frappe.throw(
+			_("Officer '{0}' does not exist.").format(target_officer),
+			frappe.ValidationError,
+			title=_("Invalid Officer"),
+		)
+
+	from_dept = doc.assigned_dept
+	from_officer = doc.assigned_to
+
+	g_updates = {"assigned_dept": target_department}
+	if target_officer:
+		g_updates["assigned_to"] = target_officer
+
+	treatment = (sla_treatment or "Continue").strip().capitalize()
+	if treatment == "Reset":
+		g_updates.update(
+			{
+				"sla_due_date": None,
+				"sla_start_at": None,
+				"reminder_50_sent": 0,
+				"reminder_80_sent": 0,
+			}
+		)
+
+	doc.db_set(g_updates, update_modified=False)
+	if treatment == "Reset":
+		sla.start_clock(doc)
+
+	timeline_body = f"Reassigned to {target_department}"
+	if target_officer:
+		timeline_body += f" ({target_officer})"
+	if reason and reason.strip():
+		timeline_body += f" - Reason: {reason.strip()}"
+	timeline_body += f" (SLA: {treatment})"
+
+	# Record audit doc
+	req_doc = frappe.get_doc(
+		{
+			"doctype": "Grievance Reassignment Request",
+			"grievance": doc.name,
+			"target_department": target_department,
+			"target_officer": target_officer,
+			"prior_department": from_dept,
+			"prior_officer": from_officer,
+			"sla_treatment": treatment,
+			"reason": reason or "Reassigned via API",
+			"requested_at": now_datetime(),
+			"initiated_by": frappe.session.user,
+			"decision": "Approved",
+			"approver": frappe.session.user,
+			"decided_at": now_datetime(),
+		}
+	).insert(ignore_permissions=True)
+
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="assignment",
+		is_internal=False,
+		body=timeline_body,
+		author_user=frappe.session.user,
+		ref_doctype="Grievance Reassignment Request",
+		ref_docname=req_doc.name,
+	)
+
+	doc.reload()
+	current_state = {
+		"status": doc.status,
+		"escalated": bool(doc.escalated),
+		"assigned_to": doc.assigned_to,
+		"department": doc.assigned_dept,
+		"updated_at": doc.modified.isoformat() if hasattr(doc.modified, "isoformat") else str(doc.modified),
+		"available_actions": _get_available_actions_for_user(doc),
+	}
+
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"status": doc.status,
+			"assigned_dept": doc.assigned_dept,
+			"assigned_to": doc.assigned_to,
+			"current_state": current_state,
+			"timeline_event": _format_timeline_event(timeline_entry, doc, doc.status, doc.status),
+		},
+		message=_("Grievance reassigned successfully"),
+	)
+
+
+@route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
+@frappe.whitelist()
+@validate_request(DeferSLARequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def defer_sla(
+	ticket_number: str,
+	additional_days: int,
+	reason: str,
+	**kwargs,
+):
+	"""Extend the SLA window for a case directly via API."""
+	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+		max_deferral_days,
+	)
+	from oan_grievance_service.permissions import can_approve_deferral
+
+	doc = _load(ticket_number, ptype="write")
+	if not can_approve_deferral(user=frappe.session.user, assignee=doc.assigned_to):
+		frappe.throw(
+			_("Only a supervising officer may decide a deferral."),
+			frappe.PermissionError,
+			title=_("Approval Not Permitted"),
+		)
+
+	max_days = max_deferral_days()
+	if int(additional_days) > max_days:
+		frappe.throw(
+			_("A deferral may not exceed {0} days.").format(max_days),
+			frappe.ValidationError,
+			title=_("Deferral Too Long"),
+		)
+
+	sla.extend_for_deferral(doc, int(additional_days))
+
+	# Record audit doc
+	def_doc = frappe.get_doc(
+		{
+			"doctype": "Grievance SLA Deferral",
+			"grievance": doc.name,
+			"additional_days": int(additional_days),
+			"justification": reason.strip(),
+			"requested_by": frappe.session.user,
+			"requested_at": now_datetime(),
+			"status": "Approved",
+			"approver": frappe.session.user,
+			"decided_at": now_datetime(),
+		}
+	).insert(ignore_permissions=True)
+
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="note",
+		is_internal=True,
+		body=f"SLA deadline extended by {additional_days} days. Reason: {reason.strip()}",
+		author_user=frappe.session.user,
+		ref_doctype="Grievance SLA Deferral",
+		ref_docname=def_doc.name,
+	)
+
+	doc.reload()
+	current_state = {
+		"status": doc.status,
+		"escalated": bool(doc.escalated),
+		"assigned_to": doc.assigned_to,
+		"department": doc.assigned_dept,
+		"sla_due_date": doc.sla_due_date.isoformat()
+		if hasattr(doc.sla_due_date, "isoformat") and doc.sla_due_date
+		else str(doc.sla_due_date),
+		"updated_at": doc.modified.isoformat() if hasattr(doc.modified, "isoformat") else str(doc.modified),
+		"available_actions": _get_available_actions_for_user(doc),
+	}
+
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"sla_due_date": current_state["sla_due_date"],
+			"current_state": current_state,
+			"timeline_event": _format_timeline_event(timeline_entry, doc, doc.status, doc.status),
+		},
+		message=_("SLA deadline extended successfully"),
+	)
+
+
+@route(
+	"/<ticket_number>/anonymity-decision", methods=("POST",), summary="Approve or reject anonymity request"
+)
+@frappe.whitelist()
+@validate_request(AnonymityDecisionRequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def anonymity_decision(
+	ticket_number: str,
+	decision: str,
+	reason: str | None = None,
+	**kwargs,
+):
+	"""Approve or reject an anonymity request directly via API."""
+	doc = _load(ticket_number, ptype="write")
+	dec = decision.strip().capitalize()
+	if dec not in ("Approved", "Rejected"):
+		frappe.throw(_("Decision must be 'Approved' or 'Rejected'."), frappe.ValidationError)
+
+	g_updates = {"anonymity_status": dec}
+	if dec == "Approved":
+		g_updates["is_anonymous"] = 1
+		g_updates["anonymity_approved_by"] = frappe.session.user
+	elif dec == "Rejected":
+		g_updates["is_anonymous"] = 0
+
+	doc.db_set(g_updates, update_modified=False)
+
+	# Update existing pending request doc if exists
+	pending_reqs = frappe.get_all(
+		"Grievance Anonymity Request", filters={"grievance": doc.name, "status": "Pending"}, pluck="name"
+	)
+	for req_name in pending_reqs:
+		frappe.db.set_value(
+			"Grievance Anonymity Request",
+			req_name,
+			{
+				"status": dec,
+				"decided_by": frappe.session.user,
+				"decided_at": now_datetime(),
+			},
+			update_modified=False,
+		)
+
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="status_change",
+		is_internal=True,
+		body=f"Anonymity request {dec}" + (f": {reason.strip()}" if reason and reason.strip() else ""),
+		author_user=frappe.session.user,
+	)
+
+	doc.reload()
+	current_state = {
+		"status": doc.status,
+		"is_anonymous": bool(doc.is_anonymous),
+		"anonymity_status": doc.anonymity_status,
+		"updated_at": doc.modified.isoformat() if hasattr(doc.modified, "isoformat") else str(doc.modified),
+		"available_actions": _get_available_actions_for_user(doc),
+	}
+
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"is_anonymous": bool(doc.is_anonymous),
+			"anonymity_status": doc.anonymity_status,
+			"current_state": current_state,
+			"timeline_event": _format_timeline_event(timeline_entry, doc, doc.status, doc.status),
+		},
+		message=_("Anonymity decision recorded successfully"),
 	)
 
 

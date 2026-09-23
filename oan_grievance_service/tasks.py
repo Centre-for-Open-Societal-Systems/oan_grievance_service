@@ -133,6 +133,17 @@ def auto_close_expired():
 			notify=False,
 			closure_type="auto_closed",
 		)
+		from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+			GrievanceTimeline,
+		)
+
+		GrievanceTimeline.record(
+			grievance=grievance.name,
+			entry_type="status_change",
+			is_internal=False,
+			body="Grievance auto-closed: confirmation window elapsed without objection.",
+			author_user=None,
+		)
 		notifications.queue(grievance, C.EVENT_AUTO_CLOSED)
 
 	return len(expired)

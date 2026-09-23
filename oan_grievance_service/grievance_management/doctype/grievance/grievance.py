@@ -63,13 +63,12 @@ class Grievance(Document):
 				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
 			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
 		self.set_administrative_area_metadata()
-		self.guard_the_workflow_move()
 
 	# Workflow
 	# --------
 	# Frappe's engine moves a grievance by setting `workflow_state` and saving,
-	# submitting or cancelling it, so the guards run from validate and the record of
-	# the move from the post-save methods -- one of which fires per kind of save.
+	# submitting or cancelling it, and the record of the move is handled from
+	# the post-save methods -- one of which fires per kind of save.
 
 	def keep_status_in_step_with_the_workflow(self):
 		"""`workflow_state` is what the engine drives; `status` mirrors it so every
@@ -87,23 +86,16 @@ class Grievance(Document):
 			return None
 		return before.workflow_state
 
-	def guard_the_workflow_move(self):
-		from_state = self.workflow_move_from()
-		if from_state:
-			hooks_handlers.before_workflow_action(self, from_state)
-
 	# Frappe runs `validate` for a save and a submit only. A move between two
 	# submitted states arrives as update_after_submit, a rejection as cancel, and
-	# each has its own before-method; the sync and the guards must run from those
-	# too, or a move on either path would leave `status` behind and skip the checks.
+	# each has its own before-method; the sync must run from those too, or a move
+	# on either path would leave `status` behind.
 
 	def before_update_after_submit(self):
 		self.keep_status_in_step_with_the_workflow()
-		self.guard_the_workflow_move()
 
 	def before_cancel(self):
 		self.keep_status_in_step_with_the_workflow()
-		self.guard_the_workflow_move()
 
 	def record_the_workflow_move(self):
 		from_state = self.workflow_move_from()

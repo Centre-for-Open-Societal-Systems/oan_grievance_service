@@ -383,10 +383,36 @@ def submit_draft(
 	doc.save(ignore_permissions=True)
 
 	from oan_grievance_service.api.v1.grievance import _request_anonymity, detect_duplicates
+	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+		GrievanceTimeline,
+	)
 	from oan_grievance_service.services import constants as C
 	from oan_grievance_service.services import lifecycle, notifications, routing
 
 	lifecycle.transition(doc, "Submit")
+
+	body_text = (doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})"
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="submission",
+		is_internal=False,
+		body=body_text,
+		author_submitter=doc.submitter,
+		author_user=doc.assisted_by_officer,
+		ref_doctype="Grievance",
+		ref_docname=doc.name,
+	)
+	try:
+		frappe.db.sql(
+			"""
+			UPDATE `tabGrievance Attachment`
+			SET `timeline_entry` = %(tl)s
+			WHERE `grievance` = %(grv)s AND (`timeline_entry` IS NULL OR `timeline_entry` = '')
+			""",
+			{"tl": timeline_entry.name, "grv": doc.name},
+		)
+	except Exception:
+		pass
 
 	if is_anonymous or doc.is_anonymous:
 		doc.is_anonymous = 1

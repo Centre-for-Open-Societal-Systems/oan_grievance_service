@@ -372,3 +372,73 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_rej_ok.status_code, 200)
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
+
+	def test_reassign_defer_and_anonymity_endpoints(self):
+		"""Test direct REST APIs for reassignment, deferral, and anonymity decisions."""
+		import uuid
+
+		import frappe.api
+
+		from oan_grievance_service.tests.fixtures import a_department
+
+		# 1. Submit a grievance
+		frappe.set_user(self.farmer_user.name)
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
+			"submission_channel": "Mobile App",
+			"administrative_area": self.area,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype.name,
+			"description": "Testing reassign and deferral direct endpoints.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		frappe.api.handle(req_save)
+
+		submit_payload = {"client_submission_uuid": draft_uuid, "consent_given": 1}
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		res_submit = frappe.api.handle(req_submit)
+		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
+		frappe.db.commit()
+
+		# 2. Reassign endpoint
+		frappe.set_user("Administrator")
+		dept = a_department()
+		req_reassign = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/reassign",
+			method="POST",
+			data={
+				"target_department": dept,
+				"sla_treatment": "Continue",
+				"reason": "Routing to regional dept",
+			},
+		)
+		res_reassign = frappe.api.handle(req_reassign)
+		self.assertEqual(res_reassign.status_code, 200, res_reassign.get_data(as_text=True))
+		reassign_data = json.loads(res_reassign.get_data(as_text=True))
+		self.assertEqual(reassign_data["status"], "success")
+		self.assertEqual(reassign_data["data"]["assigned_dept"], dept)
+
+		# 3. Defer SLA endpoint
+		req_defer = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/defer-sla",
+			method="POST",
+			data={"additional_days": 5, "reason": "Awaiting soil lab sample results"},
+		)
+		res_defer = frappe.api.handle(req_defer)
+		self.assertEqual(res_defer.status_code, 200)
+		defer_data = json.loads(res_defer.get_data(as_text=True))
+		self.assertEqual(defer_data["status"], "success")
+		self.assertIsNotNone(defer_data["data"]["sla_due_date"])
+
+		# 4. Anonymity decision endpoint
+		req_anon = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/anonymity-decision",
+			method="POST",
+			data={"decision": "Approved", "reason": "Sensitive whistleblowing context"},
+		)
+		res_anon = frappe.api.handle(req_anon)
+		self.assertEqual(res_anon.status_code, 200)
+		anon_data = json.loads(res_anon.get_data(as_text=True))
+		self.assertEqual(anon_data["status"], "success")
+		self.assertTrue(anon_data["data"]["is_anonymous"])
