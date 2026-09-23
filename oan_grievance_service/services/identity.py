@@ -134,24 +134,86 @@ def validate_filing_area(administrative_area: str):
 	return area
 
 
+# Bare / national numbers (no +ISD) are parsed against Ethiopia — primary
+# jurisdiction and the historical FSD default. International numbers carry their
+# own country code and are validated by that country's numbering plan.
+DEFAULT_PHONE_REGION = "ET"
+
+
 def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
-	"""Strict Frappe phone validation with country code (E.164 via libphonenumber)."""
-	from frappe.utils import validate_phone_number_with_country_code
+	"""Return E.164 mobile validated by phonenumbers (libphonenumber), or raise.
+
+	Uses the same library Frappe ships. National forms default to Ethiopia.
+	The parsed region must also appear in jurisdiction phone extensions so a
+	valid neighbouring ISD cannot slip SMS onto another network.
+	"""
+	from phonenumbers import (
+		NumberParseException,
+		PhoneNumberFormat,
+		format_number,
+		is_valid_number,
+		parse,
+		region_code_for_number,
+	)
 
 	raw = str(v or "").strip()
 	if not raw:
 		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
-	if not raw.startswith("+"):
-		import phonenumbers
 
-		try:
-			parsed = phonenumbers.parse(raw, "ET")
-			if phonenumbers.is_valid_number(parsed):
-				raw = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-		except Exception:
-			pass
-	validate_phone_number_with_country_code(raw, fieldname)
-	return raw
+	# Keep a leading +; drop spaces, hyphens, and desk-style separators.
+	candidate = re.sub(r"[^\d+]", "", raw)
+	if candidate.count("+") > 1 or (candidate and "+" in candidate[1:]):
+		frappe.throw(
+			_("{0} is not a valid phone number.").format(raw),
+			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	try:
+		parsed = parse(candidate, None if candidate.startswith("+") else DEFAULT_PHONE_REGION)
+	except NumberParseException as exc:
+		if exc.error_type == NumberParseException.INVALID_COUNTRY_CODE:
+			frappe.throw(
+				_("Please select a country code for field {0}.").format(frappe.bold(fieldname)),
+				title=_("Country Code Required"),
+				exc=frappe.InvalidPhoneNumberError,
+			)
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	if not is_valid_number(parsed):
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	number_region = region_code_for_number(parsed)
+	allowed = _jurisdiction_phone_regions()
+	if allowed and number_region and number_region not in allowed:
+		frappe.throw(
+			_("{0} belongs to a country outside the active jurisdiction. Use a number from: {1}.").format(
+				raw, ", ".join(sorted(allowed))
+			),
+			title=_("Wrong Country Code"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	return format_number(parsed, PhoneNumberFormat.E164)
+
+
+def _jurisdiction_phone_regions() -> set[str]:
+	"""ISO region codes from Administrative Area jurisdictions (phone_extensions)."""
+	from oan_grievance_service.api.v1._options import get_phone_extensions
+
+	return {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
 
 
 class GrievanceSubmissionPayload(BaseModel):
@@ -168,13 +230,11 @@ class GrievanceSubmissionPayload(BaseModel):
 	def _validate_mobile(cls, v):
 		if not v or not str(v).strip():
 			return v
-		raw = str(v).strip()
 		try:
-			validate_mobile(raw)
+			return validate_mobile(str(v).strip())
 		except (frappe.ValidationError, Exception) as exc:
 			message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
 			raise ValueError(message) from exc
-		return raw
 
 	@field_validator("administrative_area")
 	@classmethod

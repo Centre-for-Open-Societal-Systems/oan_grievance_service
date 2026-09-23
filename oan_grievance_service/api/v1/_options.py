@@ -166,23 +166,68 @@ def get_preferred_languages() -> list[dict]:
 	]
 
 
+def get_jurisdiction_countries() -> list[str]:
+	"""Active country names from the Administrative Area tree (fallback: Ethiopia)."""
+	country_nodes = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": "Country", "is_active": 1},
+		fields=["area_name", "code", "country"],
+		order_by="area_name asc",
+		ignore_permissions=True,
+	)
+
+	names: set[str] = set()
+	for node in country_nodes:
+		if node.get("country"):
+			names.add(node["country"])
+		if node.get("area_name"):
+			names.add(node["area_name"])
+
+	if not names:
+		distinct_countries = frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"is_active": 1, "country": ["is", "set"]},
+			distinct=True,
+			pluck="country",
+			ignore_permissions=True,
+		)
+		names = {c.strip() for c in distinct_countries if c and c.strip()}
+
+	return sorted(names) if names else ["Ethiopia"]
+
+
 def get_phone_extensions(search: str | None = None, country: str | None = None) -> list[dict]:
-	"""Retrieve country phone extensions / ISD codes."""
+	"""Phone extensions for active jurisdiction countries only (Administrative Area)."""
 	from frappe.geo.country_info import get_all
 
 	all_geo_data = get_all()
-	extensions = []
-	for name, info in all_geo_data.items():
-		isd = info.get("isd")
-		if not isd:
-			continue
-		isd_str = str(isd).strip()
-		if not isd_str.startswith("+"):
-			isd_str = f"+{isd_str}"
-		code = (info.get("code") or "").upper()
-		extensions.append({"country": name, "code": code, "isd": isd_str})
+	jurisdiction_names = get_jurisdiction_countries()
 
-	# Sort primary region (Ethiopia) first, then alphabetically
+	extensions = []
+	for j_name in jurisdiction_names:
+		info = all_geo_data.get(j_name)
+		if not info:
+			for c_name, c_info in all_geo_data.items():
+				if c_name.lower() == j_name.lower() or (c_info.get("code") or "").lower() == j_name.lower():
+					info = c_info
+					j_name = c_name
+					break
+
+		if info and info.get("isd"):
+			isd_str = str(info["isd"]).strip()
+			if not isd_str.startswith("+"):
+				isd_str = f"+{isd_str}"
+			extensions.append(
+				{
+					"country": j_name,
+					"code": (info.get("code") or "").upper(),
+					"isd": isd_str,
+				}
+			)
+
+	if not extensions:
+		extensions = [{"country": "Ethiopia", "code": "ET", "isd": "+251"}]
+
 	extensions.sort(key=lambda x: (x["country"] != "Ethiopia", x["country"]))
 
 	if country:

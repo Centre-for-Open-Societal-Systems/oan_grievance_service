@@ -8,3 +8,5 @@
 # EXIF strip fail open if the import disappears, so neither is left transitive.
 filetype>=1.2
 Pillow>=10.0
+# Same pattern: Frappe ships phonenumbers, but we import it for contact_mobile.
+phonenumbers~=9.0.23
