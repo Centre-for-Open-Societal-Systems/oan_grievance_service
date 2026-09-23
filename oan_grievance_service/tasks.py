@@ -14,7 +14,7 @@ from oan_grievance_service.services import lifecycle, notifications, sla
 
 def open_grievances_with_sla(extra_filters=None):
 	filters = {
-		"status": ["in", list(C.OPEN_STATUSES)],
+		"status": ["not in", ["Closed", "Rejected", "Draft"]],
 		"sla_due_date": ["is", "set"],
 	}
 	if extra_filters:
@@ -55,15 +55,16 @@ def send_sla_reminders():
 		# reminded about and the deadline has not moved yet.
 		if row.on_hold_since:
 			continue
-		grievance = frappe.get_doc("Grievance", row.name)
-		percent = sla.consumed_percent(grievance)
+		percent = sla.consumed_percent(row)
 
-		if percent >= 80 and not grievance.reminder_80_sent:
+		if percent >= 80 and not row.reminder_80_sent:
+			grievance = frappe.get_doc("Grievance", row.name)
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_80)
 			notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
 			grievance.db_set("reminder_80_sent", 1, update_modified=False)
 			sent += 1
-		elif percent >= 50 and not grievance.reminder_50_sent:
+		elif percent >= 50 and not row.reminder_50_sent:
+			grievance = frappe.get_doc("Grievance", row.name)
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_50)
 			grievance.db_set("reminder_50_sent", 1, update_modified=False)
 			sent += 1
@@ -88,7 +89,7 @@ def escalate_breached():
 	due_now = frappe.get_all(
 		"Grievance",
 		filters={
-			"status": ["in", list(C.OPEN_STATUSES)],
+			"status": ["not in", ["Closed", "Rejected", "Draft"]],
 			"next_escalation_at": ["<=", now_datetime()],
 			"on_hold_since": ["is", "not set"],
 		},
@@ -115,7 +116,7 @@ def auto_close_expired():
 	expired = frappe.get_all(
 		"Grievance",
 		filters={
-			"status": C.PENDING_SUBMITTER,
+			"status": "Pending Submitter",
 			"confirmation_deadline": ["<", now_datetime()],
 		},
 		pluck="name",
@@ -123,7 +124,16 @@ def auto_close_expired():
 
 	for name in expired:
 		grievance = frappe.get_doc("Grievance", name)
-		lifecycle.auto_close(grievance)
+		grievance.db_set("closure_reason", "Closed - no objection received", update_modified=False)
+		lifecycle.transition(
+			grievance,
+			"Auto Close",
+			note="Closed - no objection received",
+			automated=True,
+			notify=False,
+			closure_type="auto_closed",
+		)
+		notifications.queue(grievance, C.EVENT_AUTO_CLOSED)
 
 	return len(expired)
 
@@ -131,14 +141,6 @@ def auto_close_expired():
 def dispatch_notifications():
 	"""FR-08: drain the notification queue."""
 	return notifications.dispatch_queued()
-
-
-def purge_expired_drafts():
-	"""Clear abandoned submission drafts. Drafts that became grievances are kept,
-	because they are what makes a retried submit return the original ticket."""
-	from oan_grievance_service.api.v1 import draft
-
-	return draft.purge_expired_drafts()
 
 
 def scan_pending_attachments():
@@ -152,27 +154,35 @@ def scan_pending_attachments():
 	return scanning.scan_pending()
 
 
-def hourly():
-	"""Entry point wired to the hourly scheduler event."""
-	send_sla_reminders()
-	scan_pending_attachments()
-	escalate_breached()
-	dispatch_notifications()
+def purge_expired_drafts():
+	"""Daily: clear abandoned drafts that expired without being submitted."""
+	from oan_grievance_service.api.v1 import draft
+
+	return draft.purge_expired_drafts()
 
 
 def refresh_dashboard_projection():
 	"""FR-09 / STG-330: rebuild the dashboard reporting projection.
 
 	Dashboard Statistics API reads only this projection so request paths never
-	scan the live Grievance table for national-scale aggregates.
+	scan the live Grievance table for national-scale aggregates. Wired hourly;
+	admins can also trigger via ``POST /api/v1/dashboard-statistics/refresh``.
 	"""
 	from oan_grievance_service.services import dashboard_stats
 
 	return dashboard_stats.refresh_projection()
 
 
+def hourly():
+	"""Entry point wired to the hourly scheduler event."""
+	send_sla_reminders()
+	scan_pending_attachments()
+	escalate_breached()
+	dispatch_notifications()
+	refresh_dashboard_projection()
+
+
 def daily():
 	"""Entry point wired to the daily scheduler event."""
 	auto_close_expired()
 	purge_expired_drafts()
-	refresh_dashboard_projection()

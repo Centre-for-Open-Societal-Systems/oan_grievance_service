@@ -16,6 +16,8 @@ the `grievance_sla_clock_start` site config key ("assignment" or "creation") so 
 decision can be reversed without a code change.
 """
 
+from dataclasses import dataclass
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
@@ -29,13 +31,28 @@ CLOCK_START_ASSIGNMENT = "assignment"
 CLOCK_START_CREATION = "creation"
 
 
+@dataclass(frozen=True, slots=True)
+class SLAPolicy:
+	"""Resolved SLA policy configuration for a service category."""
+
+	name: str
+	sla_days: int
+	auto_escalate: bool
+	auto_escalation_threshold: int
+	top_level_authority: str | None = None
+	first_response_hours: int | None = None
+	update_cadence_hours: int | None = None
+	remand_execution_hours: int | None = None
+	appeal_window_days: int | None = None
+
+
 def clock_start_mode():
 	return frappe.conf.get("grievance_sla_clock_start") or CLOCK_START_ASSIGNMENT
 
 
-def resolve_policy(service_category):
+def resolve_policy(service_category) -> SLAPolicy | None:
 	"""One policy per service category. Grievance type does not narrow the SLA."""
-	policy = frappe.get_all(
+	rows = frappe.get_all(
 		"Grievance SLA Configuration",
 		filters={
 			"service_category": service_category,
@@ -54,7 +71,20 @@ def resolve_policy(service_category):
 		],
 		limit=1,
 	)
-	return policy[0] if policy else None
+	if not rows:
+		return None
+	r = rows[0]
+	return SLAPolicy(
+		name=r.name,
+		sla_days=r.sla_days or 0,
+		auto_escalate=bool(r.auto_escalate),
+		auto_escalation_threshold=r.auto_escalation_threshold or 100,
+		top_level_authority=r.top_level_authority,
+		first_response_hours=r.first_response_hours,
+		update_cadence_hours=r.update_cadence_hours,
+		remand_execution_hours=r.remand_execution_hours,
+		appeal_window_days=r.appeal_window_days,
+	)
 
 
 def start_clock(grievance):
@@ -72,9 +102,14 @@ def start_clock(grievance):
 		started = now_datetime()
 
 	due = add_days(started, policy.sla_days)
-	grievance.db_set("sla_days", policy.sla_days, update_modified=False)
-	grievance.db_set("sla_start_at", started, update_modified=False)
-	grievance.db_set("sla_due_date", due, update_modified=False)
+	grievance.db_set(
+		{
+			"sla_days": policy.sla_days,
+			"sla_start_at": started,
+			"sla_due_date": due,
+		},
+		update_modified=False,
+	)
 	arm_escalation(grievance, policy=policy)
 
 
@@ -119,9 +154,14 @@ def paused_statuses():
 
 def open_hold_seconds(grievance):
 	"""Seconds in the hold that is still running. Zero when the clock is not paused."""
-	if not grievance.on_hold_since:
+	on_hold = (
+		grievance.get("on_hold_since")
+		if isinstance(grievance, dict) or hasattr(grievance, "get")
+		else getattr(grievance, "on_hold_since", None)
+	)
+	if not on_hold:
 		return 0
-	return max(0, int((now_datetime() - get_datetime(grievance.on_hold_since)).total_seconds()))
+	return max(0, int((now_datetime() - get_datetime(on_hold)).total_seconds()))
 
 
 def pause_clock(grievance):
@@ -142,24 +182,21 @@ def resume_clock(grievance):
 		return
 
 	held = open_hold_seconds(grievance)
-	grievance.db_set("total_hold_time", (grievance.total_hold_time or 0) + held, update_modified=False)
-	grievance.db_set("on_hold_since", None, update_modified=False)
+	updates = {
+		"total_hold_time": (grievance.total_hold_time or 0) + held,
+		"on_hold_since": None,
+	}
 
 	if held and grievance.sla_due_date:
-		grievance.db_set(
-			"sla_due_date",
-			add_to_date(get_datetime(grievance.sla_due_date), seconds=held),
-			update_modified=False,
-		)
+		updates["sla_due_date"] = add_to_date(get_datetime(grievance.sla_due_date), seconds=held)
 		# The escalation clock is pushed by the same amount rather than re-armed, so a
 		# rung that was part-way through its own hours keeps the remainder instead of
 		# being overtaken the moment the case comes off hold.
 		if grievance.next_escalation_at:
-			grievance.db_set(
-				"next_escalation_at",
-				add_to_date(get_datetime(grievance.next_escalation_at), seconds=held),
-				update_modified=False,
+			updates["next_escalation_at"] = add_to_date(
+				get_datetime(grievance.next_escalation_at), seconds=held
 			)
+	grievance.db_set(updates, update_modified=False)
 	return held
 
 
@@ -171,11 +208,25 @@ def consumed_percent(grievance):
 	department. An open hold is subtracted from the elapsed side only, because the due date
 	does not move until the case resumes.
 	"""
-	if not (grievance.sla_start_at and grievance.sla_due_date):
+	start_val = (
+		grievance.get("sla_start_at")
+		if isinstance(grievance, dict) or hasattr(grievance, "get")
+		else getattr(grievance, "sla_start_at", None)
+	)
+	due_val = (
+		grievance.get("sla_due_date")
+		if isinstance(grievance, dict) or hasattr(grievance, "get")
+		else getattr(grievance, "sla_due_date", None)
+	)
+	if not (start_val and due_val):
 		return 0
-	start = get_datetime(grievance.sla_start_at)
-	due = get_datetime(grievance.sla_due_date)
-	banked = grievance.total_hold_time or 0
+	start = get_datetime(start_val)
+	due = get_datetime(due_val)
+	banked = (
+		grievance.get("total_hold_time")
+		if isinstance(grievance, dict) or hasattr(grievance, "get")
+		else getattr(grievance, "total_hold_time", 0)
+	) or 0
 
 	window = (due - start).total_seconds() - banked
 	if window <= 0:
@@ -189,24 +240,19 @@ def extend_for_deferral(grievance, additional_days):
 	"""FSD 3.11.7: an approved deferral pushes the due date out."""
 	if not grievance.sla_due_date:
 		return
-	grievance.db_set(
-		"sla_due_date",
-		add_days(get_datetime(grievance.sla_due_date), additional_days),
-		update_modified=False,
-	)
-	# The window moved, so the old reminders are no longer the right ones to suppress.
-	grievance.db_set("reminder_50_sent", 0, update_modified=False)
-	grievance.db_set("reminder_80_sent", 0, update_modified=False)
+	updates = {
+		"sla_due_date": add_days(get_datetime(grievance.sla_due_date), additional_days),
+		"reminder_50_sent": 0,
+		"reminder_80_sent": 0,
+	}
 
 	# A case already climbing keeps its rung's remaining hours, shifted by the granted
 	# days; one that has not escalated yet is re-armed against the new deadline.
 	if grievance.escalated and grievance.next_escalation_at:
-		grievance.db_set(
-			"next_escalation_at",
-			add_days(get_datetime(grievance.next_escalation_at), additional_days),
-			update_modified=False,
-		)
+		updates["next_escalation_at"] = add_days(get_datetime(grievance.next_escalation_at), additional_days)
+		grievance.db_set(updates, update_modified=False)
 	else:
+		grievance.db_set(updates, update_modified=False)
 		arm_escalation(grievance)
 
 
@@ -240,25 +286,14 @@ def current_level_of(user):
 	if not user:
 		return None
 
-	today = frappe.utils.today()
-	query = """
-		SELECT c.role_level
-		FROM `tabGrievance RBAC Assignment Officer` c
-		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-		WHERE c.user = %(user)s
-		  AND c.active = 1
-		  AND p.active = 1
-		  AND p.effective_from <= %(today)s
-		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
-		  AND c.role_level IS NOT NULL
-		  AND c.role_level != ''
-		ORDER BY c.is_primary DESC, p.modified DESC
-		LIMIT 1
-	"""
-	try:
-		rows = frappe.db.sql(query, {"user": user, "today": today}, as_dict=True)
-	except Exception:
-		return None
+	from oan_grievance_service.permissions import query_active_officer_assignments
+
+	rows = query_active_officer_assignments(
+		user=user,
+		fields=["c.role_level"],
+		limit=1,
+	)
+	rows = [r for r in rows if r.role_level]
 	return rows[0].role_level if rows else None
 
 
@@ -316,25 +351,13 @@ def get_officer_supervisor(user, department=None, administrative_area=None):
 	if not user:
 		return None
 
-	today = frappe.utils.today()
-	query = """
-		SELECT c.reports_to, p.department_scope, p.administrative_area_scope
-		FROM `tabGrievance RBAC Assignment Officer` c
-		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-		WHERE c.user = %(user)s
-		  AND c.active = 1
-		  AND p.active = 1
-		  AND p.effective_from <= %(today)s
-		  AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
-		  AND c.reports_to IS NOT NULL
-		  AND c.reports_to != ''
-		ORDER BY c.is_primary DESC, p.modified DESC
-	"""
-	try:
-		rows = frappe.db.sql(query, {"user": user, "today": today}, as_dict=True)
-	except Exception:
-		return None
+	from oan_grievance_service.permissions import is_in_area_subtree, query_active_officer_assignments
 
+	rows = query_active_officer_assignments(
+		user=user,
+		fields=["c.reports_to", "p.department_scope", "p.administrative_area_scope"],
+	)
+	rows = [r for r in rows if r.reports_to]
 	if not rows:
 		return None
 
@@ -346,12 +369,8 @@ def get_officer_supervisor(user, department=None, administrative_area=None):
 		if department and r.department_scope and r.department_scope != department:
 			continue
 		if target_lft is not None and r.administrative_area_scope:
-			area_bounds = frappe.db.get_value(
-				"Grievance Administrative Area", r.administrative_area_scope, ["lft", "rgt"], as_dict=True
-			)
-			if area_bounds and area_bounds.lft is not None and area_bounds.rgt is not None:
-				if not (area_bounds.lft <= int(target_lft) <= area_bounds.rgt):
-					continue
+			if not is_in_area_subtree(target_lft, r.administrative_area_scope):
+				continue
 		return r.reports_to
 
 	return rows[0].reports_to

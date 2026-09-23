@@ -4,9 +4,13 @@
 """FR-09 / STG-330 dashboard statistics: refresh the reporting projection and read it.
 
 The Dashboard Statistics API never scans ``tabGrievance`` on a request path. A
-scheduled job (and tests) call ``refresh_projection`` to rebuild
+scheduled job (and admin refresh) call ``refresh_projection`` to rebuild
 ``Grievance Dashboard Projection``; ``get_statistics`` aggregates those rows
 after applying the caller's RBAC scope (role / region / department / category).
+
+Status labels mirror the Grievance Workflow DocType (source of truth after #19).
+They are local to this module for KPI bucketing / draft exclusion only — not a
+second transition table.
 """
 
 from __future__ import annotations
@@ -18,13 +22,39 @@ import frappe
 from frappe.utils import add_months, get_datetime, now_datetime
 
 from oan_grievance_service import permissions as perms
-from oan_grievance_service.services import constants as C
 
 PROJECTION_DOCTYPE = "Grievance Dashboard Projection"
 METRIC_STOCK = "stock"
 METRIC_MONTHLY = "monthly"
 
 DEFAULT_MONTHS = 12
+
+STATUS_DRAFT = "Draft"
+STATUS_SUBMITTED = "Submitted"
+STATUS_ASSIGNED = "Assigned"
+STATUS_IN_PROGRESS = "In Progress"
+STATUS_MORE_INFO_NEEDED = "More Info Needed"
+STATUS_PENDING_SUBMITTER = "Pending Submitter"
+STATUS_RESOLVED = "Resolved"
+STATUS_CLOSED = "Closed"
+STATUS_REJECTED = "Rejected"
+
+OPEN_STATUSES = (
+	STATUS_SUBMITTED,
+	STATUS_ASSIGNED,
+	STATUS_IN_PROGRESS,
+	STATUS_MORE_INFO_NEEDED,
+	STATUS_PENDING_SUBMITTER,
+)
+
+# FSD 3.11.3 display groups mapped to KPI card keys.
+KPI_STATUS_GROUPS = {
+	"pending": (STATUS_SUBMITTED, STATUS_ASSIGNED),
+	"in_progress": (STATUS_IN_PROGRESS, STATUS_MORE_INFO_NEEDED),
+	"under_review": (STATUS_PENDING_SUBMITTER,),
+	"resolved": (STATUS_RESOLVED, STATUS_CLOSED),
+	"rejected": (STATUS_REJECTED,),
+}
 
 
 def refresh_projection() -> dict:
@@ -74,12 +104,12 @@ def get_statistics(user: str | None = None, months: int = DEFAULT_MONTHS) -> dic
 	status_counts = {row["status"]: row["count"] for row in by_status if row["status"]}
 	kpis = {
 		"total": total,
-		"open": _sum_statuses(status_counts, C.OPEN_STATUSES),
-		"pending": _sum_statuses(status_counts, C.DISPLAY_GROUPS["Pending"]),
-		"in_progress": _sum_statuses(status_counts, C.DISPLAY_GROUPS["In Progress"]),
-		"under_review": _sum_statuses(status_counts, C.DISPLAY_GROUPS["Under Review"]),
-		"resolved": _sum_statuses(status_counts, C.DISPLAY_GROUPS["Resolved"]),
-		"rejected": _sum_statuses(status_counts, C.DISPLAY_GROUPS["Rejected"]),
+		"open": _sum_statuses(status_counts, OPEN_STATUSES),
+		"pending": _sum_statuses(status_counts, KPI_STATUS_GROUPS["pending"]),
+		"in_progress": _sum_statuses(status_counts, KPI_STATUS_GROUPS["in_progress"]),
+		"under_review": _sum_statuses(status_counts, KPI_STATUS_GROUPS["under_review"]),
+		"resolved": _sum_statuses(status_counts, KPI_STATUS_GROUPS["resolved"]),
+		"rejected": _sum_statuses(status_counts, KPI_STATUS_GROUPS["rejected"]),
 		"sla_breached": sla_breached,
 		"escalated": escalated,
 	}
@@ -200,7 +230,7 @@ def _build_stock_rows(snapshot_at: datetime) -> list[dict]:
 			g.service_category,
 			g.status
 		""",
-		{"now": now, "draft": C.DRAFT, "open_statuses": tuple(C.OPEN_STATUSES)},
+		{"now": now, "draft": STATUS_DRAFT, "open_statuses": tuple(OPEN_STATUSES)},
 		as_dict=True,
 	)
 
@@ -252,7 +282,7 @@ def _build_monthly_rows(snapshot_at: datetime) -> list[dict]:
 		""".replace("__MONTH_EXPR__", month_expr)
 	submitted = frappe.db.sql(
 		submitted_query,
-		{"draft": C.DRAFT},
+		{"draft": STATUS_DRAFT},
 		as_dict=True,
 	)
 
@@ -283,8 +313,8 @@ def _build_monthly_rows(snapshot_at: datetime) -> list[dict]:
 	resolved = frappe.db.sql(
 		resolved_query,
 		{
-			"draft": C.DRAFT,
-			"resolved_statuses": (C.RESOLVED, C.CLOSED),
+			"draft": STATUS_DRAFT,
+			"resolved_statuses": (STATUS_RESOLVED, STATUS_CLOSED),
 		},
 		as_dict=True,
 	)
@@ -409,56 +439,69 @@ def _bulk_insert(rows: list[dict]) -> None:
 
 
 def _fetch_scoped_rows(metric_type: str, scope: dict, months: int | None = None) -> list:
-	filters = {"metric_type": metric_type}
+	"""Load projection rows with RBAC pushed into SQL (area / dept / category)."""
+	params: dict = {"metric_type": metric_type}
+	conditions = ["metric_type = %(metric_type)s"]
+
 	if months and metric_type == METRIC_MONTHLY:
 		cutoff = add_months(now_datetime().replace(day=1), -(months - 1)).strftime("%Y-%m")
-		filters["period_month"] = [">=", cutoff]
+		conditions.append("period_month >= %(cutoff)s")
+		params["cutoff"] = cutoff
 
-	rows = frappe.get_all(
-		PROJECTION_DOCTYPE,
-		filters=filters,
-		fields=[
-			"metric_type",
-			"period_month",
-			"snapshot_at",
-			"administrative_area",
-			"area_lft",
-			"area_rgt",
-			"assigned_dept",
-			"service_category",
-			"status",
-			"case_count",
-			"sla_breached_count",
-			"escalated_count",
-			"resolved_count",
-		],
-		ignore_permissions=True,
-	)
+	if not scope["unrestricted"]:
+		scope_sql, scope_params = _scope_sql_filter(scope)
+		if scope_sql is None:
+			# Officer with no assignments: deny-by-default.
+			return []
+		conditions.append(scope_sql)
+		params.update(scope_params)
 
-	if scope["unrestricted"]:
-		return rows
-	return [r for r in rows if _row_in_scope(r, scope)]
+	where_sql = " AND ".join(conditions)
+	# WHERE fragments are built only from trusted placeholders + fixed column names.
+	query = (
+		"SELECT metric_type, period_month, snapshot_at, administrative_area, "
+		"area_lft, area_rgt, assigned_dept, service_category, status, "
+		"case_count, sla_breached_count, escalated_count, resolved_count "
+		"FROM `tabGrievance Dashboard Projection` WHERE "
+	) + where_sql
+
+	return frappe.db.sql(query, params, as_dict=True)
 
 
-def _row_in_scope(row, scope: dict) -> bool:
-	"""True when the projection row matches at least one of the caller's RBAC scopes."""
+def _scope_sql_filter(scope: dict) -> tuple[str | None, dict]:
+	"""Return ``(sql_fragment, params)`` for OR-of-AND RBAC scope clauses.
+
+	Each assignment may constrain area subtree (``area_lft`` between lft/rgt),
+	department, and/or category. Matching any one assignment admits the row.
+	"""
 	clauses = scope.get("scope_clauses") or []
 	if not clauses:
-		# Officer with no assignments sees nothing (deny-by-default), matching list RBAC.
-		return False
+		return None, {}
 
-	for clause in clauses:
-		if "department" in clause and row.assigned_dept != clause["department"]:
-			continue
-		if "category" in clause and row.service_category != clause["category"]:
-			continue
+	or_parts = []
+	params: dict = {}
+	for i, clause in enumerate(clauses):
+		ands = []
+		if "department" in clause:
+			key = f"dept_{i}"
+			ands.append(f"assigned_dept = %({key})s")
+			params[key] = clause["department"]
+		if "category" in clause:
+			key = f"cat_{i}"
+			ands.append(f"service_category = %({key})s")
+			params[key] = clause["category"]
 		if "area_bounds" in clause:
 			lft, rgt = clause["area_bounds"]
-			case_lft = row.area_lft
-			if case_lft is None or not (int(lft) <= int(case_lft) <= int(rgt)):
-				continue
-		return True
-	return False
+			lft_key, rgt_key = f"lft_{i}", f"rgt_{i}"
+			ands.append(f"(area_lft IS NOT NULL AND area_lft BETWEEN %({lft_key})s AND %({rgt_key})s)")
+			params[lft_key] = int(lft)
+			params[rgt_key] = int(rgt)
+		if ands:
+			or_parts.append("(" + " AND ".join(ands) + ")")
+
+	if not or_parts:
+		return None, {}
+	return "(" + " OR ".join(or_parts) + ")", params
 
 
 def _sum_by(rows, key: str, count_field: str) -> list[dict]:

@@ -8,9 +8,11 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from oan_grievance_service.api.v1 import dashboard
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard_stats
 from oan_grievance_service.tests.fixtures import a_leaf_area
+
+STATUS_SUBMITTED = "Submitted"
+STATUS_IN_PROGRESS = "In Progress"
 
 
 class TestDashboardStatisticsAPI(FrappeTestCase):
@@ -140,13 +142,13 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 
 		self.created = []
 		# In-scope: Inputs + Dept + self.area
-		self.created.append(self._make_grievance(C.SUBMITTED, "Inputs", self.area))
-		self.created.append(self._make_grievance(C.IN_PROGRESS, "Inputs", self.area, breached=True))
+		self.created.append(self._make_grievance(STATUS_SUBMITTED, "Inputs", self.area))
+		self.created.append(self._make_grievance(STATUS_IN_PROGRESS, "Inputs", self.area, breached=True))
 		# Out of scope: Credit category
-		self.created.append(self._make_grievance(C.SUBMITTED, "Credit", self.area))
+		self.created.append(self._make_grievance(STATUS_SUBMITTED, "Credit", self.area))
 		# Out of scope: other area (when distinct)
 		if self.other_area != self.area:
-			self.created.append(self._make_grievance(C.SUBMITTED, "Inputs", self.other_area))
+			self.created.append(self._make_grievance(STATUS_SUBMITTED, "Inputs", self.other_area))
 
 		dashboard_stats.refresh_projection()
 		self.addCleanup(frappe.set_user, "Administrator")
@@ -233,13 +235,30 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 		"""After projection refresh, a new grievance must not appear until rebuild."""
 		frappe.set_user("Administrator")
 		before = dashboard.get_statistics()["data"]["kpis"]["total"]
-		extra = self._make_grievance(C.SUBMITTED, "Inputs", self.area)
+		extra = self._make_grievance(STATUS_SUBMITTED, "Inputs", self.area)
 		self.created.append(extra)
 		after = dashboard.get_statistics()["data"]["kpis"]["total"]
 		self.assertEqual(after, before)
 		dashboard_stats.refresh_projection()
 		rebuilt = dashboard.get_statistics()["data"]["kpis"]["total"]
 		self.assertEqual(rebuilt, before + 1)
+
+	def test_admin_refresh_projection_endpoint(self):
+		frappe.set_user("Administrator")
+		before = dashboard.get_statistics()["data"]["kpis"]["total"]
+		extra = self._make_grievance(STATUS_SUBMITTED, "Inputs", self.area)
+		self.created.append(extra)
+		self.assertEqual(dashboard.get_statistics()["data"]["kpis"]["total"], before)
+
+		res = dashboard.refresh_projection()
+		self.assertEqual(res["status"], "success")
+		self.assertIn("snapshot_at", res["data"])
+		self.assertEqual(dashboard.get_statistics()["data"]["kpis"]["total"], before + 1)
+
+	def test_officer_cannot_refresh_projection(self):
+		frappe.set_user(self.officer_email)
+		res = dashboard.refresh_projection()
+		self.assertEqual(res["status"], "error")
 
 	def test_submitter_and_guest_denied(self):
 		frappe.set_user(self.submitter_email)

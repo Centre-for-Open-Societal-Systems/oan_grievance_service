@@ -59,8 +59,9 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
 | Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
 | List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
-| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save`                            | POST   |
-| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.load`                             | GET    |
+| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
+| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
+| Delete Draft              | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
 | Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
 | Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
 | Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
@@ -72,6 +73,7 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 | Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
 | Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
 | Dashboard Statistics      | `GET /api/v1/dashboard-statistics`                       | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics`               | GET    |
+| Refresh Dashboard Projection | `POST /api/v1/dashboard-statistics/refresh`           | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`          | POST   |
 
 ---
 
@@ -112,26 +114,22 @@ All `POST` / mutation endpoints must define an explicit `pydantic.BaseModel` sch
 
 ```python
 from pydantic import BaseModel, Field
-from oan_auth_service.api.utils import SafeEmail
+from oan_auth_service.api.utils import RequiredPhone, SafeEmail
 
 
 class SubmitGrievanceRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	# Soft at the edge: draft (`client_uuid`) and profile may supply values.
-	# Presence + format are enforced after merge via identity.validate_submission_payload.
-	submitter_type: str | None = None
-	submitter_name: str | None = None
-	contact_mobile: str | None = None
-	submission_channel: str | None = None
-	administrative_area: str | None = None
-	service_category: str | None = None
-	grievance_type: str | None = None
-	description: str | None = None
+	submitter_type: str = Field(..., min_length=1, description="Type of submitter")
+	submitter_name: str = Field(..., min_length=1, description="Full name of citizen/org")
+	contact_mobile: RequiredPhone
+	submission_channel: str = Field(..., min_length=1)
+	administrative_area: str = Field(..., min_length=1)
+	service_category: str = Field(..., min_length=1)
+	grievance_type: str = Field(..., min_length=1)
+	description: str = Field(..., min_length=20)
 	contact_email: SafeEmail | None = None
-	consent_given: int | None = Field(None, ge=0, le=1)
-	client_uuid: str | None = None
-	client_submission_uuid: str | None = None
+	assisted_by_officer: str | None = None
 	is_anonymous: int | None = Field(0, ge=0, le=1)
 ```
 
@@ -143,76 +141,13 @@ class SubmitGrievanceRequest(BaseModel):
 
 ---
 
-## 4.1 Submit Grievance API (STG-328)
-
-Finalizes a case: validates input, allocates a ticket ID (STG-327), moves status out of
-`Draft`, and returns the ticket to the caller. Draft wizard state (STG-322 / STG-325)
-carries over when `client_uuid` is provided.
-
-|      |                                                                  |
-| ---- | ---------------------------------------------------------------- |
-| REST | `POST /api/v1/grievances`                                        |
-| RPC  | `POST /api/method/oan_grievance_service.api.v1.grievance.submit` |
-| Auth | Required (`Grievance Submitter` and staff roles)                 |
-
-**Full-body example**
-
-```json
-{
-  "submission_channel": "Mobile App",
-  "administrative_area": "<area id or path_code>",
-  "service_category": "Inputs",
-  "grievance_type": "Fertilizer Shortage",
-  "description": "At least twenty characters describing the grievance.",
-  "desired_outcome": "Optional outcome text",
-  "consent_given": 1,
-  "client_uuid": "<optional draft key>",
-  "client_submission_uuid": "<optional idempotency key>"
-}
-```
-
-Authenticated submitters omit identity fields (`submitter_type`, `submitter_name`,
-`contact_mobile`, `contact_email`); the server snapshots them from the session profile.
-`woreda` / `kebele` may be sent instead of `administrative_area`.
-
-**Shared field names (draft `payload` ↔ submit body)**
-
-Keys inside draft `payload` are the **same names** as the submit body. They are
-never renamed on save or on merge (`submission.SHARED_SUBMISSION_FIELD_KEYS`):
-
-`submitter_type`, `submitter_name`, `contact_mobile`, `contact_email`,
-`submission_channel`, `administrative_area`, `administrative_unit`, `woreda`,
-`kebele`, `service_category`, `grievance_type`, `description`, `desired_outcome`,
-`consent_given`, `is_anonymous`, `assisted_by_officer`, `client_submission_uuid`.
-
-Only the envelope differs: draft wraps those keys in `payload` (+ `client_uuid`,
-`step_reached`); submit sends them at the top level (+ optional `client_uuid`).
-
-**Draft-only submit** (payload already saved via `POST /api/v1/drafts`):
-
-```json
-{ "client_uuid": "<draft key>", "consent_given": 1 }
-```
-
-Request fields overlay the draft. A re-submit of an already-claimed draft returns the
-original `ticket_number` with `duplicate_submission: true`.
-
-**Success `data`:** `ticket_number`, `status` (`Submitted`), routing/SLA summary,
-`attachments`, `duplicate_submission`.
-
-**Validation failure:** HTTP 400, `code: VALIDATION_ERROR`, per-field `details` map
-(STG-321). Missing consent, short description, wrong mobile country code, and
-type↔category mismatches are included.
-
----
-
 ## 4.2 Dashboard Statistics API (STG-330)
 
 Aggregates grievance counts for officer/admin dashboard KPI cards and charts.
 Reads the FR-09 **reporting projection** (`Grievance Dashboard Projection`), never
 a live `COUNT(*)` over `Grievance` on the request path. Projection rows are rebuilt
-daily by `tasks.refresh_dashboard_projection` (and can be refreshed manually via
-`services.dashboard_stats.refresh_projection`).
+hourly by `tasks.refresh_dashboard_projection`. Admins can also trigger an immediate
+rebuild via `POST /api/v1/dashboard-statistics/refresh`.
 
 |      |                                                                         |
 | ---- | ----------------------------------------------------------------------- |
@@ -227,8 +162,16 @@ daily by `tasks.refresh_dashboard_projection` (and can be refreshed manually via
 **Scoping**
 
 Results are filtered to the caller's RBAC assignment (administrative area subtree,
-department, category). Admins / System Managers are unrestricted. Submitters and
-guests receive `PERMISSION_DENIED`.
+department, category) in the projection query. Admins / System Managers are
+unrestricted. Submitters and guests receive `PERMISSION_DENIED`.
+
+**Refresh now (admin)**
+
+|      |                                                                               |
+| ---- | ----------------------------------------------------------------------------- |
+| REST | `POST /api/v1/dashboard-statistics/refresh`                                   |
+| RPC  | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`  |
+| Auth | Required (`Grievance Admin`, System Manager, Administrator)                   |
 
 **Success `data` keys (frontend mapping)**
 
@@ -437,9 +380,9 @@ class TestAPIEndpoints(FrappeTestCase):
 
 When introducing a new API or modifying parameters:
 
-1. Open [`postman/oan_grievance_collection.json`](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/postman/oan_grievance_collection.json).
+1. Open [`postman/oan_grievance_rest_collection.json`](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/postman/oan_grievance_rest_collection.json).
 2. Add the request definition under the appropriate folder with:
-   - Method (`POST` / `GET`).
-   - URL: `{{base_url}}/api/method/oan_grievance_service.api.v1.<module>.<endpoint>`.
+   - Method (`POST` / `GET` / `DELETE`).
+   - URL: `{{base_url}}/api/v1/<endpoint>`.
    - Headers: `Authorization: Bearer {{auth_token}}`, `Content-Type: application/json`.
    - Sample request payload and example response body.

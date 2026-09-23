@@ -57,6 +57,10 @@ has_permission = {
 # FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
 # gates reassignment on L2 approval. FR-10 records every read of a case.
 
+_CLEAR_LOOKUP_CACHE = {
+	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
+	"after_delete": "oan_grievance_service.api.v1._options.clear_reference_cache",
+}
 doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
@@ -85,7 +89,8 @@ doc_events = {
 # ------------------
 # FSD 4.3: a background process monitors open grievances against their SLA deadlines.
 # FSD 7 requires the batch to complete within 30 minutes.
-# FR-09 / STG-330: daily rebuild of the dashboard reporting projection.
+# FR-09 / STG-330: hourly rebuild of the dashboard reporting projection
+# (admins can also POST /api/v1/dashboard-statistics/refresh).
 
 scheduler_events = {
 	"hourly": [
@@ -95,36 +100,16 @@ scheduler_events = {
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.scan_pending_attachments",
+		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
+		# stay off the live Grievance table (lag capped at ~1h).
+		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",
 		"oan_grievance_service.tasks.purge_expired_drafts",
-		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
-		# stay off the live Grievance table.
-		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 }
 
-# Fixtures
-# ------------------
-# Configuration that must travel with the app rather than be re-keyed per site.
-
-fixtures = [
-	{
-		"dt": "Role",
-		"filters": [
-			[
-				"name",
-				"in",
-				[
-					"Grievance Submitter",
-					"Grievance Officer",
-					"Grievance Admin",
-				],
-			]
-		],
-	},
-]
 
 # Authentication & Registration
 # -----------------------------

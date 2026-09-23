@@ -24,6 +24,13 @@ DASHBOARD_ROLES = [
 	"Administrator",
 ]
 
+# Immediate projection rebuild — admin / system only.
+REFRESH_ROLES = [
+	"Grievance Admin",
+	"System Manager",
+	"Administrator",
+]
+
 
 @route("", methods=("GET",), summary="Dashboard statistics (KPIs and chart series)")
 @frappe.whitelist()
@@ -60,4 +67,31 @@ def get_statistics(months: int | str = 12, **kwargs):
 	return success_response(
 		data=data,
 		message=_("Dashboard statistics fetched successfully"),
+	)
+
+
+@route("/refresh", methods=("POST",), summary="Rebuild dashboard reporting projection now")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(REFRESH_ROLES)
+def refresh_projection(**kwargs):
+	"""Admin-triggered rebuild of ``Grievance Dashboard Projection``.
+
+	REST:
+	    POST /api/v1/dashboard-statistics/refresh
+
+	RPC:
+	    POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection
+
+	The same rebuild also runs hourly via ``tasks.refresh_dashboard_projection``.
+	"""
+	result = dashboard_stats.refresh_projection()
+	snapshot_at = result.get("snapshot_at")
+	return success_response(
+		data={
+			"snapshot_at": snapshot_at.isoformat(sep=" ") if snapshot_at else None,
+			"stock_rows": result.get("stock_rows", 0),
+			"monthly_rows": result.get("monthly_rows", 0),
+		},
+		message=_("Dashboard projection refreshed successfully"),
 	)
