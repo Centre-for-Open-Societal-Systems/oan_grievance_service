@@ -74,6 +74,7 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/attachments/{attachment_id}/download"): "citizen-intake",
+	("GET", "/api/v1/attachments/{attachment_id}/view"): "citizen-intake",
 	("DELETE", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
 }
 
