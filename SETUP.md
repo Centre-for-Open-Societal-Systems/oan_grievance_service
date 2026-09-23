@@ -444,7 +444,7 @@ deployment means a patch on every site, so the split is worth getting right earl
 | Grievance Access Control | Grievance RBAC Assignment, Grievance RBAC Assignment Officer, Grievance Access Audit Event                                                                                                              | FR-01, 3.1.1, FR-10 — scope and audit          |
 
 `grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
-dashboard charts and the FR-11.1 workspace, since those are cross-module views.
+dashboard charts, the FR-11.1 workspace, and the STG-330 `Grievance Dashboard Projection` summary table (read by `GET /api/v1/dashboard-statistics`).
 
 Three roles are created on install: Grievance Submitter, Grievance Officer and
 Grievance Admin. A role carries capability only — what actions exist for you. Which

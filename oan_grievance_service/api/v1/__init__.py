@@ -22,6 +22,7 @@ Endpoints
     v1.attachment.get_attachments   FSD 3.2.1  list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)
     v1.attachment.download          FSD 3.2.1  a clean file's URL (GET /api/v1/attachments/<id>/download)
     v1.attachment.delete            FSD 3.2.1  remove evidence from an open case (DELETE /api/v1/attachments/<id>)
+    v1.dashboard.get_statistics     FR-09 / STG-330  scoped dashboard KPIs from reporting projection
 """
 
 VERSION = "v1"

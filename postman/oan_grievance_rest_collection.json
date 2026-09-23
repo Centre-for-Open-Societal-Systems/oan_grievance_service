@@ -1243,6 +1243,90 @@
       ]
     },
     {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Statistics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var body = (jsonData.message && jsonData.message.data) ? jsonData.message : jsonData;",
+                  "pm.test(\"Has KPI and chart series\", function () {",
+                  "    pm.expect(body.data).to.have.property(\"kpis\");",
+                  "    pm.expect(body.data).to.have.property(\"by_status\");",
+                  "    pm.expect(body.data).to.have.property(\"by_category\");",
+                  "    pm.expect(body.data).to.have.property(\"sla_breach\");",
+                  "    pm.expect(body.data).to.have.property(\"monthly_trend\");",
+                  "    pm.expect(body.data.meta.source).to.eql(\"projection\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard-statistics?months=12",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "dashboard-statistics"],
+              "query": [
+                {
+                  "key": "months",
+                  "value": "12",
+                  "description": "Months of monthly_trend series (1-36)"
+                }
+              ]
+            },
+            "description": "STG-330 / FR-09: scoped dashboard KPIs and chart series from the reporting projection (not a live Grievance scan). Officer/Admin only."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Dashboard Projection",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/dashboard-statistics/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "dashboard-statistics", "refresh"]
+            },
+            "description": "STG-330: admin-only immediate rebuild of Grievance Dashboard Projection (also runs hourly)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Attachments",
       "item": [
         {

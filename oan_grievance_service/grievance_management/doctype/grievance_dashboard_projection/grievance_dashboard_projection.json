@@ -1,0 +1,191 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-22 10:00:00.000000",
+ "description": "FR-09 reporting projection for dashboard KPIs and charts (STG-330). Pre-aggregated grievance counts by status, category, area, department and month. Refreshed on a schedule; the Dashboard Statistics API reads this table instead of scanning Grievance on every load.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "metric_type",
+  "period_month",
+  "snapshot_at",
+  "col_dims",
+  "administrative_area",
+  "area_lft",
+  "area_rgt",
+  "assigned_dept",
+  "service_category",
+  "status",
+  "sec_counts",
+  "case_count",
+  "sla_breached_count",
+  "escalated_count",
+  "resolved_count"
+ ],
+ "fields": [
+  {
+   "description": "stock = current-status distribution (StatusDistributionChart, ServiceCategoryChart, KpiCards). monthly = submission/resolution flow by calendar month (MonthlyTrendChart).",
+   "fieldname": "metric_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Metric Type",
+   "options": "stock\nmonthly",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "YYYY-MM for monthly rows. Empty on stock rows.",
+   "fieldname": "period_month",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Period Month",
+   "search_index": 1
+  },
+  {
+   "fieldname": "snapshot_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Snapshot At",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_dims",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "administrative_area",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Administrative Area",
+   "options": "Grievance Administrative Area",
+   "search_index": 1
+  },
+  {
+   "description": "Denormalised Nested Set left bound for subtree scope filters.",
+   "fieldname": "area_lft",
+   "fieldtype": "Int",
+   "label": "Area Lft",
+   "search_index": 1
+  },
+  {
+   "description": "Denormalised Nested Set right bound for subtree scope filters.",
+   "fieldname": "area_rgt",
+   "fieldtype": "Int",
+   "label": "Area Rgt"
+  },
+  {
+   "fieldname": "assigned_dept",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Assigned Department",
+   "options": "Grievance Department",
+   "search_index": 1
+  },
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Category",
+   "options": "Grievance Service Category",
+   "search_index": 1
+  },
+  {
+   "description": "Canonical lifecycle status. Empty on monthly flow rows that are not status-sliced.",
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "search_index": 1
+  },
+  {
+   "fieldname": "sec_counts",
+   "fieldtype": "Section Break",
+   "label": "Counts"
+  },
+  {
+   "default": "0",
+   "description": "Cases in this bucket (stock: current status; monthly: submissions in the month).",
+   "fieldname": "case_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Case Count",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Open cases past sla_due_date (clock not paused) in this bucket.",
+   "fieldname": "sla_breached_count",
+   "fieldtype": "Int",
+   "label": "SLA Breached Count",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "escalated_count",
+   "fieldtype": "Int",
+   "label": "Escalated Count",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Monthly rows only: cases that reached Resolved/Closed in this month.",
+   "fieldname": "resolved_count",
+   "fieldtype": "Int",
+   "label": "Resolved Count",
+   "non_negative": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-22 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Dashboard Projection",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "snapshot_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

@@ -89,6 +89,8 @@ doc_events = {
 # ------------------
 # FSD 4.3: a background process monitors open grievances against their SLA deadlines.
 # FSD 7 requires the batch to complete within 30 minutes.
+# FR-09 / STG-330: hourly rebuild of the dashboard reporting projection
+# (admins can also POST /api/v1/dashboard-statistics/refresh).
 
 scheduler_events = {
 	"hourly": [
@@ -98,6 +100,9 @@ scheduler_events = {
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.scan_pending_attachments",
+		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
+		# stay off the live Grievance table (lag capped at ~1h).
+		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.auto_close_expired",

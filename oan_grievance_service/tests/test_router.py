@@ -372,3 +372,10 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_rej_ok.status_code, 200)
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
+
+	def test_dashboard_statistics_route_is_registered(self):
+		from oan_grievance_service.api.router import registered_routes
+
+		routes = {(r["path"], r["methods"]) for r in registered_routes()}
+		self.assertIn(("/api/v1/dashboard-statistics", ("GET",)), routes)
+		self.assertIn(("/api/v1/dashboard-statistics/refresh", ("POST",)), routes)

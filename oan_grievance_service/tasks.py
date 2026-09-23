@@ -161,12 +161,25 @@ def purge_expired_drafts():
 	return draft.purge_expired_drafts()
 
 
+def refresh_dashboard_projection():
+	"""FR-09 / STG-330: rebuild the dashboard reporting projection.
+
+	Dashboard Statistics API reads only this projection so request paths never
+	scan the live Grievance table for national-scale aggregates. Wired hourly;
+	admins can also trigger via ``POST /api/v1/dashboard-statistics/refresh``.
+	"""
+	from oan_grievance_service.services import dashboard_stats
+
+	return dashboard_stats.refresh_projection()
+
+
 def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
 	scan_pending_attachments()
 	escalate_breached()
 	dispatch_notifications()
+	refresh_dashboard_projection()
 
 
 def daily():

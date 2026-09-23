@@ -33,6 +33,7 @@ oan_grievance_service/api/
     ├── grievance.py           # Case submission, tracking & lifecycle actions
     ├── draft.py               # Save, resume and discard partial submissions
     ├── submitter.py           # Submitter profile & lookup options
+    ├── dashboard.py           # FR-09 / STG-330 scoped dashboard statistics
     └── administrative_area.py # Cascading geo-hierarchy lookups
 ```
 
@@ -48,29 +49,31 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 
 **URL Mapping:**
 
-| Endpoint Purpose          | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
-| ------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
-| Health Check              | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
-| Ping                      | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
-| Submitter Options         | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
-| User Profile & Claims     | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
-| Submitter Profile (Dep.)  | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
-| Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
-| Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
-| List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
-| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
-| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
-| Delete Draft              | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
-| Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
-| Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
-| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
-| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
-| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
-| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
-| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
-| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
-| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
-| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
+| Endpoint Purpose             | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
+| ---------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
+| Health Check                 | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
+| Ping                         | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
+| Submitter Options            | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
+| User Profile & Claims        | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
+| Submitter Profile (Dep.)     | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
+| Administrative Areas         | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
+| Area Ancestors               | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
+| List Grievances              | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
+| Save Draft                   | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
+| Get Draft                    | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
+| Delete Draft                 | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
+| Grievance Options            | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
+| Submit Case                  | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
+| Track / Case Detail          | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
+| Timeline & Thread Summary    | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
+| Add Note                     | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
+| Post Message                 | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
+| Confirm Case                 | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
+| Reopen Case                  | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
+| Escalate Case                | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
+| Reply to Info Request        | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
+| Dashboard Statistics         | `GET /api/v1/dashboard-statistics`                       | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics`               | GET    |
+| Refresh Dashboard Projection | `POST /api/v1/dashboard-statistics/refresh`              | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`          | POST   |
 
 ---
 
@@ -84,13 +87,13 @@ from oan_auth_service.api.utils import handle_api_errors, require_role, success_
 
 route = prefixed("/api/v1/grievances")
 
+
 @route("/your-action", methods=("POST",), summary="Action description")
-@frappe.whitelist()                               # Exposes method via HTTP RPC
-@handle_api_errors                                # Catches exceptions and formats error JSON
-@require_role(ALLOWED_ROLES)                      # Enforces RBAC permissions
-@validate_request(YourRequestModel)               # Validates payload schema via Pydantic
-def your_endpoint(**kwargs):
-    ...
+@frappe.whitelist()  # Exposes method via HTTP RPC
+@handle_api_errors  # Catches exceptions and formats error JSON
+@require_role(ALLOWED_ROLES)  # Enforces RBAC permissions
+@validate_request(YourRequestModel)  # Validates payload schema via Pydantic
+def your_endpoint(**kwargs): ...
 ```
 
 ### Decorator Responsibilities
@@ -112,6 +115,7 @@ All `POST` / mutation endpoints must define an explicit `pydantic.BaseModel` sch
 ```python
 from pydantic import BaseModel, Field
 from oan_auth_service.api.utils import RequiredPhone, SafeEmail
+
 
 class SubmitGrievanceRequest(BaseModel):
 	model_config = {"extra": "allow"}
@@ -137,12 +141,58 @@ class SubmitGrievanceRequest(BaseModel):
 
 ---
 
+## 4.2 Dashboard Statistics API (STG-330)
+
+Aggregates grievance counts for officer/admin dashboard KPI cards and charts.
+Reads the FR-09 **reporting projection** (`Grievance Dashboard Projection`), never
+a live `COUNT(*)` over `Grievance` on the request path. Projection rows are rebuilt
+hourly by `tasks.refresh_dashboard_projection`. Admins can also trigger an immediate
+rebuild via `POST /api/v1/dashboard-statistics/refresh`.
+
+|      |                                                                         |
+| ---- | ----------------------------------------------------------------------- |
+| REST | `GET /api/v1/dashboard-statistics?months=12`                            |
+| RPC  | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics` |
+| Auth | Required (`Grievance Officer`, `Grievance Admin`, System Manager)       |
+
+**Query**
+
+- `months` (int, 1–36, default 12) — length of `monthly_trend`.
+
+**Scoping**
+
+Results are filtered to the caller's RBAC assignment (administrative area subtree,
+department, category) in the projection query. Admins / System Managers are
+unrestricted. Submitters and guests receive `PERMISSION_DENIED`.
+
+**Refresh now (admin)**
+
+|      |                                                                              |
+| ---- | ---------------------------------------------------------------------------- |
+| REST | `POST /api/v1/dashboard-statistics/refresh`                                  |
+| RPC  | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection` |
+| Auth | Required (`Grievance Admin`, System Manager, Administrator)                  |
+
+**Success `data` keys (frontend mapping)**
+
+| Key              | Consumer                      | Contents                                                                                                       |
+| ---------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `kpis`           | `KpiCards.tsx`                | `total`, `open`, `pending`, `in_progress`, `under_review`, `resolved`, `rejected`, `sla_breached`, `escalated` |
+| `by_status`      | `StatusDistributionChart.tsx` | `[{ status, count }, …]`                                                                                       |
+| `by_category`    | `ServiceCategoryChart.tsx`    | `[{ category, count }, …]`                                                                                     |
+| `sla_breach`     | KPI / SLA card                | `breached`, `within_sla`, `open_breached`                                                                      |
+| `monthly_trend`  | `MonthlyTrendChart.tsx`       | `[{ month, label, submitted, resolved }, …]`                                                                   |
+| `scope` / `meta` | diagnostics                   | Applied RBAC scope; `source: "projection"`, `snapshot_at`                                                      |
+
+---
+
 ## 5. Response Format & Standard Envelopes
 
 All successful responses **MUST** use the `success_response()` helper from `oan_auth_service.api.utils`. `@handle_api_errors` automatically resolves and attaches the `meta` block directly from `api/__init__.py`.
 
 ```python
 from oan_auth_service.api.utils import handle_api_errors, success_response
+
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
@@ -307,6 +357,7 @@ Every new API endpoint must have automated tests validating:
 ```python
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
 
 class TestAPIEndpoints(FrappeTestCase):
 	def setUp(self):
