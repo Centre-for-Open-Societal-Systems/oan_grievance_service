@@ -154,7 +154,10 @@ def save(
 		doc.submitter_type = "Individual Farmer"
 
 	if administrative_area is not None:
-		doc.administrative_area = administrative_area
+		from oan_grievance_service.api.v1.grievance import resolve_administrative_area
+
+		resolved_area = resolve_administrative_area(administrative_area) if administrative_area else None
+		doc.administrative_area = resolved_area or administrative_area
 	if administrative_unit is not None:
 		doc.administrative_unit = administrative_unit
 	if service_category is not None:
@@ -295,7 +298,10 @@ def submit_draft(
 	if contact_email:
 		doc.contact_email = contact_email
 	if administrative_area:
-		doc.administrative_area = administrative_area
+		from oan_grievance_service.api.v1.grievance import resolve_administrative_area
+
+		resolved_area = resolve_administrative_area(administrative_area)
+		doc.administrative_area = resolved_area or administrative_area
 	if administrative_unit:
 		doc.administrative_unit = administrative_unit
 	if service_category:
@@ -520,7 +526,15 @@ def _latest_own_draft_name(user):
 
 def _draft_state(doc):
 	"""Draft document attributes returned directly."""
+	from oan_grievance_service.api.v1.administrative_area import (
+		format_administrative_location,
+		get_administrative_hierarchy,
+	)
+
 	attachments = _attachments(doc.name)
+	hierarchy = get_administrative_hierarchy(doc.administrative_area)
+	location_str = format_administrative_location(hierarchy)
+
 	return {
 		"name": doc.name,
 		"ticket_number": doc.ticket_number,
@@ -533,6 +547,8 @@ def _draft_state(doc):
 		"contact_mobile": doc.contact_mobile,
 		"contact_email": doc.contact_email,
 		"administrative_area": doc.administrative_area,
+		"administrative_hierarchy": hierarchy,
+		"location": location_str,
 		"administrative_unit": doc.administrative_unit,
 		"service_category": doc.service_category,
 		"grievance_type": doc.grievance_type,

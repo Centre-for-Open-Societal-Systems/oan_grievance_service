@@ -248,6 +248,17 @@ class TestListGrievanceAPI(FrappeTestCase):
 		self.assertEqual(res.get("status"), "success")
 		items = res.get("data", {}).get("items", [])
 		self.assertGreaterEqual(len(items), 5)
+		# Verify location string is populated on items
+		self.assertTrue(all("location" in item for item in items))
+		self.assertTrue(any(item.get("location") for item in items))
+
+	def test_list_grievances_filter_by_location(self):
+		"""Filter by location query parameter."""
+		frappe.set_user("Administrator")
+		res = list_grievances(location=self.area.name)
+		self.assertEqual(res.get("status"), "success")
+		items = res.get("data", {}).get("items", [])
+		self.assertGreaterEqual(len(items), 5)
 
 	def test_list_grievances_invalid_area_filter_throws(self):
 		"""Unresolvable administrative area filter returns error."""
@@ -257,7 +268,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		self.assertEqual(res.get("code"), "NOT_FOUND")
 
 	def test_get_grievance_detail(self):
-		"""Retrieve full grievance detail."""
+		"""Retrieve full grievance detail including location."""
 		frappe.set_user("Administrator")
 		target = self.created_docs[0]
 		res = timeline(target.ticket_number)
@@ -266,4 +277,6 @@ class TestListGrievanceAPI(FrappeTestCase):
 		self.assertEqual(data.get("ticket_number"), tn.display(target.ticket_number))
 		self.assertEqual(data.get("submitter_name"), target.submitter_name)
 		self.assertEqual(data.get("service_category"), "Inputs")
+		self.assertIn("location", data)
+		self.assertIn("location", data.get("summary", {}))
 		self.assertIn("attachments", data)

@@ -79,7 +79,12 @@ class ListGrievancesRequest(BaseModel):
 	dept: str | list | None = None
 	assigned_to: str | None = None
 	administrative_area: str | list | None = None
+	location: str | list | None = None
 	region: str | list | None = None
+	zone: str | list | None = None
+	woreda: str | list | None = None
+	kebele: str | list | None = None
+	administrative_unit: str | list | None = None
 	submission_channel: str | list | None = None
 	channel: str | list | None = None
 	escalated: bool | str | int | None = None
@@ -210,17 +215,21 @@ def _resolve_submitter_identity(kwargs):
 def resolve_administrative_area(area_identifier):
 	"""Resolve an area identifier (ID, path_code, or unique code) to canonical doc name.
 
-	Note: area_name is intentionally excluded because display names recur across
-	regions/woredas (e.g. over 100 kebeles named '1' or '2') and resolving by name
-	causes silent misrouting to an arbitrary region.
+	Note: area_name is intentionally excluded for lower-level tiers because display names
+	recur across regions/woredas (e.g. over 100 kebeles named '1' or '2'). For Region tier,
+	display names are unique across the country and safe to match.
 	"""
 	if not area_identifier:
 		return None
 	if frappe.db.exists("Grievance Administrative Area", area_identifier):
 		return area_identifier
-	return frappe.db.get_value(
-		"Grievance Administrative Area", {"path_code": area_identifier}, "name"
-	) or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
+	return (
+		frappe.db.get_value("Grievance Administrative Area", {"path_code": area_identifier}, "name")
+		or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
+		or frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": area_identifier, "level_name": "Region"}, "name"
+		)
+	)
 
 
 def _request_anonymity(doc, justification):
@@ -274,14 +283,22 @@ def detect_duplicates(grievance, window_days=7):
 	return rows
 
 
-def _resolve_area_filter_identifier(identifier: str) -> str:
-	"""Resolve an area identifier, path_code, code, or region area_name for filtering."""
+def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = None) -> str:
+	"""Resolve an area identifier, path_code, code, or area_name for filtering."""
 	if not identifier:
 		return ""
 	identifier = str(identifier).strip()
 	resolved = resolve_administrative_area(identifier)
 	if resolved:
 		return resolved
+	if level_hint:
+		by_level = frappe.db.get_value(
+			"Grievance Administrative Area",
+			{"area_name": identifier, "level_name": level_hint},
+			"name",
+		)
+		if by_level:
+			return by_level
 	# Check if identifier is a Region by display area_name (e.g. 'Oromia', 'Amhara')
 	region_doc = frappe.db.get_value(
 		"Grievance Administrative Area",
@@ -321,7 +338,12 @@ def list_grievances(
 	dept: str | list | None = None,
 	assigned_to: str | None = None,
 	administrative_area: str | list | None = None,
+	location: str | list | None = None,
 	region: str | list | None = None,
+	zone: str | list | None = None,
+	woreda: str | list | None = None,
+	kebele: str | list | None = None,
+	administrative_unit: str | list | None = None,
 	submission_channel: str | list | None = None,
 	channel: str | list | None = None,
 	escalated: bool | str | int | None = None,
@@ -344,7 +366,8 @@ def list_grievances(
 	- Grievance Admins and System Managers see all cases.
 
 	Supports multi-select values (list, JSON array, or comma-separated string) for status,
-	service_category/category, administrative_area/region, grievance_type, department, and submission_channel.
+	service_category/category, administrative_area/location/region/zone/woreda/kebele,
+	grievance_type, department, and submission_channel.
 	"""
 	import math
 
@@ -395,9 +418,24 @@ def list_grievances(
 	if to_date:
 		filters.append(["creation", "<=", f"{to_date} 23:59:59" if len(to_date) == 10 else to_date])
 
-	area_list = parse_multi_value(administrative_area or region or kwargs.get("region"))
-	if len(area_list) == 1:
-		canonical_area = _resolve_area_filter_identifier(area_list[0])
+	area_inputs = []
+	for val, lvl in (
+		(kebele or kwargs.get("kebele"), "Kebele"),
+		(woreda or kwargs.get("woreda"), "Woreda"),
+		(zone or kwargs.get("zone"), "Zone"),
+		(region or kwargs.get("region"), "Region"),
+		(location or kwargs.get("location"), None),
+		(administrative_area or kwargs.get("administrative_area"), None),
+		(administrative_unit or kwargs.get("administrative_unit"), None),
+	):
+		if val is not None:
+			for item in parse_multi_value(val):
+				if item:
+					area_inputs.append((item, lvl))
+
+	if len(area_inputs) == 1:
+		item, lvl = area_inputs[0]
+		canonical_area = _resolve_area_filter_identifier(item, lvl)
 		area_bounds = frappe.db.get_value(
 			"Grievance Administrative Area",
 			canonical_area,
@@ -409,10 +447,10 @@ def list_grievances(
 			filters.append(["area_lft", "<=", int(area_bounds.rgt)])
 		else:
 			filters.append(["administrative_area", "=", canonical_area])
-	elif len(area_list) > 1:
+	elif len(area_inputs) > 1:
 		area_names = set()
-		for item in area_list:
-			canonical = _resolve_area_filter_identifier(item)
+		for item, lvl in area_inputs:
+			canonical = _resolve_area_filter_identifier(item, lvl)
 			bounds = frappe.db.get_value(
 				"Grievance Administrative Area",
 				canonical,
@@ -524,6 +562,18 @@ def list_grievances(
 	is_admin = bool(user_roles & UNRESTRICTED_ROLES)
 	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
 
+	from oan_grievance_service.api.v1.administrative_area import (
+		format_administrative_location,
+		get_administrative_hierarchy,
+	)
+
+	area_cache = {}
+	unique_areas = {item.get("administrative_area") for item in items if item.get("administrative_area")}
+	for area_id in unique_areas:
+		h = get_administrative_hierarchy(area_id)
+		loc = format_administrative_location(h)
+		area_cache[area_id] = {"hierarchy": h, "location": loc}
+
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		is_anon = bool(item.get("is_anonymous"))
@@ -537,6 +587,9 @@ def list_grievances(
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
 		# but exposed formatted to clients as ticket_number.
 		item["ticket_number"] = tn.display(item.get("ticket_number"))
+		area_info = area_cache.get(item.get("administrative_area"))
+		item["location"] = area_info["location"] if area_info else None
+		item["administrative_hierarchy"] = area_info["hierarchy"] if area_info else None
 
 	audit.record_access(audit.ACTION_VIEW_LIST)
 
@@ -861,6 +914,14 @@ def timeline(
 	)
 	attachments = list(file_attachments) + list(grievance_attachments)
 
+	from oan_grievance_service.api.v1.administrative_area import (
+		format_administrative_location,
+		get_administrative_hierarchy,
+	)
+
+	area_hierarchy = get_administrative_hierarchy(doc.administrative_area)
+	location_str = format_administrative_location(area_hierarchy)
+
 	return success_response(
 		data={
 			"name": doc.name,
@@ -871,12 +932,16 @@ def timeline(
 			"service_category": doc.service_category,
 			"grievance_type": doc.grievance_type,
 			"administrative_area": doc.administrative_area,
+			"administrative_hierarchy": area_hierarchy,
+			"location": location_str,
 			"summary": {
 				"description": doc.description,
 				"desired_outcome": doc.desired_outcome,
 				"service_category": doc.service_category,
 				"grievance_type": doc.grievance_type,
 				"administrative_area": doc.administrative_area,
+				"administrative_hierarchy": area_hierarchy,
+				"location": location_str,
 				"administrative_unit": doc.administrative_unit,
 				"submission_channel": doc.submission_channel,
 			},

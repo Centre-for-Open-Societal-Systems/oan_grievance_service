@@ -141,6 +141,15 @@ def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
 	raw = str(v or "").strip()
 	if not raw:
 		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
+	if not raw.startswith("+"):
+		import phonenumbers
+
+		try:
+			parsed = phonenumbers.parse(raw, "ET")
+			if phonenumbers.is_valid_number(parsed):
+				raw = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+		except Exception:
+			pass
 	validate_phone_number_with_country_code(raw, fieldname)
 	return raw
 
