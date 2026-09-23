@@ -6,8 +6,6 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
-from oan_grievance_service.services import constants as C
-
 # FSD Appendix D-1: the action taken is capped at 500 characters.
 ACTION_TAKEN_LIMIT = 500
 
@@ -27,10 +25,12 @@ class GrievanceResponse(Document):
 			)
 		if not self.prior_status and self.grievance:
 			self.prior_status = frappe.db.get_value("Grievance", self.grievance, "status")
-		# D-2: the outcome says what the SLA clock does next. Derived from the type
-		# every time -- an officer never sets it -- but held on the row so the
-		# audit shows what the clock was told.
-		self.sla_behaviour = C.RESPONSE_OUTCOME_SLA_BEHAVIOUR.get(self.response_type, "running")
+		# Dynamic Master Resolution: SLA behaviour is derived from the linked Grievance Response Type.
+		if self.response_type and frappe.db.exists("Grievance Response Type", self.response_type):
+			resp_type = frappe.get_cached_doc("Grievance Response Type", self.response_type)
+			self.sla_behaviour = resp_type.sla_behaviour or "running"
+		else:
+			self.sla_behaviour = "running"
 
 	def validate(self):
 		self.validate_action_taken_length()
@@ -48,7 +48,15 @@ class GrievanceResponse(Document):
 
 	def validate_referral_target(self):
 		"""FSD Appendix D-2: a referral has to say where the case is going."""
-		if self.response_type == "Referred to another dept" and not self.get("referred_to_department"):
+		requires_dept = False
+		if self.response_type and frappe.db.exists("Grievance Response Type", self.response_type):
+			requires_dept = bool(
+				frappe.db.get_value("Grievance Response Type", self.response_type, "requires_referred_dept")
+			)
+		else:
+			requires_dept = self.response_type == "Referred to another dept"
+
+		if requires_dept and not self.get("referred_to_department"):
 			# The field is optional in the scaffold; warn rather than block until the
 			# referral target column is confirmed with the user.
 			frappe.msgprint(

@@ -1,0 +1,2859 @@
+# OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)
+# Contract with vendor extensions removed. Generated from generate_openapi_spec.py.
+openapi: 3.0.3
+info:
+  title: OAN Grievance Service API
+  version: 1.0.0
+  description: Grievance management and citizen feedback service for OpenAgriNet (OAN). Provides RESTful
+    endpoints for submitting complaints, tracking resolution progress, cascading administrative area drill-downs,
+    citizen-officer timeline messaging, escalation management, and case resolution workflows.
+  contact:
+    name: COSS - Centre for Open Societal Systems
+servers:
+- url: http://localhost:8000
+  description: Local Frappe Bench
+- url: https://grievance.openagrinet.org
+  description: Production Grievance Gateway
+tags:
+- name: Health & Monitoring
+  description: Service health probes and uptime pings
+- name: Submitter Management
+  description: Intake reference options and submitter profiles
+- name: Administrative Areas
+  description: Cascading geographic drill-downs, breadcrumbs, and search
+- name: Grievance Drafts
+  description: Draft grievance persistence, resume, submit, and discard
+- name: Grievances Core
+  description: Case intake, tracking, and filtered list views
+- name: Grievance Lifecycle & Actions
+  description: Communication threads, notes, reopen, reject, escalate, and resolution confirmation
+- name: Attachments
+  description: Supporting document and evidence upload, listing, download, and deletion
+paths:
+  /api/v1/grievances/health:
+    get:
+      tags:
+      - Health & Monitoring
+      summary: Grievance service health check
+      description: Lightweight health check endpoint for container probes and API gateway health checks.
+      operationId: get_api_v1_grievances_health
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/grievances/ping:
+    get:
+      tags:
+      - Health & Monitoring
+      summary: Grievance service ping
+      description: Ping endpoint returning pong for uptime and connectivity checks.
+      operationId: get_api_v1_grievances_ping
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PingResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security: []
+  /api/v1/submitters/options:
+    get:
+      tags:
+      - Submitter Management
+      summary: Dropdown options and reference data for submitters
+      description: 'Returns public dropdown options and intake reference data: active submitter types,
+        submission channels, languages, categories, grievance types, and dialing prefixes.'
+      operationId: get_api_v1_submitters_options
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitterOptionsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: search_country
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter phone ISD prefixes
+      - name: country
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Exact country name or 2-letter ISO code
+      - name: include_phone_extensions
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: true
+        description: Include phone dialing codes
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter grievance types by category
+      security: []
+  /api/v1/submitters/me:
+    get:
+      tags:
+      - Submitter Management
+      summary: Get current submitter profile (Deprecated)
+      description: 'Returns the Grievance Submitter Profile for the currently authenticated user. Deprecated:
+        Prefer GET /api/v1/auth/me which returns namespaced profiles under `data.profiles.grievance`.'
+      operationId: get_api_v1_submitters_me
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitterProfileResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/administrative-areas:
+    get:
+      tags:
+      - Administrative Areas
+      summary: Fetch administrative areas (cascading drill-down or text search)
+      description: 'Public endpoint to fetch administrative areas for cascading dropdowns and searches.
+        Supports four query modes: cascading drill-down by parent, tier filter by level_name, free-text
+        search, and ancestor breadcrumbs.'
+      operationId: get_api_v1_administrative_areas
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdministrativeAreasListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: parent
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Parent area ID or path_code (drill-down)
+      - name: level_name
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - Region
+          - Zone
+          - Woreda
+          - Kebele
+        description: Filter by administrative tier
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Free text search by area name or code
+      - name: ancestors_of
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Return breadcrumb chain for specified node
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 100
+          maximum: 500
+        description: Maximum records returned
+      security: []
+  /api/v1/administrative-areas/{area_id_or_path}/ancestors:
+    get:
+      tags:
+      - Administrative Areas
+      summary: Fetch ancestor hierarchy breadcrumbs
+      description: Fetches the full hierarchical ancestor breadcrumb chain from root down to the specified
+        node.
+      operationId: get_api_v1_administrative_areas_area_id_or_path_ancestors
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AreaAncestorsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: area_id_or_path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')
+      security: []
+  /api/v1/drafts:
+    post:
+      tags:
+      - Grievance Drafts
+      summary: Save or update a grievance draft
+      description: Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'.
+      operationId: post_api_v1_drafts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDraftRequest'
+    get:
+      tags:
+      - Grievance Drafts
+      summary: Get authenticated user's latest grievance draft
+      description: Fetches the caller's latest unsubmitted grievance draft.
+      operationId: get_api_v1_drafts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+    delete:
+      tags:
+      - Grievance Drafts
+      summary: Discard an unsubmitted grievance draft
+      description: Deletes an unsubmitted draft and purges its temporary uploaded files.
+      operationId: delete_api_v1_drafts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftDiscardResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscardDraftRequest'
+  /api/v1/drafts/submit:
+    post:
+      tags:
+      - Grievance Drafts
+      summary: Submit a grievance draft into an active case
+      description: Formally submits a saved draft, generating ticket number, transitioning status to Submitted,
+        queuing notifications, and applying routing rules.
+      operationId: post_api_v1_drafts_submit
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DraftSubmitResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/grievances:
+    get:
+      tags:
+      - Grievances Core
+      summary: List grievances with filtering, pagination, and sorting
+      description: Queries grievances scoped to the user's role and geographic permissions. Supports multi-select
+        filtering on status, category, region, date range, and free-text search.
+      operationId: get_api_v1_grievances
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          minimum: 1
+        description: Page number
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+        description: Page size
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated status filters e.g. 'Submitted,Under Investigation'
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated service categories e.g. 'Inputs,Payments'
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Single category alias
+      - name: grievance_type
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated grievance types
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated regional administrative area IDs
+      - name: administrative_area
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Single administrative area ID or path_code
+      - name: from_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Creation date lower bound (YYYY-MM-DD)
+      - name: to_date
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Creation date upper bound (YYYY-MM-DD)
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Free text search matching ticket, citizen name, or phone
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          type: string
+          default: creation
+        description: Column to order by
+      - name: sort_order
+        in: query
+        required: false
+        schema:
+          type: string
+          default: desc
+          enum:
+          - asc
+          - desc
+        description: Sort direction
+      security:
+      - BearerAuth: []
+  /api/v1/grievances/options:
+    get:
+      tags:
+      - Grievances Core
+      summary: Get grievance management options and dropdowns
+      description: Returns management dropdown options and active staff officers for case triage and filtering.
+      operationId: get_api_v1_grievances_options
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceOptionsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /api/v1/grievances/{ticket_number}:
+    get:
+      tags:
+      - Grievances Core
+      summary: Get grievance details by ticket number
+      description: Fetches full details, submission snapshot, assigned officer, and SLA targets for a
+        grievance.
+      operationId: get_api_v1_grievances_ticket_number
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceDetailResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+          example: ET14IN000012026
+        description: Unique alphanumeric ticket number
+      security:
+      - BearerAuth: []
+  /api/v1/grievances/{ticket_number}/action:
+    post:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Execute a workflow action on a grievance
+      description: Executes a workflow state transition or action on a grievance, dynamically validating
+        user permissions and allowed moves.
+      operationId: post_api_v1_grievances_ticket_number_action
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Ticket number
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrievanceActionRequest'
+  /api/v1/grievances/{ticket_number}/message:
+    post:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Post a public message to the conversation
+      description: Appends a public message to the grievance conversation visible to both citizens and
+        staff.
+      operationId: post_api_v1_grievances_ticket_number_message
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Ticket number
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostMessageRequest'
+  /api/v1/grievances/{ticket_number}/note:
+    post:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Add internal or public note (staff only)
+      description: Records an internal work note or communication entry on the grievance case (staff only).
+      operationId: post_api_v1_grievances_ticket_number_note
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Ticket number
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddNoteRequest'
+  /api/v1/grievances/{ticket_number}/timeline:
+    get:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Get grievance timeline and thread details
+      description: Retrieves the complete chronological audit log, state transitions, and conversation
+        thread.
+      operationId: get_api_v1_grievances_ticket_number_timeline
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceTimelineResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Ticket number
+      security:
+      - BearerAuth: []
+  /api/v1/grievances/{ticket_number}/attachments:
+    post:
+      tags:
+      - Attachments
+      summary: Upload supporting documents against a grievance
+      description: Upload one or more supporting documents against a grievance in multipart/form-data.
+      operationId: post_api_v1_grievances_ticket_number_attachments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUploadResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Grievance ticket number or document identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubmitDocumentsRequest'
+    get:
+      tags:
+      - Attachments
+      summary: List attachments for a grievance
+      description: List the evidence attachments on a case with scan verdicts.
+      operationId: get_api_v1_grievances_ticket_number_attachments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Grievance ticket number or document identifier
+      security:
+      - BearerAuth: []
+  /api/v1/attachments/{attachment_id}/download:
+    get:
+      tags:
+      - Attachments
+      summary: Get attachment download URL
+      description: Hand back one attachment's URL once it has been scanned clean.
+      operationId: get_api_v1_attachments_attachment_id_download
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentDownloadResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique attachment record ID
+      security:
+      - BearerAuth: []
+  /api/v1/attachments/{attachment_id}:
+    delete:
+      tags:
+      - Attachments
+      summary: Delete an attachment from an open case
+      description: Remove an attachment added by mistake, permitted only while the case is open.
+      operationId: delete_api_v1_attachments_attachment_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteAttachmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique attachment record ID
+      security:
+      - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Provide JWT access token as `Bearer <token>` in the Authorization header.
+  schemas:
+    ApiMeta:
+      type: object
+      properties:
+        api_version:
+          type: string
+          example: v1
+          description: Semantic API version
+        status:
+          type: string
+          example: current
+          description: Lifecycle status
+      required:
+      - api_version
+    StandardErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+          enum:
+          - error
+        message:
+          type: string
+          description: Human-readable error description
+        exception:
+          type: string
+          nullable: true
+          description: Exception class name
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                nullable: true
+                description: Field causing the validation error
+              message:
+                type: string
+                description: Error message for the specific field
+          nullable: true
+          description: Structured validation errors if applicable
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - message
+      description: Standard error envelope returned on 4xx/5xx responses
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+          description: Current page number
+        page_size:
+          type: integer
+          example: 20
+          description: Items per page
+        total_count:
+          type: integer
+          example: 142
+          description: Total matching records
+        total_pages:
+          type: integer
+          example: 8
+          description: Total pages available
+      required:
+      - page
+      - page_size
+      - total_count
+      - total_pages
+      description: Pagination metadata block
+    HealthData:
+      type: object
+      properties:
+        status:
+          type: string
+          example: healthy
+        service:
+          type: string
+          example: oan_grievance_service
+        api_version:
+          type: string
+          example: v1
+      required:
+      - status
+      - service
+      - api_version
+      description: Service health status payload
+    PingData:
+      type: object
+      properties:
+        ping:
+          type: string
+          example: pong
+        service:
+          type: string
+          example: oan_grievance_service
+        api_version:
+          type: string
+          example: v1
+      required:
+      - ping
+      - service
+      - api_version
+      description: Service ping payload
+    SubmitterTypeItem:
+      type: object
+      properties:
+        type_name:
+          type: string
+          example: Individual Farmer
+        code:
+          type: string
+          example: IND_FARMER
+        description:
+          type: string
+          nullable: true
+      required:
+      - type_name
+    SubmissionTypeItem:
+      type: object
+      properties:
+        type_name:
+          type: string
+          example: Mobile App
+        code:
+          type: string
+          example: MOB_APP
+        description:
+          type: string
+          nullable: true
+      required:
+      - type_name
+    OptionKeyValue:
+      type: object
+      properties:
+        value:
+          type: string
+          example: Inputs
+        label:
+          type: string
+          example: Agricultural Inputs
+        code:
+          type: string
+          nullable: true
+      required:
+      - value
+      - label
+    PhoneExtensionItem:
+      type: object
+      properties:
+        country:
+          type: string
+          example: Ethiopia
+        code:
+          type: string
+          example: ET
+        isd:
+          type: string
+          example: '+251'
+      required:
+      - country
+      - code
+      - isd
+    SubmitterOptionsData:
+      type: object
+      properties:
+        submitter_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmitterTypeItem'
+        submission_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubmissionTypeItem'
+        preferred_languages:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              label:
+                type: string
+            required:
+            - code
+            - label
+        service_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionKeyValue'
+        grievance_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionKeyValue'
+        phone_extensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhoneExtensionItem'
+          nullable: true
+      required:
+      - submitter_types
+      - submission_types
+      - preferred_languages
+      - service_categories
+      - grievance_types
+      description: Public dropdown options and intake reference data
+    SubmitterProfileData:
+      type: object
+      properties:
+        profile_id:
+          type: string
+          description: Unique Grievance Submitter Profile document name
+        full_name:
+          type: string
+          description: Full name of submitter or representative
+        type:
+          type: string
+          description: Submitter Type e.g. Individual Farmer or Cooperative
+        role:
+          type: string
+          example: Grievance Submitter
+        identity_scheme:
+          type: string
+          nullable: true
+          enum:
+          - fayda
+          - org
+          - phone
+          - null
+        identity_value:
+          type: string
+          nullable: true
+        fayda_id:
+          type: string
+          nullable: true
+        registration_number:
+          type: string
+          nullable: true
+        contact_mobile:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        preferred_language:
+          type: string
+          example: en
+          nullable: true
+        administrative_area:
+          type: string
+          nullable: true
+        administrative_unit:
+          type: string
+          nullable: true
+        active:
+          type: integer
+          enum:
+          - 0
+          - 1
+        is_blocked:
+          type: integer
+          enum:
+          - 0
+          - 1
+      required:
+      - profile_id
+      - full_name
+      - type
+      - role
+      description: Grievance submitter profile details
+    AdministrativeAreaItem:
+      type: object
+      properties:
+        area_id:
+          type: string
+          example: region-ET14
+          description: Canonical area ID
+        area_name:
+          type: string
+          example: Oromia
+        code:
+          type: string
+          example: ET14
+          nullable: true
+        path_code:
+          type: string
+          example: ET.ET14
+          nullable: true
+        level_name:
+          type: string
+          example: Region
+          enum:
+          - Region
+          - Zone
+          - Woreda
+          - Kebele
+        parent_administrative_area:
+          type: string
+          nullable: true
+        is_group:
+          type: integer
+          enum:
+          - 0
+          - 1
+        depth:
+          type: integer
+          example: 1
+      required:
+      - area_id
+      - area_name
+      - level_name
+      description: Administrative area hierarchy node
+    AdministrativeAreasListData:
+      type: object
+      properties:
+        areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdministrativeAreaItem'
+        count:
+          type: integer
+          example: 12
+        parent:
+          type: string
+          nullable: true
+        level_name:
+          type: string
+          nullable: true
+      required:
+      - areas
+      - count
+      description: List of administrative area nodes for cascading dropdowns or search
+    BreadcrumbItem:
+      type: object
+      properties:
+        area_id:
+          type: string
+        area_name:
+          type: string
+        code:
+          type: string
+          nullable: true
+        path_code:
+          type: string
+          nullable: true
+        level_name:
+          type: string
+        depth:
+          type: integer
+      required:
+      - area_id
+      - area_name
+      - level_name
+    AreaAncestorsData:
+      type: object
+      properties:
+        current:
+          $ref: '#/components/schemas/AdministrativeAreaItem'
+        breadcrumbs:
+          type: array
+          items:
+            $ref: '#/components/schemas/BreadcrumbItem'
+      required:
+      - breadcrumbs
+      description: Ancestor hierarchy breadcrumbs from country root to the node
+    DraftData:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Draft document name
+        ticket_number:
+          type: string
+          nullable: true
+          description: Assigned ticket number if submitted
+        client_submission_uuid:
+          type: string
+          description: Stable client-generated draft key
+        status:
+          type: string
+          example: Draft
+        workflow_state:
+          type: string
+          example: Draft
+        submission_channel:
+          type: string
+          nullable: true
+        submitter_type:
+          type: string
+          nullable: true
+        submitter_name:
+          type: string
+          nullable: true
+        contact_mobile:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          nullable: true
+        administrative_area:
+          type: string
+          nullable: true
+        administrative_unit:
+          type: string
+          nullable: true
+        service_category:
+          type: string
+          nullable: true
+        grievance_type:
+          type: string
+          nullable: true
+        associated_service_provider:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        desired_outcome:
+          type: string
+          nullable: true
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+        attachments:
+          type: array
+          items:
+            type: object
+            properties: {}
+        attachment_count:
+          type: integer
+        owner:
+          type: string
+          nullable: true
+      required:
+      - client_submission_uuid
+      - status
+      - workflow_state
+      description: Draft grievance state
+    DraftDiscardData:
+      type: object
+      properties:
+        discarded:
+          type: boolean
+          description: Whether the draft was successfully discarded
+      required:
+      - discarded
+      description: Outcome of draft discard operation
+    GrievanceSubmitResultData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+          example: ET14IN000012026
+          description: Formatted ticket number
+        status:
+          type: string
+          example: Submitted
+        acknowledgement_status:
+          type: string
+          example: Sent
+          nullable: true
+        assigned_officer:
+          type: string
+          nullable: true
+        sla_target_date:
+          type: string
+          format: date-time
+          nullable: true
+        creation:
+          type: string
+          format: date-time
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+          example: 0
+      required:
+      - ticket_number
+      - status
+      - creation
+      description: Acknowledgement outcome and ticket identifier returned on submission
+    GrievanceListItem:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Internal document ID
+        ticket_number:
+          type: string
+          example: 3001002A0
+        ticket_number_display:
+          type: string
+          example: 3-001-002A-0
+          nullable: true
+          description: Grouped ticket number for human reading
+        status:
+          type: string
+          example: Submitted
+          enum:
+          - Draft
+          - Submitted
+          - Under Investigation
+          - More Info Needed
+          - Resolved
+          - Closed
+          - Reopened
+          - Rejected
+        service_category:
+          type: string
+          example: Inputs
+        grievance_type:
+          type: string
+          example: Fertilizer Shortage
+        administrative_area:
+          type: string
+          example: kebele-ET140108101008
+        administrative_unit:
+          type: string
+          nullable: true
+        submitter_name:
+          type: string
+          example: Abebe Bikila
+        contact_mobile:
+          type: string
+          example: '+251911887766'
+        assigned_officer:
+          type: string
+          nullable: true
+        sla_target_date:
+          type: string
+          format: date-time
+          nullable: true
+        is_escalated:
+          type: integer
+          enum:
+          - 0
+          - 1
+        creation:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+      required:
+      - ticket_number
+      - status
+      - service_category
+      - grievance_type
+      - creation
+      description: Summary record of a grievance in list view
+    GrievanceListData:
+      type: object
+      properties:
+        grievances:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrievanceListItem'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - grievances
+      - pagination
+      description: Filtered and paginated list of grievances
+    GrievanceDetailData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+          example: 3001002A0
+        ticket_number_display:
+          type: string
+          example: 3-001-002A-0
+          nullable: true
+          description: Grouped ticket number for human reading
+        name:
+          type: string
+        status:
+          type: string
+        service_category:
+          type: string
+        grievance_type:
+          type: string
+        description:
+          type: string
+        submission_channel:
+          type: string
+        preferred_language:
+          type: string
+          nullable: true
+        administrative_area:
+          type: string
+        administrative_unit:
+          type: string
+          nullable: true
+        submitter:
+          type: string
+          nullable: true
+        submitter_name:
+          type: string
+        contact_mobile:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          nullable: true
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+        assigned_officer:
+          type: string
+          nullable: true
+        assisted_by_officer:
+          type: string
+          nullable: true
+        sla_target_date:
+          type: string
+          format: date-time
+          nullable: true
+        sla_status:
+          type: string
+          nullable: true
+        resolution_details:
+          type: string
+          nullable: true
+        satisfaction_rating:
+          type: integer
+          nullable: true
+        reopen_count:
+          type: integer
+          example: 0
+        is_escalated:
+          type: integer
+          enum:
+          - 0
+          - 1
+        creation:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+      required:
+      - ticket_number
+      - status
+      - description
+      - creation
+      description: Full grievance case details
+    TimelineEventItem:
+      type: object
+      properties:
+        event_type:
+          type: string
+          example: Status Change
+          enum:
+          - Submission
+          - Status Change
+          - Assignment
+          - Note
+          - Message
+          - Escalation
+          - Resolution
+          - Reopen
+          - Rejection
+        from_status:
+          type: string
+          nullable: true
+        to_status:
+          type: string
+          nullable: true
+        actor:
+          type: string
+          description: User or officer who triggered the event
+        actor_role:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        communication_channel:
+          type: string
+          nullable: true
+        is_internal:
+          type: integer
+          enum:
+          - 0
+          - 1
+          example: 0
+        creation:
+          type: string
+          format: date-time
+      required:
+      - event_type
+      - actor
+      - creation
+      description: Audit and communication event on the grievance timeline
+    GrievanceTimelineData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+          example: ET14IN000012026
+        current_status:
+          type: string
+          example: Under Investigation
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEventItem'
+      required:
+      - ticket_number
+      - current_status
+      - events
+      description: Chronological event log and message history
+    GrievanceActionResultData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+          example: ET14IN000012026
+        status:
+          type: string
+          example: Under Investigation
+        message:
+          type: string
+          description: Result confirmation message
+        action_timestamp:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - ticket_number
+      - status
+      - message
+      description: Outcome of a state transition or action on a grievance
+    GrievanceOptionsData:
+      type: object
+      properties:
+        statuses:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              label:
+                type: string
+              is_open:
+                type: integer
+              is_terminal:
+                type: integer
+        departments:
+          type: array
+          items:
+            type: object
+            properties:
+              department_id:
+                type: string
+              department_name:
+                type: string
+            additionalProperties: true
+        service_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionKeyValue'
+        grievance_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/OptionKeyValue'
+        submission_channels:
+          type: array
+          items:
+            type: string
+      required:
+      - statuses
+      - departments
+      - service_categories
+      - grievance_types
+      - submission_channels
+      description: Grievance management options and active dropdown choices for staff
+    AttachmentItem:
+      type: object
+      properties:
+        attachment:
+          type: string
+          description: Unique identifier of the attachment record
+        name:
+          type: string
+          description: Document name (alias for attachment)
+          nullable: true
+        file_name:
+          type: string
+          description: Original filename
+        file_url:
+          type: string
+          description: URL to the uploaded file
+          nullable: true
+        mime_type:
+          type: string
+          description: MIME type of the file
+        size_bytes:
+          type: integer
+          description: File size in bytes
+        checksum_sha256:
+          type: string
+          description: SHA-256 checksum
+        scan_status:
+          type: string
+          description: Antivirus scan status (Pending, Clean, Infected)
+        document_type:
+          type: string
+          nullable: true
+          description: Classification of document
+        creation:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - file_name
+      - mime_type
+      - size_bytes
+      description: Metadata for an uploaded evidence attachment
+    AttachmentDownloadData:
+      type: object
+      properties:
+        file_name:
+          type: string
+          description: Original filename
+        file_url:
+          type: string
+          description: Downloadable file URL
+        mime_type:
+          type: string
+          description: MIME type
+        size_bytes:
+          type: integer
+          description: Size in bytes
+        checksum_sha256:
+          type: string
+          description: SHA-256 checksum
+      required:
+      - file_name
+      - file_url
+      - mime_type
+      - size_bytes
+      description: Download metadata for a clean attachment
+    DeleteAttachmentData:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+          description: True if attachment was successfully deleted
+      required:
+      - deleted
+      description: Confirmation of attachment removal
+    SaveDraftRequest:
+      type: object
+      properties:
+        client_submission_uuid:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Stable client-generated draft key
+        client_uuid:
+          type: string
+          nullable: true
+          description: Alias for client_submission_uuid
+        submission_channel:
+          type: string
+          nullable: true
+          description: Submission channel
+        submitter_type:
+          type: string
+          nullable: true
+          description: Submitter type
+        submitter_name:
+          type: string
+          nullable: true
+          description: Submitter citizen name
+        contact_mobile:
+          type: string
+          nullable: true
+          description: Contact mobile phone
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          description: Contact email address
+        administrative_area:
+          type: string
+          nullable: true
+          description: Administrative area ID or path_code
+        administrative_unit:
+          type: string
+          nullable: true
+          description: Specific local landmark or unit
+        service_category:
+          type: string
+          nullable: true
+          description: Service category name
+        grievance_type:
+          type: string
+          nullable: true
+          description: Grievance type name
+        associated_service_provider:
+          type: string
+          nullable: true
+          description: Associated service provider
+        description:
+          type: string
+          nullable: true
+          description: Draft narrative description
+        desired_outcome:
+          type: string
+          nullable: true
+          description: Desired resolution outcome
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+          nullable: true
+          description: 1 if anonymous
+        validate:
+          type: boolean
+          default: false
+          description: If true, execute validation on the draft payload
+      description: Payload for saving or updating a grievance draft
+    SubmitDocumentsRequest:
+      type: object
+      properties:
+        grievance:
+          type: string
+          description: Grievance ticket number or document identifier
+        document_type:
+          type: string
+          nullable: true
+          description: Document type or category
+        response:
+          type: string
+          nullable: true
+          description: Associated formal response ID if applicable
+      required:
+      - grievance
+      description: Supporting document upload request
+    SubmitDraftRequest:
+      type: object
+      properties:
+        client_submission_uuid:
+          type: string
+          minLength: 1
+          description: Stable client-generated draft key to submit
+        consent_given:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 1
+          description: 1 to record citizen consent
+        is_anonymous:
+          type: integer
+          enum:
+          - 0
+          - 1
+          default: 0
+          description: 1 to request anonymity
+        anonymity_justification:
+          type: string
+          nullable: true
+          description: Justification for anonymity
+        submission_channel:
+          type: string
+          nullable: true
+          description: Submission channel
+        submitter_type:
+          type: string
+          nullable: true
+          description: Submitter type
+        submitter_name:
+          type: string
+          nullable: true
+          description: Submitter citizen name
+        contact_mobile:
+          type: string
+          nullable: true
+          description: Contact mobile phone
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          description: Contact email
+        administrative_area:
+          type: string
+          nullable: true
+          description: Administrative area
+        administrative_unit:
+          type: string
+          nullable: true
+          description: Administrative unit
+        service_category:
+          type: string
+          nullable: true
+          description: Service category
+        grievance_type:
+          type: string
+          nullable: true
+          description: Grievance type
+        associated_service_provider:
+          type: string
+          nullable: true
+          description: Associated service provider
+        description:
+          type: string
+          nullable: true
+          description: Narrative description
+        desired_outcome:
+          type: string
+          nullable: true
+          description: Desired outcome
+      required:
+      - client_submission_uuid
+      description: Payload for submitting a saved grievance draft
+    DiscardDraftRequest:
+      type: object
+      properties:
+        client_submission_uuid:
+          type: string
+          minLength: 1
+          description: Stable client-generated draft key to discard
+      required:
+      - client_submission_uuid
+      description: Payload for discarding an unsubmitted grievance draft
+    PostMessageRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Message text posted to the public conversation thread
+      required:
+      - message
+      description: Public message payload
+    AddNoteRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          minLength: 1
+          description: Internal or external note content
+        is_internal:
+          type: boolean
+          default: true
+          description: Whether this note is hidden from citizens (staff-only)
+      required:
+      - note
+      description: Staff note payload
+    GrievanceActionRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          minLength: 1
+          description: Canonical workflow action name (e.g. 'Start Work', 'Confirm Resolution', 'Reopen',
+            'Reject', 'Escalate')
+        reason:
+          type: string
+          nullable: true
+          description: Mandatory justification when required by the action
+        note:
+          type: string
+          nullable: true
+          description: Optional note text
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          nullable: true
+          description: Citizen satisfaction rating (1-5) for resolution confirmation
+        comments:
+          type: string
+          nullable: true
+          description: Optional citizen feedback remarks
+        body:
+          type: string
+          nullable: true
+          description: Response body text for submitter reply
+      required:
+      - action
+      description: Workflow action and state transition payload
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/HealthData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Health check response
+    PingResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/PingData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Ping response
+    SubmitterOptionsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SubmitterOptionsData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Submitter options response
+    SubmitterProfileResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SubmitterProfileData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Submitter profile response
+    AdministrativeAreasListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AdministrativeAreasListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Administrative areas list response
+    AreaAncestorsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AreaAncestorsData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Area ancestors response
+    DraftResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DraftData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance draft response
+    DraftSubmitResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceSubmitResultData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance draft submission outcome response
+    DraftDiscardResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DraftDiscardData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Draft discard outcome response
+    GrievanceSubmitResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceSubmitResultData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance submission outcome response
+    GrievanceListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Paginated grievance list response
+    GrievanceDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceDetailData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance details response
+    GrievanceOptionsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceOptionsData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance options response
+    GrievanceTimelineResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceTimelineData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Grievance timeline response
+    GrievanceActionResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceActionResultData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Action result response
+    AttachmentUploadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment upload response
+    AttachmentListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment list response
+    AttachmentDownloadResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AttachmentDownloadData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment download URL response
+    DeleteAttachmentResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/DeleteAttachmentData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Attachment deletion response

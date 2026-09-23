@@ -45,6 +45,12 @@
       "enabled": true
     },
     {
+      "key": "client_submission_uuid",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
       "key": "submitter_type",
       "value": "Individual Farmer",
       "type": "default",

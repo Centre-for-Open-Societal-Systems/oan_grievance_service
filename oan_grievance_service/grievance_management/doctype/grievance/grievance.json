@@ -1,6 +1,6 @@
 {
  "actions": [],
- "allow_rename": 0,
+ "allow_rename": 1,
  "creation": "2026-09-03 18:15:03.596772",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -87,7 +87,8 @@
    "label": "Status",
    "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
    "read_only": 1,
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "allow_on_submit": 1,
@@ -144,7 +145,8 @@
    "fieldname": "submitter",
    "fieldtype": "Link",
    "label": "Grievance Submitter Profile",
-   "options": "Grievance Submitter Profile"
+   "options": "Grievance Submitter Profile",
+   "search_index": 1
   },
   {
    "fieldname": "submitter_name",
@@ -235,7 +237,8 @@
    "in_standard_filter": 1,
    "label": "Grievance Administrative Area",
    "options": "Grievance Administrative Area",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "col_area",
@@ -254,7 +257,8 @@
    "hidden": 1,
    "label": "Area Left Index",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "description": "Frozen snapshot of the dotted hierarchy path at submission time (e.g. ET.OROM.BISH.K01)",
@@ -275,7 +279,8 @@
    "in_standard_filter": 1,
    "label": "Grievance Service Category",
    "options": "Grievance Service Category",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "description": "FSD 3.2.2: loaded per category. No master entity is defined in FSD section 5.",
@@ -325,7 +330,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Assigned Department",
-   "options": "Grievance Department"
+   "options": "Grievance Department",
+   "search_index": 1
   },
   {
    "allow_on_submit": 1,
@@ -333,7 +339,8 @@
    "fieldtype": "Link",
    "in_standard_filter": 1,
    "label": "Assigned Officer",
-   "options": "User"
+   "options": "User",
+   "search_index": 1
   },
   {
    "fieldname": "col_assignment",
@@ -381,7 +388,8 @@
    "fieldname": "sla_due_date",
    "fieldtype": "Datetime",
    "label": "SLA Due Date",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "allow_on_submit": 1,
@@ -439,7 +447,8 @@
    "fieldname": "confirmation_deadline",
    "fieldtype": "Datetime",
    "label": "Confirmation Deadline",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "allow_on_submit": 1,

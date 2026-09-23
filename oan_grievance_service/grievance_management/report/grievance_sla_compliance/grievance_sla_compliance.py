@@ -12,8 +12,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_datetime
 
-from oan_grievance_service.services import constants as C
-
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
@@ -101,7 +99,7 @@ def get_data(filters):
 			"Grievance Status History",
 			filters={
 				"grievance": ["in", [g.name for g in grievances]] if grievances else ["in", [""]],
-				"to_status": ["in", [C.RESOLVED, C.CLOSED]],
+				"to_status": ["in", ["Resolved", "Closed"]],
 			},
 			fields=["grievance", {"MIN": "timestamp", "as": "closed_at"}],
 			group_by="grievance",
@@ -125,7 +123,7 @@ def get_data(filters):
 			{
 				"ticket_number": g.name,
 				"service_category": g.service_category,
-				"region": g.region,
+				"administrative_area": g.administrative_area,
 				"assigned_dept": g.assigned_dept,
 				"status": g.status,
 				"sla_days": g.sla_days,
