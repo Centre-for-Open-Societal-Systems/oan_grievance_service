@@ -179,22 +179,21 @@ class TestListGrievanceAPI(FrappeTestCase):
 			self.assertEqual(item.get("status"), "In Progress")
 
 	def test_list_grievances_filter_by_status_multi(self):
-		"""Filter by multiple statuses (comma-separated and list)."""
+		"""Submitted and In Progress both belong to the In Progress queue card."""
 		frappe.set_user("Administrator")
-		res = list_grievances(status="Submitted,In Progress")
-		items = res.get("data", {}).get("items", [])
-		self.assertGreaterEqual(len(items), 5)
-		statuses = {item.get("status") for item in items}
-		self.assertIn("Submitted", statuses)
-		self.assertIn("In Progress", statuses)
-		for item in items:
-			self.assertIn(item.get("status"), ("Submitted", "In Progress"))
+		created = {g.name for g in self.created_docs}
 
-		res_list = list_grievances(status=["Submitted", "In Progress"])
-		items_list = res_list.get("data", {}).get("items", [])
-		self.assertGreaterEqual(len(items_list), 5)
-		for item in items_list:
-			self.assertIn(item.get("status"), ("Submitted", "In Progress"))
+		res = list_grievances(status="Submitted,In Progress", page_size=100)
+		items = res.get("data", {}).get("items", [])
+		found = {item.get("name") for item in items} & created
+		self.assertEqual(found, created)
+		for item in items:
+			if item.get("name") in created:
+				self.assertEqual(item.get("status"), "In Progress")
+
+		res_list = list_grievances(status=["Submitted", "In Progress"], page_size=100)
+		found_list = {item.get("name") for item in res_list.get("data", {}).get("items", [])} & created
+		self.assertEqual(found_list, created)
 
 	def test_list_grievances_filter_by_category(self):
 		"""Filter by service category."""

@@ -21,10 +21,13 @@ from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1._options import (
 	active_channels,
+	expand_status_filter,
 	get_departments,
 	get_grievance_types,
 	get_service_categories,
 	get_status_options,
+	get_status_summary,
+	public_status,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -368,16 +371,29 @@ def list_grievances(
 	Supports multi-select values (list, JSON array, or comma-separated string) for status,
 	service_category/category, administrative_area/location/region/zone/woreda/kebele,
 	grievance_type, department, and submission_channel.
+
+	Status filters use the queue cards (All, In Progress, Require More Info, Rejected,
+	Resolved, Closed). Draft is never returned. Workflow stages that are not a card
+	are reported as the card they roll up into.
 	"""
 	import math
 
 	effective_limit = limit if limit is not None else page_size
 	offset = (page - 1) * effective_limit
 
-	filters = []
+	filters = [
+		["workflow_state", "!=", "Draft"],
+		["status", "!=", "Draft"],
+	]
+
+	status_raw = next((val for val in (status, kwargs.get("status")) if val is not None), None)
+	status_vals = parse_multi_value(status_raw)
+	if status_vals:
+		expanded = expand_status_filter(status_vals)
+		if expanded:
+			filters.append(["status", "in", expanded])
 
 	MULTI_SELECT_FIELDS = {
-		"status": [status, kwargs.get("status")],
 		"service_category": [service_category, category, kwargs.get("category")],
 		"grievance_type": [grievance_type, type, kwargs.get("type")],
 		"assigned_dept": [assigned_dept, department, dept, kwargs.get("dept"), kwargs.get("department")],
@@ -583,6 +599,7 @@ def list_grievances(
 				item["submitter_name"] = _("Anonymous Submitter")
 				item["contact_mobile"] = None
 				item["contact_email"] = None
+		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
 		# but exposed formatted to clients as ticket_number.
@@ -1071,6 +1088,23 @@ def _load(ticket_number, ptype="read"):
 			_("Not permitted to access this grievance."), frappe.PermissionError, title=_("Forbidden")
 		)
 	return doc
+
+
+@route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def summary():
+	"""Counts of visible grievances on each queue status card.
+
+	Draft is excluded. The cards are All, In Progress, Require More Info, Rejected,
+	Resolved and Closed. Any other workflow state is counted under In Progress.
+	Each card includes its display order and whether the workflow treats it as terminal.
+	"""
+	return success_response(
+		data={"cards": get_status_summary()},
+		message=_("Grievance status summary fetched successfully"),
+	)
 
 
 @route("/options", methods=("GET",), summary="Get grievance options and dropdowns")

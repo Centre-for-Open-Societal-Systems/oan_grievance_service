@@ -524,7 +524,19 @@ data(
 	"GrievanceOptionsData",
 	OBJ(
 		{
-			"statuses": ARR(OBJ({"status": S(), "label": S(), "is_open": I(), "is_terminal": I()})),
+			"statuses": ARR(
+				OBJ(
+					{
+						"status": S(),
+						"label": S(),
+						"order": I(description="Display order of the queue status"),
+						"is_open": I(),
+						"is_terminal": I(
+							description="1 when the workflow state is terminal; card default when the state is absent"
+						),
+					}
+				)
+			),
 			"departments": ARR(
 				OBJ({"department_id": S(), "department_name": S()}, additionalProperties=True)
 			),
@@ -534,6 +546,38 @@ data(
 		},
 		required=["statuses", "departments", "service_categories", "grievance_types", "submission_channels"],
 		description="Grievance management options and active dropdown choices for staff",
+	),
+)
+
+data(
+	"StatusCard",
+	OBJ(
+		{
+			"status": S(example="In Progress"),
+			"label": S(example="In Progress"),
+			"order": I(description="Display order of the queue status", example=2),
+			"is_open": I(enum=[0, 1], example=1),
+			"is_terminal": I(
+				description="1 when the Frappe workflow state is terminal. The card default is used when that state is not on the workflow.",
+				enum=[0, 1],
+				example=0,
+			),
+			"count": I(
+				description="Grievances on this card visible to the caller. Omitted on the options list.",
+				example=12,
+			),
+		},
+		required=["status", "label", "order", "is_open", "is_terminal"],
+		description="One queue status for the all-grievances KPI cards",
+	),
+)
+
+data(
+	"GrievanceStatusSummaryData",
+	OBJ(
+		{"cards": ARR(REF("StatusCard"))},
+		required=["cards"],
+		description="Status summary for the all-grievances queue. Draft is excluded.",
 	),
 )
 
@@ -738,6 +782,9 @@ ENVELOPES = {
 	"GrievanceOptionsResponse": make_envelope(
 		"GrievanceOptionsData", description="Grievance options response"
 	),
+	"GrievanceStatusSummaryResponse": make_envelope(
+		"GrievanceStatusSummaryData", description="KPI status card counts"
+	),
 	"GrievanceTimelineResponse": make_envelope(
 		"GrievanceTimelineData", description="Grievance timeline response"
 	),
@@ -850,7 +897,10 @@ QP = {
 			"in": "query",
 			"required": False,
 			"schema": S(),
-			"description": "Comma-separated status filters e.g. 'Submitted,Under Investigation'",
+			"description": (
+				"Comma-separated queue statuses: All, In Progress, Require More Info, "
+				+ "Rejected, Resolved, Closed. Draft is excluded."
+			),
 		},
 		{
 			"name": "category",
@@ -1107,6 +1157,16 @@ ROUTES = [
 			"Queries grievances scoped to the user's role and geographic permissions. Supports multi-select "
 			+ "filtering on status, category, region, date range, and free-text search."
 		),
+	),
+	R(
+		"get",
+		"/api/v1/grievances/summary",
+		summary="KPI cards summarising grievance status",
+		tag="Grievances Core",
+		security=[{"BearerAuth": []}],
+		response="GrievanceStatusSummaryResponse",
+		legacy="oan_grievance_service.api.v1.grievance.summary",
+		description="Counts visible grievances on All, In Progress, Require More Info, Rejected, Resolved and Closed. Draft is excluded. Other workflow states roll up into In Progress. Each card includes display order and whether it is terminal.",
 	),
 	R(
 		"get",

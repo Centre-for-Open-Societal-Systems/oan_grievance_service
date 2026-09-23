@@ -340,6 +340,36 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: get-api-v1-grievances-summary
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/summary$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
   - name: get-api-v1-grievances-options
     methods:
     - GET

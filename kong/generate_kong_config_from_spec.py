@@ -65,6 +65,7 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/drafts/submit"): "citizen-intake",
 	("DELETE", "/api/v1/drafts"): "citizen-intake",
 	("GET", "/api/v1/grievances"): "officer-core",
+	("GET", "/api/v1/grievances/summary"): "officer-core",
 	("GET", "/api/v1/grievances/options"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/action"): "citizen-intake",

@@ -104,58 +104,229 @@ def get_role_levels() -> list[dict]:
 	)
 
 
-def get_status_options() -> list[dict]:
-	"""The lifecycle states, read dynamically from the Grievance Workflow."""
-	wf_name = frappe.db.get_value("Workflow", {"document_type": "Grievance", "is_active": 1}, "name")
-	if wf_name:
-		wf_states = frappe.get_all(
-			"Workflow Document State",
-			filters={"parent": wf_name},
-			fields=["state as status", "doc_status"],
-			order_by="idx asc",
-		)
-		outgoing_states = set(
-			frappe.get_all("Workflow Transition", filters={"parent": wf_name}, pluck="state")
-		)
-		results = []
-		for s in wf_states:
-			status = s["status"]
-			doc_status = str(s.get("doc_status", ""))
-			if status == "Draft" or doc_status == "0":
-				continue
-			# Terminal if doc_status is 2 (Cancelled/Rejected) or if no transitions lead out of this state
-			is_terminal = 1 if doc_status == "2" or status not in outgoing_states else 0
-			is_open = 1 if is_terminal == 0 else 0
-			results.append(
-				{
-					"status": status,
-					"label": status,
-					"is_open": is_open,
-					"is_terminal": is_terminal,
-				}
-			)
-		return results
+# KPI cards for the all-grievances queue. Draft is never a card. Workflow states
+# that are not one of these cards roll up into a card so the queue does not grow
+# a new status every time the workflow gains a stage.
+#
+# `workflow_states` are the engine states that count toward the card. `All` is
+# every non-draft grievance. `default_terminal` is used only when none of the
+# card's states exist on the active Workflow; otherwise terminal is read from
+# that Workflow (docstatus 2, or no transition leaving the state).
+_STATUS_CARDS = (
+	{
+		"status": "All",
+		"label": "All",
+		"order": 1,
+		"workflow_states": (),
+		"default_terminal": 0,
+	},
+	{
+		"status": "In Progress",
+		"label": "In Progress",
+		"order": 2,
+		"workflow_states": ("Submitted", "Assigned", "In Progress", "Pending Submitter"),
+		"default_terminal": 0,
+	},
+	{
+		"status": "Require More Info",
+		"label": "Require More Info",
+		"order": 3,
+		"workflow_states": ("More Info Needed",),
+		"default_terminal": 0,
+	},
+	{
+		"status": "Rejected",
+		"label": "Rejected",
+		"order": 4,
+		"workflow_states": ("Rejected",),
+		"default_terminal": 1,
+	},
+	{
+		"status": "Resolved",
+		"label": "Resolved",
+		"order": 5,
+		"workflow_states": ("Resolved",),
+		"default_terminal": 0,
+	},
+	{
+		"status": "Closed",
+		"label": "Closed",
+		"order": 6,
+		"workflow_states": ("Closed",),
+		"default_terminal": 1,
+	},
+)
 
-	# Fallback if no Workflow record is found
-	fallback_statuses = [
-		("Submitted", 1, 0),
-		("Assigned", 1, 0),
-		("In Progress", 1, 0),
-		("More Info Needed", 1, 0),
-		("Pending Submitter", 1, 0),
-		("Resolved", 1, 0),
-		("Closed", 0, 1),
-		("Rejected", 0, 1),
-	]
-	return [
-		{
-			"status": st,
-			"label": st,
-			"is_open": op,
-			"is_terminal": term,
-		}
-		for st, op, term in fallback_statuses
-	]
+_CARD_BY_STATUS = {card["status"]: card for card in _STATUS_CARDS}
+
+# Lower-cased, punctuation-stripped keys the list filter and the cards accept.
+_STATUS_ALIASES = {
+	"all": "All",
+	"in progress": "In Progress",
+	"require more info": "Require More Info",
+	"more info needed": "Require More Info",
+	"rejected": "Rejected",
+	"resolved": "Resolved",
+	"closed": "Closed",
+}
+for _card in _STATUS_CARDS:
+	for _state in _card["workflow_states"]:
+		_STATUS_ALIASES.setdefault(_state.lower(), _card["status"])
+
+
+def _canonical_status(value: str) -> str | None:
+	key = " ".join(str(value).strip().lower().replace("_", " ").replace("-", " ").split())
+	return _STATUS_ALIASES.get(key)
+
+
+def _workflow_terminals() -> dict[str, int] | None:
+	"""Terminal flag per Workflow State, or None when Grievance has no active workflow.
+
+	A state is terminal when Frappe marks it cancelled (docstatus 2) or when the
+	workflow defines no transition out of it. Duplicate state rows (one per
+	allow_edit role) collapse to a single flag.
+	"""
+	wf_name = frappe.db.get_value("Workflow", {"document_type": "Grievance", "is_active": 1}, "name")
+	if not wf_name:
+		return None
+
+	rows = frappe.get_all(
+		"Workflow Document State",
+		filters={"parent": wf_name},
+		fields=["state", "doc_status"],
+		order_by="idx asc",
+		ignore_permissions=True,
+	)
+	outgoing = set(
+		frappe.get_all(
+			"Workflow Transition",
+			filters={"parent": wf_name},
+			pluck="state",
+			ignore_permissions=True,
+		)
+	)
+	terminals: dict[str, int] = {}
+	for row in rows:
+		state = row.get("state")
+		if not state or state in terminals or state == "Draft":
+			continue
+		doc_status = str(row.get("doc_status") or "")
+		terminals[state] = 1 if doc_status == "2" or state not in outgoing else 0
+	return terminals
+
+
+def _is_terminal(workflow_states: tuple[str, ...], default: int, terminals: dict[str, int] | None) -> int:
+	"""Workflow wins when the card's states are on it; otherwise the card default."""
+	if terminals is None:
+		return default
+	present = [terminals[state] for state in workflow_states if state in terminals]
+	if not present:
+		return default
+	return 1 if all(present) else 0
+
+
+def _status_cards() -> list[dict]:
+	"""The six queue statuses, in display order, with terminal taken from the workflow."""
+	terminals = _workflow_terminals()
+	cards = []
+	for card in _STATUS_CARDS:
+		is_terminal = _is_terminal(card["workflow_states"], card["default_terminal"], terminals)
+		cards.append(
+			{
+				"status": card["status"],
+				"label": card["label"],
+				"order": card["order"],
+				"is_terminal": is_terminal,
+				"is_open": 0 if is_terminal else 1,
+			}
+		)
+	return cards
+
+
+def get_status_options() -> list[dict]:
+	"""Queue statuses for filters. Draft and any other workflow stage are omitted."""
+	return _status_cards()
+
+
+def public_status(workflow_status: str | None) -> str:
+	"""The queue status a workflow state is shown as. Unknown open states are In Progress."""
+	if not workflow_status or workflow_status == "Draft":
+		return workflow_status or ""
+	canonical = _canonical_status(workflow_status)
+	return canonical or "In Progress"
+
+
+def expand_status_filter(values: list[str]) -> list[str] | None:
+	"""Workflow states a queue-status filter matches.
+
+	None means All: every non-draft grievance. An empty list means the caller
+	passed nothing usable.
+	"""
+	if not values:
+		return []
+
+	selected: list[str] = []
+	for raw in values:
+		canonical = _canonical_status(str(raw))
+		if canonical == "All":
+			return None
+		if canonical:
+			selected.extend(_CARD_BY_STATUS[canonical]["workflow_states"])
+			continue
+		text = str(raw).strip()
+		if text and text != "Draft":
+			selected.append(text)
+
+	seen: list[str] = []
+	for state in selected:
+		if state not in seen:
+			seen.append(state)
+	return seen
+
+
+def _mapped_workflow_states() -> set[str]:
+	states: set[str] = set()
+	for card in _STATUS_CARDS:
+		states.update(card["workflow_states"])
+	return states
+
+
+def get_status_summary() -> list[dict]:
+	"""Counts for the KPI cards, limited to grievances the caller is allowed to see.
+
+	Draft is excluded. A workflow state that is not one of the cards is counted
+	under In Progress so every visible case still sits on exactly one card, and
+	All equals the sum of the other cards.
+	"""
+	rows = frappe.get_list(
+		"Grievance",
+		filters=[["workflow_state", "!=", "Draft"], ["status", "!=", "Draft"]],
+		fields=["status", {"COUNT": "*", "as": "total"}],
+		group_by="status",
+	)
+	counts: dict[str, int] = {}
+	for row in rows:
+		status = row.get("status") or ""
+		if not status or status == "Draft":
+			continue
+		counts[status] = counts.get(status, 0) + int(row.get("total") or 0)
+
+	mapped = _mapped_workflow_states()
+	unmapped = sum(total for status, total in counts.items() if status not in mapped)
+	all_count = sum(counts.values())
+
+	cards = []
+	for card in _status_cards():
+		spec = _CARD_BY_STATUS[card["status"]]
+		if card["status"] == "All":
+			count = all_count
+		else:
+			count = sum(counts.get(state, 0) for state in spec["workflow_states"])
+			if card["status"] == "In Progress":
+				count += unmapped
+		card["count"] = count
+		cards.append(card)
+	return cards
 
 
 def get_preferred_languages() -> list[dict]:

@@ -15,6 +15,7 @@ Endpoints
 
     v1.submitter.options    FSD 3.11.8        dropdowns & reference data
     v1.grievance.options    FSD 3.11.8        officer & staff management dropdowns
+    v1.grievance.summary    STG-397           KPI cards for the all-grievances status queue
 
     v1.administrative_area.get_areas   FSD 3.2.2   the location cascade and search
 
