@@ -4,9 +4,9 @@
 | ------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Code reviewed            | Pending | Implement Dashboard Statistics API + FR-09 projection on `feature/STG-330`.                                                                  |
 | Unit tests passed        | Pending | `bench --site <site> run-tests --app oan_grievance_service --module oan_grievance_service.tests.test_dashboard_stats` after `bench migrate`. |
-| Documentation updated    | Done    | `docs/api-development-standards.md` §4.2; Postman REST collection (get + refresh). Hourly scheduler + admin refresh endpoint. |
-| QA passed                | Pending | Cover admin unrestricted totals, officer scope filter (SQL), projection lag, role deny, admin refresh.                       |
-| No Critical/High defects | Pending | Projection-backed reads; RBAC in SQL; compatible with post-#19 constants; dashboard roles enforced.                          |
+| Documentation updated    | Done    | `docs/api-development-standards.md` §4.2; Postman REST collection (get + refresh). Hourly scheduler + admin refresh endpoint.                |
+| QA passed                | Pending | Cover admin unrestricted totals, officer scope filter (SQL), projection lag, role deny, admin refresh.                                       |
+| No Critical/High defects | Pending | Projection-backed reads; RBAC in SQL; compatible with post-#19 constants; dashboard roles enforced.                                          |
 
 ## Run DoD verification (WSL)
 

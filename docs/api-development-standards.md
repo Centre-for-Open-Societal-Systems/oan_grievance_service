@@ -49,31 +49,31 @@ All REST endpoints in `oan_grievance_service` follow industry-standard RESTful c
 
 **URL Mapping:**
 
-| Endpoint Purpose          | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
-| ------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
-| Health Check              | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
-| Ping                      | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
-| Submitter Options         | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
-| User Profile & Claims     | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
-| Submitter Profile (Dep.)  | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
-| Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
-| Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
-| List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
-| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
-| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
-| Delete Draft              | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
-| Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
-| Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
-| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
-| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
-| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
-| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
-| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
-| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
-| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
-| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
-| Dashboard Statistics      | `GET /api/v1/dashboard-statistics`                       | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics`               | GET    |
-| Refresh Dashboard Projection | `POST /api/v1/dashboard-statistics/refresh`           | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`          | POST   |
+| Endpoint Purpose             | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
+| ---------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
+| Health Check                 | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
+| Ping                         | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
+| Submitter Options            | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
+| User Profile & Claims        | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
+| Submitter Profile (Dep.)     | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
+| Administrative Areas         | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
+| Area Ancestors               | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
+| List Grievances              | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
+| Save Draft                   | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
+| Get Draft                    | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
+| Delete Draft                 | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
+| Grievance Options            | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
+| Submit Case                  | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
+| Track / Case Detail          | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
+| Timeline & Thread Summary    | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
+| Add Note                     | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
+| Post Message                 | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
+| Confirm Case                 | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
+| Reopen Case                  | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
+| Escalate Case                | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
+| Reply to Info Request        | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
+| Dashboard Statistics         | `GET /api/v1/dashboard-statistics`                       | `GET /api/method/oan_grievance_service.api.v1.dashboard.get_statistics`               | GET    |
+| Refresh Dashboard Projection | `POST /api/v1/dashboard-statistics/refresh`              | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`          | POST   |
 
 ---
 
@@ -167,11 +167,11 @@ unrestricted. Submitters and guests receive `PERMISSION_DENIED`.
 
 **Refresh now (admin)**
 
-|      |                                                                               |
-| ---- | ----------------------------------------------------------------------------- |
-| REST | `POST /api/v1/dashboard-statistics/refresh`                                   |
-| RPC  | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection`  |
-| Auth | Required (`Grievance Admin`, System Manager, Administrator)                   |
+|      |                                                                              |
+| ---- | ---------------------------------------------------------------------------- |
+| REST | `POST /api/v1/dashboard-statistics/refresh`                                  |
+| RPC  | `POST /api/method/oan_grievance_service.api.v1.dashboard.refresh_projection` |
+| Auth | Required (`Grievance Admin`, System Manager, Administrator)                  |
 
 **Success `data` keys (frontend mapping)**
 
