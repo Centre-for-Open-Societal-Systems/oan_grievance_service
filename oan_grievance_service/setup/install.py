@@ -122,6 +122,7 @@ SERVICE_CATEGORIES = [
 	("Payments", "003", 3),
 	("Credit", "004", 4),
 	("Markets", "005", 5),
+	("Other", "006", 6),
 ]
 
 # The 1-character REGION segment of the ticket number, keyed by the official
@@ -160,6 +161,7 @@ GRIEVANCE_TYPES = [
 	("Interest Rate Discrepancy", "Credit"),
 	("Price Reporting Dispute", "Markets"),
 	("Market Access Obstruction", "Markets"),
+	("Other", "Other"),
 ]
 
 # Submitter Types master
@@ -182,38 +184,34 @@ SUBMISSION_TYPES = [
 ]
 
 # Master Grievance Response Types (Contract A: Dynamic Master Resolution)
-# (name, target_workflow_state, sla_behaviour, requires_referred_dept, workflow_action, description)
+# (name, workflow_action, sla_behaviour, requires_referred_dept, description)
 RESPONSE_TYPES = [
 	(
 		"Resolved",
-		"Pending Submitter",
+		"Submit Response",
 		"paused",
 		0,
-		"Submit Response",
 		"Full case resolution proposed to the submitter.",
 	),
 	(
 		"Partially Resolved",
-		"Pending Submitter",
+		"Submit Response",
 		"paused",
 		0,
-		"Submit Response",
 		"Partial case resolution proposed to the submitter.",
 	),
 	(
 		"Referred to another dept",
-		"Assigned",
+		"Refer Onward",
 		"running",
 		1,
-		"Refer Onward",
 		"Case referred onward to another responsible department.",
 	),
 	(
 		"Requires further info",
-		"More Info Needed",
+		"Request More Info",
 		"paused",
 		0,
-		"Request More Info",
 		"Clarification or additional evidence requested from submitter.",
 	),
 ]
@@ -451,17 +449,16 @@ def seed_all():
 
 def seed_response_types():
 	made = []
-	for name, state, sla_behaviour, requires_dept, action, desc in RESPONSE_TYPES:
+	for name, action, sla_behaviour, requires_dept, desc in RESPONSE_TYPES:
 		if frappe.db.exists("Grievance Response Type", name):
 			continue
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Response Type",
 				"response_type_name": name,
-				"target_workflow_state": state,
+				"workflow_action": action,
 				"sla_behaviour": sla_behaviour,
 				"requires_referred_dept": requires_dept,
-				"workflow_action": action,
 				"is_active": 1,
 				"description": desc,
 			}

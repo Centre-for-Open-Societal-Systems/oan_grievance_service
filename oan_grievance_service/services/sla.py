@@ -256,15 +256,6 @@ def extend_for_deferral(grievance, additional_days):
 		arm_escalation(grievance)
 
 
-# Each department record keeps one named slot per rung. Last resort, when no RBAC
-# assignment covers the case's department and area.
-DEPARTMENT_SLOT_BY_LEVEL = {
-	"nodal_officer": "nodal_officer",
-	"senior_nodal_officer": "senior_officer",
-	"department_head": "head_of_dept",
-}
-
-
 def escalation_chain():
 	"""The active rungs, most junior first. The ordering is data, not an enum."""
 	return frappe.get_all(
@@ -329,21 +320,11 @@ def resolve_officer_for_level(grievance, level):
 
 	from oan_grievance_service.permissions import find_officer_by_role_level
 
-	officer = find_officer_by_role_level(
+	return find_officer_by_role_level(
 		level.name,
 		department=grievance.assigned_dept,
 		administrative_area=grievance.administrative_area,
 	)
-	if officer:
-		return officer
-
-	if not grievance.assigned_dept:
-		return None
-
-	slot = DEPARTMENT_SLOT_BY_LEVEL.get(level.name)
-	return (
-		frappe.db.get_value("Grievance Department", grievance.assigned_dept, slot) if slot else None
-	) or frappe.db.get_value("Grievance Department", grievance.assigned_dept, "head_of_dept")
 
 
 def get_officer_supervisor(user, department=None, administrative_area=None):

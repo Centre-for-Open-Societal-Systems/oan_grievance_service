@@ -149,25 +149,13 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		if officer:
 			return officer
 
-	dept = frappe.db.get_value(
-		"Grievance Department",
-		grievance.assigned_dept,
-		["email_account", "head_of_dept", "nodal_officer", "senior_officer"],
-		as_dict=True,
-	)
-	if not dept:
+	if not grievance.assigned_dept:
 		return None
 
-	dept_fallback = {
-		# email_account is a Data field holding a mailbox, not a User link. Every
-		# Department Officer event in Appendix C is email-only, which is what makes
-		# that safe: there is no mobile number to look up for a bare address.
-		RECIPIENT_DEPARTMENT_OFFICER: dept.email_account,
-		RECIPIENT_DEPARTMENT_HEAD: dept.head_of_dept,
-		RECIPIENT_NODAL_OFFICER: dept.nodal_officer,
-		RECIPIENT_TOP_LEVEL: dept.senior_officer or dept.head_of_dept,
-	}
-	return dept_fallback.get(recipient_role)
+	email_account = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "email_account")
+	if recipient_role == RECIPIENT_DEPARTMENT_OFFICER:
+		return email_account
+	return None
 
 
 def notifications_for(event_code):

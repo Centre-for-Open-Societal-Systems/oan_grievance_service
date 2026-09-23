@@ -126,6 +126,20 @@ class PostMessageRequest(BaseModel):
 
 	ticket_number: str | None = None
 	body: str = Field(..., min_length=1)
+	type: str | None = Field(
+		None,
+		description="Message or Response Type: 'note', 'message', 'info_request', 'info_response', or a Response Type ('Resolved', 'Partially Resolved', 'Referred to another dept', 'Requires further info')",
+	)
+	action_taken: str | None = Field(
+		None, max_length=500, description="Short summary of action taken (for formal department responses)"
+	)
+	proposed_close_date: str | None = Field(
+		None, description="Target closure date (YYYY-MM-DD) for formal department responses"
+	)
+	referred_to_department: str | None = Field(None, description="Target department if type is a referral")
+	is_internal: bool | str | None = Field(
+		None, description="Whether this note is hidden from citizens (staff-only)"
+	)
 
 
 class ReassignGrievanceRequest(BaseModel):
@@ -134,7 +148,6 @@ class ReassignGrievanceRequest(BaseModel):
 	ticket_number: str | None = None
 	target_department: str = Field(..., min_length=1)
 	target_officer: str | None = None
-	sla_treatment: str | None = Field("Continue", description="Reset or Continue")
 	reason: str | None = None
 
 
@@ -312,32 +325,40 @@ def detect_duplicates(grievance, window_days=7):
 	return rows
 
 
-def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = None) -> str:
-	"""Resolve an area identifier, path_code, code, or area_name for filtering."""
+def _resolve_area_filter_identifiers(identifier: str, level_hint: str | None = None) -> list[str]:
+	"""Resolve an area identifier, path_code, code, or area_name to matching canonical doc names."""
 	if not identifier:
-		return ""
+		return []
 	identifier = str(identifier).strip()
-	resolved = resolve_administrative_area(identifier)
-	if resolved:
-		return resolved
+	if frappe.db.exists("Grievance Administrative Area", identifier):
+		return [identifier]
+
+	by_path = frappe.get_all("Grievance Administrative Area", filters={"path_code": identifier}, pluck="name")
+	if by_path:
+		return by_path
+
+	by_code = frappe.get_all("Grievance Administrative Area", filters={"code": identifier}, pluck="name")
+	if by_code:
+		return by_code
+
 	if level_hint:
-		by_level = frappe.db.get_value(
+		by_level = frappe.get_all(
 			"Grievance Administrative Area",
-			{"area_name": identifier, "level_name": level_hint},
-			"name",
+			filters={"area_name": identifier, "level_name": level_hint},
+			pluck="name",
 		)
 		if by_level:
 			return by_level
-	# Check if identifier is a Region by display area_name (e.g. 'Oromia', 'Amhara')
-	region_doc = frappe.db.get_value(
+
+	by_region = frappe.get_all(
 		"Grievance Administrative Area",
-		{"area_name": identifier, "level_name": "Region"},
-		"name",
+		filters={"area_name": identifier, "level_name": "Region"},
+		pluck="name",
 	)
-	if region_doc:
-		return region_doc
-	# Fallback to general area_name
-	by_name = frappe.db.get_value("Grievance Administrative Area", {"area_name": identifier}, "name")
+	if by_region:
+		return by_region
+
+	by_name = frappe.get_all("Grievance Administrative Area", filters={"area_name": identifier}, pluck="name")
 	if by_name:
 		return by_name
 
@@ -346,6 +367,12 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 		frappe.DoesNotExistError,
 		title=_("Invalid Area Filter"),
 	)
+
+
+def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = None) -> str:
+	"""Resolve an area identifier, path_code, code, or area_name for filtering (single name)."""
+	matches = _resolve_area_filter_identifiers(identifier, level_hint)
+	return matches[0] if matches else ""
 
 
 @route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
@@ -460,8 +487,7 @@ def list_grievances(
 	if to_date:
 		filters.append(["creation", "<=", f"{to_date} 23:59:59" if len(to_date) == 10 else to_date])
 
-	area_inputs = []
-	for val, lvl in (
+	tier_filters = [
 		(kebele or kwargs.get("kebele"), "Kebele"),
 		(woreda or kwargs.get("woreda"), "Woreda"),
 		(zone or kwargs.get("zone"), "Zone"),
@@ -469,50 +495,48 @@ def list_grievances(
 		(location or kwargs.get("location"), None),
 		(administrative_area or kwargs.get("administrative_area"), None),
 		(administrative_unit or kwargs.get("administrative_unit"), None),
-	):
-		if val is not None:
-			for item in parse_multi_value(val):
-				if item:
-					area_inputs.append((item, lvl))
+	]
 
-	if len(area_inputs) == 1:
-		item, lvl = area_inputs[0]
-		canonical_area = _resolve_area_filter_identifier(item, lvl)
-		area_bounds = frappe.db.get_value(
-			"Grievance Administrative Area",
-			canonical_area,
-			["lft", "rgt"],
-			as_dict=True,
-		)
-		if area_bounds and area_bounds.lft is not None and area_bounds.rgt is not None:
-			filters.append(["area_lft", ">=", int(area_bounds.lft)])
-			filters.append(["area_lft", "<=", int(area_bounds.rgt)])
-		else:
-			filters.append(["administrative_area", "=", canonical_area])
-	elif len(area_inputs) > 1:
-		area_names = set()
-		for item, lvl in area_inputs:
-			canonical = _resolve_area_filter_identifier(item, lvl)
-			bounds = frappe.db.get_value(
-				"Grievance Administrative Area",
-				canonical,
-				["lft", "rgt", "is_group"],
-				as_dict=True,
-			)
-			if bounds and bounds.lft is not None and bounds.rgt is not None:
-				if bounds.get("is_group") or (bounds.rgt - bounds.lft > 1):
-					descendants = frappe.get_all(
+	active_tier_area_sets = []
+	for val, lvl in tier_filters:
+		if val is not None:
+			raw_items = parse_multi_value(val)
+			if not raw_items:
+				continue
+			tier_area_names = set()
+			for item in raw_items:
+				canonical_names = _resolve_area_filter_identifiers(item, lvl)
+				for canonical in canonical_names:
+					bounds = frappe.db.get_value(
 						"Grievance Administrative Area",
-						filters=[["lft", ">=", int(bounds.lft)], ["lft", "<=", int(bounds.rgt)]],
-						pluck="name",
+						canonical,
+						["lft", "rgt", "is_group"],
+						as_dict=True,
 					)
-					area_names.update(descendants)
-				else:
-					area_names.add(canonical)
-			else:
-				area_names.add(canonical)
-		if area_names:
-			filters.append(["administrative_area", "in", list(area_names)])
+					if bounds and bounds.lft is not None and bounds.rgt is not None:
+						if bounds.get("is_group") or (bounds.rgt - bounds.lft > 1):
+							descendants = frappe.get_all(
+								"Grievance Administrative Area",
+								filters=[["lft", ">=", int(bounds.lft)], ["lft", "<=", int(bounds.rgt)]],
+								pluck="name",
+							)
+							tier_area_names.update(descendants)
+						else:
+							tier_area_names.add(canonical)
+					else:
+						tier_area_names.add(canonical)
+			if tier_area_names:
+				active_tier_area_sets.append(tier_area_names)
+
+	if active_tier_area_sets:
+		matching_areas = active_tier_area_sets[0]
+		for s in active_tier_area_sets[1:]:
+			matching_areas = matching_areas.intersection(s)
+
+		if matching_areas:
+			filters.append(["administrative_area", "in", list(matching_areas)])
+		else:
+			filters.append(["name", "=", "__no_match__"])
 
 	or_filters = []
 	if search:
@@ -1155,50 +1179,219 @@ track = timeline
 @validate_request(AddNoteRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
-def add_note(ticket_number: str, body: str, is_internal: bool | str = True):
+def add_note(ticket_number: str, body: str, is_internal: bool | str = True, **kwargs):
 	"""Staff-only endpoint to add an internal or public note to the case timeline."""
-	doc = _load(ticket_number, ptype="write")
-	internal = (
-		str(is_internal).lower() not in ("0", "false", "no")
-		if isinstance(is_internal, str)
-		else bool(is_internal)
-	)
-
-	entry = GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="note",
-		is_internal=internal,
-		body=body,
-		author_user=frappe.session.user,
-	)
-
-	return success_response(
-		data={
-			"name": entry.name,
-			"entry_type": entry.entry_type,
-			"is_internal": bool(entry.is_internal),
-			"author_type": "officer",
-			"created_on": entry.created_on,
-		},
-		message=_("Note added successfully"),
-	)
+	return message(ticket_number=ticket_number, body=body, is_internal=is_internal, type="note", **kwargs)
 
 
-@route("/<ticket_number>/message", methods=("POST",), summary="Post a public message to the conversation")
+@route(
+	"/<ticket_number>/message",
+	methods=("POST",),
+	summary="Post a communication, note, reply, or department response",
+)
 @frappe.whitelist()
 @validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def message(ticket_number: str, body: str):
-	"""Post a public message to the case conversation thread."""
+def message(
+	ticket_number: str,
+	body: str,
+	type: str | None = None,
+	response_type: str | None = None,
+	action_taken: str | None = None,
+	proposed_close_date: str | None = None,
+	referred_to_department: str | None = None,
+	is_internal: bool | str | None = None,
+	**kwargs,
+):
+	"""Unified endpoint for posting public messages, citizen replies, internal notes, or department responses."""
 	doc = _load(ticket_number, ptype="write")
 	user = frappe.session.user
-	is_staff = bool(set(frappe.get_roles(user)) & STAFF_ROLES)
+	user_roles = set(frappe.get_roles(user))
+	is_staff = bool(user_roles & STAFF_ROLES)
 
+	req_type = (type or "").strip()
+	resp_type_name = (response_type or "").strip()
+
+	# Match response_type if passed via type (e.g. "Resolved")
+	if not resp_type_name and req_type and frappe.db.exists("Grievance Response Type", req_type):
+		resp_type_name = req_type
+
+	# 1. Formal Department Response
+	if resp_type_name:
+		if not is_staff:
+			frappe.throw(
+				_("Only staff members can submit a formal department response."), frappe.PermissionError
+			)
+
+		if not frappe.db.exists("Grievance Response Type", resp_type_name):
+			frappe.throw(
+				_("Response Type '{0}' does not exist.").format(resp_type_name), frappe.ValidationError
+			)
+
+		resp_type_doc = frappe.get_cached_doc("Grievance Response Type", resp_type_name)
+		if resp_type_doc.requires_referred_dept and not referred_to_department:
+			frappe.throw(
+				_("Destination department is required for response type '{0}'.").format(resp_type_name),
+				frappe.ValidationError,
+			)
+
+		from frappe.utils import add_days, today
+
+		close_date = proposed_close_date or add_days(today(), 7)
+
+		# Create formal Grievance Response (triggers response_after_insert hook)
+		resp_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance Response",
+				"grievance": doc.name,
+				"response_type": resp_type_name,
+				"action_taken": (action_taken or body)[:500],
+				"resolution_summary": body,
+				"proposed_close_date": close_date,
+				"referred_to_department": referred_to_department,
+				"internal_notes": body if is_internal else None,
+			}
+		).insert(ignore_permissions=True)
+
+		doc.reload()
+		current_state = {
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"assigned_to": doc.assigned_to,
+			"department": doc.assigned_dept,
+			"updated_at": doc.modified.isoformat()
+			if hasattr(doc.modified, "isoformat")
+			else str(doc.modified),
+			"available_actions": _get_available_actions_for_user(doc),
+		}
+
+		latest_tl = frappe.get_all(
+			"Grievance Timeline",
+			filters={
+				"grievance": doc.name,
+				"ref_doctype": "Grievance Response",
+				"ref_docname": resp_doc.name,
+			},
+			order_by="creation desc",
+			limit=1,
+		)
+		tl_name = latest_tl[0].name if latest_tl else None
+
+		return success_response(
+			data={
+				"name": tl_name,
+				"ticket_number": tn.display(doc.ticket_number),
+				"entry_type": "response",
+				"response_type": resp_type_name,
+				"response_id": resp_doc.name,
+				"is_internal": False,
+				"author_type": "officer",
+				"status": doc.status,
+				"current_state": current_state,
+				"available_actions": current_state["available_actions"],
+			},
+			message=_("Department response recorded successfully"),
+		)
+
+	# 2. Information Request from Staff
+	if req_type.lower() in ("info_request", "request_more_info", "information request"):
+		if not is_staff:
+			frappe.throw(_("Only staff members can issue an information request."), frappe.PermissionError)
+
+		if "Request More Info" in lifecycle.actions_available(doc):
+			lifecycle.transition(doc, "Request More Info", reason=body)
+
+		entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="info_request",
+			is_internal=False,
+			body=body,
+			author_user=user,
+		)
+		doc.reload()
+		current_state = {
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"assigned_to": doc.assigned_to,
+			"department": doc.assigned_dept,
+			"updated_at": doc.modified.isoformat()
+			if hasattr(doc.modified, "isoformat")
+			else str(doc.modified),
+			"available_actions": _get_available_actions_for_user(doc),
+		}
+		return success_response(
+			data={
+				"name": entry.name,
+				"ticket_number": tn.display(doc.ticket_number),
+				"entry_type": "info_request",
+				"is_internal": False,
+				"author_type": "officer",
+				"created_on": entry.created_on,
+				"status": doc.status,
+				"current_state": current_state,
+				"available_actions": current_state["available_actions"],
+			},
+			message=_("Information request posted successfully"),
+		)
+
+	# 3. Citizen Reply to Information Request
+	if req_type.lower() in ("info_response", "submitter_reply", "reply") or (
+		not is_staff and doc.status == "More Info Needed"
+	):
+		if "Submitter Reply" in lifecycle.actions_available(doc):
+			lifecycle.transition(doc, "Submitter Reply", note="Submitter replied to information request")
+			from oan_grievance_service.services import notifications
+
+			notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
+
+		entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="info_response",
+			is_internal=False,
+			body=body,
+			author_user=user if is_staff else None,
+			author_submitter=doc.submitter if not is_staff else None,
+		)
+		doc.reload()
+		current_state = {
+			"status": doc.status,
+			"escalated": bool(doc.escalated),
+			"assigned_to": doc.assigned_to,
+			"department": doc.assigned_dept,
+			"updated_at": doc.modified.isoformat()
+			if hasattr(doc.modified, "isoformat")
+			else str(doc.modified),
+			"available_actions": _get_available_actions_for_user(doc),
+		}
+		return success_response(
+			data={
+				"name": entry.name,
+				"ticket_number": tn.display(doc.ticket_number),
+				"entry_type": "info_response",
+				"is_internal": False,
+				"author_type": "officer" if is_staff else "submitter",
+				"created_on": entry.created_on,
+				"status": doc.status,
+				"current_state": current_state,
+				"available_actions": current_state["available_actions"],
+			},
+			message=_("Reply posted successfully"),
+		)
+
+	# 4. Internal Note or Public Message
+	internal = False
+	if is_staff:
+		if req_type.lower() in ("note", "internal_note", "internal"):
+			internal = True
+		elif is_internal is not None:
+			internal = str(is_internal).lower() not in ("0", "false", "no")
+
+	entry_type = "note" if internal else "message"
 	entry = GrievanceTimeline.record(
 		grievance=doc.name,
-		entry_type="message",
-		is_internal=False,
+		entry_type=entry_type,
+		is_internal=internal,
 		body=body,
 		author_user=user if is_staff else None,
 		author_submitter=doc.submitter if not is_staff else None,
@@ -1207,12 +1400,14 @@ def message(ticket_number: str, body: str):
 	return success_response(
 		data={
 			"name": entry.name,
+			"ticket_number": tn.display(doc.ticket_number),
 			"entry_type": entry.entry_type,
-			"is_internal": False,
+			"is_internal": bool(entry.is_internal),
 			"author_type": "officer" if is_staff else "submitter",
 			"created_on": entry.created_on,
+			"status": doc.status,
 		},
-		message=_("Message posted successfully"),
+		message=_("Note added successfully" if internal else "Message posted successfully"),
 	)
 
 
@@ -1225,7 +1420,6 @@ def reassign(
 	ticket_number: str,
 	target_department: str,
 	target_officer: str | None = None,
-	sla_treatment: str | None = "Continue",
 	reason: str | None = None,
 	**kwargs,
 ):
@@ -1261,27 +1455,13 @@ def reassign(
 	if target_officer:
 		g_updates["assigned_to"] = target_officer
 
-	treatment = (sla_treatment or "Continue").strip().capitalize()
-	if treatment == "Reset":
-		g_updates.update(
-			{
-				"sla_due_date": None,
-				"sla_start_at": None,
-				"reminder_50_sent": 0,
-				"reminder_80_sent": 0,
-			}
-		)
-
 	doc.db_set(g_updates, update_modified=False)
-	if treatment == "Reset":
-		sla.start_clock(doc)
 
 	timeline_body = f"Reassigned to {target_department}"
 	if target_officer:
 		timeline_body += f" ({target_officer})"
 	if reason and reason.strip():
 		timeline_body += f" - Reason: {reason.strip()}"
-	timeline_body += f" (SLA: {treatment})"
 
 	# Record audit doc
 	req_doc = frappe.get_doc(
@@ -1292,7 +1472,7 @@ def reassign(
 			"target_officer": target_officer,
 			"prior_department": from_dept,
 			"prior_officer": from_officer,
-			"sla_treatment": treatment,
+			"sla_treatment": "Continue",
 			"reason": reason or "Reassigned via API",
 			"requested_at": now_datetime(),
 			"initiated_by": frappe.session.user,

@@ -409,7 +409,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			method="POST",
 			data={
 				"target_department": dept,
-				"sla_treatment": "Continue",
 				"reason": "Routing to regional dept",
 			},
 		)
@@ -442,3 +441,96 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		anon_data = json.loads(res_anon.get_data(as_text=True))
 		self.assertEqual(anon_data["status"], "success")
 		self.assertTrue(anon_data["data"]["is_anonymous"])
+
+	def test_unified_message_and_department_response_endpoint(self):
+		"""Test unified POST /api/v1/grievances/<ticket>/message for notes, messages, info requests, and department responses."""
+		import uuid
+
+		import frappe.api
+
+		from oan_grievance_service.services import lifecycle
+		from oan_grievance_service.tests.fixtures import a_department
+
+		# 1. Citizen submits grievance
+		frappe.set_user(self.farmer_user.name)
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
+			"submission_channel": "Mobile App",
+			"administrative_area": self.area,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype.name,
+			"description": "Testing unified communication and department response endpoint.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		frappe.api.handle(req_save)
+
+		submit_payload = {"client_submission_uuid": draft_uuid, "consent_given": 1}
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		res_submit = frappe.api.handle(req_submit)
+		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
+		frappe.db.commit()
+
+		# Assign and Start Work
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
+		doc.assigned_dept = a_department()
+		doc.save(ignore_permissions=True)
+		lifecycle.transition(doc, "Assign")
+		lifecycle.transition(doc, "Start Work")
+		frappe.db.commit()
+
+		# 2. Staff posts an internal note
+		req_note = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Internal investigation note", "type": "note"},
+		)
+		res_note = frappe.api.handle(req_note)
+		self.assertEqual(res_note.status_code, 200)
+		note_data = json.loads(res_note.get_data(as_text=True))
+		self.assertEqual(note_data["data"]["entry_type"], "note")
+		self.assertTrue(note_data["data"]["is_internal"])
+
+		# 3. Staff posts an information request -> moves state to More Info Needed
+		req_req_info = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Please provide proof of purchase.", "type": "info_request"},
+		)
+		res_req_info = frappe.api.handle(req_req_info)
+		self.assertEqual(res_req_info.status_code, 200)
+		info_req_data = json.loads(res_req_info.get_data(as_text=True))
+		self.assertEqual(info_req_data["data"]["status"], "More Info Needed")
+		self.assertEqual(info_req_data["data"]["entry_type"], "info_request")
+
+		# 4. Citizen replies -> automatically moves state back to In Progress
+		frappe.set_user(self.farmer_user.name)
+		req_reply = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Receipt number is RCP-998811."},
+		)
+		res_reply = frappe.api.handle(req_reply)
+		self.assertEqual(res_reply.status_code, 200)
+		reply_data = json.loads(res_reply.get_data(as_text=True))
+		self.assertEqual(reply_data["data"]["status"], "In Progress")
+		self.assertEqual(reply_data["data"]["entry_type"], "info_response")
+
+		# 5. Staff posts formal department response -> moves state to Pending Submitter
+		frappe.set_user("Administrator")
+		req_resp = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={
+				"body": "Replacement seeds delivered to the primary warehouse.",
+				"type": "Resolved",
+				"action_taken": "Issued replacement voucher.",
+			},
+		)
+		res_resp = frappe.api.handle(req_resp)
+		self.assertEqual(res_resp.status_code, 200)
+		resp_data = json.loads(res_resp.get_data(as_text=True))
+		self.assertEqual(resp_data["data"]["status"], "Pending Submitter")
+		self.assertEqual(resp_data["data"]["entry_type"], "response")
+		self.assertEqual(resp_data["data"]["response_type"], "Resolved")

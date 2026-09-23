@@ -360,7 +360,7 @@
    "fieldname": "routing_rule",
    "fieldtype": "Link",
    "label": "Matched Routing Rule",
-   "options": "Grievance Routing Rule",
+   "options": "Grievance RBAC Assignment",
    "read_only": 1
   },
   {

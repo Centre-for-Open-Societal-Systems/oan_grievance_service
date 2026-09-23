@@ -8,7 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "response_type_name",
-  "target_workflow_state",
   "workflow_action",
   "col_break_1",
   "sla_behaviour",
@@ -26,20 +25,12 @@
    "unique": 1
   },
   {
-   "description": "The target workflow state this response transitions the grievance into.",
-   "fieldname": "target_workflow_state",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Target Workflow State",
-   "options": "Workflow State",
-   "reqd": 1
-  },
-  {
    "description": "Workflow action triggered upon formal submission of this response.",
    "fieldname": "workflow_action",
-   "fieldtype": "Data",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Workflow Action",
+   "options": "Workflow Action Master",
    "reqd": 1
   },
   {

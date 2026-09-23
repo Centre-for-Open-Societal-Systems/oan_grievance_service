@@ -87,7 +87,7 @@ def query_active_officer_assignments(
 	field_str = (
 		", ".join(fields)
 		if fields
-		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope"
+		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope"
 	)
 	sql = f"""  # nosemgrep: frappe-sql-format-injection
 		SELECT {field_str}
@@ -111,6 +111,8 @@ def active_scopes(user=None):
 		"p.administrative_area_scope",
 		"p.department_scope",
 		"p.category_scope",
+		"p.grievance_type_scope",
+		"p.service_provider_scope",
 		"c.role_level",
 		"c.is_primary",
 		"c.max_open_cases",
@@ -242,6 +244,16 @@ def grievance_query_conditions(user=None):
 				if isinstance(scope, dict)
 				else getattr(scope, "category_scope", None)
 			)
+			gtype_scope = (
+				scope.get("grievance_type_scope")
+				if isinstance(scope, dict)
+				else getattr(scope, "grievance_type_scope", None)
+			)
+			prov_scope = (
+				scope.get("service_provider_scope")
+				if isinstance(scope, dict)
+				else getattr(scope, "service_provider_scope", None)
+			)
 			area_scope = (
 				scope.get("administrative_area_scope")
 				if isinstance(scope, dict)
@@ -254,6 +266,12 @@ def grievance_query_conditions(user=None):
 				include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
 			if cat_scope:
 				include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
+			if gtype_scope:
+				include_parts.append(f"`tabGrievance`.grievance_type = {frappe.db.escape(gtype_scope)}")
+			if prov_scope:
+				include_parts.append(
+					f"`tabGrievance`.associated_service_provider = {frappe.db.escape(prov_scope)}"
+				)
 			if area_scope:
 				area_lft, area_rgt = bounds.get(area_scope, (None, None))
 				if area_lft is not None and area_rgt is not None:
@@ -320,6 +338,14 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	category = (
 		doc.get("service_category") if isinstance(doc, dict) else getattr(doc, "service_category", None)
 	)
+	grievance_type = (
+		doc.get("grievance_type") if isinstance(doc, dict) else getattr(doc, "grievance_type", None)
+	)
+	provider = (
+		doc.get("associated_service_provider")
+		if isinstance(doc, dict)
+		else getattr(doc, "associated_service_provider", None)
+	)
 	area = (
 		doc.get("administrative_area") if isinstance(doc, dict) else getattr(doc, "administrative_area", None)
 	)
@@ -337,18 +363,32 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		cat_scope = (
 			scope.get("category_scope") if isinstance(scope, dict) else getattr(scope, "category_scope", None)
 		)
+		gtype_scope = (
+			scope.get("grievance_type_scope")
+			if isinstance(scope, dict)
+			else getattr(scope, "grievance_type_scope", None)
+		)
+		prov_scope = (
+			scope.get("service_provider_scope")
+			if isinstance(scope, dict)
+			else getattr(scope, "service_provider_scope", None)
+		)
 		area_scope = (
 			scope.get("administrative_area_scope")
 			if isinstance(scope, dict)
 			else getattr(scope, "administrative_area_scope", None)
 		)
 
-		if not (dept_scope or cat_scope or area_scope):
+		if not (dept_scope or cat_scope or gtype_scope or prov_scope or area_scope):
 			continue
 
 		if dept_scope and dept != dept_scope:
 			continue
 		if cat_scope and category != cat_scope:
+			continue
+		if gtype_scope and grievance_type != gtype_scope:
+			continue
+		if prov_scope and provider != prov_scope:
 			continue
 		if area_scope:
 			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):

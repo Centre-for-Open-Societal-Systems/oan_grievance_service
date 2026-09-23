@@ -162,8 +162,14 @@ def save(
 		doc.administrative_unit = administrative_unit
 	if service_category is not None:
 		doc.service_category = service_category
+	elif not doc.service_category:
+		doc.service_category = "Other"
+
 	if grievance_type is not None:
 		doc.grievance_type = grievance_type
+	elif not doc.grievance_type and doc.service_category == "Other":
+		doc.grievance_type = "Other"
+
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
 	if description is not None:
@@ -306,8 +312,14 @@ def submit_draft(
 		doc.administrative_unit = administrative_unit
 	if service_category:
 		doc.service_category = service_category
+	elif not doc.service_category:
+		doc.service_category = "Other"
+
 	if grievance_type:
 		doc.grievance_type = grievance_type
+	elif not doc.grievance_type and doc.service_category == "Other":
+		doc.grievance_type = "Other"
+
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider
 	if description:

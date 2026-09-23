@@ -460,25 +460,25 @@ class TestGrievance(FrappeTestCase):
 		discard_grievance(ticket)
 
 	def test_nearest_ancestor_routing(self):
-		# Create a broad rule on Region, and a specific rule on Woreda Leaf
+		# Create a broad assignment on Region, and a specific assignment on Woreda Leaf
 		broad_rule = frappe.get_doc(
 			{
-				"doctype": "Grievance Routing Rule",
-				"rule_precedence": 10,
-				"service_category": "Inputs",
-				"administrative_area": self.region_area.name,
-				"assigned_dept": "Regional Agronomy Dept",
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": "Inputs",
+				"administrative_area_scope": self.region_area.name,
+				"department_scope": "Regional Agronomy Dept",
+				"effective_from": frappe.utils.today(),
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
 
 		specific_rule = frappe.get_doc(
 			{
-				"doctype": "Grievance Routing Rule",
-				"rule_precedence": 10,
-				"service_category": "Inputs",
-				"administrative_area": self.woreda_leaf.name,
-				"assigned_dept": "Agriculture Dept",
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": "Inputs",
+				"administrative_area_scope": self.woreda_leaf.name,
+				"department_scope": "Agriculture Dept",
+				"effective_from": frappe.utils.today(),
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -499,21 +499,21 @@ class TestGrievance(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-			matched = routing.find_matching_rule(g)
+			matched = routing.find_matching_assignment(g)
 			self.assertIsNotNone(matched)
-			# Specific woreda rule must win over broader region rule because it has narrower span
+			# Specific woreda assignment must win over broader region assignment because it has narrower span
 			self.assertEqual(matched.name, specific_rule.name)
-			self.assertEqual(matched.assigned_dept, "Agriculture Dept")
+			self.assertEqual(matched.department_scope, "Agriculture Dept")
 		finally:
 			if g and frappe.db.exists("Grievance", g.name):
 				discard_grievance(g.name)
-			if frappe.db.exists("Grievance Routing Rule", broad_rule.name):
+			if frappe.db.exists("Grievance RBAC Assignment", broad_rule.name):
 				frappe.delete_doc(
-					"Grievance Routing Rule", broad_rule.name, force=True, ignore_permissions=True
+					"Grievance RBAC Assignment", broad_rule.name, force=True, ignore_permissions=True
 				)
-			if frappe.db.exists("Grievance Routing Rule", specific_rule.name):
+			if frappe.db.exists("Grievance RBAC Assignment", specific_rule.name):
 				frappe.delete_doc(
-					"Grievance Routing Rule", specific_rule.name, force=True, ignore_permissions=True
+					"Grievance RBAC Assignment", specific_rule.name, force=True, ignore_permissions=True
 				)
 
 
