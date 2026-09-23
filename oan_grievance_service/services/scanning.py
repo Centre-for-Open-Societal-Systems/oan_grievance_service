@@ -386,17 +386,13 @@ def read_object(file_url: str) -> bytes | None:
 	except Exception:
 		return None
 
-	# Read the object from disk. Core's File.get_content() decodes anything that
-	# happens to be valid UTF-8 into str, so an all-ASCII upload came back as text
-	# and the INSTREAM send failed on it -- which left the file Pending forever,
-	# never scanned. The scanner needs the bytes exactly as stored.
+	# Core's File.get_content() tries a list of text encodings and hands back str
+	# for anything that decodes, so an all-ASCII upload came back as text and the
+	# INSTREAM send failed on it -- which left the file Pending forever, never
+	# scanned. An empty encodings list skips that step and returns the stored
+	# bytes, while still going through core's own file-path validation.
 	try:
-		with open(file_doc.get_full_path(), "rb") as handle:
-			return handle.read()
-	except Exception:
-		pass
-	try:
-		content = file_doc.get_content()
+		content = file_doc.get_content(encodings=[])
 	except Exception:
 		return None
 	return content.encode("utf-8") if isinstance(content, str) else content
