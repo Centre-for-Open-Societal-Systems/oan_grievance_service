@@ -376,15 +376,22 @@ def dispatch_queued(limit=100):
 		order_by="creation asc",
 	)
 
+	grievance_cache = {}
+
+	def _get_cached_grievance(name):
+		if name not in grievance_cache:
+			grievance_cache[name] = frappe.get_doc("Grievance", name)
+		return grievance_cache[name]
+
 	for row in pending:
 		update = {"status": "Sent", "sent_at": now_datetime()}
 		try:
 			if row.channel == CHANNEL_EMAIL:
-				update.update(_send_email_row(row, frappe.get_doc("Grievance", row.grievance)))
+				update.update(_send_email_row(row, _get_cached_grievance(row.grievance)))
 			elif row.channel == CHANNEL_SMS:
 				update.update(_send_sms_row(row))
 			elif row.channel == CHANNEL_SYSTEM:
-				update.update(_send_system_row(row, frappe.get_doc("Grievance", row.grievance)))
+				update.update(_send_system_row(row, _get_cached_grievance(row.grievance)))
 			else:
 				# Never silently mark an undelivered row as Sent.
 				raise ValueError(f"No delivery path for channel {row.channel}")

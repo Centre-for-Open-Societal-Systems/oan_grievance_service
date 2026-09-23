@@ -124,7 +124,7 @@ def a_grievance(**overrides):
 	if doc.workflow_state == "Draft" and "workflow_state" not in overrides:
 		from oan_grievance_service.services import lifecycle
 
-		lifecycle.submit(doc)
+		lifecycle.transition(doc, "Submit")
 	return doc
 
 

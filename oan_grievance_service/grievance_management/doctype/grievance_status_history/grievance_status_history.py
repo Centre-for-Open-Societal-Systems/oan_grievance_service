@@ -8,7 +8,6 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.audit import ImmutableRecord
 
 
@@ -59,7 +58,10 @@ def require_reason(from_status, to_status, reason):
 	desk, the API or a scheduled job. The Grievance controller also asks this
 	before it writes the move, so the refusal arrives before the row does.
 	"""
-	if (from_status, to_status) not in C.REASON_REQUIRED_MOVES:
+	is_reason_required = (to_status == "Rejected") or (
+		from_status == "Pending Submitter" and to_status == "In Progress"
+	)
+	if not is_reason_required:
 		return
 	if reason and reason.strip():
 		return

@@ -28,6 +28,7 @@ category per year, and 32 years before the year character repeats.
 """
 
 import datetime
+from dataclasses import dataclass
 
 import frappe
 from frappe import _
@@ -288,21 +289,45 @@ def scope_key(region: str, category: str, year: str) -> str:
 	return f"GRV-{region}{category}{year}-"
 
 
+@dataclass(frozen=True, slots=True)
+class TicketSegments:
+	"""The static prefix segments of a ticket before sequence generation."""
+
+	region: str
+	category: str
+	year: str
+
+	def __getitem__(self, item):
+		return getattr(self, item)
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedTicket:
+	"""A parsed grievance ticket representation."""
+
+	region: str
+	category: str
+	sequence: str
+	year: str
+	raw: str
+	formatted: str
+
+
 def segments(
 	administrative_area: str | None,
 	service_category: str | None,
 	on: datetime.date | None = None,
-) -> dict:
+) -> TicketSegments:
 	"""The three characters known before a sequence is drawn.
 
 	Read-only, so a caller can show what a ticket will look like without
 	consuming a number.
 	"""
-	return {
-		"region": region_segment(administrative_area),
-		"category": category_segment(service_category),
-		"year": year_segment(on),
-	}
+	return TicketSegments(
+		region=region_segment(administrative_area),
+		category=category_segment(service_category),
+		year=year_segment(on),
+	)
 
 
 def generate(
@@ -318,9 +343,28 @@ def generate(
 	belongs in `autoname()` and nowhere else.
 	"""
 	parts = segments(administrative_area, service_category, on)
-	key = scope_key(parts["region"], parts["category"], parts["year"])
+	key = scope_key(parts.region, parts.category, parts.year)
 	sequence = encode(int(getseries(key, 1)), SEQUENCE_WIDTH)
-	return f"{parts['region']}{parts['category']}{sequence}{parts['year']}"
+	return f"{parts.region}{parts.category}{sequence}{parts.year}"
+
+
+def parse(ticket: str) -> ParsedTicket:
+	"""Parse a raw ticket number into its constituent components."""
+	normalized = normalize(ticket)
+	if len(normalized) != TICKET_WIDTH:
+		frappe.throw(_("Invalid ticket number format: {0}").format(ticket), title=_("Invalid Ticket"))
+	region = normalized[:REGION_WIDTH]
+	category = normalized[REGION_WIDTH : REGION_WIDTH + CATEGORY_WIDTH]
+	sequence = normalized[REGION_WIDTH + CATEGORY_WIDTH : -YEAR_WIDTH]
+	year = normalized[-YEAR_WIDTH:]
+	return ParsedTicket(
+		region=region,
+		category=category,
+		sequence=sequence,
+		year=year,
+		raw=normalized,
+		formatted=f"{region}-{category}-{sequence}-{year}",
+	)
 
 
 def display(ticket: str) -> str:

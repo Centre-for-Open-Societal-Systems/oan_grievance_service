@@ -50,7 +50,8 @@
    "fieldname": "user",
    "fieldtype": "Link",
    "label": "User Account",
-   "options": "User"
+   "options": "User",
+   "search_index": 1
   },
   {
    "fieldname": "col_contact",

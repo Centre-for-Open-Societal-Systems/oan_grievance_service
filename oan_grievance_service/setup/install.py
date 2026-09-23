@@ -44,15 +44,15 @@ WORKFLOW_NAME = "Grievance Workflow"
 # (state, docstatus, style). Order matters: Frappe treats the first row as where a
 # new document enters.
 WORKFLOW_STATES = [
-	(C.DRAFT, "0", "Inverse"),
-	(C.SUBMITTED, "1", "Info"),
-	(C.ASSIGNED, "1", "Primary"),
-	(C.IN_PROGRESS, "1", "Primary"),
-	(C.MORE_INFO_NEEDED, "1", "Warning"),
-	(C.PENDING_SUBMITTER, "1", "Warning"),
-	(C.RESOLVED, "1", "Success"),
-	(C.CLOSED, "1", "Success"),
-	(C.REJECTED, "2", "Danger"),
+	("Draft", "0", "Inverse"),
+	("Submitted", "1", "Info"),
+	("Assigned", "1", "Primary"),
+	("In Progress", "1", "Primary"),
+	("More Info Needed", "1", "Warning"),
+	("Pending Submitter", "1", "Warning"),
+	("Resolved", "1", "Success"),
+	("Closed", "1", "Success"),
+	("Rejected", "2", "Danger"),
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
@@ -60,21 +60,21 @@ SUBMITTER_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
-	(C.DRAFT, C.ACTION_SUBMIT, C.SUBMITTED, SUBMITTER_ROLES),
-	(C.SUBMITTED, C.ACTION_ASSIGN, C.ASSIGNED, OFFICER_ROLES),
-	(C.SUBMITTED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
-	(C.ASSIGNED, C.ACTION_START_WORK, C.IN_PROGRESS, OFFICER_ROLES),
-	(C.ASSIGNED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
-	(C.IN_PROGRESS, C.ACTION_REQUEST_MORE_INFO, C.MORE_INFO_NEEDED, OFFICER_ROLES),
-	(C.IN_PROGRESS, C.ACTION_SUBMIT_RESPONSE, C.PENDING_SUBMITTER, OFFICER_ROLES),
-	(C.IN_PROGRESS, C.ACTION_REFER_ONWARD, C.ASSIGNED, OFFICER_ROLES),
-	(C.IN_PROGRESS, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
-	(C.MORE_INFO_NEEDED, C.ACTION_SUBMITTER_REPLY, C.IN_PROGRESS, SUBMITTER_ROLES),
-	(C.MORE_INFO_NEEDED, C.ACTION_REJECT, C.REJECTED, OFFICER_ROLES),
-	(C.PENDING_SUBMITTER, C.ACTION_CONFIRM_RESOLUTION, C.RESOLVED, SUBMITTER_ROLES),
-	(C.PENDING_SUBMITTER, C.ACTION_REOPEN, C.IN_PROGRESS, SUBMITTER_ROLES),
-	(C.PENDING_SUBMITTER, C.ACTION_AUTO_CLOSE, C.CLOSED, OFFICER_ROLES),
-	(C.RESOLVED, C.ACTION_CLOSE_CASE, C.CLOSED, SUBMITTER_ROLES),
+	("Draft", "Submit", "Submitted", SUBMITTER_ROLES),
+	("Submitted", "Assign", "Assigned", OFFICER_ROLES),
+	("Submitted", "Reject", "Rejected", OFFICER_ROLES),
+	("Assigned", "Start Work", "In Progress", OFFICER_ROLES),
+	("Assigned", "Reject", "Rejected", OFFICER_ROLES),
+	("In Progress", "Request More Info", "More Info Needed", OFFICER_ROLES),
+	("In Progress", "Submit Response", "Pending Submitter", OFFICER_ROLES),
+	("In Progress", "Refer Onward", "Assigned", OFFICER_ROLES),
+	("In Progress", "Reject", "Rejected", OFFICER_ROLES),
+	("More Info Needed", "Submitter Reply", "In Progress", SUBMITTER_ROLES),
+	("More Info Needed", "Reject", "Rejected", OFFICER_ROLES),
+	("Pending Submitter", "Confirm Resolution", "Resolved", SUBMITTER_ROLES),
+	("Pending Submitter", "Reopen", "In Progress", SUBMITTER_ROLES),
+	("Pending Submitter", "Auto Close", "Closed", OFFICER_ROLES),
+	("Resolved", "Close Case", "Closed", SUBMITTER_ROLES),
 ]
 
 # The escalation rungs of §10.1, as Grievance Role Level master records.
@@ -179,6 +179,43 @@ SUBMISSION_TYPES = [
 	("Mobile Call", "CALL"),
 	("IVR Helpline", "IVR"),
 	("Development Agent Assisted", "DA"),
+]
+
+# Master Grievance Response Types (Contract A: Dynamic Master Resolution)
+# (name, target_workflow_state, sla_behaviour, requires_referred_dept, workflow_action, description)
+RESPONSE_TYPES = [
+	(
+		"Resolved",
+		"Pending Submitter",
+		"paused",
+		0,
+		"Submit Response",
+		"Full case resolution proposed to the submitter.",
+	),
+	(
+		"Partially Resolved",
+		"Pending Submitter",
+		"paused",
+		0,
+		"Submit Response",
+		"Partial case resolution proposed to the submitter.",
+	),
+	(
+		"Referred to another dept",
+		"Assigned",
+		"running",
+		1,
+		"Refer Onward",
+		"Case referred onward to another responsible department.",
+	),
+	(
+		"Requires further info",
+		"More Info Needed",
+		"paused",
+		0,
+		"Request More Info",
+		"Clarification or additional evidence requested from submitter.",
+	),
 ]
 
 # FSD Appendix C, the complete notification matrix.
@@ -401,6 +438,7 @@ def seed_all():
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
+		"response_types": seed_response_types(),
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
@@ -409,6 +447,27 @@ def seed_all():
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
 	return created
+
+
+def seed_response_types():
+	made = []
+	for name, state, sla_behaviour, requires_dept, action, desc in RESPONSE_TYPES:
+		if frappe.db.exists("Grievance Response Type", name):
+			continue
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Response Type",
+				"response_type_name": name,
+				"target_workflow_state": state,
+				"sla_behaviour": sla_behaviour,
+				"requires_referred_dept": requires_dept,
+				"workflow_action": action,
+				"is_active": 1,
+				"description": desc,
+			}
+		).insert(ignore_permissions=True)
+		made.append(name)
+	return made
 
 
 def seed_grievance_types():

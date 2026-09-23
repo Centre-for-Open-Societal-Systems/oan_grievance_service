@@ -4,8 +4,8 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1.grievance import list_grievances, track
-from oan_grievance_service.services import constants as C
+from oan_grievance_service.api.v1.grievance import list_grievances, timeline
+from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
 
@@ -139,7 +139,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"grievance_type": self.gtype_name if i % 2 == 0 else self.gtype_credit_name,
 					"description": f"Grievance test issue number {i}",
 					"consent_given": 1,
-					"status": C.SUBMITTED if i < 3 else C.IN_PROGRESS,
+					"status": "Submitted" if i < 3 else "In Progress",
 					"assigned_dept": "Dept of Agriculture",
 					"assigned_to": self.officer.name if i >= 3 else None,
 				}
@@ -173,28 +173,28 @@ class TestListGrievanceAPI(FrappeTestCase):
 	def test_list_grievances_filter_by_status(self):
 		"""Filter by status."""
 		frappe.set_user("Administrator")
-		res = list_grievances(status=C.IN_PROGRESS)
+		res = list_grievances(status="In Progress")
 		items = res.get("data", {}).get("items", [])
 		for item in items:
-			self.assertEqual(item.get("status"), C.IN_PROGRESS)
+			self.assertEqual(item.get("status"), "In Progress")
 
 	def test_list_grievances_filter_by_status_multi(self):
 		"""Filter by multiple statuses (comma-separated and list)."""
 		frappe.set_user("Administrator")
-		res = list_grievances(status=f"{C.SUBMITTED},{C.IN_PROGRESS}")
+		res = list_grievances(status="Submitted,In Progress")
 		items = res.get("data", {}).get("items", [])
 		self.assertGreaterEqual(len(items), 5)
 		statuses = {item.get("status") for item in items}
-		self.assertIn(C.SUBMITTED, statuses)
-		self.assertIn(C.IN_PROGRESS, statuses)
+		self.assertIn("Submitted", statuses)
+		self.assertIn("In Progress", statuses)
 		for item in items:
-			self.assertIn(item.get("status"), (C.SUBMITTED, C.IN_PROGRESS))
+			self.assertIn(item.get("status"), ("Submitted", "In Progress"))
 
-		res_list = list_grievances(status=[C.SUBMITTED, C.IN_PROGRESS])
+		res_list = list_grievances(status=["Submitted", "In Progress"])
 		items_list = res_list.get("data", {}).get("items", [])
 		self.assertGreaterEqual(len(items_list), 5)
 		for item in items_list:
-			self.assertIn(item.get("status"), (C.SUBMITTED, C.IN_PROGRESS))
+			self.assertIn(item.get("status"), ("Submitted", "In Progress"))
 
 	def test_list_grievances_filter_by_category(self):
 		"""Filter by service category."""
@@ -214,13 +214,20 @@ class TestListGrievanceAPI(FrappeTestCase):
 			self.assertIn(item.get("service_category"), ("Inputs", "Credit"))
 
 	def test_list_grievances_search(self):
-		"""Search by ticket number."""
+		"""Search by ticket number and formatted display."""
 		frappe.set_user("Administrator")
 		target = self.created_docs[2]
 		res = list_grievances(search=target.ticket_number)
 		items = res.get("data", {}).get("items", [])
 		self.assertEqual(len(items), 1)
-		self.assertEqual(items[0].get("ticket_number"), target.ticket_number)
+		self.assertEqual(items[0].get("ticket_number"), tn.display(target.ticket_number))
+		self.assertNotIn("ticket_number_display", items[0])
+
+		# Search by formatted ticket display (with hyphens)
+		res_formatted = list_grievances(search=tn.display(target.ticket_number))
+		items_fmt = res_formatted.get("data", {}).get("items", [])
+		self.assertEqual(len(items_fmt), 1)
+		self.assertEqual(items_fmt[0].get("ticket_number"), tn.display(target.ticket_number))
 
 	def test_list_grievances_search_by_type_and_submitter(self):
 		"""Search by grievance type and submitter name."""
@@ -234,14 +241,42 @@ class TestListGrievanceAPI(FrappeTestCase):
 		self.assertEqual(len(items_sub), 1)
 		self.assertEqual(items_sub[0].get("submitter_name"), "Farmer Submitter 1")
 
+	def test_list_grievances_filter_by_area(self):
+		"""Filter by administrative area."""
+		frappe.set_user("Administrator")
+		res = list_grievances(administrative_area=self.area.name)
+		self.assertEqual(res.get("status"), "success")
+		items = res.get("data", {}).get("items", [])
+		self.assertGreaterEqual(len(items), 5)
+		# Verify location string is populated on items
+		self.assertTrue(all("location" in item for item in items))
+		self.assertTrue(any(item.get("location") for item in items))
+
+	def test_list_grievances_filter_by_location(self):
+		"""Filter by location query parameter."""
+		frappe.set_user("Administrator")
+		res = list_grievances(location=self.area.name)
+		self.assertEqual(res.get("status"), "success")
+		items = res.get("data", {}).get("items", [])
+		self.assertGreaterEqual(len(items), 5)
+
+	def test_list_grievances_invalid_area_filter_throws(self):
+		"""Unresolvable administrative area filter returns error."""
+		frappe.set_user("Administrator")
+		res = list_grievances(administrative_area="NonExistentAreaXYZ")
+		self.assertEqual(res.get("status"), "error")
+		self.assertEqual(res.get("code"), "NOT_FOUND")
+
 	def test_get_grievance_detail(self):
-		"""Retrieve full grievance detail."""
+		"""Retrieve full grievance detail including location."""
 		frappe.set_user("Administrator")
 		target = self.created_docs[0]
-		res = track(target.ticket_number)
+		res = timeline(target.ticket_number)
 		self.assertEqual(res.get("status"), "success")
 		data = res.get("data", {})
-		self.assertEqual(data.get("ticket_number"), target.ticket_number)
+		self.assertEqual(data.get("ticket_number"), tn.display(target.ticket_number))
 		self.assertEqual(data.get("submitter_name"), target.submitter_name)
 		self.assertEqual(data.get("service_category"), "Inputs")
+		self.assertIn("location", data)
+		self.assertIn("location", data.get("summary", {}))
 		self.assertIn("attachments", data)

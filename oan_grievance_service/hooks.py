@@ -57,6 +57,10 @@ has_permission = {
 # FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
 # gates reassignment on L2 approval. FR-10 records every read of a case.
 
+_CLEAR_LOOKUP_CACHE = {
+	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
+	"after_delete": "oan_grievance_service.api.v1._options.clear_reference_cache",
+}
 doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
@@ -101,26 +105,6 @@ scheduler_events = {
 	],
 }
 
-# Fixtures
-# ------------------
-# Configuration that must travel with the app rather than be re-keyed per site.
-
-fixtures = [
-	{
-		"dt": "Role",
-		"filters": [
-			[
-				"name",
-				"in",
-				[
-					"Grievance Submitter",
-					"Grievance Officer",
-					"Grievance Admin",
-				],
-			]
-		],
-	},
-]
 
 # Authentication & Registration
 # -----------------------------

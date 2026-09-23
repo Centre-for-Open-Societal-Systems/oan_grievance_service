@@ -62,6 +62,19 @@ def transition(
 	frappe.flags.grievance_transition = context
 	user = frappe.session.user
 	grievance.flags.ignore_permissions = True
+	if action == "Submit":
+		from oan_grievance_service.services import ticket_number as tn
+
+		grievance.flags.in_submit = True
+		if grievance.name.startswith("DRAFT-") or not grievance.ticket_number:
+			t_num = tn.generate(grievance.administrative_area, grievance.service_category)
+			if grievance.name != t_num:
+				frappe.rename_doc("Grievance", grievance.name, t_num, force=True)
+				grievance = frappe.get_doc("Grievance", t_num)
+			grievance.ticket_number = grievance.name
+			grievance.flags.ignore_permissions = True
+			grievance.flags.in_submit = True
+
 	try:
 		if automated and user != "Administrator":
 			# Audited: a system move (auto-route, auto-close, anonymity ruling) taken
@@ -83,147 +96,26 @@ def actions_available(grievance):
 
 
 STATUS_EVENT = {
-	C.IN_PROGRESS: C.EVENT_STATUS_IN_PROGRESS,
-	C.MORE_INFO_NEEDED: C.EVENT_MORE_INFO_REQUESTED,
-	C.PENDING_SUBMITTER: C.EVENT_CONFIRMATION_WINDOW,
-	C.RESOLVED: C.EVENT_CONFIRMED,
-	C.CLOSED: C.EVENT_CLOSED,
+	"In Progress": C.EVENT_STATUS_IN_PROGRESS,
+	"More Info Needed": C.EVENT_MORE_INFO_REQUESTED,
+	"Pending Submitter": C.EVENT_CONFIRMATION_WINDOW,
+	"Resolved": C.EVENT_CONFIRMED,
+	"Closed": C.EVENT_CLOSED,
 }
 
 
-def confirmation_window_days():
-	"""FSD 3.6: configurable, default 7 days."""
-	return frappe.conf.get("grievance_confirmation_window_days") or C.DEFAULT_CONFIRMATION_DAYS
+def confirmation_window_days(service_category: str | None = None) -> int:
+	"""FSD 3.6: Dynamic citizen confirmation/appeal window in days.
 
-
-def submit(grievance):
-	"""FSD 4.1 step 5: the case leaves Draft. The document is submitted with it."""
-	return transition(grievance, C.ACTION_SUBMIT)
-
-
-def assign(grievance, note=None, automated=False):
-	"""FSD 4.1 step 7 / 8b: the case reaches a department, by rule or by hand."""
-	return transition(grievance, C.ACTION_ASSIGN, note=note, automated=automated)
-
-
-def accept(grievance):
-	"""FSD 4.2 step 2: the officer accepts and begins work."""
-	return transition(grievance, C.ACTION_START_WORK, note="Accepted by department officer")
-
-
-def request_more_info(grievance, question):
-	"""FSD 4.2 step 3: the officer asks the submitter for more detail."""
-	from oan_grievance_service.services import notifications
-
-	# Recorded before the move, because the move's guard looks for it.
-	GrievanceTimeline.record(
-		grievance=grievance.name,
-		entry_type="info_request",
-		is_internal=False,
-		body=question,
-		author_user=frappe.session.user,
-	)
-
-	# Legacy comment record for backward compatibility
-	comment = frappe.get_doc(
-		{
-			"doctype": "Grievance Comment",
-			"grievance": grievance.name,
-			"comment_type": "Information Request",
-			"is_internal": 0,
-			"body": question,
-			"author_user": frappe.session.user,
-			"created_on": now_datetime(),
-		}
-	).insert(ignore_permissions=True)
-
-	transition(grievance, C.ACTION_REQUEST_MORE_INFO, note="Additional information requested")
-	notifications.queue(grievance, C.EVENT_MORE_INFO_REQUESTED)
-	return comment
-
-
-def submitter_replies(grievance, body):
-	"""FSD Appendix C: the submitter answers, the case returns to In Progress."""
-	from oan_grievance_service.services import notifications
-
-	# Record in unified timeline
-	GrievanceTimeline.record(
-		grievance=grievance.name,
-		entry_type="info_response",
-		is_internal=False,
-		body=body,
-		author_submitter=grievance.submitter,
-	)
-
-	# Legacy comment record for backward compatibility
-	comment = frappe.get_doc(
-		{
-			"doctype": "Grievance Comment",
-			"grievance": grievance.name,
-			"comment_type": "Information Response",
-			"is_internal": 0,
-			"body": body,
-			"author_submitter": grievance.submitter,
-			"created_on": now_datetime(),
-		}
-	).insert(ignore_permissions=True)
-
-	if grievance.status == C.MORE_INFO_NEEDED:
-		transition(grievance, C.ACTION_SUBMITTER_REPLY, note="Submitter provided the requested information")
-	notifications.queue(grievance, C.EVENT_SUBMITTER_RESPONDED)
-	return comment
-
-
-def confirm_resolution(grievance):
-	"""FSD 3.6 / UC-03: the submitter confirms, so the case resolves then closes."""
-	transition(
-		grievance, C.ACTION_CONFIRM_RESOLUTION, note="Confirmed by submitter", closure_type="confirmed"
-	)
-	grievance.db_set("closure_reason", "Confirmed by submitter", update_modified=False)
-	return transition(
-		grievance,
-		C.ACTION_CLOSE_CASE,
-		note="Closed after submitter confirmation",
-		closure_type="confirmed",
-	)
-
-
-def reopen(grievance, reason):
-	"""FSD 3.6: reopen inside the confirmation window. The reason is mandatory, and
-	the history row is what insists on it."""
-	from oan_grievance_service.services import notifications
-
-	history = transition(grievance, C.ACTION_REOPEN, reason=reason, notify=False)
-	grievance.db_set("reopen_count", (grievance.reopen_count or 0) + 1, update_modified=False)
-	notifications.queue(grievance, C.EVENT_REOPENED)
-	return history
-
-
-def auto_close(grievance):
-	"""FSD 3.6: no response inside the confirmation window closes the case."""
-	from oan_grievance_service.services import notifications
-
-	grievance.db_set("closure_reason", "Closed - no objection received", update_modified=False)
-	history = transition(
-		grievance,
-		C.ACTION_AUTO_CLOSE,
-		note="Closed - no objection received",
-		automated=True,
-		notify=False,
-		closure_type="auto_closed",
-	)
-	notifications.queue(grievance, C.EVENT_AUTO_CLOSED)
-	return history
-
-
-def reject(grievance, reason, automated=False):
-	"""FSD 3.4: a terminal state for an invalid or out-of-scope grievance."""
-	return transition(grievance, C.ACTION_REJECT, reason=reason, automated=automated, closure_type="rejected")
-
-
-def display_group_filters(group):
-	"""FSD 3.11.3: map a work-queue card to canonical statuses."""
-	statuses = C.DISPLAY_GROUPS.get(group)
-	if statuses is None:
-		return {}
-	return {"status": ["in", list(statuses)]}
+	Reads from the active Grievance SLA Configuration for the category if configured,
+	falling back to site config `grievance_confirmation_window_days` or default 7 days.
+	"""
+	if service_category:
+		appeal_days = frappe.db.get_value(
+			"Grievance SLA Configuration",
+			{"service_category": service_category, "active": 1},
+			"appeal_window_days",
+		)
+		if appeal_days:
+			return int(appeal_days)
+	return int(frappe.conf.get("grievance_confirmation_window_days") or C.DEFAULT_CONFIRMATION_DAYS)

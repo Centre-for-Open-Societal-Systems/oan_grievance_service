@@ -14,13 +14,11 @@ for moves, and this is not one -- each case stays exactly where it was.
 
 import frappe
 
-from oan_grievance_service.services import constants as C
-
 
 def execute():
 	frappe.reload_doc("grievance_management", "doctype", "grievance")
 
-	docstatus_for = {C.DRAFT: 0, C.REJECTED: 2}
+	docstatus_for = {"Draft": 0, "Rejected": 2}
 	for status in frappe.get_all("Grievance", distinct=True, pluck="status"):
 		if not status:
 			continue
