@@ -748,12 +748,14 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		dept_names = [d["department_name"] for d in data["departments"]]
 		self.assertIn("Test Agri Dept", dept_names)
 
-		# Validate lifecycle statuses with metadata
+		# Queue statuses only. Draft and other workflow stages are not options.
 		self.assertIn("statuses", data)
 		status_names = [s["status"] for s in data["statuses"]]
-		self.assertIn("Submitted", status_names)
-		self.assertIn("In Progress", status_names)
-		self.assertIn("Closed", status_names)
+		self.assertEqual(
+			status_names,
+			["All", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+		)
+		self.assertNotIn("Submitted", status_names)
 
 		# Validate categories and channels
 		self.assertIn("service_categories", data)
