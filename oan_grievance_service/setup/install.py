@@ -238,8 +238,17 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		("SMS", "Email"),
 		"Immediately on save",
-		"Your grievance {0} has been received under {1}. Expected response by {2}.",
-		("doc.ticket_number", "doc.service_category", "doc.sla_due_date"),
+		# The SLA clock starts at assignment, so a case that no routing rule matched
+		# has no due date yet. Without the fallback the message read "Expected
+		# response by None" -- seen in a real send on the dev bench.
+		{
+			"text": "Your grievance {0} has been received under {1}.",
+			"args": ("doc.ticket_number", "doc.service_category"),
+			"if": "doc.sla_due_date",
+			"then": ("Expected response by {0}.", ("doc.sla_due_date",)),
+			"else": ("You will be informed once an officer is assigned.", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
@@ -729,10 +738,35 @@ def _translatable(source, args, context_key):
 	Amharic Translation stops matching. The context key is passed to _() so the lookup
 	keys on something stable instead.
 	"""
+	if isinstance(source, dict):
+		return _translatable_with_fallback(source, context_key)
+	return _translatable_expr(source, args, context_key)
+
+
+def _translatable_expr(source, args, context_key):
 	call = f"_({source!r}, context={context_key!r})"
 	if args:
 		call += ".format(" + ", ".join(args) + ")"
 	return "{{ " + call + " }}"
+
+
+def _translatable_with_fallback(spec, context_key):
+	"""A base sentence followed by one of two translatable sentences, chosen by a
+	Jinja condition on the document.
+
+	    {"text": ..., "args": (...), "if": "doc.field",
+	     "then": (text, args), "else": (text, args)}
+
+	Each sentence is its own _() call with its own context key, so each has its own
+	Translation record. Only Jinja blocks and whitespace appear outside _(), which is
+	what `validate_notification` requires.
+	"""
+	base = _translatable_expr(spec["text"], spec.get("args", ()), context_key)
+	then_text, then_args = spec["then"]
+	else_text, else_args = spec["else"]
+	then_expr = _translatable_expr(then_text, then_args, f"{context_key}.then")
+	else_expr = _translatable_expr(else_text, else_args, f"{context_key}.else")
+	return f"{base} {{% if {spec['if']} %}}{then_expr}{{% else %}}{else_expr}{{% endif %}}"
 
 
 def seed_notifications():
