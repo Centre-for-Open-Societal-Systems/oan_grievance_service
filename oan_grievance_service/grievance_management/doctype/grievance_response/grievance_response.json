@@ -57,10 +57,10 @@
   {
    "description": "FSD D-2: determines the next workflow step",
    "fieldname": "response_type",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Response Type",
-   "options": "Resolved\nPartially Resolved\nReferred to another dept\nRequires further info",
+   "options": "Grievance Response Type",
    "reqd": 1
   },
   {

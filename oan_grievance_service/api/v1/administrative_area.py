@@ -143,3 +143,40 @@ def get_ancestors(area_id_or_path):
 def get_area_ancestors(area_id_or_path: str):
 	"""Public endpoint to fetch ancestor breadcrumbs for an administrative area."""
 	return success_response(data=get_ancestors(area_id_or_path))
+
+
+def get_administrative_hierarchy(area_id_or_path: str | None) -> dict | None:
+	"""Return a clean key-value mapping of region, zone, woreda, kebele for an area node."""
+	if not area_id_or_path:
+		return None
+	try:
+		ancestors_info = get_ancestors(area_id_or_path)
+		breadcrumbs = ancestors_info.get("breadcrumbs") or []
+		h = {}
+		for b in breadcrumbs:
+			lvl = (b.get("level_name") or "").lower()
+			if lvl in ("region", "zone", "woreda", "kebele"):
+				h[lvl] = b.get("area_name")
+				h[f"{lvl}_id"] = b.get("area_id")
+		return h if h else None
+	except Exception:
+		return None
+
+
+def format_administrative_location(hierarchy_or_area_id: dict | str | None) -> str | None:
+	"""Format administrative area into a comma-separated location string from leaf to root (kebele, woreda, zone, region)."""
+	if not hierarchy_or_area_id:
+		return None
+	hierarchy = (
+		get_administrative_hierarchy(hierarchy_or_area_id)
+		if isinstance(hierarchy_or_area_id, str)
+		else hierarchy_or_area_id
+	)
+	if not hierarchy or not isinstance(hierarchy, dict):
+		return None
+	parts = []
+	for level in ("kebele", "woreda", "zone", "region"):
+		name = hierarchy.get(level)
+		if name and name not in parts:
+			parts.append(name)
+	return ", ".join(parts) if parts else None

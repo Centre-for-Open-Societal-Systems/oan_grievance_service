@@ -239,8 +239,8 @@ class TestSubmitterProfile(FrappeTestCase):
 							frappe.delete_doc("Contact", c, force=True, ignore_permissions=True)
 					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
 
-	def test_submitter_me_endpoint_returns_decomposed_variables(self):
-		from oan_grievance_service.api.v1.submitter import me
+	def test_profile_resolution_hook_returns_decomposed_variables(self):
+		from oan_grievance_service.api.v1.profile import resolve_user_profile_hook
 
 		user = frappe.get_doc(
 			{
@@ -265,18 +265,11 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		try:
-			frappe.set_user(user.name)
-			res = me()
-			self.assertIn("data", res)
-			data = res["data"]
+			namespace, data = resolve_user_profile_hook(user, roles=["Grievance Submitter"])
+			self.assertEqual(namespace, "grievance")
 			self.assertEqual(data["profile_id"], profile.name)
-			self.assertEqual(data["identity_scheme"], "fayda")
-			self.assertEqual(data["identity_value"], "FAYDA-DT-12345")
-			self.assertEqual(data["fayda_id"], "FAYDA-DT-12345")
-			self.assertIsNone(data["registration_number"])
-			self.assertEqual(data["full_name"], "Derartu Tulu")
 			self.assertEqual(data["type"], "Individual Farmer")
-			self.assertEqual(data["contact_mobile"], "+251911445566")
+			self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "FAYDA-DT-12345"}])
 			self.assertEqual(data["administrative_unit"], "Bekoji")
 		finally:
 			frappe.set_user("Administrator")
@@ -316,28 +309,16 @@ class TestSubmitterProfile(FrappeTestCase):
 	def test_submitter_options_filtering_parameters(self):
 		from oan_grievance_service.api.v1.submitter import options
 
-		# 1. Base jurisdiction: Ethiopia
+		# 1. Jurisdiction phone extensions (Ethiopia by default on this site)
 		res = options()
 		phones = res["data"]["phone_extensions"]
-		self.assertEqual(len(phones), 1)
+		self.assertGreaterEqual(len(phones), 1)
 		self.assertEqual(phones[0]["country"], "Ethiopia")
 		self.assertEqual(phones[0]["code"], "ET")
 		self.assertEqual(phones[0]["isd"], "+251")
+		self.assertNotIn("Kenya", [p["country"] for p in phones])
 
-		# 2. Add second jurisdiction country (Kenya) to Administrative Area
-		kenya_area = frappe.get_doc(
-			{
-				"doctype": "Grievance Administrative Area",
-				"area_name": "Kenya",
-				"code": "KEN",
-				"level_name": "Country",
-				"country": "Kenya",
-				"is_active": 1,
-				"is_group": 1,
-			}
-		).insert(ignore_permissions=True)
-
-		# 3. Add test Grievance Types for category filtering test
+		# 2. Add test Grievance Types for category filtering test
 		if not frappe.db.exists("Grievance Service Category", "Inputs"):
 			frappe.get_doc(
 				{
@@ -376,32 +357,28 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		try:
-			res_multi = options()
-			countries = [p["country"] for p in res_multi["data"]["phone_extensions"]]
-			self.assertIn("Ethiopia", countries)
-			self.assertIn("Kenya", countries)
+			# Exact country filter within jurisdiction
+			res_et = options(country="ET")
+			phones_et = res_et["data"]["phone_extensions"]
+			self.assertEqual(len(phones_et), 1)
+			self.assertEqual(phones_et[0]["code"], "ET")
+			self.assertEqual(phones_et[0]["isd"], "+251")
 
-			# Exact country filter
+			# Non-jurisdiction country filter returns empty
 			res_ken = options(country="KE")
-			phones_ken = res_ken["data"]["phone_extensions"]
-			self.assertEqual(len(phones_ken), 1)
-			self.assertEqual(phones_ken[0]["code"], "KE")
-			self.assertEqual(phones_ken[0]["isd"], "+254")
+			self.assertEqual(res_ken["data"]["phone_extensions"], [])
 
 			# Search filter
-			res_search = options(search_country="ken")
+			res_search = options(search_country="eth")
 			phones_search = res_search["data"]["phone_extensions"]
 			self.assertEqual(len(phones_search), 1)
-			self.assertEqual(phones_search[0]["country"], "Kenya")
+			self.assertEqual(phones_search[0]["country"], "Ethiopia")
 
 			# Service Category filter on grievance types
 			res_cat = options(service_category="Inputs")
 			gtype_cats = {gt["service_category"] for gt in res_cat["data"]["grievance_types"]}
 			self.assertEqual(gtype_cats, {"Inputs"})
 		finally:
-			frappe.delete_doc(
-				"Grievance Administrative Area", kenya_area.name, force=True, ignore_permissions=True
-			)
 			frappe.delete_doc("Grievance Type", gtype_inputs.name, force=True, ignore_permissions=True)
 			frappe.delete_doc("Grievance Type", gtype_credit.name, force=True, ignore_permissions=True)
 

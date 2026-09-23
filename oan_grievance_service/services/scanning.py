@@ -51,6 +51,7 @@ attachments unavailable; it does not make them trusted.
 
 import hashlib
 import socket
+from dataclasses import dataclass
 
 import frappe
 from frappe import _
@@ -103,8 +104,17 @@ def sha256_of(content: bytes) -> str:
 	return hashlib.sha256(content).hexdigest()
 
 
-def validate_upload(file_name: str, content: bytes) -> str:
-	"""Check one upload against the evidence policy. Returns the sniffed type.
+@dataclass(frozen=True, slots=True)
+class ValidatedUpload:
+	"""Strongly-typed, immutable record of an upload validated against policy."""
+
+	file_name: str
+	mime_type: str
+	size_bytes: int
+
+
+def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
+	"""Check one upload against the evidence policy. Returns the validated metadata.
 
 	Raises rather than returning a verdict, because every caller here wants the
 	upload refused rather than recorded as suspect.
@@ -145,7 +155,11 @@ def validate_upload(file_name: str, content: bytes) -> str:
 	if mime == "application/pdf":
 		_assert_pdf_parses(file_name, content)
 
-	return mime
+	return ValidatedUpload(
+		file_name=file_name,
+		mime_type=mime,
+		size_bytes=size,
+	)
 
 
 def _assert_pdf_parses(file_name: str, content: bytes) -> None:
@@ -280,12 +294,35 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def enqueue_scan_attachment(name: str) -> None:
+	"""Asynchronously enqueue malware scan for an attachment."""
+	try:
+		frappe.enqueue(
+			"oan_grievance_service.services.scanning.scan_attachment",
+			queue="short",
+			name=name,
+			enqueue_after_commit=True,
+			is_async=True,
+		)
+	except Exception:
+		frappe.log_error(title=f"Failed to enqueue scan for attachment: {name}")
+
+
+def enqueue_scan_attachments(names: list[str]) -> None:
+	"""Asynchronously enqueue malware scans for multiple attachments."""
+	for name in names:
+		enqueue_scan_attachment(name)
+
+
 def scan_attachment(name: str) -> str:
 	"""Scan one Grievance Attachment and record the verdict.
 
 	An infected file loses its object and keeps its row: the case still needs to
 	show that something was submitted and what happened to it.
 	"""
+	if not frappe.db.exists("Grievance Attachment", name):
+		return SCAN_FAILED
+
 	# Two scanners can hold the same row: the upload enqueues one immediately and
 	# the hourly sweep picks up whatever is still Pending. Lock the row and let the
 	# second arrival see the first one's verdict rather than overwrite it. Without

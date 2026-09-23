@@ -1,0 +1,154 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:response_type_name",
+ "creation": "2026-09-18 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "response_type_name",
+  "target_workflow_state",
+  "workflow_action",
+  "col_break_1",
+  "sla_behaviour",
+  "requires_referred_dept",
+  "is_active",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "response_type_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Response Type Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "The target workflow state this response transitions the grievance into.",
+   "fieldname": "target_workflow_state",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target Workflow State",
+   "options": "Workflow State",
+   "reqd": 1
+  },
+  {
+   "description": "Workflow action triggered upon formal submission of this response.",
+   "fieldname": "workflow_action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Workflow Action",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "running",
+   "description": "What the SLA clock does upon recording this response (running, paused, stopped).",
+   "fieldname": "sla_behaviour",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "SLA Behaviour",
+   "options": "running\npaused\nstopped",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Whether this response outcome requires a destination department referral.",
+   "fieldname": "requires_referred_dept",
+   "fieldtype": "Check",
+   "label": "Requires Referred Department"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Grievance Response Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Grievance Submitter",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "row_navigation": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

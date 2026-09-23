@@ -50,14 +50,15 @@
    "fieldname": "user",
    "fieldtype": "Link",
    "label": "User Account",
-   "options": "User"
+   "options": "User",
+   "search_index": 1
   },
   {
    "fieldname": "col_contact",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Ethiopia country code +251 per FSD 3.11.8",
+   "description": "E.164 mobile validated by country via phonenumbers (libphonenumber)",
    "fieldname": "contact_mobile",
    "fieldtype": "Data",
    "label": "Contact Mobile",

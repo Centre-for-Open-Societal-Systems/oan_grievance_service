@@ -40,15 +40,11 @@ class GrievanceAttachment(Document):
 		self.validate_response_belongs_to_grievance()
 
 	def validate_owner(self):
-		"""Evidence belongs to exactly one thing: a case, or the draft that becomes one.
-
-		Neither means an orphan nothing will ever purge; both means two owners
-		disagreeing about who the file belongs to once the draft is submitted.
-		"""
-		if bool(self.grievance) == bool(self.draft):
+		"""Evidence belongs to a grievance case."""
+		if not self.grievance:
 			frappe.throw(
-				_("An attachment must belong to either a grievance or a draft, not both."),
-				title=_("Ambiguous Owner"),
+				_("An attachment must belong to a grievance."),
+				title=_("Missing Grievance"),
 			)
 
 	def validate_uploader(self):
@@ -58,13 +54,6 @@ class GrievanceAttachment(Document):
 		attachment with no uploader is evidence nobody is answerable for.
 		"""
 		if self.uploaded_by_user or self.uploaded_by_submitter:
-			return
-
-		# A file uploaded from the wizard has no one to name yet: the submitter has
-		# not registered, which is the whole reason drafts are reachable without a
-		# token. The draft's client_uuid stands in until submission, and
-		# attach_draft_files stamps the owner the moment the case exists.
-		if self.draft:
 			return
 
 		frappe.throw(

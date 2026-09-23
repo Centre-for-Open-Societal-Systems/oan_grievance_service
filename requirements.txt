@@ -3,17 +3,16 @@
 # as required_apps and installed from its repo rather than from PyPI. PyJWT is
 # that app's own dependency; this one does not import it.
 
-# Everything this app imports at runtime is listed, even what Frappe ships: each
-# guards a boundary, and an import that vanishes with a Frappe upgrade would fail
-# open or fail at request time rather than at install.
-
-# Request schemas and per-field validation errors (api/v1, services/identity).
-pydantic>=2.0
-
-# Attachment pipeline: magic-byte sniff, EXIF/GPS strip, PDF structure check.
+# Attachment pipeline. Both ship with Frappe today, but this module imports them
+# directly and each guards a security boundary -- the magic-byte sniff and the
+# EXIF strip fail open if the import disappears, so neither is left transitive.
 filetype>=1.2
 Pillow>=10.0
+# Same pattern: Frappe ships phonenumbers, but we import it for contact_mobile.
+phonenumbers~=9.0.23
+# Request schemas and per-field validation errors (api/v1, services/identity).
+pydantic>=2.0
+# PDF structure check in the attachment pipeline (services/scanning).
 pypdf>=4.0
-
 # Streams attachment bytes as a raw Response from the view route (api/v1/attachment).
 Werkzeug>=3.0

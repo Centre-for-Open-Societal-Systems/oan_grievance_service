@@ -59,7 +59,10 @@ class TestTypeSniffing(FrappeTestCase):
 			scanning.validate_upload("scan.jpg", PDF_HEADER)
 
 	def test_a_matching_file_passes_and_returns_its_type(self):
-		self.assertEqual(scanning.validate_upload("receipt.jpg", JPEG_HEADER), "image/jpeg")
+		validated = scanning.validate_upload("receipt.jpg", JPEG_HEADER)
+		self.assertEqual(validated.mime_type, "image/jpeg")
+		self.assertEqual(validated.file_name, "receipt.jpg")
+		self.assertEqual(validated.size_bytes, len(JPEG_HEADER))
 
 	def test_a_file_over_the_limit_is_refused(self):
 		oversized = JPEG_HEADER + b"\x00" * scanning.MAX_SIZE_BYTES
@@ -211,7 +214,7 @@ class TestCorruptPdf(FrappeTestCase):
 	"""
 
 	def test_a_readable_pdf_passes(self):
-		self.assertEqual(scanning.validate_upload("evidence.pdf", _real_pdf()), "application/pdf")
+		self.assertEqual(scanning.validate_upload("evidence.pdf", _real_pdf()).mime_type, "application/pdf")
 
 	def test_a_header_only_pdf_is_refused(self):
 		with self.assertRaises(frappe.ValidationError) as caught:
@@ -220,4 +223,4 @@ class TestCorruptPdf(FrappeTestCase):
 
 	def test_the_check_only_runs_for_pdfs(self):
 		# A JPEG never goes near the PDF reader.
-		self.assertEqual(scanning.validate_upload("photo.jpg", _real_jpeg()), "image/jpeg")
+		self.assertEqual(scanning.validate_upload("photo.jpg", _real_jpeg()).mime_type, "image/jpeg")
