@@ -2114,7 +2114,7 @@ components:
                 type: integer
               is_terminal:
                 type: integer
-                description: 1 when the workflow state is terminal; card default when the state is absent
+                description: 1 when every mapped Frappe workflow state is terminal; 0 when absent
         departments:
           type: array
           items:
@@ -2165,8 +2165,8 @@ components:
           example: 1
         is_terminal:
           type: integer
-          description: 1 when the Frappe workflow state is terminal. The card default is used when that
-            state is not on the workflow.
+          description: 1 when every mapped Frappe workflow state is terminal. Absent workflow states
+            are non-terminal.
           enum:
           - 0
           - 1

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
-"""STG-397: the all-grievances queue exposes six statuses, and nothing else."""
+"""STG-397: the all-grievances queue exposes fixed statuses, and nothing else."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -16,8 +16,9 @@ from oan_grievance_service.api.v1._options import (
 from oan_grievance_service.api.v1.grievance import list_grievances, summary
 from oan_grievance_service.tests.fixtures import a_grievance, discard_grievance
 
-QUEUE_STATUSES = (
+STAFF_QUEUE_STATUSES = (
 	"All",
+	"Assigned",
 	"In Progress",
 	"Require More Info",
 	"Rejected",
@@ -27,20 +28,22 @@ QUEUE_STATUSES = (
 
 
 class TestStatusSummary(FrappeTestCase):
-	def test_terminal_uses_the_workflow_and_falls_back_when_the_state_is_absent(self):
+	def test_terminal_uses_the_workflow_and_is_non_terminal_when_absent(self):
 		workflow = {"In Progress": 0, "Rejected": 1, "Closed": 1}
-		self.assertEqual(_is_terminal(("In Progress",), 1, workflow), 0)
-		self.assertEqual(_is_terminal(("Rejected",), 0, workflow), 1)
-		self.assertEqual(_is_terminal(("Not A State",), 1, workflow), 1)
-		self.assertEqual(_is_terminal(("Not A State",), 0, workflow), 0)
-		self.assertEqual(_is_terminal(("Closed",), 0, None), 0)
+		self.assertEqual(_is_terminal(("In Progress",), workflow), 0)
+		self.assertEqual(_is_terminal(("Rejected",), workflow), 1)
+		self.assertEqual(_is_terminal(("Not A State",), workflow), 0)
+		self.assertEqual(_is_terminal(("Closed",), None), 0)
+		self.assertEqual(_is_terminal((), workflow), 0)
 
-	def test_options_are_only_the_queue_statuses_in_order(self):
+	def test_options_are_only_the_queue_statuses_in_order_for_staff(self):
+		frappe.set_user("Administrator")
 		options = get_status_options()
-		self.assertEqual([row["status"] for row in options], list(QUEUE_STATUSES))
-		self.assertEqual([row["order"] for row in options], [1, 2, 3, 4, 5, 6])
+		self.assertEqual([row["status"] for row in options], list(STAFF_QUEUE_STATUSES))
+		self.assertEqual([row["order"] for row in options], [1, 2, 3, 4, 5, 6, 7])
 		by_status = {row["status"]: row for row in options}
 		self.assertEqual(by_status["All"]["is_terminal"], 0)
+		self.assertEqual(by_status["Assigned"]["is_terminal"], 0)
 		self.assertEqual(by_status["In Progress"]["is_terminal"], 0)
 		self.assertEqual(by_status["Require More Info"]["is_terminal"], 0)
 		self.assertEqual(by_status["Rejected"]["is_terminal"], 1)
@@ -84,14 +87,16 @@ class TestStatusSummary(FrappeTestCase):
 
 		after = {card["status"]: card["count"] for card in get_status_summary()}
 		self.assertEqual(after["All"] - before["All"], 6)
-		self.assertEqual(after["In Progress"] - before["In Progress"], 2)
+		self.assertEqual(after["Assigned"] - before["Assigned"], 1)
+		self.assertEqual(after["In Progress"] - before["In Progress"], 1)
 		self.assertEqual(after["Require More Info"] - before["Require More Info"], 1)
 		self.assertEqual(after["Rejected"] - before["Rejected"], 1)
 		self.assertEqual(after["Resolved"] - before["Resolved"], 1)
 		self.assertEqual(after["Closed"] - before["Closed"], 1)
 		self.assertEqual(
 			after["All"],
-			after["In Progress"]
+			after["Assigned"]
+			+ after["In Progress"]
 			+ after["Require More Info"]
 			+ after["Rejected"]
 			+ after["Resolved"]
@@ -100,7 +105,7 @@ class TestStatusSummary(FrappeTestCase):
 
 		res = summary()
 		self.assertEqual(res["status"], "success")
-		self.assertEqual([card["status"] for card in res["data"]["cards"]], list(QUEUE_STATUSES))
+		self.assertEqual([card["status"] for card in res["data"]["cards"]], list(STAFF_QUEUE_STATUSES))
 
 	def test_list_hides_drafts_and_reports_the_queue_status(self):
 		frappe.set_user("Administrator")
@@ -110,8 +115,10 @@ class TestStatusSummary(FrappeTestCase):
 		self.addCleanup(discard_grievance, draft.name)
 
 		self.assertEqual(public_status("Submitted"), "In Progress")
+		self.assertEqual(public_status("Assigned"), "Assigned")
 		self.assertEqual(public_status("More Info Needed"), "Require More Info")
 		self.assertIsNone(expand_status_filter(["all"]))
+		self.assertIn("Assigned", expand_status_filter(["Assigned"]))
 		self.assertIn("More Info Needed", expand_status_filter(["Require More Info"]))
 
 		res = list_grievances(status="In Progress", page_size=100)

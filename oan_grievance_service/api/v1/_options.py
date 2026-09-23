@@ -105,55 +105,56 @@ def get_role_levels() -> list[dict]:
 
 
 # KPI cards for the all-grievances queue. Draft is never a card. Workflow states
-# that are not one of these cards roll up into a card so the queue does not grow
-# a new status every time the workflow gains a stage.
+# that are not one of these cards roll up into In Progress so the queue does not
+# grow a new status every time the workflow gains a stage.
 #
 # `workflow_states` are the engine states that count toward the card. `All` is
-# every non-draft grievance. `default_terminal` is used only when none of the
-# card's states exist on the active Workflow; otherwise terminal is read from
-# that Workflow (docstatus 2, or no transition leaving the state).
+# every non-draft grievance. `officer_only` cards (Assigned) appear for staff
+# only; for submitters those states roll into In Progress. Terminal is read
+# only from the active Workflow (docstatus 2, or no transition leaving the
+# state) — there is no per-card default.
 _STATUS_CARDS = (
 	{
 		"status": "All",
 		"label": "All",
-		"order": 1,
 		"workflow_states": (),
-		"default_terminal": 0,
+		"officer_only": False,
+	},
+	{
+		"status": "Assigned",
+		"label": "Assigned",
+		"workflow_states": ("Assigned",),
+		"officer_only": True,
 	},
 	{
 		"status": "In Progress",
 		"label": "In Progress",
-		"order": 2,
-		"workflow_states": ("Submitted", "Assigned", "In Progress", "Pending Submitter"),
-		"default_terminal": 0,
+		"workflow_states": ("Submitted", "In Progress", "Pending Submitter"),
+		"officer_only": False,
 	},
 	{
 		"status": "Require More Info",
 		"label": "Require More Info",
-		"order": 3,
 		"workflow_states": ("More Info Needed",),
-		"default_terminal": 0,
+		"officer_only": False,
 	},
 	{
 		"status": "Rejected",
 		"label": "Rejected",
-		"order": 4,
 		"workflow_states": ("Rejected",),
-		"default_terminal": 1,
+		"officer_only": False,
 	},
 	{
 		"status": "Resolved",
 		"label": "Resolved",
-		"order": 5,
 		"workflow_states": ("Resolved",),
-		"default_terminal": 0,
+		"officer_only": False,
 	},
 	{
 		"status": "Closed",
 		"label": "Closed",
-		"order": 6,
 		"workflow_states": ("Closed",),
-		"default_terminal": 1,
+		"officer_only": False,
 	},
 )
 
@@ -162,6 +163,7 @@ _CARD_BY_STATUS = {card["status"]: card for card in _STATUS_CARDS}
 # Lower-cased, punctuation-stripped keys the list filter and the cards accept.
 _STATUS_ALIASES = {
 	"all": "All",
+	"assigned": "Assigned",
 	"in progress": "In Progress",
 	"require more info": "Require More Info",
 	"more info needed": "Require More Info",
@@ -177,6 +179,11 @@ for _card in _STATUS_CARDS:
 def _canonical_status(value: str) -> str | None:
 	key = " ".join(str(value).strip().lower().replace("_", " ").replace("-", " ").split())
 	return _STATUS_ALIASES.get(key)
+
+
+def _caller_is_staff() -> bool:
+	"""Officers and admins see the Assigned KPI card; submitters do not."""
+	return bool(set(frappe.get_roles()) & C.STAFF_ROLES)
 
 
 def _workflow_terminals() -> dict[str, int] | None:
@@ -215,27 +222,36 @@ def _workflow_terminals() -> dict[str, int] | None:
 	return terminals
 
 
-def _is_terminal(workflow_states: tuple[str, ...], default: int, terminals: dict[str, int] | None) -> int:
-	"""Workflow wins when the card's states are on it; otherwise the card default."""
-	if terminals is None:
-		return default
+def _is_terminal(workflow_states: tuple[str, ...], terminals: dict[str, int] | None) -> int:
+	"""Terminal only when every mapped workflow state is terminal on the active Workflow.
+
+	Missing workflow or absent states are treated as non-terminal — there is no
+	per-card default.
+	"""
+	if not terminals or not workflow_states:
+		return 0
 	present = [terminals[state] for state in workflow_states if state in terminals]
 	if not present:
-		return default
+		return 0
 	return 1 if all(present) else 0
 
 
 def _status_cards() -> list[dict]:
-	"""The six queue statuses, in display order, with terminal taken from the workflow."""
+	"""Queue statuses for the caller, in display order, with terminal from the workflow."""
 	terminals = _workflow_terminals()
+	include_officer_cards = _caller_is_staff()
 	cards = []
+	order = 0
 	for card in _STATUS_CARDS:
-		is_terminal = _is_terminal(card["workflow_states"], card["default_terminal"], terminals)
+		if card["officer_only"] and not include_officer_cards:
+			continue
+		order += 1
+		is_terminal = _is_terminal(card["workflow_states"], terminals)
 		cards.append(
 			{
 				"status": card["status"],
 				"label": card["label"],
-				"order": card["order"],
+				"order": order,
 				"is_terminal": is_terminal,
 				"is_open": 0 if is_terminal else 1,
 			}
@@ -244,15 +260,24 @@ def _status_cards() -> list[dict]:
 
 
 def get_status_options() -> list[dict]:
-	"""Queue statuses for filters. Draft and any other workflow stage are omitted."""
+	"""Queue statuses for filters. Draft and any other workflow stage are omitted.
+
+	Assigned is included only for officers and other staff.
+	"""
 	return _status_cards()
 
 
 def public_status(workflow_status: str | None) -> str:
-	"""The queue status a workflow state is shown as. Unknown open states are In Progress."""
+	"""The queue status a workflow state is shown as.
+
+	Unknown open states are In Progress. Assigned maps to Assigned for staff and
+	to In Progress for submitters (who do not get an Assigned KPI card).
+	"""
 	if not workflow_status or workflow_status == "Draft":
 		return workflow_status or ""
 	canonical = _canonical_status(workflow_status)
+	if canonical == "Assigned" and not _caller_is_staff():
+		return "In Progress"
 	return canonical or "In Progress"
 
 
@@ -260,11 +285,13 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 	"""Workflow states a queue-status filter matches.
 
 	None means All: every non-draft grievance. An empty list means the caller
-	passed nothing usable.
+	passed nothing usable. For submitters, officer-only states (Assigned) are
+	included when filtering In Progress so they still match the rolled-up card.
 	"""
 	if not values:
 		return []
 
+	include_officer_cards = _caller_is_staff()
 	selected: list[str] = []
 	for raw in values:
 		canonical = _canonical_status(str(raw))
@@ -272,6 +299,10 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 			return None
 		if canonical:
 			selected.extend(_CARD_BY_STATUS[canonical]["workflow_states"])
+			if canonical == "In Progress" and not include_officer_cards:
+				for card in _STATUS_CARDS:
+					if card["officer_only"]:
+						selected.extend(card["workflow_states"])
 			continue
 		text = str(raw).strip()
 		if text and text != "Draft":
@@ -284,19 +315,12 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 	return seen
 
 
-def _mapped_workflow_states() -> set[str]:
-	states: set[str] = set()
-	for card in _STATUS_CARDS:
-		states.update(card["workflow_states"])
-	return states
-
-
 def get_status_summary() -> list[dict]:
 	"""Counts for the KPI cards, limited to grievances the caller is allowed to see.
 
-	Draft is excluded. A workflow state that is not one of the cards is counted
-	under In Progress so every visible case still sits on exactly one card, and
-	All equals the sum of the other cards.
+	Draft is excluded. A workflow state that is not one of the caller's cards is
+	counted under In Progress so every visible case still sits on exactly one
+	card, and All equals the sum of the other cards. Assigned is officer-only.
 	"""
 	rows = frappe.get_list(
 		"Grievance",
@@ -311,12 +335,18 @@ def get_status_summary() -> list[dict]:
 			continue
 		counts[status] = counts.get(status, 0) + int(row.get("total") or 0)
 
-	mapped = _mapped_workflow_states()
+	visible = _status_cards()
+	visible_statuses = {card["status"] for card in visible}
+	mapped: set[str] = set()
+	for card in _STATUS_CARDS:
+		if card["status"] not in visible_statuses:
+			continue
+		mapped.update(card["workflow_states"])
 	unmapped = sum(total for status, total in counts.items() if status not in mapped)
 	all_count = sum(counts.values())
 
 	cards = []
-	for card in _status_cards():
+	for card in visible:
 		spec = _CARD_BY_STATUS[card["status"]]
 		if card["status"] == "All":
 			count = all_count

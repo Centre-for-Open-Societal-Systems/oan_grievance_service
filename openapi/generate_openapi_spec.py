@@ -532,7 +532,7 @@ data(
 						"order": I(description="Display order of the queue status"),
 						"is_open": I(),
 						"is_terminal": I(
-							description="1 when the workflow state is terminal; card default when the state is absent"
+							description="1 when every mapped Frappe workflow state is terminal; 0 when absent"
 						),
 					}
 				)
@@ -558,7 +558,7 @@ data(
 			"order": I(description="Display order of the queue status", example=2),
 			"is_open": I(enum=[0, 1], example=1),
 			"is_terminal": I(
-				description="1 when the Frappe workflow state is terminal. The card default is used when that state is not on the workflow.",
+				description="1 when every mapped Frappe workflow state is terminal. Absent workflow states are non-terminal.",
 				enum=[0, 1],
 				example=0,
 			),

@@ -749,11 +749,12 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertIn("Test Agri Dept", dept_names)
 
 		# Queue statuses only. Draft and other workflow stages are not options.
+		# Officers get an Assigned card; submitters do not.
 		self.assertIn("statuses", data)
 		status_names = [s["status"] for s in data["statuses"]]
 		self.assertEqual(
 			status_names,
-			["All", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+			["All", "Assigned", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
 		)
 		self.assertNotIn("Submitted", status_names)
 
@@ -770,6 +771,12 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertEqual(res.get("status"), "success")
 		self.assertIn("data", res)
 		self.assertIn("service_categories", res["data"])
+		status_names = [s["status"] for s in res["data"]["statuses"]]
+		self.assertNotIn("Assigned", status_names)
+		self.assertEqual(
+			status_names,
+			["All", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+		)
 
 	def test_unauthorized_user_cannot_access_options(self):
 		from oan_grievance_service.api.v1.grievance import options

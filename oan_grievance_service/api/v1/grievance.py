@@ -373,8 +373,8 @@ def list_grievances(
 	grievance_type, department, and submission_channel.
 
 	Status filters use the queue cards (All, In Progress, Require More Info, Rejected,
-	Resolved, Closed). Draft is never returned. Workflow stages that are not a card
-	are reported as the card they roll up into.
+	Resolved, Closed; officers also get Assigned). Draft is never returned. Workflow
+	stages that are not a card are reported as the card they roll up into.
 	"""
 	import math
 
@@ -1098,8 +1098,9 @@ def summary():
 	"""Counts of visible grievances on each queue status card.
 
 	Draft is excluded. The cards are All, In Progress, Require More Info, Rejected,
-	Resolved and Closed. Any other workflow state is counted under In Progress.
-	Each card includes its display order and whether the workflow treats it as terminal.
+	Resolved and Closed. Officers also get an Assigned card. Any other workflow
+	state is counted under In Progress. Each card includes its display order and
+	whether the workflow treats it as terminal (no per-card default).
 	"""
 	return success_response(
 		data={"cards": get_status_summary()},
