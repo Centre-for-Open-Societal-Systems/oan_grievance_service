@@ -29,6 +29,7 @@ import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response
+from werkzeug.wrappers import Response
 
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	SCAN_CLEAN,
@@ -220,16 +221,80 @@ def get_attachments(grievance: str):
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@attachment_route("/<attachment>/download", methods=("GET",), summary="A clean attachment's file URL")
+@attachment_route("/<attachment>/view", methods=("GET",), summary="Stream a clean attachment inline")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def view(attachment: str, download: str | int | None = None):
+	"""Serve the bytes of one attachment for display in the browser.
+
+	The private-file route that `file_url` points at sits outside the JWT
+	namespaces, so a bearer token does nothing there and a Next.js client cannot
+	open the URL it was handed. This route is under `/api/v1`, so the same token
+	that listed the case also fetches the file, and the scan gate is applied on
+	the way out. Inline by default so an image or PDF opens in the tab; pass
+	`download=1` for a Save As.
+	"""
+	doc = _servable(attachment)
+	content = scanning.read_object(doc.file_url)
+	if content is None:
+		frappe.throw(
+			_("{0} has no stored object.").format(frappe.bold(doc.file_name)),
+			frappe.DoesNotExistError,
+			title=_("Attachment Missing"),
+		)
+
+	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
+
+	response = Response(content, status=200, mimetype=doc.mime_type or "application/octet-stream")
+	disposition = "attachment" if str(download or "").lower() in ("1", "true", "yes") else "inline"
+	response.headers.add("Content-Disposition", disposition, filename=doc.file_name)
+	response.headers["Content-Length"] = str(len(content))
+	response.headers["Cache-Control"] = "private, no-store"
+	response.headers["X-Content-Type-Options"] = "nosniff"
+	if doc.checksum_sha256:
+		response.headers["ETag"] = f'"{doc.checksum_sha256}"'
+
+	# Tells handle_api_errors to hand the Response back untouched instead of
+	# wrapping it in the JSON envelope; the REST router and Frappe's RPC handler
+	# both pass a Response object through as-is.
+	frappe.response["type"] = "download"
+	return response
+
+
+@attachment_route(
+	"/<attachment>/download", methods=("GET",), summary="A clean attachment's metadata and file URL"
+)
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def download(attachment: str):
-	"""Hand back one attachment's URL, but only once it has been scanned clean.
+	"""Metadata for one attachment, but only once it has been scanned clean.
 
-	The gate is here rather than on the File row because the File is what an
-	officer's browser fetches directly; returning the URL is the last point at
-	which this module can refuse.
+	Kept for the desk and for clients with a Frappe session cookie, which can
+	fetch `file_url` directly. API clients should use `/view`, which streams the
+	bytes under the same gate.
+	"""
+	doc = _servable(attachment)
+	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
+	return success_response(
+		data={
+			"file_name": doc.file_name,
+			"file_url": doc.file_url,
+			"view_url": f"/api/v1/attachments/{doc.name}/view",
+			"mime_type": doc.mime_type,
+			"size_bytes": doc.size_bytes,
+			"checksum_sha256": doc.checksum_sha256,
+		},
+		message=_("Attachment ready"),
+	)
+
+
+def _servable(attachment: str):
+	"""The attachment row, after the case permission and the scan gate.
+
+	The gate lives here rather than on the File row because this is the last
+	point at which the module can refuse before bytes or a URL leave it.
 	"""
 	doc = frappe.get_doc("Grievance Attachment", attachment)
 	_case_for_read(doc.grievance)
@@ -242,18 +307,7 @@ def download(attachment: str):
 			),
 			title=_("Attachment Withheld"),
 		)
-
-	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
-	return success_response(
-		data={
-			"file_name": doc.file_name,
-			"file_url": doc.file_url,
-			"mime_type": doc.mime_type,
-			"size_bytes": doc.size_bytes,
-			"checksum_sha256": doc.checksum_sha256,
-		},
-		message=_("Attachment ready"),
-	)
+	return doc
 
 
 @attachment_route("/<attachment>", methods=("DELETE",), summary="Remove an attachment from an open case")
