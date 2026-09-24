@@ -274,6 +274,22 @@ def resolve_administrative_area(area_identifier):
 	)
 
 
+def resolve_grievance_type(type_identifier: str | None, category: str | None = None) -> str | None:
+	"""Resolve a grievance type identifier (DocType name or display type_name) to canonical doc name."""
+	if not type_identifier:
+		return None
+	type_identifier = str(type_identifier).strip()
+	if frappe.db.exists("Grievance Type", type_identifier):
+		return type_identifier
+	filters = {"type_name": type_identifier}
+	if category:
+		filters["service_category"] = category
+	resolved = frappe.db.get_value("Grievance Type", filters, "name")
+	if resolved:
+		return resolved
+	return frappe.db.get_value("Grievance Type", {"type_name": type_identifier}, "name") or type_identifier
+
+
 def _request_anonymity(doc, justification):
 	"""FSD 9.2: anonymity is requested at submission and approved separately."""
 	frappe.get_doc(

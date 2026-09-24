@@ -254,16 +254,20 @@ class GrievanceSubmissionPayload(BaseModel):
 	def _validate_category_and_type(self):
 		cat = (self.service_category or "").strip()
 		g_type = (self.grievance_type or "").strip()
-		if cat and g_type and frappe.db.exists("Grievance Type", g_type):
-			parent = frappe.db.get_value("Grievance Type", g_type, "service_category")
-			if parent != cat:
-				raise ValueError(
-					_("Grievance type {0} belongs to category {1}, not {2}.").format(
-						frappe.bold(g_type),
-						frappe.bold(parent),
-						frappe.bold(cat),
+		if cat and g_type:
+			from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+			resolved_type = resolve_grievance_type(g_type, cat)
+			if resolved_type and frappe.db.exists("Grievance Type", resolved_type):
+				parent = frappe.db.get_value("Grievance Type", resolved_type, "service_category")
+				if parent and parent != cat:
+					raise ValueError(
+						_("Grievance type {0} belongs to category {1}, not {2}.").format(
+							frappe.bold(g_type),
+							frappe.bold(parent),
+							frappe.bold(cat),
+						)
 					)
-				)
 		return self
 
 

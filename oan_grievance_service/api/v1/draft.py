@@ -166,9 +166,16 @@ def save(
 		doc.service_category = "Other"
 
 	if grievance_type is not None:
-		doc.grievance_type = grievance_type
+		from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+		resolved_type = (
+			resolve_grievance_type(grievance_type, doc.service_category) if grievance_type else None
+		)
+		doc.grievance_type = resolved_type or grievance_type
 	elif not doc.grievance_type and doc.service_category == "Other":
-		doc.grievance_type = "Other"
+		doc.grievance_type = frappe.db.get_value(
+			"Grievance Type", {"type_name": "Other"}, "name"
+		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
 
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
@@ -316,9 +323,14 @@ def submit_draft(
 		doc.service_category = "Other"
 
 	if grievance_type:
-		doc.grievance_type = grievance_type
+		from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+		resolved_type = resolve_grievance_type(grievance_type, doc.service_category)
+		doc.grievance_type = resolved_type or grievance_type
 	elif not doc.grievance_type and doc.service_category == "Other":
-		doc.grievance_type = "Other"
+		doc.grievance_type = frappe.db.get_value(
+			"Grievance Type", {"type_name": "Other"}, "name"
+		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
 
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider
@@ -572,6 +584,9 @@ def _draft_state(doc):
 	attachments = _attachments(doc.name)
 	hierarchy = get_administrative_hierarchy(doc.administrative_area)
 	location_str = format_administrative_location(hierarchy)
+	grievance_type_name = (
+		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
+	)
 
 	return {
 		"name": doc.name,
@@ -590,6 +605,7 @@ def _draft_state(doc):
 		"administrative_unit": doc.administrative_unit,
 		"service_category": doc.service_category,
 		"grievance_type": doc.grievance_type,
+		"grievance_type_name": grievance_type_name,
 		"associated_service_provider": doc.associated_service_provider,
 		"description": doc.description,
 		"desired_outcome": doc.desired_outcome,

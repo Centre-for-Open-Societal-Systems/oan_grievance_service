@@ -44,6 +44,10 @@ def _ensure_user(email, mobile=None, language=None):
 
 class TestGrievanceNotificationLog(FrappeTestCase):
 	def setUp(self):
+		from oan_grievance_service.setup.install import seed_role_levels
+
+		seed_role_levels()
+
 		self.head = _ensure_user("notif-head@example.com", "+251900000001")
 		self.nodal = _ensure_user("notif-nodal@example.com", "+251900000002")
 		self.senior = _ensure_user("notif-senior@example.com", "+251900000003")
@@ -55,14 +59,41 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 					"doctype": "Grievance Department",
 					"dept_name": "Notif Test Dept",
 					"email_account": "notif-dept@example.com",
-					"head_of_dept": self.head,
-					"nodal_officer": self.nodal,
-					"senior_officer": self.senior,
 					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 		else:
 			self.dept = frappe.get_doc("Grievance Department", dept_name)
+
+		if not frappe.db.exists("Grievance RBAC Assignment", {"department_scope": self.dept.name}):
+			self.assignment = frappe.get_doc(
+				{
+					"doctype": "Grievance RBAC Assignment",
+					"department_scope": self.dept.name,
+					"active": 1,
+					"effective_from": frappe.utils.today(),
+					"officers": [
+						{
+							"user": self.head,
+							"role_level": "department_head",
+							"is_primary": 1,
+							"active": 1,
+						},
+						{
+							"user": self.nodal,
+							"role_level": "nodal_officer",
+							"is_primary": 1,
+							"active": 1,
+						},
+						{
+							"user": self.senior,
+							"role_level": "senior_nodal_officer",
+							"is_primary": 1,
+							"active": 1,
+						},
+					],
+				}
+			).insert(ignore_permissions=True)
 
 		self.area = self._ensure_area()
 		self.gtype = self._ensure_grievance_type()
@@ -170,6 +201,10 @@ class TestGrievanceNotificationLog(FrappeTestCase):
 			frappe.db.delete("Grievance Notification Log", name)
 		for name in frappe.get_all("Notification", filters={"method": EVENT}, pluck="name"):
 			frappe.delete_doc("Notification", name, force=True, ignore_permissions=True)
+		for name in frappe.get_all(
+			"Grievance RBAC Assignment", filters={"department_scope": self.dept.name}, pluck="name"
+		):
+			frappe.delete_doc("Grievance RBAC Assignment", name, force=True, ignore_permissions=True)
 
 	def _make_notification(self, recipient_role, channel="Email", enabled=1, condition=None):
 		doc = frappe.get_doc(

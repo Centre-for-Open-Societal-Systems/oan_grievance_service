@@ -234,14 +234,22 @@ def apply_routing(grievance, commit_status=True):
 		(not doc) or (not doc.department_scope) or (bool(doc.get("officers")) and not officer_user)
 	)
 	if needs_fallback and current_cat != "Other":
+		other_type = frappe.db.get_value(
+			"Grievance Type", {"type_name": "Other"}, "name"
+		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
+		updates_dict = {"service_category": "Other"}
+		if other_type:
+			updates_dict["grievance_type"] = other_type
 		if hasattr(grievance, "db_set"):
-			grievance.db_set({"service_category": "Other", "grievance_type": "Other"}, update_modified=False)
+			grievance.db_set(updates_dict, update_modified=False)
 		if hasattr(grievance, "service_category"):
 			grievance.service_category = "Other"
-			grievance.grievance_type = "Other"
+			if other_type:
+				grievance.grievance_type = other_type
 		elif isinstance(grievance, dict):
 			grievance["service_category"] = "Other"
-			grievance["grievance_type"] = "Other"
+			if other_type:
+				grievance["grievance_type"] = other_type
 
 		assignment = find_matching_assignment(grievance)
 		doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name) if assignment else None
