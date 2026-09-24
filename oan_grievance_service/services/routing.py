@@ -215,45 +215,13 @@ def apply_routing(grievance, commit_status=True):
 
 	FSD 3.3 / Database Schema 8: resolves Tier 1 (department) and Tier 2 (officer) from the
 	matching Grievance RBAC Assignment desk record.
-	If no assignment matches, or no department/officer is available, the category falls back to 'Other'.
+	Where none matches, the grievance stays Submitted in the manual queue.
 	"""
 	from oan_grievance_service.services import lifecycle, notifications
 
 	assignment = find_matching_assignment(grievance)
 	doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name) if assignment else None
 	officer_user = pick_officer_by_strategy(doc) if doc else None
-
-	current_cat = (
-		grievance.get("service_category")
-		if isinstance(grievance, dict) or hasattr(grievance, "get")
-		else getattr(grievance, "service_category", None)
-	)
-
-	# Fallback to "Other" if no matching assignment, no department, or officers rostered but none available
-	needs_fallback = (
-		(not doc) or (not doc.department_scope) or (bool(doc.get("officers")) and not officer_user)
-	)
-	if needs_fallback and current_cat != "Other":
-		other_type = frappe.db.get_value(
-			"Grievance Type", {"type_name": "Other"}, "name"
-		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
-		updates_dict = {"service_category": "Other"}
-		if other_type:
-			updates_dict["grievance_type"] = other_type
-		if hasattr(grievance, "db_set"):
-			grievance.db_set(updates_dict, update_modified=False)
-		if hasattr(grievance, "service_category"):
-			grievance.service_category = "Other"
-			if other_type:
-				grievance.grievance_type = other_type
-		elif isinstance(grievance, dict):
-			grievance["service_category"] = "Other"
-			if other_type:
-				grievance["grievance_type"] = other_type
-
-		assignment = find_matching_assignment(grievance)
-		doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name) if assignment else None
-		officer_user = pick_officer_by_strategy(doc) if doc else None
 
 	if not doc or not doc.department_scope:
 		if hasattr(grievance, "db_set"):

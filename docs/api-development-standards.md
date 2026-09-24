@@ -1,18 +1,18 @@
 # API Development Standards & Best Practices
 
-This document defines the architectural conventions, decorator pipeline, request validation rules, error handling, versioning policy, and test requirements for writing new REST API endpoints in `oan_grievance_service`.
+This document defines the architectural conventions, decorator pipeline, request validation rules, error handling, versioning policy, and test requirements for developing REST API endpoints.
 
 ---
 
 ## 1. Core Architecture & Design Principles
 
-1. **Thin API Layer, Rich Service Layer:** API handlers must act solely as HTTP gateways. They perform authentication, request validation, invoke domain service methods (in `oan_grievance_service/services/`), and format the response envelope. **Do not write direct SQL or business logic inside API handlers.**
-2. **Immutable Versioning:** All public endpoints live under a versioned package (`oan_grievance_service/api/v1/`).
+1. **Thin API Layer, Rich Service Layer:** API handlers act solely as HTTP gateways. They perform authentication, request validation, invoke domain service methods, and format the response envelope. **Do not embed direct database queries or core business logic inside API handlers.**
+2. **Immutable Versioning:** All public endpoints live under a versioned package (`api/v1/`, `api/v2/`).
    - Additive, backward-compatible fields remain in `v1`.
-   - Breaking changes (field renaming, type changes, narrowing constraints) require opening a new version package (e.g. `v2/`).
+   - Breaking changes (field renaming, type changes, narrowing constraints) require opening a new version package (`v2/`).
    - Never modify or break an existing released version.
-3. **Consistent Response Envelopes:** Every endpoint returns standard responses via `success_response()`, with version metadata (`meta`) automatically attached by `@handle_api_errors`.
-4. **Auditable & Non-Bypassing:** All operations that mutate DocType state must route through standard Frappe document methods or service hooks so workflow guards, timeline logs, and status history are preserved.
+3. **Consistent Response Envelopes:** Every endpoint returns standard responses via `success_response()`, with version metadata (`meta`) and request IDs automatically attached by `@handle_api_errors`.
+4. **Auditable & Non-Bypassing:** All operations that mutate DocType state must route through standard Frappe document methods or service hooks so workflow guards, audit trails, and status histories are preserved.
 
 ---
 
@@ -20,57 +20,41 @@ This document defines the architectural conventions, decorator pipeline, request
 
 Endpoints support two transports:
 
-1. **REST Transport (Preferred):** Clean HTTP paths mounted into Frappe's URL Map via `@prefixed(...)` / `@rest(...)`.
-2. **RPC Transport (Backward Compatibility):** Frappe's method dispatch convention (`/api/method/...`).
+1. **REST Transport (Preferred):** Clean HTTP paths mounted into Frappe's URL Map via `@prefixed(...)` / `@route(...)`.
+2. **RPC Transport (Backward Compatibility):** Frappe's native method dispatch convention (`/api/method/...`).
 
 ```
-oan_grievance_service/api/
+<app_name>/api/
 ├── __init__.py                # Version registry, metadata helpers & router re-exports
 ├── router.py                  # REST route loader & URL map registration
 ├── middleware.py              # JWT validation & RPC path exemptions
 └── v1/                        # Version 1 API package
     ├── __init__.py            # Module index & endpoint catalog
-    ├── grievance.py           # Case submission, tracking & lifecycle actions
-    ├── draft.py               # Save, resume and discard partial submissions
-    ├── submitter.py           # Submitter profile & lookup options
-    └── administrative_area.py # Cascading geo-hierarchy lookups
+    ├── hello.py               # Example resource controller
+    └── ...
 ```
 
 ### REST Resource Naming Standards
 
-All REST endpoints in `oan_grievance_service` follow industry-standard RESTful conventions:
+All REST endpoints follow standard RESTful conventions:
 
-1. **Plural Resource Nouns:** Top-level and nested collections must use plural nouns (`/api/v1/grievances`, `/api/v1/submitters`, `/api/v1/administrative-areas`).
-2. **Kebab-Case URL Segments:** Compound resource names must use lowercase kebab-case (`/administrative-areas`, not snake_case `administrative_area`).
-3. **No Frappe DocType Aliasing:** Do not create duplicate URL aliases to mirror internal Frappe DocType conventions (e.g. avoid creating duplicate singular `/grievance`, snake_case `/administrative_area`, or `/profile` routes). The REST API contract remains clean, consistent, and strictly decoupled from internal DocType names.
-4. **Clean Root Collection Paths:** Use collection roots directly with query parameters (`GET /api/v1/administrative-areas?parent=...`) rather than nested RPC verb suffixes like `/areas` or `/get_areas`.
-5. **State Transition Action Verbs:** For non-CRUD lifecycle state transitions, use clear POST action sub-paths on item resources (`/api/v1/grievances/<ticket_number>/confirm`, `/reopen`, `/escalate`).
+1. **Plural Resource Nouns:** Top-level and nested collections must use plural nouns (`/api/v1/greetings`, `/api/v1/users`, `/api/v1/items`).
+2. **Kebab-Case URL Segments:** Compound resource names must use lowercase kebab-case (`/user-profiles`, `/custom-records`).
+3. **Decoupled from DocType Names:** Do not create duplicate URL aliases to mirror internal Frappe DocType conventions (e.g. avoid duplicate singular or snake_case routes).
+4. **Clean Root Collection Paths:** Use collection roots directly with query parameters (`GET /api/v1/greetings?status=active`) rather than nested RPC verb suffixes like `/get_greetings`.
+5. **State Transition Action Verbs:** For non-CRUD lifecycle actions, use clear POST action sub-paths on item resources (`/api/v1/greetings/<greeting_id>/publish`, `/archive`).
 
-**URL Mapping:**
+**Example URL Mapping:**
 
-| Endpoint Purpose          | REST Route (Standard)                                    | RPC Route (Legacy)                                                                    | Method |
-| ------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
-| Health Check              | `GET /api/v1/grievances/health`                          | `GET /api/method/oan_grievance_service.api.router.get_health`                         | GET    |
-| Ping                      | `GET /api/v1/grievances/ping`                            | `GET /api/method/oan_grievance_service.api.router.get_ping`                           | GET    |
-| Submitter Options         | `GET /api/v1/submitters/options`                         | `GET /api/method/oan_grievance_service.api.v1.submitter.options`                      | GET    |
-| User Profile & Claims     | `GET /api/v1/auth/me`                                    | `GET /api/method/oan_auth_service.api.v1.auth.get_me`                                 | GET    |
-| Submitter Profile (Dep.)  | `GET /api/v1/submitters/me`                              | `GET /api/method/oan_grievance_service.api.v1.submitter.me`                           | GET    |
-| Administrative Areas      | `GET /api/v1/administrative-areas`                       | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_areas`          | GET    |
-| Area Ancestors            | `GET /api/v1/administrative-areas/<path:area>/ancestors` | `GET /api/method/oan_grievance_service.api.v1.administrative_area.get_area_ancestors` | GET    |
-| List Grievances           | `GET /api/v1/grievances`                                 | `GET /api/method/oan_grievance_service.api.v1.grievance.list_grievances`              | GET    |
-| Save Draft                | `POST /api/v1/drafts`                                    | `POST /api/method/oan_grievance_service.api.v1.draft.save_draft`                      | POST   |
-| Get Draft                 | `GET /api/v1/drafts`                                     | `GET /api/method/oan_grievance_service.api.v1.draft.get_draft`                        | GET    |
-| Delete Draft              | `DELETE /api/v1/drafts/<client_uuid>`                    | `DELETE /api/method/oan_grievance_service.api.v1.draft.delete_draft`                  | DELETE |
-| Grievance Options         | `GET /api/v1/grievances/options`                         | `GET /api/method/oan_grievance_service.api.v1.grievance.options`                      | GET    |
-| Submit Case               | `POST /api/v1/grievances`                                | `POST /api/method/oan_grievance_service.api.v1.grievance.submit`                      | POST   |
-| Track / Case Detail       | `GET /api/v1/grievances/<ticket_number>`                 | `GET /api/method/oan_grievance_service.api.v1.grievance.track`                        | GET    |
-| Timeline & Thread Summary | `GET /api/v1/grievances/<ticket_number>/timeline`        | `GET /api/method/oan_grievance_service.api.v1.grievance.timeline`                     | GET    |
-| Add Note                  | `POST /api/v1/grievances/<ticket_number>/note`           | `POST /api/method/oan_grievance_service.api.v1.grievance.add_note`                    | POST   |
-| Post Message              | `POST /api/v1/grievances/<ticket_number>/message`        | `POST /api/method/oan_grievance_service.api.v1.grievance.message`                     | POST   |
-| Confirm Case              | `POST /api/v1/grievances/<ticket_number>/confirm`        | `POST /api/method/oan_grievance_service.api.v1.grievance.confirm`                     | POST   |
-| Reopen Case               | `POST /api/v1/grievances/<ticket_number>/reopen`         | `POST /api/method/oan_grievance_service.api.v1.grievance.reopen`                      | POST   |
-| Escalate Case             | `POST /api/v1/grievances/<ticket_number>/escalate`       | `POST /api/method/oan_grievance_service.api.v1.grievance.escalate`                    | POST   |
-| Reply to Info Request     | `POST /api/v1/grievances/<ticket_number>/reply`          | `POST /api/method/oan_grievance_service.api.v1.grievance.reply`                       | POST   |
+| Endpoint Purpose    | REST Route (Standard)                          | RPC Route (Legacy)                                           | Method |
+| ------------------- | ---------------------------------------------- | ------------------------------------------------------------ | ------ |
+| Health Check        | `GET /api/v1/health`                           | `GET /api/method/<app_name>.api.router.get_health`           | GET    |
+| Ping                | `GET /api/v1/ping`                             | `GET /api/method/<app_name>.api.router.get_ping`             | GET    |
+| List Greetings      | `GET /api/v1/greetings`                        | `GET /api/method/<app_name>.api.v1.hello.list_greetings`     | GET    |
+| Get Greeting Detail | `GET /api/v1/greetings/<greeting_id>`          | `GET /api/method/<app_name>.api.v1.hello.get_greeting`       | GET    |
+| Create / Say Hello  | `POST /api/v1/greetings`                       | `POST /api/method/<app_name>.api.v1.hello.say_hello`         | POST   |
+| Publish Greeting    | `POST /api/v1/greetings/<greeting_id>/publish` | `POST /api/method/<app_name>.api.v1.hello.publish_greeting`  | POST   |
+| Delete Greeting     | `DELETE /api/v1/greetings/<greeting_id>`       | `DELETE /api/method/<app_name>.api.v1.hello.delete_greeting` | DELETE |
 
 ---
 
@@ -80,17 +64,24 @@ Every API endpoint must apply decorators in the exact order shown below:
 
 ```python
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
+from oan_auth_service.api.utils import (
+	handle_api_errors,
+	require_role,
+	success_response,
+	validate_request,
+)
 
-route = prefixed("/api/v1/grievances")
+route = prefixed("/api/v1/greetings")
 
-@route("/your-action", methods=("POST",), summary="Action description")
-@frappe.whitelist()                               # Exposes method via HTTP RPC
-@handle_api_errors                                # Catches exceptions and formats error JSON
-@require_role(ALLOWED_ROLES)                      # Enforces RBAC permissions
-@validate_request(YourRequestModel)               # Validates payload schema via Pydantic
-def your_endpoint(**kwargs):
-    ...
+ALLOWED_ROLES = ["System Manager", "Administrator", "Custom Role"]
+
+@route("", methods=("POST",), summary="Create a new greeting")
+@frappe.whitelist()                               # 1. Exposes method via HTTP RPC
+@handle_api_errors                                # 2. Catches exceptions and formats error JSON
+@require_role(ALLOWED_ROLES)                      # 3. Enforces RBAC permissions
+@validate_request(HelloRequest)                   # 4. Validates payload schema via Pydantic
+def say_hello(**kwargs):
+	...
 ```
 
 ### Decorator Responsibilities
@@ -100,7 +91,7 @@ def your_endpoint(**kwargs):
 | `@route(...)` / `@rest(...)` | `oan_auth_service.api.router` | Exposes clean RESTful URL endpoint on Frappe's `API_URL_MAP` and registers guest exemptions.                                                                                                             |
 | `@frappe.whitelist()`        | `frappe`                      | Whitelists the Python function for HTTP invocation. Use `allow_guest=True` only for public, unauthenticated routes.                                                                                      |
 | `@handle_api_errors`         | `oan_auth_service.api.utils`  | Intercepts `frappe.ValidationError`, `frappe.PermissionError`, etc., and returns standard JSON error responses with appropriate HTTP status codes. Dynamically resolves service-specific `version_meta`. |
-| `@require_role(...)`         | `oan_auth_service.api.utils`  | Blocks requests if the authenticated user lacks one of the specified roles (e.g., `Grievance Submitter`, `Grievance Officer`).                                                                           |
+| `@require_role(...)`         | `oan_auth_service.api.utils`  | Blocks requests if the authenticated user lacks one of the specified roles.                                                                                                                              |
 | `@validate_request(Model)`   | `oan_auth_service.api.utils`  | Validates input against a Pydantic schema before executing the handler.                                                                                                                                  |
 
 ---
@@ -113,44 +104,41 @@ All `POST` / mutation endpoints must define an explicit `pydantic.BaseModel` sch
 from pydantic import BaseModel, Field
 from oan_auth_service.api.utils import RequiredPhone, SafeEmail
 
-class SubmitGrievanceRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class HelloRequest(BaseModel):
+	model_config = {"extra": "forbid"}
 
-	submitter_type: str = Field(..., min_length=1, description="Type of submitter")
-	submitter_name: str = Field(..., min_length=1, description="Full name of citizen/org")
-	contact_mobile: RequiredPhone
-	submission_channel: str = Field(..., min_length=1)
-	administrative_area: str = Field(..., min_length=1)
-	service_category: str = Field(..., min_length=1)
-	grievance_type: str = Field(..., min_length=1)
-	description: str = Field(..., min_length=20)
-	contact_email: SafeEmail | None = None
-	assisted_by_officer: str | None = None
-	is_anonymous: int | None = Field(0, ge=0, le=1)
+	recipient_name: str = Field(..., min_length=1, max_length=100, description="Name of the person to greet")
+	message: str = Field(..., min_length=5, max_length=500, description="Greeting message body")
+	contact_email: SafeEmail | None = Field(None, description="Optional contact email")
+	contact_phone: RequiredPhone | None = Field(None, description="Optional validated E.164 phone number")
+	is_public: bool = Field(False, description="Whether greeting is visible publicly")
 ```
 
 ### Guidelines for Schemas
 
 - Use `RequiredPhone` and `SafeEmail` utility types from `oan_auth_service.api.utils`.
 - Enforce sensible length and boundary constraints using `Field(..., min_length=...)` or `ge`/`le`.
-- Set `model_config = {"extra": "allow"}` if forward compatibility with client parameters is required, or `"forbid"` if strict parameter policing is desired.
+- Set `model_config = {"extra": "forbid"}` for strict parameter policing, or `{"extra": "allow"}` if forward compatibility with arbitrary client parameters is required.
 
 ---
 
 ## 5. Response Format & Standard Envelopes
 
-All successful responses **MUST** use the `success_response()` helper from `oan_auth_service.api.utils`. `@handle_api_errors` automatically resolves and attaches the `meta` block directly from `api/__init__.py`.
+All successful responses **MUST** use the `success_response()` helper from `oan_auth_service.api.utils`. `@handle_api_errors` automatically resolves and attaches the `meta` block directly from the module's `version_meta`.
 
 ```python
 from oan_auth_service.api.utils import handle_api_errors, success_response
 
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
-def options():
-	# ...
+def get_options():
+	data = {
+		"languages": ["en", "am", "or"],
+		"themes": ["standard", "festive", "formal"],
+	}
 	return success_response(
 		data=data,
-		message=_("Options fetched successfully"),
+		message=_("Options retrieved successfully"),
 	)
 ```
 
@@ -159,10 +147,12 @@ def options():
 ```json
 {
   "status": "success",
-  "message": "Options fetched successfully",
+  "message": "Greeting created successfully",
   "data": {
-    "submitter_types": [ ... ],
-    "submission_types": [ ... ]
+    "greeting_id": "GRT-00001",
+    "recipient_name": "Alice",
+    "message": "Hello, welcome to our platform!",
+    "created_at": "2026-09-24T09:00:00Z"
   },
   "meta": {
     "api_version": "v1",
@@ -176,17 +166,16 @@ def options():
 
 ## 6. Authentication & Public Route Exemption
 
-1. **Authenticated by Default:** Requests hitting `/api/method/oan_grievance_service.*` are validated via JWT tokens handled by `oan_auth_service`.
-2. **Public Routes (Unauthenticated):** If an endpoint must be accessible without a login or token (e.g. dropdown lookups, public search):
+1. **Authenticated by Default:** Requests hitting `/api/method/<app_name>.*` or `/api/v1/*` are validated via JWT tokens handled by `oan_auth_service`.
+2. **Public Routes (Unauthenticated):** If an endpoint must be accessible without authentication (e.g., health check, public lookup options):
    - Add `@frappe.whitelist(allow_guest=True)` with the `# nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method` annotation.
-   - Ensure all parameters on whitelisted functions have **explicit type hints** (e.g., `parent: str | None = None, limit: int = 100`).
-   - **Explicitly register the endpoint path** in `oan_grievance_service/api/middleware.py`:
+   - Ensure all parameters on whitelisted functions have **explicit type hints** (e.g., `limit: int = 100`).
+   - **Explicitly register the endpoint path** in `<app_name>/api/middleware.py`:
 
 ```python
 EXEMPT_PATHS: list[str] = [
-	"/api/method/oan_grievance_service.api.v1.submitter.options",
-	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
-	"/api/method/oan_grievance_service.api.v1.your_module.public_endpoint",
+	"/api/method/<app_name>.api.v1.hello.get_options",
+	"/api/method/<app_name>.api.router.get_health",
 ]
 ```
 
@@ -194,29 +183,29 @@ EXEMPT_PATHS: list[str] = [
 
 ## 7. Error Handling & Validation Failures
 
-Always raise standard Frappe exceptions with clear, localized messages and titles. `@handle_api_errors` handles the conversion to JSON.
+Always raise standard Frappe exceptions with clear, localized messages and titles. `@handle_api_errors` automatically catches these and converts them to standardized error envelopes.
 
 ```python
 # Validation / Bad Input -> Returns HTTP 400
-if not frappe.db.exists("Service Category", kwargs["service_category"]):
+if len(kwargs.get("message", "")) < 5:
 	frappe.throw(
-		_("The specified service category does not exist."),
+		_("The greeting message must be at least 5 characters."),
 		exc=frappe.ValidationError,
-		title=_("Invalid Category"),
+		title=_("Invalid Message"),
 	)
 
 # Record Not Found -> Returns HTTP 404
-if not frappe.db.exists("Grievance", {"ticket_number": ticket_number}):
+if not frappe.db.exists("Greeting Record", greeting_id):
 	frappe.throw(
-		_("Ticket #{0} was not found.").format(ticket_number),
+		_("Greeting #{0} was not found.").format(greeting_id),
 		exc=frappe.DoesNotExistError,
-		title=_("Grievance Not Found"),
+		title=_("Not Found"),
 	)
 
 # Permission / Authorization Error -> Returns HTTP 403
-if not user_has_scope_access(user, grievance):
+if not user_can_edit_greeting(user, greeting_id):
 	frappe.throw(
-		_("You do not have permission to access this grievance."),
+		_("You do not have permission to modify this greeting."),
 		exc=frappe.PermissionError,
 		title=_("Forbidden"),
 	)
@@ -226,68 +215,99 @@ if not user_has_scope_access(user, grievance):
 
 ## 8. Complete Boilerplate Template for a New API
 
-Here is a full, production-ready template to use when creating a new API file:
+Here is a full, generic template to use when creating a new API file:
 
 ```python
-"""<Module description and FSD reference>."""
+# Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
+# For license information, please see license.txt
+
+"""Hello / Greetings resource endpoints demonstrating REST standards."""
 
 import frappe
 from frappe import _
 from pydantic import BaseModel, Field
-from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
 
-from oan_grievance_service.services import your_service_module
+from oan_auth_service.api.router import prefixed
+from oan_auth_service.api.utils import (
+	SafeEmail,
+	handle_api_errors,
+	require_role,
+	success_response,
+	validate_request,
+)
+
+route = prefixed("/api/v1/greetings")
 
 ALLOWED_ROLES = [
-	"Grievance Submitter",
-	"Grievance Officer",
-	"Grievance Admin",
 	"System Manager",
 	"Administrator",
+	"Greeting User",
 ]
 
 
-class ExampleActionRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class CreateGreetingRequest(BaseModel):
+	model_config = {"extra": "forbid"}
 
-	ticket_number: str = Field(..., min_length=1, description="Ticket number of the grievance")
-	reason: str = Field(..., min_length=5, description="Reason for the action")
+	recipient_name: str = Field(..., min_length=1, max_length=100, description="Name of recipient")
+	message: str = Field(..., min_length=5, max_length=500, description="Greeting content")
+	contact_email: SafeEmail | None = Field(None, description="Recipient contact email")
 
 
+@route("", methods=("POST",), summary="Create a new greeting")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_ROLES)
-@validate_request(ExampleActionRequest)
-def perform_action(**kwargs):
-	"""Execute the domain action and return the standard response."""
-	ticket_number = kwargs["ticket_number"]
-	reason = kwargs["reason"]
+@validate_request(CreateGreetingRequest)
+def create_greeting(recipient_name: str, message: str, contact_email: str | None = None, **kwargs):
+	"""Create a greeting record and return the standard response."""
+	doc = frappe.get_doc(
+		{
+			"doctype": "Greeting Record",
+			"recipient_name": recipient_name,
+			"message": message,
+			"contact_email": contact_email,
+			"sender": frappe.session.user,
+		}
+	).insert(ignore_permissions=True)
 
-	# 1. Validation & Record Lookup
+	return success_response(
+		data={
+			"greeting_id": doc.name,
+			"recipient_name": doc.recipient_name,
+			"message": doc.message,
+			"created_at": doc.creation.isoformat() if hasattr(doc.creation, "isoformat") else str(doc.creation),
+		},
+		message=_("Greeting created successfully"),
+	)
+
+
+@route("/<greeting_id>", methods=("GET",), summary="Get a greeting by ID")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ALLOWED_ROLES)
+def get_greeting(greeting_id: str):
+	"""Fetch details of a single greeting."""
 	doc = frappe.db.get_value(
-		"Grievance",
-		{"ticket_number": ticket_number},
-		["name", "status", "assigned_officer"],
+		"Greeting Record",
+		greeting_id,
+		["name", "recipient_name", "message", "creation"],
 		as_dict=True,
 	)
 	if not doc:
 		frappe.throw(
-			_("Ticket #{0} not found.").format(ticket_number),
+			_("Greeting #{0} not found.").format(greeting_id),
 			exc=frappe.DoesNotExistError,
 			title=_("Not Found"),
 		)
 
-	# 2. Invoke Service Layer
-	result = your_service_module.process_action(doc.name, reason=reason)
-
-	# 3. Return Standard Response
 	return success_response(
 		data={
-			"ticket_number": ticket_number,
-			"status": result.status,
-			"updated_at": frappe.utils.now_datetime(),
+			"greeting_id": doc.name,
+			"recipient_name": doc.recipient_name,
+			"message": doc.message,
+			"created_at": doc.creation.isoformat() if hasattr(doc.creation, "isoformat") else str(doc.creation),
 		},
-		message=_("Action performed successfully"),
+		message=_("Greeting retrieved successfully"),
 	)
 ```
 
@@ -295,32 +315,64 @@ def perform_action(**kwargs):
 
 ## 9. Automated Testing for APIs
 
-Every new API endpoint must have automated tests validating:
+Every API endpoint must have automated unit/integration tests validating:
 
 1. **Happy Path:** Correct parameters return status 200 with matching `meta` and `data` structures.
-2. **Invalid Input:** Missing mandatory fields or malformed data trigger validation errors.
-3. **Role Guards:** Requests from unauthorized users fail with permission errors.
+2. **Invalid Input:** Missing mandatory fields or malformed data trigger 400 validation errors.
+3. **Role Guards:** Requests from unauthorized users fail with 403 permission errors.
 4. **Public vs. Protected Checks:** Guest access is permitted on exempt paths and blocked on protected paths.
 
 ### Example API Test Case
 
 ```python
+import json
+import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
-class TestAPIEndpoints(FrappeTestCase):
+
+def make_test_request(path: str, method: str = "GET", data: dict | None = None) -> Request:
+	builder_kwargs = {
+		"path": path,
+		"method": method.upper(),
+		"base_url": "http://testsite.localhost",
+	}
+	if data is not None:
+		builder_kwargs["json"] = data
+
+	req = Request(EnvironBuilder(**builder_kwargs).get_environ())
+	frappe.local.request = req
+	frappe.local.form_dict = frappe._dict(data or {})
+	return req
+
+
+class TestGreetingEndpoints(unittest.TestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
-	def test_endpoint_returns_valid_envelope(self):
-		from oan_grievance_service.api.v1.submitter import options
+	def test_create_and_fetch_greeting_flow(self):
+		import frappe.api
 
-		res = options()
-		self.assertIn("meta", res)
-		self.assertEqual(res["meta"]["api_version"], "v1")
-		self.assertIn("data", res)
-		self.assertIn("submitter_types", res["data"])
+		# 1. Create Greeting
+		payload = {"recipient_name": "Alice", "message": "Hello world from unit test!"}
+		req = make_test_request("/api/v1/greetings", method="POST", data=payload)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+
+		res_json = json.loads(res.get_data(as_text=True))
+		self.assertEqual(res_json["status"], "success")
+		greeting_id = res_json["data"]["greeting_id"]
+		self.assertTrue(bool(greeting_id))
+
+		# 2. Retrieve Greeting
+		req_get = make_test_request(f"/api/v1/greetings/{greeting_id}", method="GET")
+		res_get = frappe.api.handle(req_get)
+		self.assertEqual(res_get.status_code, 200)
+
+		get_json = json.loads(res_get.get_data(as_text=True))
+		self.assertEqual(get_json["data"]["recipient_name"], "Alice")
 ```
 
 ---
@@ -329,9 +381,9 @@ class TestAPIEndpoints(FrappeTestCase):
 
 When introducing a new API or modifying parameters:
 
-1. Open [`postman/oan_grievance_rest_collection.json`](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/postman/oan_grievance_rest_collection.json).
-2. Add the request definition under the appropriate folder with:
-   - Method (`POST` / `GET` / `DELETE`).
+1. Add the request definition under the appropriate folder in the Postman collection.
+2. Configure:
+   - Method (`POST` / `GET` / `DELETE` / `PUT`).
    - URL: `{{base_url}}/api/v1/<endpoint>`.
    - Headers: `Authorization: Bearer {{auth_token}}`, `Content-Type: application/json`.
    - Sample request payload and example response body.
