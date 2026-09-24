@@ -62,6 +62,10 @@ def OBJ(props, required=None, description=None, confidence=None, **kw):
 	return d
 
 
+# The body of a route that streams a file rather than a JSON envelope.
+BINARY = {"type": "string", "format": "binary"}
+
+
 def REF(name):
 	return {"$ref": f"#/components/schemas/{name}"}
 
@@ -606,12 +610,18 @@ data(
 	OBJ(
 		{
 			"file_name": S(description="Original filename"),
-			"file_url": S(description="Downloadable file URL"),
+			"file_url": S(
+				description="Frappe private-file URL; needs a Frappe session cookie, not a bearer token"
+			),
+			"view_url": S(
+				description="API route that streams the bytes under the bearer token: "
+				"/api/v1/attachments/{attachment_id}/view"
+			),
 			"mime_type": S(description="MIME type"),
 			"size_bytes": I(description="Size in bytes"),
 			"checksum_sha256": S(description="SHA-256 checksum"),
 		},
-		required=["file_name", "file_url", "mime_type", "size_bytes"],
+		required=["file_name", "file_url", "view_url", "mime_type", "size_bytes"],
 		description="Download metadata for a clean attachment",
 	),
 )
@@ -989,6 +999,7 @@ def R(
 	request_content_type="application/json",
 	query=None,
 	response=None,
+	response_content_type="application/json",
 	path_params=None,
 	legacy="",
 	status=200,
@@ -1004,12 +1015,22 @@ def R(
 		request_content_type=request_content_type,
 		query=query or [],
 		response=response,
+		response_content_type=response_content_type,
 		path_params=path_params or [],
 		legacy=legacy,
 		status=status,
 		description=description,
 	)
 
+
+# Kept out of the ROUTES list: semgrep reads implicitly joined strings inside a
+# list as a mistake, and one long line would trip the formatter.
+VIEW_ATTACHMENT_DESCRIPTION = (
+	"Stream the bytes of one attachment once it has been scanned clean, under the same "
+	"bearer token that listed the case. The body is the file itself in its stored MIME "
+	"type, served inline by default with an ETag of its SHA-256 and Cache-Control: "
+	"private, no-store. Pending, Infected and Failed scans are withheld."
+)
 
 ROUTES = [
 	# Domain 1: Health & Monitoring
@@ -1338,6 +1359,35 @@ ROUTES = [
 		description="Hand back one attachment's URL once it has been scanned clean.",
 	),
 	R(
+		"get",
+		"/api/v1/attachments/{attachment_id}/view",
+		summary="Stream a clean attachment inline",
+		tag="Attachments",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "attachment_id",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Unique attachment record ID",
+			}
+		],
+		query=[
+			{
+				"name": "download",
+				"in": "query",
+				"required": False,
+				"schema": B(default=False),
+				"description": "Send Content-Disposition: attachment (Save As) instead of inline",
+			}
+		],
+		response=None,
+		response_content_type="*/*",
+		legacy="oan_grievance_service.api.v1.attachment.view",
+		description=VIEW_ATTACHMENT_DESCRIPTION,
+	),
+	R(
 		"delete",
 		"/api/v1/attachments/{attachment_id}",
 		summary="Delete an attachment from an open case",
@@ -1386,7 +1436,12 @@ def build_openapi():
 			"responses": {
 				str(r["status"]): {
 					"description": "Success",
-					"content": {"application/json": {"schema": REF(r["response"])}},
+					"content": {
+						r["response_content_type"]: {
+							# A route with no envelope streams the raw bytes of a file.
+							"schema": REF(r["response"]) if r["response"] else BINARY
+						}
+					},
 				},
 				"400": {
 					"description": "Validation or Bad Input Error",

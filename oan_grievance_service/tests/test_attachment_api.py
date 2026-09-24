@@ -201,6 +201,130 @@ class TestDownloadIsGatedOnTheScan(AttachmentAPITestCase):
 		self.assertEqual(result["status"], "error")
 
 
+class TestAVerdictIsRecordedOnce(AttachmentAPITestCase):
+	"""Two scanners can hold one row: the upload enqueues a scan and the hourly
+	sweep picks up whatever is still Pending. The second arrival must not
+	overwrite the first one's verdict.
+
+	The failure this guards against: the worker marks a file Infected and
+	discards the object, the sweep then reads the missing object and records
+	Failed on top, and the case loses the fact that malware was submitted.
+	"""
+
+	def _uploaded(self):
+		return self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+
+	def _clamd_that_must_not_be_called(self):
+		def refuse(*args, **kwargs):
+			raise AssertionError("a settled row was sent to the scanner again")
+
+		self.addCleanup(setattr, scanning.socket, "create_connection", scanning.socket.create_connection)
+		scanning.socket.create_connection = refuse
+
+	def test_an_infected_verdict_survives_a_second_scan(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, {"scan_status": "Infected", "scan_detail": "FOUND"})
+		self._clamd_that_must_not_be_called()
+
+		self.assertEqual(scanning.scan_attachment(name), "Infected")
+		row = frappe.db.get_value("Grievance Attachment", name, ["scan_status", "scan_detail"], as_dict=True)
+		self.assertEqual((row.scan_status, row.scan_detail), ("Infected", "FOUND"))
+
+	def test_a_clean_verdict_is_not_rescanned_either(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+		self._clamd_that_must_not_be_called()
+
+		self.assertEqual(scanning.scan_attachment(name), "Clean")
+
+	def test_a_pending_row_is_still_scanned(self):
+		name = self._uploaded()
+		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
+		frappe.conf["grievance_clamav_port"] = 1  # nothing listens here: fails closed
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_host", None)
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_port", None)
+
+		self.assertEqual(scanning.scan_attachment(name), "Failed")
+
+
+class TestViewStreamsTheObject(AttachmentAPITestCase):
+	"""`/view` hands the bytes to an API client under the same gate as download.
+
+	`file_url` points at core's private-file route, which is outside the JWT
+	namespaces: a bearer token does nothing there, so a Next.js client could list
+	a case but never open its evidence. `/view` streams the object from under
+	`/api/v1`, inline, with the scan verdict checked on the way out.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		# The route flags frappe.response as a download so the envelope wrapper
+		# steps aside; that flag must not leak into the next test.
+		self.addCleanup(lambda: frappe.local.response.pop("type", None))
+
+	def _uploaded(self, content=None):
+		return self._send("receipt.jpg", content or _jpeg())["data"][0]["attachment"]
+
+	def test_a_clean_file_is_streamed_inline(self):
+		content = _jpeg()
+		name = self._uploaded(content)
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.mimetype, "image/jpeg")
+		self.assertTrue(response.headers["Content-Disposition"].startswith("inline"))
+		self.assertIn("receipt.jpg", response.headers["Content-Disposition"])
+		self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+		self.assertEqual(response.data, content)
+
+	def test_download_flag_switches_to_attachment_disposition(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name, download="1")
+
+		self.assertTrue(response.headers["Content-Disposition"].startswith("attachment"))
+
+	def test_the_bytes_match_the_recorded_checksum(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name)
+		recorded = frappe.db.get_value("Grievance Attachment", name, "checksum_sha256")
+
+		self.assertEqual(scanning.sha256_of(response.data), recorded)
+		self.assertEqual(response.headers["ETag"], f'"{recorded}"')
+
+	def test_a_pending_file_is_not_streamed(self):
+		result = attachment.view(attachment=self._uploaded())
+		self.assertEqual(result["status"], "error")
+		self.assertIn("Pending", result["message"])
+
+	def test_an_infected_file_is_not_streamed(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+
+		result = attachment.view(attachment=name)
+		self.assertEqual(result["status"], "error")
+		self.assertIn("Infected", result["message"])
+
+	def test_a_failed_scan_is_not_streamed(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Failed")
+
+		result = attachment.view(attachment=name)
+		self.assertEqual(result["status"], "error")
+
+	def test_download_metadata_now_points_at_view(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		result = attachment.download(attachment=name)
+		self.assertEqual(result["data"]["view_url"], f"/api/v1/attachments/{name}/view")
+
+
 class TestTheObjectIsNotReachableAroundTheGate(AttachmentAPITestCase):
 	"""The download endpoint is not the only way to a private file.
 

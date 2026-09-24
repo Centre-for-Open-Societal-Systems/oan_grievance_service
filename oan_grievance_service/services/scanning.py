@@ -152,11 +152,37 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 			title=_("Extension Does Not Match Content"),
 		)
 
+	if mime == "application/pdf":
+		_assert_pdf_parses(file_name, content)
+
 	return ValidatedUpload(
 		file_name=file_name,
 		mime_type=mime,
 		size_bytes=size,
 	)
+
+
+def _assert_pdf_parses(file_name: str, content: bytes) -> None:
+	"""Refuse a PDF that pypdf cannot open, before core gets to it.
+
+	Core's File.check_content runs pypdf over every PDF to look for embedded
+	JavaScript and lets a parse failure escape as an uncaught exception. Found
+	with a %PDF header and no cross-reference table: the upload came back as an
+	INTERNAL_ERROR instead of a rejection. A file the reader cannot open is not
+	evidence anyone can view, so it is refused here with a reason.
+	"""
+	from io import BytesIO
+
+	from pypdf import PdfReader
+	from pypdf.errors import PyPdfError
+
+	try:
+		PdfReader(BytesIO(content))
+	except (PyPdfError, ValueError, OSError):
+		frappe.throw(
+			_("{0} is not a readable PDF.").format(frappe.bold(file_name)),
+			title=_("Corrupt PDF"),
+		)
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +263,10 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 	if not target:
 		return SCAN_FAILED, "No scanner configured (grievance_clamav_host is unset)."
 
+	if isinstance(content, str):
+		# Never let a text-decoded object crash the send; scan its bytes.
+		content = content.encode("utf-8")
+
 	host, port = target
 	try:
 		with socket.create_connection((host, port), timeout=CLAMAV_TIMEOUT_SECONDS) as sock:
@@ -246,7 +276,9 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 				sock.sendall(len(chunk).to_bytes(4, "big") + chunk)
 			sock.sendall((0).to_bytes(4, "big"))
 
-			reply = sock.recv(4096).decode("utf-8", "replace").strip()
+			# The z-prefixed command asks clamd to NUL-terminate its reply, and
+			# str.strip() leaves NUL alone: a reply of stream: OK plus NUL must still read as OK.
+			reply = sock.recv(4096).decode("utf-8", "replace").rstrip(chr(0)).strip()
 	except OSError as exc:
 		return SCAN_FAILED, f"Scanner unreachable: {exc}"
 
@@ -291,8 +323,17 @@ def scan_attachment(name: str) -> str:
 	if not frappe.db.exists("Grievance Attachment", name):
 		return SCAN_FAILED
 
+	# Two scanners can hold the same row: the upload enqueues one immediately and
+	# the hourly sweep picks up whatever is still Pending. Lock the row and let the
+	# second arrival see the first one's verdict rather than overwrite it. Without
+	# this, a sweep that reads the object after the worker discarded it as
+	# Infected would record Failed on top of that verdict.
+	current = frappe.db.get_value("Grievance Attachment", name, "scan_status", for_update=True)
+	if current != SCAN_PENDING:
+		return current
+
 	attachment = frappe.get_doc("Grievance Attachment", name)
-	content = _read_object(attachment.file_url)
+	content = read_object(attachment.file_url)
 	if content is None:
 		_record(attachment, SCAN_FAILED, "File object could not be read.")
 		return SCAN_FAILED
@@ -329,16 +370,32 @@ def _record(attachment, status: str, detail: str) -> None:
 	)
 
 
-def _read_object(file_url: str) -> bytes | None:
+def read_object(file_url: str) -> bytes | None:
+	"""The stored bytes behind a file URL, or None if there is no object to read.
+
+	Used by the scanner and by the view endpoint, so both serve the same bytes
+	the checksum was taken over.
+	"""
 	if not file_url:
 		return None
 	name = frappe.db.get_value("File", {"file_url": file_url}, "name")
 	if not name:
 		return None
 	try:
-		return frappe.get_doc("File", name).get_content()
+		file_doc = frappe.get_doc("File", name)
 	except Exception:
 		return None
+
+	# Core's File.get_content() tries a list of text encodings and hands back str
+	# for anything that decodes, so an all-ASCII upload came back as text and the
+	# INSTREAM send failed on it -- which left the file Pending forever, never
+	# scanned. An empty encodings list skips that step and returns the stored
+	# bytes, while still going through core's own file-path validation.
+	try:
+		content = file_doc.get_content(encodings=[])
+	except Exception:
+		return None
+	return content.encode("utf-8") if isinstance(content, str) else content
 
 
 def _discard_object(file_url: str) -> None:

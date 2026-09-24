@@ -1285,6 +1285,71 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.download
       security:
       - BearerAuth: []
+  /api/v1/attachments/{attachment_id}/view:
+    get:
+      tags:
+      - Attachments
+      summary: Stream a clean attachment inline
+      description: 'Stream the bytes of one attachment once it has been scanned clean, under the same
+        bearer token that listed the case. The body is the file itself in its stored MIME type, served
+        inline by default with an ETag of its SHA-256 and Cache-Control: private, no-store. Pending, Infected
+        and Failed scans are withheld.'
+      operationId: get_api_v1_attachments_attachment_id_view
+      responses:
+        '200':
+          description: Success
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique attachment record ID
+      - name: download
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: 'Send Content-Disposition: attachment (Save As) instead of inline'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.view
+      security:
+      - BearerAuth: []
   /api/v1/attachments/{attachment_id}:
     delete:
       tags:
@@ -2242,7 +2307,10 @@ components:
           description: Original filename
         file_url:
           type: string
-          description: Downloadable file URL
+          description: Frappe private-file URL; needs a Frappe session cookie, not a bearer token
+        view_url:
+          type: string
+          description: 'API route that streams the bytes under the bearer token: /api/v1/attachments/{attachment_id}/view'
         mime_type:
           type: string
           description: MIME type
@@ -2255,6 +2323,7 @@ components:
       required:
       - file_name
       - file_url
+      - view_url
       - mime_type
       - size_bytes
       description: Download metadata for a clean attachment

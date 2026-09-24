@@ -87,7 +87,20 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		paths = spec["paths"]
 		self.assertIn("/api/v1/grievances/{ticket_number}/attachments", paths)
 		self.assertIn("/api/v1/attachments/{attachment_id}/download", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}/view", paths)
 		self.assertIn("/api/v1/attachments/{attachment_id}", paths)
+
+		view = paths["/api/v1/attachments/{attachment_id}/view"]["get"]
+		self.assertEqual(view["responses"]["200"]["content"]["*/*"]["schema"]["format"], "binary")
+		download_data = spec["components"]["schemas"]["AttachmentDownloadData"]
+		self.assertIn("view_url", download_data["properties"])
+		self.assertIn("view_url", download_data["required"])
+
+		kong_path = Path(__file__).resolve().parent.parent.parent / "kong" / "kong.yml"
+		with open(kong_path) as f:
+			kong = yaml.safe_load(f)
+		route_names = {r["name"] for svc in kong["services"] for r in svc.get("routes", [])}
+		self.assertIn("get-api-v1-attachments-attachment_id-view", route_names)
 
 	def test_issue6_draft_field_clearing_and_anonymity_preservation(self):
 		"""Issue 6: Empty strings can clear fields and omitting is_anonymous preserves current value."""
