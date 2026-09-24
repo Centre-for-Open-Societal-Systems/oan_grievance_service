@@ -300,7 +300,12 @@ class TestDeliveryAddresses(NotificationCase):
 	name and keeps the real address in `oan_login_email`, because core's User.validate
 	writes `name` back into `email` on every save. The old send path read `User.email`,
 	so every acknowledgement email went to an address no mail server delivers, while
-	the farmer's real address sat unused on the case and the profile.
+	the farmer's real address sat unused on the profile.
+
+	Precedence, agreed on PR #26 review: for a registered submitter the registered
+	contact always wins (profile, then User). The contact snapshot on the case is
+	used only for a submitter with no account, since for a registered farmer it is a
+	filing-time copy of the profile and can only lag it.
 	"""
 
 	def setUp(self):
@@ -349,25 +354,29 @@ class TestDeliveryAddresses(NotificationCase):
 		recipient = notifications.resolve_recipient(self.grievance, notifications.RECIPIENT_SUBMITTER)
 		self.assertEqual(recipient, SYNTHETIC_USER)
 
-	def test_submitter_email_goes_to_the_case_contact_not_the_login_id(self):
-		self.assertEqual(notifications._deliverable_email(SYNTHETIC_USER, self.grievance), CASE_EMAIL)
-
-	def test_profile_email_is_the_fallback_when_the_case_has_none(self):
-		self._case_contacts(email=None, mobile="+251911111111")
+	def test_registered_email_wins_over_the_case_snapshot(self):
+		# The case still says CASE_EMAIL; the profile is the contact of record.
 		self.assertEqual(notifications._deliverable_email(SYNTHETIC_USER, self.grievance), PROFILE_EMAIL)
 
-	def test_login_email_is_the_last_resort(self):
-		self._case_contacts(email=None, mobile="+251911111111")
+	def test_login_email_is_the_fallback_when_the_profile_has_none(self):
 		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "contact_email", None)
 		if not self.has_login_email:
 			self.skipTest("oan_login_email is the auth service's field; not installed here")
 		self.assertEqual(notifications._deliverable_email(SYNTHETIC_USER, self.grievance), LOGIN_EMAIL)
 
-	def test_the_synthetic_address_is_never_used(self):
-		self._case_contacts(email=None, mobile="+251911111111")
+	def test_the_case_snapshot_is_not_used_for_a_registered_submitter(self):
+		# Registered contact missing everywhere: the stale snapshot must not step in.
 		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "contact_email", None)
 		if self.has_login_email:
 			frappe.db.set_value("User", SYNTHETIC_USER, "oan_login_email", None)
+		with self.assertRaises(ValueError):
+			notifications._deliverable_email(SYNTHETIC_USER, self.grievance)
+
+	def test_the_synthetic_address_is_never_used(self):
+		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "contact_email", None)
+		if self.has_login_email:
+			frappe.db.set_value("User", SYNTHETIC_USER, "oan_login_email", None)
+		# Only User.email is left, and it is the synthetic registration name.
 		with self.assertRaises(ValueError):
 			notifications._deliverable_email(SYNTHETIC_USER, self.grievance)
 
@@ -375,20 +384,34 @@ class TestDeliveryAddresses(NotificationCase):
 		# Officers created from the desk carry their address in User.email itself.
 		self.assertEqual(notifications._deliverable_email(self.head, self.grievance), self.head)
 
-	def test_a_bare_contact_recipient_is_used_as_is(self):
-		# resolve_recipient hands back the contact snapshot for a submitter with no User.
+	def test_a_submitter_without_an_account_gets_the_case_snapshot(self):
+		# Walk-in or IVR: staff filed the case, no profile User. resolve_recipient hands
+		# back the contact snapshot and that is the only address there is.
+		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "user", None)
+		recipient = notifications.resolve_recipient(self.grievance, notifications.RECIPIENT_SUBMITTER)
+		self.assertEqual(recipient, "+251911111111")
+		self.assertEqual(notifications._deliverable_email(recipient, self.grievance), CASE_EMAIL)
+		self.assertEqual(notifications._deliverable_mobile(recipient, self.grievance), "+251911111111")
+
+	def test_a_bare_recipient_falls_back_to_itself_when_the_case_has_no_email(self):
+		# No account and no email on the case: the bare address the row carries is all
+		# there is. With an email on the case, the snapshot wins (previous test).
+		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "user", None)
+		frappe.db.set_value("Grievance", self.grievance.name, "contact_email", None)
+		self.grievance.reload()
 		self.assertEqual(
 			notifications._deliverable_email("walkin@example.com", self.grievance), "walkin@example.com"
 		)
 
-	def test_submitter_sms_goes_to_the_case_mobile(self):
-		self.assertEqual(notifications._deliverable_mobile(SYNTHETIC_USER, self.grievance), "+251911111111")
-
-	def test_profile_mobile_then_user_mobile_are_the_sms_fallbacks(self):
-		self._case_contacts(email=CASE_EMAIL, mobile=None)
+	def test_registered_mobile_wins_over_the_case_snapshot(self):
 		self.assertEqual(notifications._deliverable_mobile(SYNTHETIC_USER, self.grievance), "+251922222222")
+
+	def test_user_mobile_is_the_sms_fallback_not_the_case(self):
 		frappe.db.set_value("Grievance Submitter Profile", self.profile.name, "contact_mobile", "")
 		self.assertEqual(notifications._deliverable_mobile(SYNTHETIC_USER, self.grievance), "+251900000009")
+		frappe.db.set_value("User", SYNTHETIC_USER, "mobile_no", None)
+		with self.assertRaises(ValueError):
+			notifications._deliverable_mobile(SYNTHETIC_USER, self.grievance)
 
 
 class TestSmsFailsClosed(NotificationCase):

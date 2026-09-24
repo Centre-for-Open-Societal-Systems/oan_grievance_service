@@ -287,47 +287,58 @@ def queue(grievance, event_code, recipient_override=None):
 SYNTHETIC_ADDRESS_DOMAIN = "@id.openagrinet.internal"
 
 
-def _is_submitter_recipient(recipient, grievance):
-	"""True when the queued row is addressed to the case's submitter.
+def _submitter_profile_for(recipient, grievance):
+	"""The submitter's profile name when the queued row is addressed to a registered
+	submitter, else None.
 
-	`resolve_recipient` hands back the submitter's User when they registered one,
-	and the bare contact snapshot when they did not; both mean the address on the
-	case is the one they gave us.
+	`resolve_recipient` hands back the submitter's User when they registered one.
+	When they did not, it hands back the bare contact snapshot from the case, and
+	this returns None: there is no registered contact to prefer.
 	"""
-	if grievance.submitter:
-		user = frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user")
-		if user and user == recipient:
-			return True
-	return recipient in (grievance.contact_mobile, grievance.contact_email)
-
-
-def _profile_value(grievance, fieldname):
 	if not grievance.submitter:
 		return None
-	return frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, fieldname)
+	user = frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user")
+	return grievance.submitter if user and user == recipient else None
+
+
+def _address_candidates(recipient, grievance, profile_field, user_fields, case_field):
+	"""Where to look for a recipient's contact, in order.
+
+	Precedence, agreed on PR #26 review: for a registered submitter the registered
+	contact always wins, first the profile (which the farmer can update) and then
+	the User record (from registration). The contact snapshot on the case is used
+	only for a submitter with no account, a walk-in or IVR caller that staff filed,
+	where the snapshot is the only contact there is. For staff recipients only the
+	User record applies. The snapshot is taken at filing time, so for a registered
+	farmer it can only ever equal or lag the profile, never lead it.
+	"""
+	candidates = []
+	profile = _submitter_profile_for(recipient, grievance)
+	if profile:
+		candidates.append(frappe.db.get_value("Grievance Submitter Profile", profile, profile_field))
+
+	if frappe.db.exists("User", recipient):
+		for fieldname in user_fields:
+			if frappe.db.has_column("User", fieldname):
+				candidates.append(frappe.db.get_value("User", recipient, fieldname))
+	else:
+		# No account: the row carries the contact snapshot itself.
+		candidates += [getattr(grievance, case_field, None), recipient]
+	return candidates
 
 
 def _deliverable_email(recipient, grievance):
 	"""The address a queued email row actually goes to.
 
-	For the submitter: the contact snapshot on the case first, since that is what
-	they typed or registered with, then the profile, then the User's login email.
-	For staff: the User's login email. `User.email` is a last resort, and never when
-	it is the synthetic registration address. Found on the dev bench: every
-	acknowledgement email went to xxxx@id.openagrinet.internal, which no mail
-	server delivers.
+	Registered contact first (profile, then the User's login email), the case's
+	snapshot only for a submitter without an account. `User.email` is the last
+	resort and is skipped when it is the synthetic registration address. Found on
+	the dev bench: every acknowledgement email went to xxxx@id.openagrinet.internal,
+	which no mail server delivers.
 	"""
-	candidates = []
-	if _is_submitter_recipient(recipient, grievance):
-		candidates += [grievance.contact_email, _profile_value(grievance, "contact_email")]
-
-	if frappe.db.exists("User", recipient):
-		if frappe.db.has_column("User", "oan_login_email"):
-			candidates.append(frappe.db.get_value("User", recipient, "oan_login_email"))
-		candidates.append(frappe.db.get_value("User", recipient, "email"))
-	else:
-		candidates.append(recipient)
-
+	candidates = _address_candidates(
+		recipient, grievance, "contact_email", ("oan_login_email", "email"), "contact_email"
+	)
 	for address in candidates:
 		if not address:
 			continue
@@ -341,15 +352,7 @@ def _deliverable_email(recipient, grievance):
 
 def _deliverable_mobile(recipient, grievance):
 	"""The number a queued SMS row actually goes to, same precedence as email."""
-	candidates = []
-	if _is_submitter_recipient(recipient, grievance):
-		candidates += [grievance.contact_mobile, _profile_value(grievance, "contact_mobile")]
-
-	if frappe.db.exists("User", recipient):
-		candidates.append(frappe.db.get_value("User", recipient, "mobile_no"))
-	else:
-		candidates.append(recipient)
-
+	candidates = _address_candidates(recipient, grievance, "contact_mobile", ("mobile_no",), "contact_mobile")
 	for mobile in candidates:
 		if mobile and mobile.strip():
 			return mobile.strip()
