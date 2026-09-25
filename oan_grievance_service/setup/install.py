@@ -296,8 +296,7 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		("SMS", "Email"),
 		"Officer declines an anonymity request",
-		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. "
-		"Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
+		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
 		("doc.ticket_number",),
 	),
 	(
