@@ -68,15 +68,6 @@ doc_events = {
 	"Grievance Response": {
 		"after_insert": "oan_grievance_service.services.hooks_handlers.response_after_insert",
 	},
-	"Grievance Reassignment Request": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.reassignment_on_update",
-	},
-	"Grievance SLA Deferral": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.deferral_on_update",
-	},
-	"Grievance Anonymity Request": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
-	},
 	# FSD 3.8: our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
 	# text. Extends a core doctype through the supported hook rather than editing it.
@@ -106,12 +97,11 @@ scheduler_events = {
 }
 
 
-# Authentication & Registration
-# -----------------------------
-# Integrates with oan_auth_service to initialize domain profiles upon user registration
-# and enrich user introspection (GET /api/v1/auth/me) with grievance profile data.
+# Authentication & Profile Resolution
+# -----------------------------------
+# Integrates with oan_auth_service to enrich user introspection (GET /api/v1/auth/me)
+# with grievance profile data. Submitter profile registration is handled via REST API.
 
-on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 
 # Portal

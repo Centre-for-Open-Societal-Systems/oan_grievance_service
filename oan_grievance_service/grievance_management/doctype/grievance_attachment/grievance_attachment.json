@@ -9,6 +9,7 @@
  "field_order": [
   "grievance",
   "response",
+  "timeline_entry",
   "document_type",
   "col_source",
   "uploaded_by_user",
@@ -44,6 +45,14 @@
    "fieldtype": "Link",
    "label": "Grievance Response",
    "options": "Grievance Response",
+   "read_only": 1
+  },
+  {
+   "description": "Optional timeline entry this attachment is associated with.",
+   "fieldname": "timeline_entry",
+   "fieldtype": "Link",
+   "label": "Timeline Entry",
+   "options": "Grievance Timeline",
    "read_only": 1
   },
   {

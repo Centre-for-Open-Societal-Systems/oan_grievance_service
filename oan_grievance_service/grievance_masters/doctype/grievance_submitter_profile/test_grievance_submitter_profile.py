@@ -23,8 +23,8 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		# Farmer with Fayda ID
 		self.assertEqual(
-			derive_dedupe_key("Individual Farmer", mobile="+251911000000", fayda_id="123456789012"),
-			"fayda:123456789012",
+			derive_dedupe_key("Individual Farmer", mobile="+251911000000", fayda_id="1234567890123456"),
+			"fayda:1234567890123456",
 		)
 		# Farmer without Fayda ID (falls back to phone)
 		self.assertEqual(
@@ -57,18 +57,18 @@ class TestSubmitterProfile(FrappeTestCase):
 		profile.submitter_type = "Individual Farmer"
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
-		profile.dedupe_key = "fayda:FAYDA-98765"
+		profile.dedupe_key = "fayda:1234567890123456"
 		profile.administrative_unit = "Bishoftu"
 		profile.validate()
 
-		self.assertEqual(profile.dedupe_key, "fayda:FAYDA-98765")
+		self.assertEqual(profile.dedupe_key, "fayda:1234567890123456")
 		self.assertEqual(profile.identity_scheme, "fayda")
-		self.assertEqual(profile.identity_value, "FAYDA-98765")
+		self.assertEqual(profile.identity_value, "1234567890123456")
 
-	def test_on_user_registered_creates_individual_farmer_profile(self):
+	def test_register_submitter_creates_individual_farmer_profile_unblocked(self):
 		import random
 
-		from oan_grievance_service.services.hooks_handlers import on_user_registered
+		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
 
 		random_mobile = f"+25191{random.randint(1000000, 9999999)}"
 		user = frappe.get_doc(
@@ -83,10 +83,8 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		try:
-			profile = on_user_registered(
-				user_doc=user,
-				role="Grievance Submitter",
-				roles=["Grievance Submitter"],
+			profile = _create_or_update_submitter_profile(
+				user=user.name,
 				submitter_type="Individual Farmer",
 				preferred_language="am",
 				administrative_unit="Bishoftu",
@@ -99,13 +97,16 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(profile.contact_mobile, random_mobile)
 			self.assertEqual(profile.administrative_unit, "Bishoftu")
 			self.assertEqual(profile.dedupe_key, f"phone:{random_mobile}")
+			self.assertEqual(profile.is_blocked, 0)
+			self.assertIsNone(profile.blocked_reason)
+			self.assertEqual(profile.active, 1)
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
-	def test_on_user_registered_creates_cooperative_profile_with_org_key(self):
+	def test_register_submitter_creates_cooperative_profile_blocked_with_org_key(self):
 		import random
 
-		from oan_grievance_service.services.hooks_handlers import on_user_registered
+		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
 
 		random_mobile = f"+25191{random.randint(1000000, 9999999)}"
 		user = frappe.get_doc(
@@ -120,10 +121,8 @@ class TestSubmitterProfile(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		try:
-			profile = on_user_registered(
-				user_doc=user,
-				role="Grievance Submitter",
-				roles=["Grievance Submitter"],
+			profile = _create_or_update_submitter_profile(
+				user=user.name,
 				submitter_type="Cooperative",
 				registration_number="COOP-REG-987",
 				administrative_unit="Bishoftu",
@@ -134,11 +133,14 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(profile.submitter_type, "Cooperative")
 			self.assertEqual(profile.dedupe_key, "org:COOP-REG-987")
 			self.assertEqual(profile.administrative_unit, "Bishoftu")
+			self.assertEqual(profile.is_blocked, 1)
+			self.assertIn("Pending admin verification", profile.blocked_reason)
+			self.assertEqual(profile.active, 1)
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
-	def test_on_user_registered_cooperative_without_reg_number_fails(self):
-		from oan_grievance_service.services.hooks_handlers import on_user_registered
+	def test_register_submitter_cooperative_without_reg_number_fails(self):
+		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
 
 		user = frappe.get_doc(
 			{
@@ -153,91 +155,76 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		try:
 			with self.assertRaises(frappe.ValidationError):
-				on_user_registered(
-					user_doc=user,
-					role="Grievance Submitter",
-					roles=["Grievance Submitter"],
+				_create_or_update_submitter_profile(
+					user=user.name,
 					submitter_type="Cooperative",
 				)
 		finally:
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
-	def test_on_user_registered_ignored_for_other_roles(self):
-		from oan_grievance_service.services.hooks_handlers import on_user_registered
+	def test_end_to_end_submitter_registration_rest_flow(self):
+		import json
+		import random
 
+		from oan_grievance_service.api.router import ensure_routes_registered
+		from oan_grievance_service.tests.test_router import make_test_request
+
+		ensure_routes_registered()
+
+		uid = frappe.generate_hash(length=6)
+		phone = "+251911" + "".join(random.choices("0123456789", k=6))
 		user = frappe.get_doc(
 			{
 				"doctype": "User",
-				"email": f"test_officer_{frappe.generate_hash(length=6)}@example.com",
-				"first_name": "Grievance",
-				"last_name": "Officer",
-				"roles": [{"role": "Grievance Officer"}],
+				"email": f"rest_coop_{uid}@example.com",
+				"first_name": "Rest",
+				"last_name": "Coop",
+				"mobile_no": phone,
+				"roles": [{"role": "Grievance Submitter"}],
 			}
 		).insert(ignore_permissions=True)
 
 		try:
-			profile = on_user_registered(
-				user_doc=user,
-				role="Grievance Officer",
-				roles=["Grievance Officer"],
-				submitter_type="Individual Farmer",
+			frappe.set_user(user.name)
+			req = make_test_request(
+				"/api/v1/submitters/register",
+				method="POST",
+				data={
+					"submitter_type": "Cooperative",
+					"submitter_name": f"Rest Coop {uid}",
+					"contact_mobile": phone,
+					"registration_number": f"REG-{uid}",
+					"administrative_unit": "Bishoftu",
+				},
 			)
+			res = frappe.api.handle(req)
+			self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+			data = json.loads(res.get_data(as_text=True))["data"]
 
-			self.assertIsNone(profile)
-			self.assertFalse(frappe.db.exists("Grievance Submitter Profile", {"user": user.name}))
+			self.assertEqual(data["submitter_type"], "Cooperative")
+			self.assertEqual(data["is_blocked"], True)
+			self.assertTrue(bool(data["blocked_reason"]))
+			profile_id = data["profile_id"]
+
+			# Admin unblocks the cooperative submitter profile
+			frappe.set_user("Administrator")
+			req_unblock = make_test_request(
+				f"/api/v1/submitters/{profile_id}/unblock",
+				method="POST",
+			)
+			res_unblock = frappe.api.handle(req_unblock)
+			self.assertEqual(res_unblock.status_code, 200)
+			unblock_data = json.loads(res_unblock.get_data(as_text=True))["data"]
+			self.assertEqual(unblock_data["is_blocked"], False)
+			self.assertIsNone(unblock_data["blocked_reason"])
 		finally:
+			frappe.set_user("Administrator")
+			profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
+			if profile_name:
+				frappe.delete_doc(
+					"Grievance Submitter Profile", profile_name, force=True, ignore_permissions=True
+				)
 			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
-
-	def test_end_to_end_auth_registration_creates_submitter_profile(self):
-		from oan_auth_service.api.v1.auth import register_user
-		from oan_auth_service.tests.utils import configured_keys, override_conf
-
-		with configured_keys(), override_conf(jwt_self_registerable_roles=["Grievance Submitter"]):
-			import random
-
-			uid = frappe.generate_hash(length=6)
-			phone = "+251911" + "".join(random.choices("0123456789", k=6))
-			email = f"farmer_e2e_{uid}@example.com"
-			fayda_id = f"FAYDA-ET-{uid}"
-			res = register_user(
-				email=email,
-				password="SecurePassword123!",
-				full_name=f"Fatuma Roba {uid}",
-				phone_number=phone,
-				role="Grievance Submitter",
-				submitter_type="Individual Farmer",
-				fayda_id=fayda_id,
-				administrative_unit="Bishoftu",
-				preferred_language="am",
-			)
-
-			self.assertEqual(res["status"], "success")
-			user_id = res["data"]["user"]
-
-			try:
-				profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
-				self.assertTrue(bool(profile_name))
-
-				profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
-				self.assertEqual(profile.submitter_name, f"Fatuma Roba {uid}")
-				self.assertEqual(profile.contact_mobile, phone)
-				self.assertEqual(profile.administrative_unit, "Bishoftu")
-				self.assertEqual(profile.dedupe_key, f"fayda:{fayda_id}")
-			finally:
-				profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
-				if profile_name:
-					frappe.delete_doc(
-						"Grievance Submitter Profile", profile_name, force=True, ignore_permissions=True
-					)
-				if frappe.db.exists("User", user_id):
-					frappe.db.delete("OAN User Refresh Token", {"user": user_id})
-					contacts = frappe.get_all(
-						"Dynamic Link", filters={"link_doctype": "User", "link_name": user_id}, pluck="parent"
-					)
-					for c in contacts:
-						if frappe.db.exists("Contact", c):
-							frappe.delete_doc("Contact", c, force=True, ignore_permissions=True)
-					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
 
 	def test_profile_resolution_hook_returns_decomposed_variables(self):
 		from oan_grievance_service.api.v1.profile import resolve_user_profile_hook
@@ -259,7 +246,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				"submitter_type": "Individual Farmer",
 				"submitter_name": "Derartu Tulu",
 				"contact_mobile": "+251911445566",
-				"dedupe_key": "fayda:FAYDA-DT-12345",
+				"dedupe_key": "fayda:1122334455667788",
 				"administrative_unit": "Bekoji",
 			}
 		).insert(ignore_permissions=True)
@@ -269,7 +256,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(namespace, "grievance")
 			self.assertEqual(data["profile_id"], profile.name)
 			self.assertEqual(data["type"], "Individual Farmer")
-			self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "FAYDA-DT-12345"}])
+			self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "1122334455667788"}])
 			self.assertEqual(data["administrative_unit"], "Bekoji")
 		finally:
 			frappe.set_user("Administrator")

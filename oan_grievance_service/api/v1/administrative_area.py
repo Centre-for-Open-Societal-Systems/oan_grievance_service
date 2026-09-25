@@ -48,15 +48,33 @@ def get_areas(
 	if ancestors_of:
 		return success_response(data=get_ancestors(ancestors_of))
 
+	# Decommissioned areas stay in the tree for historical grievances but must never
+	# reach a citizen intake picker, so every listing mode is scoped to active nodes.
 	filters = [["is_active", "=", 1]]
 
-	# Resolve parent ID if a path_code was passed
+	# Resolve parent ID if a path_code, code, or area_name was passed
 	if parent:
-		if not frappe.db.exists("Grievance Administrative Area", parent):
-			resolved = frappe.db.get_value("Grievance Administrative Area", {"path_code": parent}, "name")
-			if resolved:
-				parent = resolved
-		filters.append(["parent_administrative_area", "=", parent])
+		parent_doc = None
+		if frappe.db.exists("Grievance Administrative Area", parent):
+			parent_doc = frappe.get_doc("Grievance Administrative Area", parent)
+		else:
+			name = (
+				frappe.db.get_value("Grievance Administrative Area", {"path_code": parent}, "name")
+				or frappe.db.get_value("Grievance Administrative Area", {"code": parent}, "name")
+				or frappe.db.get_value("Grievance Administrative Area", {"area_name": parent}, "name")
+			)
+			if name:
+				parent_doc = frappe.get_doc("Grievance Administrative Area", name)
+				parent = name
+
+		if parent_doc:
+			if level_name and parent_doc.level_name != level_name:
+				filters.append(["lft", ">", parent_doc.lft])
+				filters.append(["rgt", "<", parent_doc.rgt])
+			else:
+				filters.append(["parent_administrative_area", "=", parent_doc.name])
+		else:
+			filters.append(["parent_administrative_area", "=", parent])
 	elif not search and not level_name:
 		# Default root view: Top-level Regions
 		filters.append(["level_name", "=", "Region"])

@@ -57,7 +57,7 @@ def get_departments() -> list[dict]:
 	return frappe.get_all(
 		"Grievance Department",
 		filters={"active": 1},
-		fields=["name as department_id", "dept_name as department_name", "email_account", "head_of_dept"],
+		fields=["name as department_id", "dept_name as department_name", "email_account"],
 		order_by="dept_name asc",
 		ignore_permissions=True,
 	)

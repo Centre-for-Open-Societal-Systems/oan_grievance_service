@@ -93,9 +93,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance Routing Rule",
+   "label": "Grievance RBAC Assignment",
    "link_count": 0,
-   "link_to": "Grievance Routing Rule",
+   "link_to": "Grievance RBAC Assignment",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

@@ -87,7 +87,7 @@ def query_active_officer_assignments(
 	field_str = (
 		", ".join(fields)
 		if fields
-		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope"
+		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope"
 	)
 	sql = f"""  # nosemgrep: frappe-sql-format-injection
 		SELECT {field_str}
@@ -111,6 +111,8 @@ def active_scopes(user=None):
 		"p.administrative_area_scope",
 		"p.department_scope",
 		"p.category_scope",
+		"p.grievance_type_scope",
+		"p.service_provider_scope",
 		"c.role_level",
 		"c.is_primary",
 		"c.max_open_cases",
@@ -242,6 +244,16 @@ def grievance_query_conditions(user=None):
 				if isinstance(scope, dict)
 				else getattr(scope, "category_scope", None)
 			)
+			gtype_scope = (
+				scope.get("grievance_type_scope")
+				if isinstance(scope, dict)
+				else getattr(scope, "grievance_type_scope", None)
+			)
+			prov_scope = (
+				scope.get("service_provider_scope")
+				if isinstance(scope, dict)
+				else getattr(scope, "service_provider_scope", None)
+			)
 			area_scope = (
 				scope.get("administrative_area_scope")
 				if isinstance(scope, dict)
@@ -254,6 +266,12 @@ def grievance_query_conditions(user=None):
 				include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
 			if cat_scope:
 				include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
+			if gtype_scope:
+				include_parts.append(f"`tabGrievance`.grievance_type = {frappe.db.escape(gtype_scope)}")
+			if prov_scope:
+				include_parts.append(
+					f"`tabGrievance`.associated_service_provider = {frappe.db.escape(prov_scope)}"
+				)
 			if area_scope:
 				area_lft, area_rgt = bounds.get(area_scope, (None, None))
 				if area_lft is not None and area_rgt is not None:
@@ -320,6 +338,14 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	category = (
 		doc.get("service_category") if isinstance(doc, dict) else getattr(doc, "service_category", None)
 	)
+	grievance_type = (
+		doc.get("grievance_type") if isinstance(doc, dict) else getattr(doc, "grievance_type", None)
+	)
+	provider = (
+		doc.get("associated_service_provider")
+		if isinstance(doc, dict)
+		else getattr(doc, "associated_service_provider", None)
+	)
 	area = (
 		doc.get("administrative_area") if isinstance(doc, dict) else getattr(doc, "administrative_area", None)
 	)
@@ -337,18 +363,32 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		cat_scope = (
 			scope.get("category_scope") if isinstance(scope, dict) else getattr(scope, "category_scope", None)
 		)
+		gtype_scope = (
+			scope.get("grievance_type_scope")
+			if isinstance(scope, dict)
+			else getattr(scope, "grievance_type_scope", None)
+		)
+		prov_scope = (
+			scope.get("service_provider_scope")
+			if isinstance(scope, dict)
+			else getattr(scope, "service_provider_scope", None)
+		)
 		area_scope = (
 			scope.get("administrative_area_scope")
 			if isinstance(scope, dict)
 			else getattr(scope, "administrative_area_scope", None)
 		)
 
-		if not (dept_scope or cat_scope or area_scope):
+		if not (dept_scope or cat_scope or gtype_scope or prov_scope or area_scope):
 			continue
 
 		if dept_scope and dept != dept_scope:
 			continue
 		if cat_scope and category != cat_scope:
+			continue
+		if gtype_scope and grievance_type != gtype_scope:
+			continue
+		if prov_scope and provider != prov_scope:
 			continue
 		if area_scope:
 			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):
@@ -361,31 +401,52 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 
 def can_approve_reassignment(user=None, request_doc=None):
-	"""FSD 3.3.1: a reassignment is decided by a supervisor/admin, never by its requester.
+	"""FSD 3.3.1: a reassignment is decided by a supervising officer, the way deferral is.
 
-	Enforces segregation of duties:
-	1. The requester (initiated_by) cannot approve their own reassignment.
-	2. Approver must hold Grievance Admin / System Manager or be a supervising officer.
+	"Supervising" is the same escalation-chain test `can_approve_deferral` uses: the
+	approver must sit strictly above the officer the case is assigned to, so a peer
+	can raise a request but never rule on it. A supervisor ruling on a request they
+	raised themselves is their own decision to make. With no officer assigned there
+	is no chain to climb, and the ruling only has to come from someone other than
+	the requester. Admins are exempt.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
 
 	if not (roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES)):
 		return False
+	if roles & UNRESTRICTED_ROLES:
+		return True
+	if not request_doc:
+		return False
 
-	# Enforce segregation of duties: non-admin requesters cannot self-approve
-	if request_doc and not (roles & UNRESTRICTED_ROLES):
-		requester = (
-			request_doc.get("initiated_by")
-			if isinstance(request_doc, dict)
-			else getattr(request_doc, "initiated_by", None)
-		) or (
-			request_doc.get("owner") if isinstance(request_doc, dict) else getattr(request_doc, "owner", None)
-		)
-		if requester and requester == user:
-			return False
+	assignee = request_doc.get("prior_officer")
+	if not assignee:
+		return request_doc.get("initiated_by") != user
+	if assignee == user:
+		return False
+	return _outranks(user, assignee)
 
-	return True
+
+def can_decide_anonymity(grievance, user=None):
+	"""FSD 9.2: an anonymity request is decided by staff, never by whoever made it.
+
+	The request is raised at filing, so its maker is the submitter or the officer
+	who filed on their behalf (`assisted_by_officer`). Neither may rule on it; an
+	unrestricted admin may, the same exemption reassignment approval gives.
+	"""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+
+	if not (roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES)):
+		return False
+	if roles & UNRESTRICTED_ROLES:
+		return True
+
+	requesters = {grievance.get("assisted_by_officer"), grievance.get("owner")}
+	if grievance.get("submitter"):
+		requesters.add(frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user"))
+	return user not in requesters
 
 
 def can_approve_deferral(user=None, assignee=None):

@@ -169,6 +169,7 @@ class SubmitDocumentsRequest(BaseModel):
 	grievance: str = Field(..., min_length=1, description="Unique Grievance document identifier")
 	document_type: str | list[str] | None = None
 	response: str | None = None
+	timeline_entry: str | None = None
 
 	@model_validator(mode="after")
 	def validate_upload_limits(self):
@@ -201,6 +202,7 @@ def submit_documents(
 	grievance: str,
 	document_type: str | list[str] | None = None,
 	response: str | None = None,
+	timeline_entry: str | None = None,
 	**kwargs,
 ):
 	"""Upload one or more supporting documents against a grievance.
@@ -258,6 +260,7 @@ def submit_documents(
 				"doctype": "Grievance Attachment",
 				**owner,
 				"response": response,
+				"timeline_entry": timeline_entry,
 				"document_type": doc_type,
 				"file_name": stored.file_name,
 				"file_url": stored.file_url,
@@ -286,6 +289,7 @@ def submit_documents(
 				"size_bytes": item["size_bytes"],
 				"checksum_sha256": attachment.checksum_sha256,
 				"scan_status": attachment.scan_status,
+				"timeline_entry": attachment.timeline_entry,
 			}
 		)
 
@@ -322,6 +326,7 @@ def get_attachments(grievance: str):
 			"size_bytes",
 			"document_type",
 			"response",
+			"timeline_entry",
 			"scan_status",
 			"scanned_at",
 			"uploaded_by_user",

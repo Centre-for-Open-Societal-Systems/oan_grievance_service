@@ -37,7 +37,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Entry Type",
-   "options": "note\nmessage\nresponse\ninfo_request\ninfo_response\nstatus_change\nassignment\nescalation\nattachment",
+   "options": "submission\nnote\nmessage\nresponse\ninfo_request\ninfo_response\nstatus_change\nassignment\nescalation\nresolution\nrejection\nattachment",
    "reqd": 1
   },
   {

@@ -254,3 +254,47 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		self.assertEqual(fake_g.escalated, 1)
 		self.assertEqual(fake_g.assigned_to, "sec_officer@example.com")
 		self.assertEqual(sla.current_level_of(fake_g.assigned_to), "senior_nodal_officer")
+
+	def test_routing_with_grievance_type_and_provider_scope(self):
+		"""Verify routing prioritizes specific type and provider scopes over broad category rules."""
+		broad_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Unified Agri Dept",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+			}
+		).insert(ignore_permissions=True)
+
+		specific_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Unified Agri Dept",
+				"category_scope": "Inputs",
+				"grievance_type_scope": self.gtype_name,
+				"service_provider_scope": "EthioSeed Corp",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			case_data = {
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_name,
+				"associated_service_provider": "EthioSeed Corp",
+				"administrative_area": "TLR.TLW",
+			}
+			matched = routing.find_matching_assignment(case_data)
+			self.assertIsNotNone(matched)
+			self.assertEqual(matched.name, specific_doc.name)
+		finally:
+			if frappe.db.exists("Grievance RBAC Assignment", broad_doc.name):
+				frappe.delete_doc(
+					"Grievance RBAC Assignment", broad_doc.name, force=True, ignore_permissions=True
+				)
+			if frappe.db.exists("Grievance RBAC Assignment", specific_doc.name):
+				frappe.delete_doc(
+					"Grievance RBAC Assignment", specific_doc.name, force=True, ignore_permissions=True
+				)

@@ -17,62 +17,8 @@ from oan_grievance_service.services import lifecycle, notifications, sla
 # Workflow moves
 # --------------
 # Frappe's engine drives a move by saving, submitting or cancelling the Grievance, so
-# the Grievance controller calls these from that save: `before_workflow_action` from
-# validate, where a throw abandons the move, and `after_workflow_action` once the new
-# state is written. Between them they are the whole audit and side-effect layer; a
-# desk button, an API call and a scheduled job all arrive here the same way.
-
-
-def before_workflow_action(doc, from_state):
-	"""The guards a move must pass, evaluated before it is written.
-
-	The role check is not here: the Workflow's own `allowed` column settles who may
-	take an action, and Frappe refuses the rest before this runs.
-	"""
-	to_state = doc.workflow_state
-	context = frappe.flags.grievance_transition or frappe._dict()
-
-	# FSD 3.4 / 3.6: the history row will refuse a rejection or reopen with no
-	# reason; asking its rule here refuses the move before anything is written.
-	from oan_grievance_service.grievance_management.doctype.grievance_status_history.grievance_status_history import (
-		require_reason,
-	)
-
-	require_reason(from_state, to_state, context.reason)
-
-	# FSD D-2: a case only reaches the submitter, or goes back to them for more
-	# detail, on the strength of a formal response saying so.
-	if to_state == "Pending Submitter" and not _latest_response_is(doc, "Resolved", "Partially Resolved"):
-		frappe.throw(
-			_("A grievance reaches Pending Submitter only on a Resolved or Partially Resolved response."),
-			title=_("Response Required"),
-		)
-	if to_state == "More Info Needed" and not (
-		_latest_response_is(doc, "Requires further info") or _has_open_info_request(doc)
-	):
-		frappe.throw(
-			_("Ask the submitter a question before moving the grievance to More Info Needed."),
-			title=_("Information Request Required"),
-		)
-
-	# FSD 4.1 step 7 / 4.2 step 1: work starts in a department, never nowhere.
-	if to_state == "In Progress" and not doc.assigned_dept:
-		frappe.throw(
-			_("Assign the grievance to a department before work on it starts."),
-			title=_("Assignment Required"),
-		)
-
-	# Evidence before a resolution is a per-site rule, off unless the site turns it
-	# on: a farmer reporting a missing payment often has nothing to attach.
-	if (
-		to_state == "Pending Submitter"
-		and frappe.conf.get("grievance_require_evidence_before_resolution")
-		and not frappe.db.count("Grievance Attachment", {"grievance": doc.name})
-	):
-		frappe.throw(
-			_("Attach supporting evidence before recording a resolution."),
-			title=_("Evidence Required"),
-		)
+# the Grievance controller calls `after_workflow_action` once the new
+# state is written.
 
 
 def after_workflow_action(doc, from_state):
@@ -84,9 +30,6 @@ def after_workflow_action(doc, from_state):
 	# action joins the two states, so the trail names it either way.
 	if not context.action:
 		context.action = _action_between(doc, from_state, to_state)
-
-	if to_state == "Submitted":
-		_record_submission(doc)
 
 	user = None if context.automated else frappe.session.user
 	if user == "Guest":
@@ -110,23 +53,14 @@ def after_workflow_action(doc, from_state):
 	).insert(ignore_permissions=True)
 	context.history = history
 
-	timeline_body = f"Status changed from {from_state} to {to_state}"
-	if context.reason:
-		timeline_body += f": {context.reason}"
-	elif context.note:
-		timeline_body += f" ({context.note})"
-	GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="status_change",
-		is_internal=False,
-		body=timeline_body,
-		author_user=user,
-		ref_doctype="Grievance Status History",
-		ref_docname=history.name,
-	)
-
 	# FSD 4.2 step 1: the SLA clock starts when the case reaches a department.
 	if to_state == "Assigned":
+		if doc.assigned_to and not doc.assigned_dept:
+			from oan_grievance_service.permissions import active_scopes
+
+			scopes = active_scopes(doc.assigned_to)
+			if scopes and scopes[0].get("department_scope"):
+				doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
 		sla.start_clock(doc)
 
 	# The clock stops while the case waits on the submitter and the deadline is
@@ -155,23 +89,6 @@ def after_workflow_action(doc, from_state):
 			notifications.queue(doc, event)
 
 
-def _record_submission(doc):
-	"""FSD 4.1 step 5: the first timeline entry. Routing and the acknowledgement are
-	the intake API's next steps, not this hook's, so a test that submits a fixture
-	does not route it."""
-	user = frappe.session.user if frappe.session.user != "Guest" else None
-	GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="status_change",
-		is_internal=False,
-		body=f"Grievance submitted ({doc.ticket_number})",
-		author_submitter=doc.submitter,
-		author_user=doc.assisted_by_officer or user,
-		ref_doctype="Grievance",
-		ref_docname=doc.name,
-	)
-
-
 def _action_between(doc, from_state, to_state):
 	from frappe.model.workflow import get_workflow
 
@@ -179,21 +96,6 @@ def _action_between(doc, from_state, to_state):
 		if row.state == from_state and row.next_state == to_state:
 			return row.action
 	return None
-
-
-def _latest_response_is(doc, *response_types):
-	latest = frappe.get_all(
-		"Grievance Response",
-		filters={"grievance": doc.name},
-		fields=["response_type"],
-		order_by="response_date desc, creation desc",
-		limit=1,
-	)
-	return bool(latest) and latest[0].response_type in response_types
-
-
-def _has_open_info_request(doc):
-	return bool(frappe.db.exists("Grievance Timeline", {"grievance": doc.name, "entry_type": "info_request"}))
 
 
 def response_after_insert(doc, method=None):
@@ -237,245 +139,3 @@ def response_after_insert(doc, method=None):
 
 	notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
 	doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)
-
-
-def reassignment_on_update(doc, method=None):
-	"""FSD 3.3.1: the target office gets no rights until L2 approves.
-
-	The reassignment is committed here, on approval, and nowhere else, which is what
-	makes 'the reassigned officer may act only after the approved assignment is
-	committed' true rather than aspirational.
-	"""
-	from oan_grievance_service.permissions import can_approve_reassignment
-
-	if doc.decision == "Pending":
-		notifications.queue(frappe.get_doc("Grievance", doc.grievance), C.EVENT_REASSIGNMENT_REQUESTED)
-		return
-
-	if doc.get_doc_before_save() and doc.get_doc_before_save().decision != "Pending":
-		return
-
-	if not can_approve_reassignment(request_doc=doc):
-		frappe.throw(
-			_(
-				"Only a supervising officer may approve or reject a reassignment (self-approval is not permitted)."
-			),
-			title=_("Approval Not Permitted"),
-		)
-
-	doc.db_set({"decided_at": now_datetime(), "approver": frappe.session.user}, update_modified=False)
-
-	if doc.decision != "Approved":
-		return
-
-	grievance = frappe.get_doc("Grievance", doc.grievance)
-	g_updates = {"assigned_dept": doc.target_department}
-	if doc.target_officer:
-		g_updates["assigned_to"] = doc.target_officer
-
-	# FSD 3.3.1: SLA treatment follows configured policy and is never implicit.
-	# Appendix D-2 assumes a reset for a referral; 3.3.1 makes it a decision. The
-	# field carries that decision, and an unset field means the clock continues.
-	if doc.sla_treatment == "Reset":
-		g_updates.update(
-			{
-				"sla_due_date": None,
-				"sla_start_at": None,
-				"reminder_50_sent": 0,
-				"reminder_80_sent": 0,
-			}
-		)
-	grievance.db_set(g_updates, update_modified=False)
-	if doc.sla_treatment == "Reset":
-		sla.start_clock(grievance)
-
-	# Record assignment event in unified timeline (not as a fake status change)
-	GrievanceTimeline.record(
-		grievance=grievance.name,
-		entry_type="assignment",
-		is_internal=False,
-		body=f"Reassigned to {doc.target_department}"
-		+ (f" ({doc.target_officer})" if doc.target_officer else "")
-		+ f" (SLA: {doc.sla_treatment or 'Continue'})",
-		author_user=frappe.session.user,
-		ref_doctype="Grievance Reassignment Request",
-		ref_docname=doc.name,
-	)
-
-
-def deferral_on_update(doc, method=None):
-	"""FSD 3.11.7: an approved deferral extends the SLA window."""
-	from oan_grievance_service.permissions import can_approve_deferral
-
-	if doc.status == "Pending":
-		return
-	before = doc.get_doc_before_save()
-	if before and before.status != "Pending":
-		return
-
-	if not can_approve_deferral(assignee=frappe.db.get_value("Grievance", doc.grievance, "assigned_to")):
-		frappe.throw(
-			_("Only a supervising officer may decide a deferral."),
-			title=_("Approval Not Permitted"),
-		)
-
-	doc.db_set({"approver": frappe.session.user, "decided_at": now_datetime()}, update_modified=False)
-
-	if doc.status != "Approved":
-		return
-
-	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
-		max_deferral_days,
-	)
-
-	max_days = max_deferral_days()
-	if doc.additional_days > max_days:
-		frappe.throw(
-			_("A deferral may not exceed {0} days.").format(max_days),
-			title=_("Deferral Too Long"),
-		)
-
-	grievance = frappe.get_doc("Grievance", doc.grievance)
-	sla.extend_for_deferral(grievance, doc.additional_days)
-
-
-def anonymity_on_update(doc, method=None):
-	"""FSD 9.2: approval masks the submitter from department officers."""
-	if doc.status == "Pending":
-		return
-	before = doc.get_doc_before_save()
-	if before and before.status != "Pending":
-		return
-
-	doc.db_set({"decided_by": frappe.session.user, "decided_at": now_datetime()}, update_modified=False)
-
-	grievance = frappe.get_doc("Grievance", doc.grievance)
-	g_updates = {"anonymity_status": doc.status}
-
-	if doc.status == "Approved":
-		g_updates["is_anonymous"] = 1
-		g_updates["anonymity_approved_by"] = frappe.session.user
-	elif doc.status == "Rejected":
-		g_updates["is_anonymous"] = 0
-	grievance.db_set(g_updates, update_modified=False)
-
-	if doc.status == "Rejected":
-		lifecycle.transition(
-			grievance,
-			"Reject",
-			reason="Anonymity refused and identity not disclosed",
-			automated=True,
-			closure_type="rejected",
-		)
-
-
-def on_user_registered(user_doc, role=None, roles=None, **kwargs):
-	"""Handle user registration event broadcast from oan_auth_service.
-
-	If 'Grievance Submitter' is among the assigned roles:
-	1. Resolves submitter_type (defaulting to 'Individual Farmer').
-	2. Validates that the submitter type exists.
-	3. Derives and validates the canonical dedupe_key based on scheme rules.
-	4. Populates general contact and submitter-type-specific fields.
-	5. Creates or updates and links the Submitter Profile record to the User.
-	"""
-	from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
-		build_dedupe_key,
-	)
-	from oan_grievance_service.services import identity
-
-	assigned_roles = set(roles or [])
-	if role:
-		assigned_roles.add(role)
-
-	# Only process if user is registering as a Grievance Submitter
-	if "Grievance Submitter" not in assigned_roles:
-		return None
-
-	submitter_type = (kwargs.get("submitter_type") or "Individual Farmer").strip()
-
-	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
-		frappe.throw(
-			_("Submitter Type '{0}' does not exist.").format(submitter_type),
-			frappe.ValidationError,
-		)
-
-	submitter_name = (
-		kwargs.get("submitter_name")
-		or kwargs.get("full_name")
-		or f"{user_doc.first_name or ''} {user_doc.last_name or ''}".strip()
-		or user_doc.name
-	)
-
-	contact_mobile = (
-		kwargs.get("contact_mobile") or kwargs.get("phone_number") or user_doc.mobile_no or ""
-	).strip()
-
-	contact_email = (kwargs.get("contact_email") or kwargs.get("email") or "").strip() or None
-
-	if not contact_email and user_doc.email and not user_doc.email.endswith("@id.openagrinet.internal"):
-		contact_email = user_doc.email
-
-	# Notification language belongs on the User record, the one identity primitive shared by
-	# submitters and staff. Guarded because a bench need not have the Language record seeded.
-	preferred_language = kwargs.get("preferred_language")
-	if preferred_language and frappe.db.exists("Language", preferred_language):
-		user_doc.db_set("language", preferred_language, update_modified=False)
-
-	# Automatically derive dedupe_key from inputs (fayda_id, registration_number, farmer_id, phone, etc.)
-	dedupe_key = identity.derive_dedupe_key(
-		submitter_type=submitter_type,
-		mobile=contact_mobile,
-		fayda_id=kwargs.get("fayda_id"),
-		national_id=kwargs.get("national_id"),
-		registration_number=kwargs.get("registration_number"),
-		org_number=kwargs.get("org_number"),
-		farmer_id=kwargs.get("farmer_id"),
-		dedupe_key=kwargs.get("dedupe_key"),
-	)
-
-	if not dedupe_key:
-		frappe.throw(
-			_("Submitter registration requires a valid contact phone number or identifier."),
-			frappe.ValidationError,
-		)
-
-	# Check if a Submitter Profile already exists with this dedupe_key
-	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
-	if existing_name:
-		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
-		if profile.user and profile.user != user_doc.name:
-			frappe.throw(
-				_(
-					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
-				).format(dedupe_key),
-				frappe.DuplicateEntryError,
-			)
-		profile.user = user_doc.name
-		if submitter_name:
-			profile.submitter_name = submitter_name
-		if contact_mobile:
-			profile.contact_mobile = contact_mobile
-		if contact_email:
-			profile.contact_email = contact_email
-		admin_area = kwargs.get("administrative_area") or kwargs.get("region")
-		if admin_area:
-			profile.administrative_area = admin_area
-		if kwargs.get("administrative_unit") or kwargs.get("woreda"):
-			profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
-		profile.save(ignore_permissions=True)
-	else:
-		profile = frappe.new_doc("Grievance Submitter Profile")
-		profile.user = user_doc.name
-		profile.submitter_type = submitter_type
-		profile.submitter_name = submitter_name
-		profile.contact_mobile = contact_mobile
-		profile.contact_email = contact_email
-		profile.dedupe_key = dedupe_key
-		profile.administrative_area = kwargs.get("administrative_area") or kwargs.get("region")
-		profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
-		profile.active = 1
-
-		profile.insert(ignore_permissions=True)
-
-	return profile

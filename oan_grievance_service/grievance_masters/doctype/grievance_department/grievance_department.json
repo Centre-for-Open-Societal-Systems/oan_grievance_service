@@ -11,11 +11,7 @@
   "short_name",
   "email_account",
   "phone",
-  "active",
-  "col_officers",
-  "head_of_dept",
-  "senior_officer",
-  "nodal_officer"
+  "active"
  ],
  "fields": [
   {
@@ -52,28 +48,6 @@
    "fieldname": "active",
    "fieldtype": "Check",
    "label": "Active"
-  },
-  {
-   "fieldname": "col_officers",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "head_of_dept",
-   "fieldtype": "Link",
-   "label": "Head of Department",
-   "options": "User"
-  },
-  {
-   "fieldname": "senior_officer",
-   "fieldtype": "Link",
-   "label": "L2 Senior Nodal Officer",
-   "options": "User"
-  },
-  {
-   "fieldname": "nodal_officer",
-   "fieldtype": "Link",
-   "label": "L1 Nodal Officer",
-   "options": "User"
   }
  ],
  "grid_page_length": 50,

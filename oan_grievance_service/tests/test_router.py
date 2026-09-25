@@ -327,9 +327,18 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		tl_data = json.loads(res_tl.get_data(as_text=True))["data"]
 		self.assertIn("available_actions", tl_data)
 
-		# 3. Assign & Start Work
-		# 3. Assign & Start Work
+		# 3. Attempting direct 'Assign' action via generic action endpoint is refused
 		frappe.set_user("Administrator")
+		req_assign_bad = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/action",
+			method="POST",
+			data={"action": "Assign"},
+		)
+		res_assign_bad = frappe.api.handle(req_assign_bad)
+		body_assign_bad = json.loads(res_assign_bad.get_data(as_text=True))
+		self.assertEqual(body_assign_bad["status"], "error")
+		self.assertIn("not permitted", body_assign_bad["message"].lower())
+
 		from oan_grievance_service.tests.fixtures import a_department
 
 		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
@@ -350,6 +359,17 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
 		frappe.db.commit()
+
+		# Attempting 'Submit Response' action without a formal Grievance Response is refused
+		req_resp_bad = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/action",
+			method="POST",
+			data={"action": "Submit Response"},
+		)
+		res_resp_bad = frappe.api.handle(req_resp_bad)
+		body_resp_bad = json.loads(res_resp_bad.get_data(as_text=True))
+		self.assertEqual(body_resp_bad["status"], "error")
+		self.assertIn("response", body_resp_bad["message"].lower())
 
 		# 4. Reject without reason is refused (400)
 		req_rej_bad = make_test_request(
@@ -372,3 +392,170 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_rej_ok.status_code, 200)
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
+
+	def test_reassign_defer_and_anonymity_endpoints(self):
+		"""Test direct REST APIs for reassignment, deferral, and anonymity decisions."""
+		import uuid
+
+		import frappe.api
+
+		from oan_grievance_service.tests.fixtures import a_department
+
+		# 1. Submit a grievance
+		frappe.set_user(self.farmer_user.name)
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
+			"submission_channel": "Mobile App",
+			"administrative_area": self.area,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype.name,
+			"description": "Testing reassign and deferral direct endpoints.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		frappe.api.handle(req_save)
+
+		submit_payload = {
+			"client_submission_uuid": draft_uuid,
+			"consent_given": 1,
+			"is_anonymous": 1,
+			"anonymity_justification": "Need anonymity",
+		}
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		res_submit = frappe.api.handle(req_submit)
+		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
+		frappe.db.commit()
+
+		# 2. Reassign endpoint
+		frappe.set_user("Administrator")
+		dept = a_department()
+		req_reassign = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/reassign",
+			method="POST",
+			data={
+				"target_department": dept,
+				"reason": "Routing to regional dept",
+			},
+		)
+		res_reassign = frappe.api.handle(req_reassign)
+		self.assertEqual(res_reassign.status_code, 200, res_reassign.get_data(as_text=True))
+		reassign_data = json.loads(res_reassign.get_data(as_text=True))
+		self.assertEqual(reassign_data["status"], "success")
+		self.assertEqual(reassign_data["data"]["assigned_dept"], dept)
+
+		# 3. Defer SLA endpoint
+		req_defer = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/defer-sla",
+			method="POST",
+			data={"additional_days": 5, "reason": "Awaiting soil lab sample results"},
+		)
+		res_defer = frappe.api.handle(req_defer)
+		self.assertEqual(res_defer.status_code, 200)
+		defer_data = json.loads(res_defer.get_data(as_text=True))
+		self.assertEqual(defer_data["status"], "success")
+		self.assertIn("sla_due_date", defer_data["data"])
+
+		# 4. Anonymity decision endpoint
+		req_anon = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/anonymity-decision",
+			method="POST",
+			data={"decision": "Approved", "reason": "Sensitive whistleblowing context"},
+		)
+		res_anon = frappe.api.handle(req_anon)
+		self.assertEqual(res_anon.status_code, 200)
+		anon_data = json.loads(res_anon.get_data(as_text=True))
+		self.assertEqual(anon_data["status"], "success")
+		self.assertTrue(anon_data["data"]["is_anonymous"])
+
+	def test_unified_message_and_department_response_endpoint(self):
+		"""Test unified POST /api/v1/grievances/<ticket>/message for notes, messages, info requests, and department responses."""
+		import uuid
+
+		import frappe.api
+
+		from oan_grievance_service.services import lifecycle
+		from oan_grievance_service.tests.fixtures import a_department
+
+		# 1. Citizen submits grievance
+		frappe.set_user(self.farmer_user.name)
+		draft_uuid = str(uuid.uuid4())
+		save_payload = {
+			"client_submission_uuid": draft_uuid,
+			"submission_channel": "Mobile App",
+			"administrative_area": self.area,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype.name,
+			"description": "Testing unified communication and department response endpoint.",
+		}
+		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
+		frappe.api.handle(req_save)
+
+		submit_payload = {"client_submission_uuid": draft_uuid, "consent_given": 1}
+		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		res_submit = frappe.api.handle(req_submit)
+		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
+		frappe.db.commit()
+
+		# Assign and Start Work
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
+		doc.assigned_dept = a_department()
+		doc.save(ignore_permissions=True)
+		lifecycle.transition(doc, "Assign")
+		lifecycle.transition(doc, "Start Work")
+		frappe.db.commit()
+
+		# 2. Staff posts an internal note
+		req_note = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Internal investigation note", "type": "note"},
+		)
+		res_note = frappe.api.handle(req_note)
+		self.assertEqual(res_note.status_code, 200)
+		note_data = json.loads(res_note.get_data(as_text=True))
+		self.assertEqual(note_data["data"]["entry_type"], "note")
+		self.assertTrue(note_data["data"]["is_internal"])
+
+		# 3. Staff posts an information request -> moves state to More Info Needed
+		req_req_info = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Please provide proof of purchase.", "type": "info_request"},
+		)
+		res_req_info = frappe.api.handle(req_req_info)
+		self.assertEqual(res_req_info.status_code, 200)
+		info_req_data = json.loads(res_req_info.get_data(as_text=True))
+		self.assertEqual(info_req_data["data"]["status"], "More Info Needed")
+		self.assertEqual(info_req_data["data"]["entry_type"], "info_request")
+
+		# 4. Citizen replies -> automatically moves state back to In Progress
+		frappe.set_user(self.farmer_user.name)
+		req_reply = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={"body": "Receipt number is RCP-998811."},
+		)
+		res_reply = frappe.api.handle(req_reply)
+		self.assertEqual(res_reply.status_code, 200)
+		reply_data = json.loads(res_reply.get_data(as_text=True))
+		self.assertEqual(reply_data["data"]["status"], "In Progress")
+		self.assertEqual(reply_data["data"]["entry_type"], "info_response")
+
+		# 5. Staff posts formal department response -> moves state to Pending Submitter
+		frappe.set_user("Administrator")
+		req_resp = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message",
+			method="POST",
+			data={
+				"body": "Replacement seeds delivered to the primary warehouse.",
+				"type": "Resolved",
+				"action_taken": "Issued replacement voucher.",
+			},
+		)
+		res_resp = frappe.api.handle(req_resp)
+		self.assertEqual(res_resp.status_code, 200)
+		resp_data = json.loads(res_resp.get_data(as_text=True))
+		self.assertEqual(resp_data["data"]["status"], "Pending Submitter")
+		self.assertEqual(resp_data["data"]["entry_type"], "response")
+		self.assertEqual(resp_data["data"]["response_type"], "Resolved")

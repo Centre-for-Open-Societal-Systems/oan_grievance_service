@@ -20,6 +20,8 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field, model_validator
 
+from oan_grievance_service.services import constants as C
+
 DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
@@ -31,6 +33,34 @@ ALLOWED_DRAFT_ROLES = [
 	"System Manager",
 	"Administrator",
 ]
+
+
+def _resolve_grievance_type(grievance_type, category):
+	"""The Grievance Type a caller named, or a 400.
+
+	An empty value clears the field. Anything else must resolve to a real record:
+	passing an unknown string through would store a broken Link on the draft and
+	only fail later, at submit, far from the input that caused it.
+	"""
+	if not grievance_type:
+		return None
+	from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+	resolved = resolve_grievance_type(grievance_type, category)
+	if not resolved:
+		frappe.throw(
+			_("Grievance type '{0}' does not exist.").format(grievance_type),
+			frappe.ValidationError,
+			title=_("Invalid Grievance Type"),
+		)
+	return resolved
+
+
+def _fallback_grievance_type():
+	"""The catch-all type for a draft filed under the catch-all category."""
+	return frappe.db.get_value(
+		"Grievance Type", {"type_name": C.FALLBACK_GRIEVANCE_TYPE}, "name"
+	) or frappe.db.get_value("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}, "name")
 
 
 class SaveDraftRequest(BaseModel):
@@ -162,8 +192,14 @@ def save(
 		doc.administrative_unit = administrative_unit
 	if service_category is not None:
 		doc.service_category = service_category
+	elif not doc.service_category:
+		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
+
 	if grievance_type is not None:
-		doc.grievance_type = grievance_type
+		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
+	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
+		doc.grievance_type = _fallback_grievance_type()
+
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
 	if description is not None:
@@ -179,9 +215,11 @@ def save(
 
 			doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
 
-		from oan_grievance_service.services import identity
+		from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+			validate_submission_payload,
+		)
 
-		identity.validate_submission_payload(doc.as_dict())
+		validate_submission_payload(doc.as_dict())
 
 	doc.flags.ignore_mandatory = True
 	doc.flags.is_draft_wizard = True
@@ -306,8 +344,14 @@ def submit_draft(
 		doc.administrative_unit = administrative_unit
 	if service_category:
 		doc.service_category = service_category
+	elif not doc.service_category:
+		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
+
 	if grievance_type:
-		doc.grievance_type = grievance_type
+		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
+	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
+		doc.grievance_type = _fallback_grievance_type()
+
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider
 	if description:
@@ -365,9 +409,11 @@ def submit_draft(
 
 		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
 
-	from oan_grievance_service.services import identity
+	from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+		validate_submission_payload,
+	)
 
-	identity.validate_submission_payload(doc.as_dict())
+	validate_submission_payload(doc.as_dict())
 
 	doc.flags.in_submit = True
 	doc.save(ignore_permissions=True)
@@ -383,10 +429,39 @@ def submit_draft(
 	doc.save(ignore_permissions=True)
 
 	from oan_grievance_service.api.v1.grievance import _request_anonymity, detect_duplicates
-	from oan_grievance_service.services import constants as C
+	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+		GrievanceTimeline,
+	)
 	from oan_grievance_service.services import lifecycle, notifications, routing
 
 	lifecycle.transition(doc, "Submit")
+
+	body_text = (doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})"
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="submission",
+		is_internal=False,
+		body=body_text,
+		author_submitter=doc.submitter,
+		author_user=doc.assisted_by_officer,
+		ref_doctype="Grievance",
+		ref_docname=doc.name,
+	)
+	# Files uploaded while drafting belong to the submission entry. A failure here
+	# fails the submit: swallowing it would leave the attachments off the timeline.
+	unlinked = frappe.get_all(
+		"Grievance Attachment",
+		filters={"grievance": doc.name, "timeline_entry": ["is", "not set"]},
+		pluck="name",
+	)
+	if unlinked:
+		frappe.db.set_value(
+			"Grievance Attachment",
+			{"name": ["in", unlinked]},
+			"timeline_entry",
+			timeline_entry.name,
+			update_modified=False,
+		)
 
 	if is_anonymous or doc.is_anonymous:
 		doc.is_anonymous = 1
@@ -534,6 +609,9 @@ def _draft_state(doc):
 	attachments = _attachments(doc.name)
 	hierarchy = get_administrative_hierarchy(doc.administrative_area)
 	location_str = format_administrative_location(hierarchy)
+	grievance_type_name = (
+		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
+	)
 
 	return {
 		"name": doc.name,
@@ -552,6 +630,7 @@ def _draft_state(doc):
 		"administrative_unit": doc.administrative_unit,
 		"service_category": doc.service_category,
 		"grievance_type": doc.grievance_type,
+		"grievance_type_name": grievance_type_name,
 		"associated_service_provider": doc.associated_service_provider,
 		"description": doc.description,
 		"desired_outcome": doc.desired_outcome,
