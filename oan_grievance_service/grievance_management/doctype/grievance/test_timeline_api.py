@@ -132,7 +132,7 @@ class TestTimelineAPI(FrappeTestCase):
 		# Move grievance through Assigned -> In Progress. Work starts in a department.
 		if not self.grievance.assigned_dept:
 			self.grievance.db_set("assigned_dept", a_department(), update_modified=False)
-		lifecycle.transition(self.grievance, "Assign")
+		lifecycle.transition(self.grievance, "Assign", automated=True)
 		from oan_grievance_service.api.v1.grievance import action
 
 		action_res = action(self.grievance.ticket_number, action="Start Work")
