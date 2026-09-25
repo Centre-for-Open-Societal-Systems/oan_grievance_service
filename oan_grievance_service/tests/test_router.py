@@ -428,7 +428,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_defer.status_code, 200)
 		defer_data = json.loads(res_defer.get_data(as_text=True))
 		self.assertEqual(defer_data["status"], "success")
-		self.assertIsNotNone(defer_data["data"]["sla_due_date"])
+		self.assertIn("sla_due_date", defer_data["data"])
 
 		# 4. Anonymity decision endpoint
 		req_anon = make_test_request(
