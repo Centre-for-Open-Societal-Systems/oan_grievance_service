@@ -19,7 +19,7 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from oan_grievance_service.api.v1._options import (
 	active_channels,
@@ -30,6 +30,9 @@ from oan_grievance_service.api.v1._options import (
 	get_status_options,
 	get_status_summary,
 	public_status,
+)
+from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+	GrievanceSubmissionPayload,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -44,14 +47,13 @@ from oan_grievance_service.services import ticket_number as tn
 route = prefixed("/api/v1/grievances")
 
 
-class SubmitGrievanceRequest(BaseModel):
+class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	"""Request body for the one-step submission endpoint."""
 
-	model_config = {"extra": "allow"}
+	model_config = ConfigDict(extra="allow")
 
 	submitter_type: str | None = None
 	submitter_name: str | None = None
-	contact_mobile: str | None = None
 	contact_email: SafeEmail | None = None
 	submission_channel: str | None = None
 	administrative_area: str | None = None
@@ -59,7 +61,6 @@ class SubmitGrievanceRequest(BaseModel):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	associated_service_provider: str | None = None
-	description: str | None = None
 	desired_outcome: str | None = None
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
@@ -720,6 +721,8 @@ def _get_available_actions_for_user(doc):
 	for act in actions:
 		if act == "Reject" and not is_staff:
 			continue
+		if act in ("Assign", "Submit Response"):
+			continue
 		req_reason = act in ("Reject", "Reopen")
 		result.append(
 			{
@@ -1012,16 +1015,72 @@ def action(
 		)
 		lifecycle.transition(doc, matching_action, reason=reason, note=note)
 
+	elif matching_action == "Assign":
+		frappe.throw(
+			_(
+				"Direct 'Assign' action is not permitted on this endpoint. Use the assignment/reassignment API to assign a department and officer."
+			),
+			frappe.ValidationError,
+			title=_("Action Not Permitted"),
+		)
+
+	elif matching_action == "Submit Response":
+		has_valid_response = frappe.db.exists(
+			"Grievance Response",
+			{
+				"grievance": doc.name,
+				"response_type": ["in", ["Resolved", "Partially Resolved"]],
+			},
+		)
+		if not has_valid_response:
+			frappe.throw(
+				_(
+					"Submit Response requires a formal department response with a resolution summary. Please record your response using the message/department-response endpoint."
+				),
+				frappe.ValidationError,
+				title=_("Response Required"),
+			)
+		lifecycle.transition(doc, matching_action, reason=reason, note=note)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="status_change",
+			is_internal=False,
+			body=reason or note or f"Status changed to {doc.status}",
+			author_user=frappe.session.user,
+		)
+
+	elif matching_action == "Start Work":
+		if not doc.assigned_dept:
+			if doc.assigned_to:
+				from oan_grievance_service.permissions import active_scopes
+
+				scopes = active_scopes(doc.assigned_to)
+				if scopes and scopes[0].get("department_scope"):
+					doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
+			if not doc.assigned_dept:
+				frappe.throw(
+					_("Cannot start work on a grievance without an assigned department."),
+					frappe.ValidationError,
+					title=_("Department Required"),
+				)
+		lifecycle.transition(doc, matching_action, reason=reason, note=note)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="status_change",
+			is_internal=False,
+			body=reason or note or f"Status changed to {doc.status}",
+			author_user=frappe.session.user,
+		)
+
 	else:
 		lifecycle.transition(doc, matching_action, reason=reason, note=note)
-		if matching_action != "Assign":
-			timeline_entry = GrievanceTimeline.record(
-				grievance=doc.name,
-				entry_type="status_change",
-				is_internal=False,
-				body=reason or note or f"Status changed to {doc.status}",
-				author_user=frappe.session.user,
-			)
+		timeline_entry = GrievanceTimeline.record(
+			grievance=doc.name,
+			entry_type="status_change",
+			is_internal=False,
+			body=reason or note or f"Status changed to {doc.status}",
+			author_user=frappe.session.user,
+		)
 
 	doc.reload()
 	current_state = _current_state(doc)

@@ -55,6 +55,12 @@ def after_workflow_action(doc, from_state):
 
 	# FSD 4.2 step 1: the SLA clock starts when the case reaches a department.
 	if to_state == "Assigned":
+		if doc.assigned_to and not doc.assigned_dept:
+			from oan_grievance_service.permissions import active_scopes
+
+			scopes = active_scopes(doc.assigned_to)
+			if scopes and scopes[0].get("department_scope"):
+				doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
 		sla.start_clock(doc)
 
 	# The clock stops while the case waits on the submitter and the deadline is
@@ -133,115 +139,3 @@ def response_after_insert(doc, method=None):
 
 	notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
 	doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)
-
-
-def on_user_registered(user_doc, role=None, roles=None, **kwargs):
-	"""Handle user registration event broadcast from oan_auth_service.
-
-	If 'Grievance Submitter' is among the assigned roles:
-	1. Resolves submitter_type (defaulting to 'Individual Farmer').
-	2. Validates that the submitter type exists.
-	3. Derives and validates the canonical dedupe_key based on scheme rules.
-	4. Populates general contact and submitter-type-specific fields.
-	5. Creates or updates and links the Submitter Profile record to the User.
-	"""
-	from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
-		build_dedupe_key,
-	)
-	from oan_grievance_service.services import identity
-
-	assigned_roles = set(roles or [])
-	if role:
-		assigned_roles.add(role)
-
-	# Only process if user is registering as a Grievance Submitter
-	if "Grievance Submitter" not in assigned_roles:
-		return None
-
-	submitter_type = (kwargs.get("submitter_type") or "Individual Farmer").strip()
-
-	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
-		frappe.throw(
-			_("Submitter Type '{0}' does not exist.").format(submitter_type),
-			frappe.ValidationError,
-		)
-
-	submitter_name = (
-		kwargs.get("submitter_name")
-		or kwargs.get("full_name")
-		or f"{user_doc.first_name or ''} {user_doc.last_name or ''}".strip()
-		or user_doc.name
-	)
-
-	contact_mobile = (
-		kwargs.get("contact_mobile") or kwargs.get("phone_number") or user_doc.mobile_no or ""
-	).strip()
-
-	contact_email = (kwargs.get("contact_email") or kwargs.get("email") or "").strip() or None
-
-	if not contact_email and user_doc.email and not user_doc.email.endswith("@id.openagrinet.internal"):
-		contact_email = user_doc.email
-
-	# Notification language belongs on the User record, the one identity primitive shared by
-	# submitters and staff. Guarded because a bench need not have the Language record seeded.
-	preferred_language = kwargs.get("preferred_language")
-	if preferred_language and frappe.db.exists("Language", preferred_language):
-		user_doc.db_set("language", preferred_language, update_modified=False)
-
-	# Automatically derive dedupe_key from inputs (fayda_id, registration_number, farmer_id, phone, etc.)
-	dedupe_key = identity.derive_dedupe_key(
-		submitter_type=submitter_type,
-		mobile=contact_mobile,
-		fayda_id=kwargs.get("fayda_id"),
-		national_id=kwargs.get("national_id"),
-		registration_number=kwargs.get("registration_number"),
-		org_number=kwargs.get("org_number"),
-		farmer_id=kwargs.get("farmer_id"),
-		dedupe_key=kwargs.get("dedupe_key"),
-	)
-
-	if not dedupe_key:
-		frappe.throw(
-			_("Submitter registration requires a valid contact phone number or identifier."),
-			frappe.ValidationError,
-		)
-
-	# Check if a Submitter Profile already exists with this dedupe_key
-	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
-	if existing_name:
-		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
-		if profile.user and profile.user != user_doc.name:
-			frappe.throw(
-				_(
-					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
-				).format(dedupe_key),
-				frappe.DuplicateEntryError,
-			)
-		profile.user = user_doc.name
-		if submitter_name:
-			profile.submitter_name = submitter_name
-		if contact_mobile:
-			profile.contact_mobile = contact_mobile
-		if contact_email:
-			profile.contact_email = contact_email
-		admin_area = kwargs.get("administrative_area") or kwargs.get("region")
-		if admin_area:
-			profile.administrative_area = admin_area
-		if kwargs.get("administrative_unit") or kwargs.get("woreda"):
-			profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
-		profile.save(ignore_permissions=True)
-	else:
-		profile = frappe.new_doc("Grievance Submitter Profile")
-		profile.user = user_doc.name
-		profile.submitter_type = submitter_type
-		profile.submitter_name = submitter_name
-		profile.contact_mobile = contact_mobile
-		profile.contact_email = contact_email
-		profile.dedupe_key = dedupe_key
-		profile.administrative_area = kwargs.get("administrative_area") or kwargs.get("region")
-		profile.administrative_unit = kwargs.get("administrative_unit") or kwargs.get("woreda")
-		profile.active = 1
-
-		profile.insert(ignore_permissions=True)
-
-	return profile

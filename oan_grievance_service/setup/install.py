@@ -57,11 +57,12 @@ WORKFLOW_STATES = [
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
 SUBMITTER_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
 	("Draft", "Submit", "Submitted", SUBMITTER_ROLES),
-	("Submitted", "Assign", "Assigned", OFFICER_ROLES),
+	("Submitted", "Assign", "Assigned", SYSTEM_ROLES),
 	("Submitted", "Reject", "Rejected", OFFICER_ROLES),
 	("Assigned", "Start Work", "In Progress", OFFICER_ROLES),
 	("Assigned", "Reject", "Rejected", OFFICER_ROLES),
@@ -73,7 +74,7 @@ WORKFLOW_TRANSITIONS = [
 	("More Info Needed", "Reject", "Rejected", OFFICER_ROLES),
 	("Pending Submitter", "Confirm Resolution", "Resolved", SUBMITTER_ROLES),
 	("Pending Submitter", "Reopen", "In Progress", SUBMITTER_ROLES),
-	("Pending Submitter", "Auto Close", "Closed", OFFICER_ROLES),
+	("Pending Submitter", "Auto Close", "Closed", SYSTEM_ROLES),
 	("Resolved", "Close Case", "Closed", SUBMITTER_ROLES),
 ]
 

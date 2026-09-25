@@ -86,6 +86,11 @@ class WorkflowTestCase(FrappeTestCase):
 
 
 class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		install.seed_workflow()
+
 	def test_the_workflow_is_active_on_grievance_and_drives_workflow_state(self):
 		wf = workflow()
 		self.assertEqual(

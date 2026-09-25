@@ -97,12 +97,11 @@ scheduler_events = {
 }
 
 
-# Authentication & Registration
-# -----------------------------
-# Integrates with oan_auth_service to initialize domain profiles upon user registration
-# and enrich user introspection (GET /api/v1/auth/me) with grievance profile data.
+# Authentication & Profile Resolution
+# -----------------------------------
+# Integrates with oan_auth_service to enrich user introspection (GET /api/v1/auth/me)
+# with grievance profile data. Submitter profile registration is handled via REST API.
 
-on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 
 # Portal

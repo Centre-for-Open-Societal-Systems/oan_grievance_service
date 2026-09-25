@@ -4,13 +4,116 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from oan_grievance_service.services import hooks_handlers, identity, ticket_number
 
-# Re-export for callers; single source of truth lives on identity.
-ALLOWED_FILING_LEVELS = identity.ALLOWED_FILING_LEVELS
-MIN_DESCRIPTION_LENGTH = identity.MIN_DESCRIPTION_LENGTH
+MIN_DESCRIPTION_LENGTH = 20
+
+# Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
+# are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
+ALLOWED_FILING_LEVELS = frozenset(
+	{
+		"Woreda",
+		"Kebele",
+		"Village",
+		"Ward",
+		"Taluka",
+		"Sub-County",
+		"County",
+		"District",
+	}
+)
+
+
+def validate_filing_area(administrative_area: str):
+	"""Domain rules for where a grievance may be filed.
+
+	Link existence is Frappe's job; this enforces filing level and dissolved dates.
+	"""
+	area = frappe.get_doc("Grievance Administrative Area", administrative_area)
+	if area.level_name not in ALLOWED_FILING_LEVELS or (
+		not area.parent_administrative_area and area.is_group
+	):
+		frappe.throw(
+			_(
+				"Grievances cannot be attached to administrative level '{0}'. "
+				"Please select an operational area such as a Woreda or Kebele."
+			).format(area.level_name or _("Unknown")),
+			title=_("Invalid Administrative Area"),
+		)
+	if area.valid_to and str(area.valid_to) <= frappe.utils.today():
+		frappe.throw(
+			_("The selected Administrative Area '{0}' has been dissolved or reorganized.").format(
+				administrative_area
+			),
+			title=_("Dissolved Administrative Area"),
+		)
+	return area
+
+
+class GrievanceSubmissionPayload(BaseModel):
+	model_config = {"extra": "allow"}
+
+	contact_mobile: str | None = None
+	description: str | None = Field(default=None, min_length=MIN_DESCRIPTION_LENGTH)
+	service_category: str | None = None
+	grievance_type: str | None = None
+	administrative_area: str | None = None
+
+	@field_validator("contact_mobile")
+	@classmethod
+	def _validate_mobile(cls, v):
+		if not v or not str(v).strip():
+			return v
+		try:
+			return identity.validate_mobile(str(v).strip())
+		except (frappe.ValidationError, Exception) as exc:
+			message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
+			raise ValueError(message) from exc
+
+	@field_validator("administrative_area")
+	@classmethod
+	def _validate_area(cls, v):
+		if not v or not str(v).strip():
+			return v
+		area = str(v).strip()
+		if frappe.db.exists("Grievance Administrative Area", area):
+			try:
+				validate_filing_area(area)
+			except frappe.ValidationError as exc:
+				message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
+				raise ValueError(message) from exc
+		return area
+
+	@model_validator(mode="after")
+	def _validate_category_and_type(self):
+		cat = (self.service_category or "").strip()
+		g_type = (self.grievance_type or "").strip()
+		if cat and g_type:
+			from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+			resolved_type = resolve_grievance_type(g_type, cat)
+			if resolved_type and frappe.db.exists("Grievance Type", resolved_type):
+				parent = frappe.db.get_value("Grievance Type", resolved_type, "service_category")
+				if parent and parent != cat:
+					raise ValueError(
+						_("Grievance type {0} belongs to category {1}, not {2}.").format(
+							frappe.bold(g_type),
+							frappe.bold(parent),
+							frappe.bold(cat),
+						)
+					)
+		return self
+
+
+def validate_submission_payload(payload: dict):
+	"""Domain rules covered via GrievanceSubmissionPayload Pydantic schema."""
+	if not isinstance(payload, dict):
+		frappe.throw(_("Submission payload must be an object."), title=_("Invalid Payload"))
+	GrievanceSubmissionPayload.model_validate(payload)
+	return True
 
 
 class Grievance(Document):
@@ -46,7 +149,7 @@ class Grievance(Document):
 
 		# Frappe already enforces reqd / Link / Select. Domain-only rules below.
 		try:
-			identity.validate_submission_payload(
+			validate_submission_payload(
 				{
 					"contact_mobile": self.contact_mobile,
 					"administrative_area": self.administrative_area,
@@ -121,7 +224,7 @@ class Grievance(Document):
 		if not self.administrative_area:
 			return
 
-		area = identity.validate_filing_area(self.administrative_area)
+		area = validate_filing_area(self.administrative_area)
 		self.area_lft = area.lft
 		if not self.area_path_code:
 			self.area_path_code = area.path_code or area.name

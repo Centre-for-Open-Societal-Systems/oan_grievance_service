@@ -10,9 +10,11 @@ from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
 	_resolve_submitter_identity,
 )
+from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+	validate_submission_payload,
+)
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
-from oan_grievance_service.services.identity import validate_submission_payload
 from oan_grievance_service.tests.fixtures import discard_grievance
 
 

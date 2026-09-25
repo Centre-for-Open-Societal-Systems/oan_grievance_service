@@ -327,9 +327,18 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		tl_data = json.loads(res_tl.get_data(as_text=True))["data"]
 		self.assertIn("available_actions", tl_data)
 
-		# 3. Assign & Start Work
-		# 3. Assign & Start Work
+		# 3. Attempting direct 'Assign' action via generic action endpoint is refused
 		frappe.set_user("Administrator")
+		req_assign_bad = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/action",
+			method="POST",
+			data={"action": "Assign"},
+		)
+		res_assign_bad = frappe.api.handle(req_assign_bad)
+		body_assign_bad = json.loads(res_assign_bad.get_data(as_text=True))
+		self.assertEqual(body_assign_bad["status"], "error")
+		self.assertIn("not permitted", body_assign_bad["message"].lower())
+
 		from oan_grievance_service.tests.fixtures import a_department
 
 		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
@@ -350,6 +359,17 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
 		frappe.db.commit()
+
+		# Attempting 'Submit Response' action without a formal Grievance Response is refused
+		req_resp_bad = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/action",
+			method="POST",
+			data={"action": "Submit Response"},
+		)
+		res_resp_bad = frappe.api.handle(req_resp_bad)
+		body_resp_bad = json.loads(res_resp_bad.get_data(as_text=True))
+		self.assertEqual(body_resp_bad["status"], "error")
+		self.assertIn("response", body_resp_bad["message"].lower())
 
 		# 4. Reject without reason is refused (400)
 		req_rej_bad = make_test_request(

@@ -401,31 +401,31 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 
 def can_approve_reassignment(user=None, request_doc=None):
-	"""FSD 3.3.1: a reassignment is decided by a supervisor/admin, never by its requester.
+	"""FSD 3.3.1: a reassignment is decided by a supervising officer, the way deferral is.
 
-	Enforces segregation of duties:
-	1. The requester (initiated_by) cannot approve their own reassignment.
-	2. Approver must hold Grievance Admin / System Manager or be a supervising officer.
+	"Supervising" is the same escalation-chain test `can_approve_deferral` uses: the
+	approver must sit strictly above the officer the case is assigned to, so a peer
+	can raise a request but never rule on it. A supervisor ruling on a request they
+	raised themselves is their own decision to make. With no officer assigned there
+	is no chain to climb, and the ruling only has to come from someone other than
+	the requester. Admins are exempt.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
 
 	if not (roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES)):
 		return False
+	if roles & UNRESTRICTED_ROLES:
+		return True
+	if not request_doc:
+		return False
 
-	# Enforce segregation of duties: non-admin requesters cannot self-approve
-	if request_doc and not (roles & UNRESTRICTED_ROLES):
-		requester = (
-			request_doc.get("initiated_by")
-			if isinstance(request_doc, dict)
-			else getattr(request_doc, "initiated_by", None)
-		) or (
-			request_doc.get("owner") if isinstance(request_doc, dict) else getattr(request_doc, "owner", None)
-		)
-		if requester and requester == user:
-			return False
-
-	return True
+	assignee = request_doc.get("prior_officer")
+	if not assignee:
+		return request_doc.get("initiated_by") != user
+	if assignee == user:
+		return False
+	return _outranks(user, assignee)
 
 
 def can_decide_anonymity(grievance, user=None):

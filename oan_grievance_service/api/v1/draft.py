@@ -215,9 +215,11 @@ def save(
 
 			doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
 
-		from oan_grievance_service.services import identity
+		from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+			validate_submission_payload,
+		)
 
-		identity.validate_submission_payload(doc.as_dict())
+		validate_submission_payload(doc.as_dict())
 
 	doc.flags.ignore_mandatory = True
 	doc.flags.is_draft_wizard = True
@@ -407,9 +409,11 @@ def submit_draft(
 
 		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
 
-	from oan_grievance_service.services import identity
+	from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+		validate_submission_payload,
+	)
 
-	identity.validate_submission_payload(doc.as_dict())
+	validate_submission_payload(doc.as_dict())
 
 	doc.flags.in_submit = True
 	doc.save(ignore_permissions=True)
