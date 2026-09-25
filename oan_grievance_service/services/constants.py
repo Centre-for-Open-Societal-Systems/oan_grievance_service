@@ -2,6 +2,11 @@
 # submitter, not on the department. Override per site with `grievance_sla_paused_statuses`.
 SLA_PAUSED_STATUSES = frozenset({"More Info Needed", "Pending Submitter"})
 
+# The catch-all category and type an intake falls back to when the submitter does
+# not pick one. Seeded by setup/install.py; draft intake defaults to them by name.
+FALLBACK_SERVICE_CATEGORY = "Other"
+FALLBACK_GRIEVANCE_TYPE = "Other"
+
 
 # FSD Appendix C event codes. Each is the "method" on one core Notification record per
 # channel, seeded by setup/install.py and editable from the desk thereafter.
@@ -25,6 +30,7 @@ EVENT_SLA_BREACH_L1 = "sla_breached_l1"
 EVENT_SLA_BREACH_L2 = "sla_breached_l2"
 EVENT_MANUAL_ESCALATION = "manual_escalation"
 EVENT_REASSIGNMENT_REQUESTED = "reassignment_requested"
+EVENT_ANONYMITY_DISCLOSURE_REQUESTED = "anonymity_disclosure_requested"
 
 # FSD 3.6: default submitter confirmation window.
 DEFAULT_CONFIRMATION_DAYS = 7

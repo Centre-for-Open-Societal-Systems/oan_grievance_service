@@ -122,7 +122,7 @@ SERVICE_CATEGORIES = [
 	("Payments", "003", 3),
 	("Credit", "004", 4),
 	("Markets", "005", 5),
-	("Other", "006", 6),
+	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
 ]
 
 # The 1-character REGION segment of the ticket number, keyed by the official
@@ -161,7 +161,7 @@ GRIEVANCE_TYPES = [
 	("Interest Rate Discrepancy", "Credit"),
 	("Price Reporting Dispute", "Markets"),
 	("Market Access Obstruction", "Markets"),
-	("Other", "Other"),
+	(C.FALLBACK_GRIEVANCE_TYPE, C.FALLBACK_SERVICE_CATEGORY),
 ]
 
 # Submitter Types master
@@ -288,6 +288,16 @@ NOTIFICATION_EVENTS = [
 		("SMS", "Email"),
 		"Officer sets More Info Needed",
 		"Additional information is needed for grievance {0}. Please respond via the portal.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_ANONYMITY_DISCLOSURE_REQUESTED,
+		"Anonymity Not Approved",
+		"Submitter",
+		("SMS", "Email"),
+		"Officer declines an anonymity request",
+		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. "
+		"Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
 		("doc.ticket_number",),
 	),
 	(

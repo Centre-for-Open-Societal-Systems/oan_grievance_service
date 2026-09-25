@@ -63,6 +63,7 @@ class Grievance(Document):
 				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
 			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
 		self.set_administrative_area_metadata()
+		self.record_the_workflow_move()
 
 	# Workflow
 	# --------
@@ -93,28 +94,16 @@ class Grievance(Document):
 
 	def before_update_after_submit(self):
 		self.keep_status_in_step_with_the_workflow()
+		self.record_the_workflow_move()
 
 	def before_cancel(self):
 		self.keep_status_in_step_with_the_workflow()
+		self.record_the_workflow_move()
 
 	def record_the_workflow_move(self):
 		from_state = self.workflow_move_from()
 		if from_state:
 			hooks_handlers.after_workflow_action(self, from_state)
-
-	def on_update(self):
-		# A submit runs on_update and then on_submit; the move is on_submit's.
-		if self._action == "save":
-			self.record_the_workflow_move()
-
-	def on_submit(self):
-		self.record_the_workflow_move()
-
-	def on_update_after_submit(self):
-		self.record_the_workflow_move()
-
-	def on_cancel(self):
-		self.record_the_workflow_move()
 
 	def validate_workflow(self):
 		"""Frappe insists a new document enters the workflow at its first state.

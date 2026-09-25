@@ -20,6 +20,8 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field, model_validator
 
+from oan_grievance_service.services import constants as C
+
 DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
@@ -31,6 +33,34 @@ ALLOWED_DRAFT_ROLES = [
 	"System Manager",
 	"Administrator",
 ]
+
+
+def _resolve_grievance_type(grievance_type, category):
+	"""The Grievance Type a caller named, or a 400.
+
+	An empty value clears the field. Anything else must resolve to a real record:
+	passing an unknown string through would store a broken Link on the draft and
+	only fail later, at submit, far from the input that caused it.
+	"""
+	if not grievance_type:
+		return None
+	from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+
+	resolved = resolve_grievance_type(grievance_type, category)
+	if not resolved:
+		frappe.throw(
+			_("Grievance type '{0}' does not exist.").format(grievance_type),
+			frappe.ValidationError,
+			title=_("Invalid Grievance Type"),
+		)
+	return resolved
+
+
+def _fallback_grievance_type():
+	"""The catch-all type for a draft filed under the catch-all category."""
+	return frappe.db.get_value(
+		"Grievance Type", {"type_name": C.FALLBACK_GRIEVANCE_TYPE}, "name"
+	) or frappe.db.get_value("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}, "name")
 
 
 class SaveDraftRequest(BaseModel):
@@ -163,19 +193,12 @@ def save(
 	if service_category is not None:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = "Other"
+		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
 
 	if grievance_type is not None:
-		from oan_grievance_service.api.v1.grievance import resolve_grievance_type
-
-		resolved_type = (
-			resolve_grievance_type(grievance_type, doc.service_category) if grievance_type else None
-		)
-		doc.grievance_type = resolved_type or grievance_type
-	elif not doc.grievance_type and doc.service_category == "Other":
-		doc.grievance_type = frappe.db.get_value(
-			"Grievance Type", {"type_name": "Other"}, "name"
-		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
+		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
+	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
+		doc.grievance_type = _fallback_grievance_type()
 
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
@@ -320,17 +343,12 @@ def submit_draft(
 	if service_category:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = "Other"
+		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
 
 	if grievance_type:
-		from oan_grievance_service.api.v1.grievance import resolve_grievance_type
-
-		resolved_type = resolve_grievance_type(grievance_type, doc.service_category)
-		doc.grievance_type = resolved_type or grievance_type
-	elif not doc.grievance_type and doc.service_category == "Other":
-		doc.grievance_type = frappe.db.get_value(
-			"Grievance Type", {"type_name": "Other"}, "name"
-		) or frappe.db.get_value("Grievance Type", {"service_category": "Other"}, "name")
+		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
+	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
+		doc.grievance_type = _fallback_grievance_type()
 
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider
@@ -410,7 +428,6 @@ def submit_draft(
 	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 		GrievanceTimeline,
 	)
-	from oan_grievance_service.services import constants as C
 	from oan_grievance_service.services import lifecycle, notifications, routing
 
 	lifecycle.transition(doc, "Submit")
@@ -426,17 +443,21 @@ def submit_draft(
 		ref_doctype="Grievance",
 		ref_docname=doc.name,
 	)
-	try:
-		frappe.db.sql(
-			"""
-			UPDATE `tabGrievance Attachment`
-			SET `timeline_entry` = %(tl)s
-			WHERE `grievance` = %(grv)s AND (`timeline_entry` IS NULL OR `timeline_entry` = '')
-			""",
-			{"tl": timeline_entry.name, "grv": doc.name},
+	# Files uploaded while drafting belong to the submission entry. A failure here
+	# fails the submit: swallowing it would leave the attachments off the timeline.
+	unlinked = frappe.get_all(
+		"Grievance Attachment",
+		filters={"grievance": doc.name, "timeline_entry": ["is", "not set"]},
+		pluck="name",
+	)
+	if unlinked:
+		frappe.db.set_value(
+			"Grievance Attachment",
+			{"name": ["in", unlinked]},
+			"timeline_entry",
+			timeline_entry.name,
+			update_modified=False,
 		)
-	except Exception:
-		pass
 
 	if is_anonymous or doc.is_anonymous:
 		doc.is_anonymous = 1

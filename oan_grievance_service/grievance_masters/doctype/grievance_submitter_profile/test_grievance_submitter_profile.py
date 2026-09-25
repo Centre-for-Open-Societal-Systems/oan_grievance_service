@@ -23,8 +23,8 @@ class TestSubmitterProfile(FrappeTestCase):
 
 		# Farmer with Fayda ID
 		self.assertEqual(
-			derive_dedupe_key("Individual Farmer", mobile="+251911000000", fayda_id="123456789012"),
-			"fayda:123456789012",
+			derive_dedupe_key("Individual Farmer", mobile="+251911000000", fayda_id="1234567890123456"),
+			"fayda:1234567890123456",
 		)
 		# Farmer without Fayda ID (falls back to phone)
 		self.assertEqual(
@@ -57,13 +57,13 @@ class TestSubmitterProfile(FrappeTestCase):
 		profile.submitter_type = "Individual Farmer"
 		profile.submitter_name = "Test Farmer"
 		profile.contact_mobile = "+251911223344"
-		profile.dedupe_key = "fayda:FAYDA-98765"
+		profile.dedupe_key = "fayda:1234567890123456"
 		profile.administrative_unit = "Bishoftu"
 		profile.validate()
 
-		self.assertEqual(profile.dedupe_key, "fayda:FAYDA-98765")
+		self.assertEqual(profile.dedupe_key, "fayda:1234567890123456")
 		self.assertEqual(profile.identity_scheme, "fayda")
-		self.assertEqual(profile.identity_value, "FAYDA-98765")
+		self.assertEqual(profile.identity_value, "1234567890123456")
 
 	def test_on_user_registered_creates_individual_farmer_profile(self):
 		import random
@@ -198,7 +198,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			uid = frappe.generate_hash(length=6)
 			phone = "+251911" + "".join(random.choices("0123456789", k=6))
 			email = f"farmer_e2e_{uid}@example.com"
-			fayda_id = f"FAYDA-ET-{uid}"
+			fayda_id = "1" + "".join(random.choices("0123456789", k=15))
 			res = register_user(
 				email=email,
 				password="SecurePassword123!",
@@ -259,7 +259,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				"submitter_type": "Individual Farmer",
 				"submitter_name": "Derartu Tulu",
 				"contact_mobile": "+251911445566",
-				"dedupe_key": "fayda:FAYDA-DT-12345",
+				"dedupe_key": "fayda:1122334455667788",
 				"administrative_unit": "Bekoji",
 			}
 		).insert(ignore_permissions=True)
@@ -269,7 +269,7 @@ class TestSubmitterProfile(FrappeTestCase):
 			self.assertEqual(namespace, "grievance")
 			self.assertEqual(data["profile_id"], profile.name)
 			self.assertEqual(data["type"], "Individual Farmer")
-			self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "FAYDA-DT-12345"}])
+			self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "1122334455667788"}])
 			self.assertEqual(data["administrative_unit"], "Bekoji")
 		finally:
 			frappe.set_user("Administrator")

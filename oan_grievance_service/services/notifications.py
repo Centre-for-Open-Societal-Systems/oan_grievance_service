@@ -149,12 +149,26 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		if officer:
 			return officer
 
-	if not grievance.assigned_dept:
-		return None
-
-	email_account = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "email_account")
+	# email_account is a Data field holding a mailbox, not a User link. Every
+	# Department Officer event in Appendix C is email-only, which is what makes
+	# that safe: there is no mobile number to look up for a bare address.
 	if recipient_role == RECIPIENT_DEPARTMENT_OFFICER:
-		return email_account
+		email_account = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "email_account")
+		if email_account:
+			return email_account
+
+	# Officers come only from Grievance RBAC Assignment now, so an unresolved
+	# recipient means no assignment covers this case's department and area. The
+	# notification is dropped either way; without this it is dropped invisibly.
+	frappe.log_error(
+		title=f"Grievance notification recipient unresolved: {recipient_role}",
+		message=(
+			f"No recipient could be resolved for role '{recipient_role}' on grievance "
+			f"{grievance.name} (department '{grievance.assigned_dept}', administrative area "
+			f"'{grievance.administrative_area}'). Check the Grievance RBAC Assignment "
+			f"covering this department and area."
+		),
+	)
 	return None
 
 

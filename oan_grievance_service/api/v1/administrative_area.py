@@ -48,7 +48,9 @@ def get_areas(
 	if ancestors_of:
 		return success_response(data=get_ancestors(ancestors_of))
 
-	filters = []
+	# Decommissioned areas stay in the tree for historical grievances but must never
+	# reach a citizen intake picker, so every listing mode is scoped to active nodes.
+	filters = [["is_active", "=", 1]]
 
 	# Resolve parent ID if a path_code, code, or area_name was passed
 	if parent:

@@ -271,23 +271,11 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		# Officer B attempts to add note
 		frappe.set_user(officer_b_email)
 		res_note = grievance.add_note(case.ticket_number or case.name, body="Unauthorized officer note")
-		if (
-			res_note.get("status") == "success"
-			and isinstance(res_note.get("data"), dict)
-			and res_note["data"].get("status") == "error"
-		):
-			res_note = res_note["data"]
 		self.assertEqual(res_note["status"], "error")
 		self.assertEqual(res_note["code"], "PERMISSION_DENIED")
 
 		# Officer B attempts to post message
 		res_msg = grievance.message(case.ticket_number or case.name, body="Unauthorized officer message")
-		if (
-			res_msg.get("status") == "success"
-			and isinstance(res_msg.get("data"), dict)
-			and res_msg["data"].get("status") == "error"
-		):
-			res_msg = res_msg["data"]
 		self.assertEqual(res_msg["status"], "error")
 		self.assertEqual(res_msg["code"], "PERMISSION_DENIED")
 
@@ -295,22 +283,10 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		res_act = grievance.action(
 			case.ticket_number or case.name, action="Request More Info", reason="Need info"
 		)
-		if (
-			res_act.get("status") == "success"
-			and isinstance(res_act.get("data"), dict)
-			and res_act["data"].get("status") == "error"
-		):
-			res_act = res_act["data"]
 		self.assertEqual(res_act["status"], "error")
 		self.assertEqual(res_act["code"], "PERMISSION_DENIED")
 
 		res_assign = grievance.action(case.ticket_number or case.name, action="Assign")
-		if (
-			res_assign.get("status") == "success"
-			and isinstance(res_assign.get("data"), dict)
-			and res_assign["data"].get("status") == "error"
-		):
-			res_assign = res_assign["data"]
 		self.assertEqual(res_assign["status"], "error")
 		self.assertEqual(res_assign["code"], "PERMISSION_DENIED")
 

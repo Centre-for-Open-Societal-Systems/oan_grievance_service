@@ -15,7 +15,7 @@ SCHEME_PHONE = "phone"
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
 
 # Format rules for profile/dedupe identity values — not Grievance DocType fields.
-FAYDA_PATTERN = re.compile(r"^(?=.{6,30}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
+FAYDA_PATTERN = re.compile(r"^\d{16}$")
 REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
 
 MIN_DESCRIPTION_LENGTH = 20
@@ -95,7 +95,7 @@ def required_fields_for(submitter_type: str | None):
 def _validate_fayda_id(fayda_id: str):
 	if not FAYDA_PATTERN.match(fayda_id):
 		frappe.throw(
-			_("Fayda ID '{0}' is not in a valid format.").format(fayda_id),
+			_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id),
 			title=_("Invalid Fayda ID"),
 		)
 

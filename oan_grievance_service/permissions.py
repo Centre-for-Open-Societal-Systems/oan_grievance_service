@@ -428,6 +428,27 @@ def can_approve_reassignment(user=None, request_doc=None):
 	return True
 
 
+def can_decide_anonymity(grievance, user=None):
+	"""FSD 9.2: an anonymity request is decided by staff, never by whoever made it.
+
+	The request is raised at filing, so its maker is the submitter or the officer
+	who filed on their behalf (`assisted_by_officer`). Neither may rule on it; an
+	unrestricted admin may, the same exemption reassignment approval gives.
+	"""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+
+	if not (roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES)):
+		return False
+	if roles & UNRESTRICTED_ROLES:
+		return True
+
+	requesters = {grievance.get("assisted_by_officer"), grievance.get("owner")}
+	if grievance.get("submitter"):
+		requesters.add(frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user"))
+	return user not in requesters
+
+
 def can_approve_deferral(user=None, assignee=None):
 	"""FSD 3.11.7: supervisor approval unless policy explicitly permits self-approval.
 

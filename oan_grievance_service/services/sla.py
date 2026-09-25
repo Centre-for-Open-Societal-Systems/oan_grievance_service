@@ -307,8 +307,12 @@ def resolve_officer_for_level(grievance, level):
 	"""Who holds `level` for this case's department and area.
 
 	A named `reports_to` wins, because a supervisor the officer actually reports to
-	beats a role lookup that only knows the rung. Then RBAC assignments scoped to the
-	department and area, then the department's own slot for that rung.
+	beats a role lookup that only knows the rung. Failing that, the RBAC assignments
+	scoped to the case's department and area.
+
+	Grievance RBAC Assignment is now the only source of officers, so an unanswered
+	rung is a configuration gap rather than a routine miss: it stalls the escalation
+	chain for every case in that department, and it is logged for that reason.
 	"""
 	supervisor = get_officer_supervisor(
 		grievance.assigned_to,
@@ -320,11 +324,22 @@ def resolve_officer_for_level(grievance, level):
 
 	from oan_grievance_service.permissions import find_officer_by_role_level
 
-	return find_officer_by_role_level(
+	officer = find_officer_by_role_level(
 		level.name,
 		department=grievance.assigned_dept,
 		administrative_area=grievance.administrative_area,
 	)
+	if not officer:
+		frappe.log_error(
+			title=f"Grievance escalation rung unstaffed: {level.name}",
+			message=(
+				f"No active Grievance RBAC Assignment holds role level '{level.name}' for "
+				f"department '{grievance.assigned_dept}' and administrative area "
+				f"'{grievance.administrative_area}'. Grievance {grievance.name} cannot "
+				f"escalate past this rung until an assignment covers it."
+			),
+		)
+	return officer
 
 
 def get_officer_supervisor(user, department=None, administrative_area=None):

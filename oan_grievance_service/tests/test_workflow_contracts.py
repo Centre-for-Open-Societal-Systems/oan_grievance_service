@@ -226,9 +226,14 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 
 
 class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
-	def test_a_rejection_without_a_reason_is_refused(self):
+	def test_a_rejection_without_a_reason_is_refused_and_rolled_back(self):
+		before = len(history(self.grievance.name))
 		with self.assertRaises(frappe.ValidationError):
 			lifecycle.transition(self._saved(), "Reject")
+		self.assertEqual(
+			self._state(), {"workflow_state": "Submitted", "status": "Submitted", "docstatus": 1}
+		)
+		self.assertEqual(len(history(self.grievance.name)), before)
 
 	def test_a_whitespace_reason_is_no_reason(self):
 		with self.assertRaises(frappe.ValidationError):
@@ -238,6 +243,7 @@ class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 		self._at_pending_submitter()
 		with self.assertRaises(frappe.ValidationError):
 			lifecycle.transition(self._saved(), "Reopen")
+		self.assertEqual(self._state()["workflow_state"], "Pending Submitter")
 
 	def test_a_reopen_with_a_reason_goes_through_and_is_counted(self):
 		self._at_pending_submitter()
@@ -253,6 +259,7 @@ class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 		the officer rejects through the API, which asks for one."""
 		with self.assertRaises(frappe.ValidationError):
 			apply_workflow(self._saved(), "Reject")
+		self.assertEqual(self._state()["workflow_state"], "Submitted")
 
 
 class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
