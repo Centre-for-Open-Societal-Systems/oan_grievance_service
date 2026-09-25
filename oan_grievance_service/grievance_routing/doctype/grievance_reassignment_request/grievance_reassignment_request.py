@@ -50,7 +50,7 @@ class GrievanceReassignmentRequest(Document):
 				if self.has_value_changed(field):
 					frappe.throw(
 						_("{0} cannot change once a reassignment is requested.").format(
-							self.meta.get_label(field)
+							_(self.meta.get_label(field))
 						),
 						title=_("Request Is Fixed"),
 					)
