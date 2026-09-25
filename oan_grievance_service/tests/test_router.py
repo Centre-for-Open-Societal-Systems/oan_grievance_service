@@ -395,7 +395,12 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
 		frappe.api.handle(req_save)
 
-		submit_payload = {"client_submission_uuid": draft_uuid, "consent_given": 1}
+		submit_payload = {
+			"client_submission_uuid": draft_uuid,
+			"consent_given": 1,
+			"is_anonymous": 1,
+			"anonymity_justification": "Need anonymity",
+		}
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
