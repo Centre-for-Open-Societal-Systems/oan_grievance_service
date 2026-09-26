@@ -59,7 +59,7 @@
   },
   {
    "default": "1",
-   "description": "FSD 3.11.7: response templates shall be versioned and access-controlled",
+   "description": "Response templates are versioned and access-controlled",
    "fieldname": "version",
    "fieldtype": "Int",
    "label": "Version"

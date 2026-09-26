@@ -2,10 +2,10 @@
 
 import frappe
 
-from oan_grievance_service.permissions import (
-	ROLE_OFFICER,
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
 )
+from oan_grievance_service.permissions import ROLE_OFFICER
 
 
 def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:

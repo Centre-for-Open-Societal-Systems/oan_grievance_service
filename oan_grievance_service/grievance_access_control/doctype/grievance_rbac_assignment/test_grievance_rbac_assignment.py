@@ -4,9 +4,13 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.permissions import (
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
+	current_level_of,
 	find_officer_by_role_level,
+	get_officer_supervisor,
+)
+from oan_grievance_service.permissions import (
 	grievance_query_conditions,
 	has_grievance_permission,
 )
@@ -224,7 +228,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-		supervisor = sla.get_officer_supervisor("prim_officer@example.com", department="Unified Agri Dept")
+		supervisor = get_officer_supervisor("prim_officer@example.com", department="Unified Agri Dept")
 		self.assertEqual(supervisor, "sec_officer@example.com")
 
 		# Create fake grievance and escalate. The ticket number is not passed in:
@@ -253,7 +257,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		fake_g.reload()
 		self.assertEqual(fake_g.escalated, 1)
 		self.assertEqual(fake_g.assigned_to, "sec_officer@example.com")
-		self.assertEqual(sla.current_level_of(fake_g.assigned_to), "senior_nodal_officer")
+		self.assertEqual(current_level_of(fake_g.assigned_to), "senior_nodal_officer")
 
 	def test_routing_with_grievance_type_and_provider_scope(self):
 		"""Verify routing prioritizes specific type and provider scopes over broad category rules."""

@@ -22,7 +22,7 @@ THREE CHECKS, IN ORDER
    checked only for agreement with what the bytes say.
 
 2. **Location metadata, stripped.** A phone photo carries GPS coordinates in its
-   EXIF block. FSD 9.2 lets a submitter ask for anonymity -- and a geotagged
+   EXIF block. A submitter may ask for anonymity -- and a geotagged
    photograph of their own plot defeats that completely, whatever the database
    says about their name. Coordinates are removed before the file is stored.
 
@@ -245,13 +245,6 @@ def has_location_metadata(content: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def clamav_target() -> tuple[str, int] | None:
-	host = frappe.conf.get("grievance_clamav_host")
-	if not host:
-		return None
-	return host, int(frappe.conf.get("grievance_clamav_port") or CLAMAV_DEFAULT_PORT)
-
-
 def scan_bytes(content: bytes) -> tuple[str, str]:
 	"""Hand the content to clamd and return (status, detail).
 
@@ -259,15 +252,15 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 	wire format is clamd's own: a length-prefixed chunk sequence terminated by a
 	zero length.
 	"""
-	target = clamav_target()
-	if not target:
+	host = frappe.conf.get("grievance_clamav_host")
+	if not host:
 		return SCAN_FAILED, "No scanner configured (grievance_clamav_host is unset)."
+	port = int(frappe.conf.get("grievance_clamav_port") or CLAMAV_DEFAULT_PORT)
 
 	if isinstance(content, str):
 		# Never let a text-decoded object crash the send; scan its bytes.
 		content = content.encode("utf-8")
 
-	host, port = target
 	try:
 		with socket.create_connection((host, port), timeout=CLAMAV_TIMEOUT_SECONDS) as sock:
 			sock.sendall(b"zINSTREAM\0")
@@ -294,24 +287,19 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def enqueue_scan_attachment(name: str) -> None:
-	"""Asynchronously enqueue malware scan for an attachment."""
-	try:
-		frappe.enqueue(
-			"oan_grievance_service.services.scanning.scan_attachment",
-			queue="short",
-			name=name,
-			enqueue_after_commit=True,
-			is_async=True,
-		)
-	except Exception:
-		frappe.log_error(title=f"Failed to enqueue scan for attachment: {name}")
-
-
 def enqueue_scan_attachments(names: list[str]) -> None:
-	"""Asynchronously enqueue malware scans for multiple attachments."""
+	"""Asynchronously enqueue a malware scan for each attachment."""
 	for name in names:
-		enqueue_scan_attachment(name)
+		try:
+			frappe.enqueue(
+				"oan_grievance_service.services.scanning.scan_attachment",
+				queue="short",
+				name=name,
+				enqueue_after_commit=True,
+				is_async=True,
+			)
+		except Exception:
+			frappe.log_error(title=f"Failed to enqueue scan for attachment: {name}")
 
 
 def scan_attachment(name: str) -> str:
@@ -340,7 +328,10 @@ def scan_attachment(name: str) -> str:
 
 	status, detail = scan_bytes(content)
 	if status == SCAN_INFECTED:
-		_discard_object(attachment.file_url)
+		# Delete the stored object, keeping the attachment row and its trail.
+		file_name = frappe.db.get_value("File", {"file_url": attachment.file_url}, "name")
+		if file_name:
+			frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
 
 	_record(attachment, status, detail)
 	return status
@@ -396,10 +387,3 @@ def read_object(file_url: str) -> bytes | None:
 	except Exception:
 		return None
 	return content.encode("utf-8") if isinstance(content, str) else content
-
-
-def _discard_object(file_url: str) -> None:
-	"""Delete the stored object, keeping the attachment row and its trail."""
-	name = frappe.db.get_value("File", {"file_url": file_url}, "name")
-	if name:
-		frappe.delete_doc("File", name, force=True, ignore_permissions=True)

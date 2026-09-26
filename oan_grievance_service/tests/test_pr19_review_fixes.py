@@ -225,9 +225,9 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		cond = grievance_query_conditions(user.name)
 		# Must only match cases explicitly assigned to the officer, NEVER an open un-scoped wildcard
 		self.assertNotIn(
-			"workflow_state != 'Draft')",
+			"docstatus != 0)",
 			cond.replace(
-				f"`tabGrievance`.assigned_to in ('{user.name}') and `tabGrievance`.workflow_state != 'Draft'",
+				f"`tabGrievance`.assigned_to in ('{user.name}') and `tabGrievance`.docstatus != 0",
 				"",
 			),
 		)

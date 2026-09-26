@@ -11,6 +11,8 @@ every test file is how fixtures drift, so it is built once here.
 import frappe
 from frappe.utils import now_datetime
 
+from oan_grievance_service.services import constants as C
+
 SEED_CATEGORY = "Inputs"
 
 
@@ -102,7 +104,7 @@ def a_grievance(**overrides):
 	"""
 	values = {
 		"doctype": "Grievance",
-		"workflow_state": "Draft",
+		"workflow_state": C.STATE_DRAFT,
 		"submission_channel": "Web Portal",
 		"submitter_type": a_submitter_type(),
 		"submitter_name": "Test Submitter",
@@ -121,7 +123,7 @@ def a_grievance(**overrides):
 	# a case at Draft says so; every other test gets a submitted grievance, which
 	# is what "a grievance" means everywhere else in the app. Routing is the
 	# intake API's step, not the workflow's, so the fixture stays at Submitted.
-	if doc.workflow_state == "Draft" and "workflow_state" not in overrides:
+	if doc.docstatus == 0 and "workflow_state" not in overrides:
 		from oan_grievance_service.services import lifecycle
 
 		lifecycle.transition(doc, "Submit")

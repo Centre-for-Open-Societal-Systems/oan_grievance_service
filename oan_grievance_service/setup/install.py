@@ -1,9 +1,8 @@
 """Seed data created on install and refreshed on migrate.
 
-Everything here is configuration the FSD names explicitly, so a fresh site comes up
-usable rather than empty: the three capability roles, the Appendix F escalation levels,
-the five service categories from 3.2.2, the Ethiopian regions from 3.11.8, and the full
-Appendix C notification matrix.
+A fresh site comes up usable rather than empty: the three capability roles, the
+escalation levels, the service categories, the Ethiopian regions, and the full
+notification matrix.
 """
 
 import gzip
@@ -13,7 +12,7 @@ import frappe
 
 from oan_grievance_service.services import constants as C
 
-# The three capability roles. Appendix F's L1 / L2 / Department Head were rungs of a
+# The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
 # reporting chain - see .docs/sla_workflows_and_lifecycle_specification.md §10.1.
 #
@@ -28,7 +27,7 @@ ROLES = [
 	("Grievance Admin", 0),
 ]
 
-# FSD 3.4 as the Grievance Workflow: a native Frappe Workflow record, rebuilt from
+# The Grievance Workflow: a native Frappe Workflow record, rebuilt from
 # these tables on every migrate so they are the one place the lifecycle is written
 # down. The engine decides whether a move is legal and who may take it; the app
 # never keeps its own copy of that answer (tests/test_workflow_contracts.py).
@@ -38,21 +37,25 @@ ROLES = [
 # stays one; Rejected is a cancelled document (2). Frappe refuses a workflow that
 # goes 1 -> 0 or 0 -> 2, which is why every active state is 1 and Draft exists.
 # Closed and Rejected have no outbound transition: a reopen happens inside the
-# FSD 3.6 confirmation window, from Pending Submitter, and nowhere else.
+# confirmation window, from Pending Submitter, and nowhere else.
 WORKFLOW_NAME = "Grievance Workflow"
 
-# (state, docstatus, style). Order matters: Frappe treats the first row as where a
-# new document enters.
+# (state, docstatus, style, SLA category). Order matters: Frappe treats the first row
+# as where a new document enters.
+#
+# The SLA category is what arriving in the state does to the clock (services.sla):
+# Running keeps it going, Paused holds it while the case waits on the submitter, and
+# Stopped ends it for good.
 WORKFLOW_STATES = [
-	("Draft", "0", "Inverse"),
-	("Submitted", "1", "Info"),
-	("Assigned", "1", "Primary"),
-	("In Progress", "1", "Primary"),
-	("More Info Needed", "1", "Warning"),
-	("Pending Submitter", "1", "Warning"),
-	("Resolved", "1", "Success"),
-	("Closed", "2", "Success"),
-	("Rejected", "2", "Danger"),
+	(C.STATE_DRAFT, "0", "Inverse", "Running"),
+	(C.STATE_SUBMITTED, "1", "Info", "Running"),
+	(C.STATE_ASSIGNED, "1", "Primary", "Running"),
+	(C.STATE_IN_PROGRESS, "1", "Primary", "Running"),
+	(C.STATE_MORE_INFO_NEEDED, "1", "Warning", "Paused"),
+	(C.STATE_PENDING_SUBMITTER, "1", "Warning", "Paused"),
+	(C.STATE_RESOLVED, "1", "Success", "Stopped"),
+	(C.STATE_CLOSED, "2", "Success", "Stopped"),
+	(C.STATE_REJECTED, "2", "Danger", "Stopped"),
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
@@ -61,21 +64,25 @@ SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
-	("Draft", "Submit", "Submitted", SUBMITTER_ROLES),
-	("Submitted", "Assign", "Assigned", SYSTEM_ROLES),
-	("Submitted", "Reject", "Rejected", OFFICER_ROLES),
-	("Assigned", "Start Work", "In Progress", OFFICER_ROLES),
-	("Assigned", "Reject", "Rejected", OFFICER_ROLES),
-	("In Progress", "Request More Info", "More Info Needed", OFFICER_ROLES),
-	("In Progress", "Submit Response", "Pending Submitter", OFFICER_ROLES),
-	("In Progress", "Refer Onward", "Assigned", OFFICER_ROLES),
-	("In Progress", "Reject", "Rejected", OFFICER_ROLES),
-	("More Info Needed", "Submitter Reply", "In Progress", SUBMITTER_ROLES),
-	("More Info Needed", "Reject", "Rejected", OFFICER_ROLES),
-	("Pending Submitter", "Confirm Resolution", "Resolved", SUBMITTER_ROLES),
-	("Pending Submitter", "Reopen", "In Progress", SUBMITTER_ROLES),
-	("Pending Submitter", "Auto Close", "Closed", SYSTEM_ROLES),
-	("Resolved", "Close Case", "Closed", SUBMITTER_ROLES),
+	(C.STATE_DRAFT, "Submit", C.STATE_SUBMITTED, SUBMITTER_ROLES),
+	(C.STATE_SUBMITTED, "Assign", C.STATE_ASSIGNED, SYSTEM_ROLES),
+	(C.STATE_SUBMITTED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Start Work", C.STATE_IN_PROGRESS, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Submit Response", C.STATE_PENDING_SUBMITTER, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_PENDING_SUBMITTER, "Confirm Resolution", C.STATE_RESOLVED, SUBMITTER_ROLES),
+	(C.STATE_PENDING_SUBMITTER, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_PENDING_SUBMITTER, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
+	# Taken only by a state timer that is configured to close on expiry
+	# (Grievance SLA Configuration > State Timers). Inert until one is.
+	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
 
 # The escalation rungs of §10.1, as Grievance Role Level master records.
@@ -113,7 +120,7 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
-# FSD 3.2.2. The code is the 3-character CATEGORY segment of the ticket number
+# Service categories. The code is the 3-character CATEGORY segment of the ticket number
 # (services.ticket_number). Three characters allow 32,768 categories, so a
 # service can later be split into much finer groups without the codes running
 # out. Assigned sequentially; a retired code is never reused.
@@ -185,43 +192,29 @@ SUBMISSION_TYPES = [
 ]
 
 # Master Grievance Response Types (Contract A: Dynamic Master Resolution)
-# (name, workflow_action, sla_behaviour, requires_referred_dept, description)
+# (name, workflow_action, requires_referred_dept, description)
 RESPONSE_TYPES = [
-	(
-		"Resolved",
-		"Submit Response",
-		"paused",
-		0,
-		"Full case resolution proposed to the submitter.",
-	),
-	(
-		"Partially Resolved",
-		"Submit Response",
-		"paused",
-		0,
-		"Partial case resolution proposed to the submitter.",
-	),
+	("Resolved", "Submit Response", 0, "Full case resolution proposed to the submitter."),
+	("Partially Resolved", "Submit Response", 0, "Partial case resolution proposed to the submitter."),
 	(
 		"Referred to another dept",
 		"Refer Onward",
-		"running",
 		1,
 		"Case referred onward to another responsible department.",
 	),
 	(
 		"Requires further info",
 		"Request More Info",
-		"paused",
 		0,
 		"Clarification or additional evidence requested from submitter.",
 	),
 ]
 
-# FSD Appendix C, the complete notification matrix.
+# The complete notification matrix.
 #
 # Each row becomes one core Notification record per channel, so an administrator can
 # change the wording, channel, recipient or enable state from the desk without a
-# release (FSD 3.11.7). "SMS + Email" in the FSD is two records here, because core's
+# release. An "SMS + Email" event is two records here, because core's
 # channel is a single Select.
 #
 # Message bodies are wrapped in _() so the same record serves both languages: the
@@ -440,6 +433,7 @@ def after_migrate():
 def seed_all():
 	created = {
 		"roles": seed_roles(),
+		"sla_category_field": seed_sla_category_field(),
 		"workflow": seed_workflow(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
@@ -459,7 +453,7 @@ def seed_all():
 
 def seed_response_types():
 	made = []
-	for name, action, sla_behaviour, requires_dept, desc in RESPONSE_TYPES:
+	for name, action, requires_dept, desc in RESPONSE_TYPES:
 		if frappe.db.exists("Grievance Response Type", name):
 			continue
 		frappe.get_doc(
@@ -467,7 +461,6 @@ def seed_response_types():
 				"doctype": "Grievance Response Type",
 				"response_type_name": name,
 				"workflow_action": action,
-				"sla_behaviour": sla_behaviour,
 				"requires_referred_dept": requires_dept,
 				"is_active": 1,
 				"description": desc,
@@ -555,7 +548,7 @@ def seed_workflow():
 	Rebuilt rather than created-if-missing because the tables are the source of
 	truth: a row removed from them must disappear from the engine too.
 	"""
-	for state, _docstatus, style in WORKFLOW_STATES:
+	for state, _docstatus, style, _sla in WORKFLOW_STATES:
 		if not frappe.db.exists("Workflow State", state):
 			frappe.get_doc(
 				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
@@ -594,9 +587,12 @@ def seed_workflow():
 	# One state row per editing role: the desk makes the form read-only for anyone
 	# whose roles match none of a state's allow_edit rows. Submission itself is
 	# what locks a case; allow_edit only decides who sees an editable form.
-	for state, docstatus, _style in WORKFLOW_STATES:
+	for state, docstatus, _style, sla_category in WORKFLOW_STATES:
 		for role in OFFICER_ROLES:
-			workflow.append("states", {"state": state, "doc_status": docstatus, "allow_edit": role})
+			workflow.append(
+				"states",
+				{"state": state, "doc_status": docstatus, "allow_edit": role, "sla_category": sla_category},
+			)
 
 	for from_state, action, to_state, roles in WORKFLOW_TRANSITIONS:
 		for role in roles:
@@ -613,6 +609,33 @@ def seed_workflow():
 
 	workflow.save(ignore_permissions=True)
 	return workflow.name
+
+
+def seed_sla_category_field():
+	"""What each state of the Grievance Workflow does to the SLA clock.
+
+	On Workflow Document State - the workflow's own state rows - rather than on
+	Workflow State, which is a global master: "Draft" or "Rejected" there is shared
+	with every other workflow on the site, and this is a fact about this one.
+	"""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	if frappe.db.exists("Custom Field", "Workflow Document State-sla_category"):
+		return []
+
+	create_custom_field(
+		"Workflow Document State",
+		{
+			"fieldname": "sla_category",
+			"label": "SLA Category",
+			"fieldtype": "Select",
+			"options": "\nRunning\nPaused\nStopped",
+			"insert_after": "doc_status",
+			"in_list_view": 1,
+			"description": "Running keeps the SLA clock going, Paused holds it, Stopped ends it.",
+		},
+	)
+	return ["Workflow Document State-sla_category"]
 
 
 def seed_role_levels():
@@ -696,7 +719,7 @@ def seed_submission_types():
 def seed_recipient_custom_field():
 	"""The recipient role, as a Select on core Notification.
 
-	FSD 3.11.7 requires the recipient be changeable without a release, so it cannot be
+	The recipient must be changeable without a release, so it cannot be
 	hardcoded per event in our Python. Core's own receiver_by_document_field is not
 	usable for this: notification.js repopulates that Select's options with the target
 	doctype's fieldnames, so a role token stored there would fall outside the option
@@ -704,7 +727,7 @@ def seed_recipient_custom_field():
 
 	A Custom Field is Frappe's supported way to extend a core doctype - it is a record,
 	not an edit to apps/frappe - and it gives admins a dropdown of exactly the six
-	Appendix C roles.
+	recipient roles.
 	"""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
@@ -722,7 +745,7 @@ def seed_recipient_custom_field():
 			"options": "\n".join(("", *RECIPIENT_ROLES)),
 			"insert_after": "document_type",
 			"depends_on": 'eval:doc.document_type=="Grievance"',
-			"description": "FSD Appendix C recipient role. Resolved to a User at send time.",
+			"description": "Recipient role. Resolved to a User at send time.",
 		},
 	)
 	return ["Notification-grievance_recipient"]
@@ -768,7 +791,7 @@ def _translatable_with_fallback(spec, context_key):
 
 
 def seed_notifications():
-	"""One core Notification per (Appendix C event, channel).
+	"""One core Notification per (event, channel).
 
 	Carried on core's "Method" trigger: the lifecycle fires these explicitly from the
 	service layer rather than on Save or Value Change, so the event code is the method
@@ -798,7 +821,7 @@ def seed_notifications():
 					# Deliberately not is_standard. A standard Notification loads its
 					# template from a file in the module folder and validate_standard()
 					# refuses edits outside developer mode, which is the opposite of the
-					# desk-editable wording FSD 3.11.7 asks for.
+					# desk-editable wording we need.
 					"is_standard": 0,
 					"enabled": 1,
 				}

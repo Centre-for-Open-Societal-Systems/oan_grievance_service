@@ -1,14 +1,14 @@
-"""FR-08 Notifications and Communication, per the FSD Appendix C matrix.
+"""Notifications and communication.
 
 Configuration is a core Notification record per (event, channel). An administrator can
 change the channel, recipient, wording or enable state from the desk without a release,
-which is what FSD 3.11.7 asks for, and core gives us real Jinja rendering and a
+and core gives us real Jinja rendering and a
 condition expression for free.
 
 Delivery, however, is ours. Core renders a notification body exactly once, before it
 knows who it is addressed to (notification.py: the render at send_an_email precedes
 nothing that varies per recipient), and it never sets the language around that render.
-FSD 3.8 requires each citizen to be written to in their own language, so the send loop
+Each citizen is written to in their own language, so the send loop
 below does one render per recipient inside print_language(), which is the only point at
 which the recipient's language is known. Everything else - the template, the enable
 flag, the condition, the recipient role - stays in the admin-editable record.
@@ -18,7 +18,7 @@ per event, so both languages are editable from the desk. The consequence to reme
 the English source string is the translation key, so a stable context key is passed to
 _() and admins must edit the Amharic alongside any English rewording.
 
-The Appendix C closing note requires controls against redundant messaging, so a queued
+To guard against redundant messaging, a queued
 row is deduplicated on (grievance, event, recipient) and a disabled Notification, or one
 whose condition is false, sends nothing.
 """
@@ -70,7 +70,7 @@ JINJA_BLOCK = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.DOTALL)
 def validate_notification(doc, method=None):
 	"""Keep Grievance notification wording translatable. Registered on Notification.
 
-	FSD 3.8 requires citizen messages in Amharic and English. The send path renders once
+	Citizen messages go out in Amharic and English. The send path renders once
 	per recipient inside print_language(), which only moves strings marked with _();
 	literal text typed into a template renders identically in every language. So a
 	Grievance notification carrying bare literal text would quietly send English to
@@ -137,7 +137,9 @@ def resolve_recipient(grievance, recipient_role, override=None):
 	if not grievance.assigned_dept:
 		return None
 
-	from oan_grievance_service.permissions import find_officer_by_role_level
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		find_officer_by_role_level,
+	)
 
 	role_level = ROLE_LEVEL_RECIPIENTS.get(recipient_role)
 	if role_level:
@@ -150,7 +152,7 @@ def resolve_recipient(grievance, recipient_role, override=None):
 			return officer
 
 	# email_account is a Data field holding a mailbox, not a User link. Every
-	# Department Officer event in Appendix C is email-only, which is what makes
+	# Department Officer event is email-only, which is what makes
 	# that safe: there is no mobile number to look up for a bare address.
 	if recipient_role == RECIPIENT_DEPARTMENT_OFFICER:
 		email_account = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "email_account")
@@ -172,27 +174,8 @@ def resolve_recipient(grievance, recipient_role, override=None):
 	return None
 
 
-def notifications_for(event_code):
-	"""Every enabled Notification wired to an Appendix C event.
-
-	Events are carried on core's "Method" trigger rather than Save/Value Change: the
-	lifecycle fires them explicitly from the service layer, so there is one Notification
-	per (event, channel) and the channel Select decides which transport runs.
-	"""
-	return frappe.get_all(
-		"Notification",
-		filters={
-			"document_type": "Grievance",
-			"event": "Method",
-			"method": event_code,
-			"enabled": 1,
-		},
-		pluck="name",
-	)
-
-
 def _recipient_language(recipient):
-	"""The language to render in, per FSD 3.8.
+	"""The language to render in.
 
 	get_user_lang carries core's own fallback chain (User.language, then System
 	Settings, then en), but it assumes the argument is a User. Bare addresses - the
@@ -205,9 +188,9 @@ def _recipient_language(recipient):
 
 
 def _already_queued(grievance_name, event_code, recipient, channel):
-	"""Appendix C note: guard against redundant messaging.
+	"""Guard against redundant messaging.
 
-	The key includes the channel. Appendix C's "SMS + Email" rows are two Notification
+	The key includes the channel. "SMS + Email" events are two Notification
 	records here, because core's channel is a single Select, and both are meant to go
 	out - so deduplicating on (grievance, event, recipient) alone would silently drop
 	whichever of the pair was queued second.
@@ -226,7 +209,7 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 
 
 def queue(grievance, event_code, recipient_override=None):
-	"""Write a Grievance Notification Log row for an Appendix C event.
+	"""Write a Grievance Notification Log row for an event.
 
 	Returns the log rows created, which is an empty list when every matching
 	Notification is disabled, fails its condition, or has already been sent for this
@@ -234,7 +217,14 @@ def queue(grievance, event_code, recipient_override=None):
 	"""
 	rows = []
 
-	for notification_name in notifications_for(event_code):
+	# Events use core's "Method" trigger rather than Save/Value Change: the lifecycle
+	# fires them explicitly, so there is one Notification per (event, channel).
+	notification_names = frappe.get_all(
+		"Notification",
+		filters={"document_type": "Grievance", "event": "Method", "method": event_code, "enabled": 1},
+		pluck="name",
+	)
+	for notification_name in notification_names:
 		notification = frappe.get_doc("Notification", notification_name)
 		context = get_context(grievance)
 

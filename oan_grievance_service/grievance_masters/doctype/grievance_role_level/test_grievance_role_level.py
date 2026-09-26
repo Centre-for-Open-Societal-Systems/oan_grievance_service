@@ -24,7 +24,7 @@ class TestGrievanceRoleLevel(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Grievance Role Level"), before)
 
 	def test_level_code_becomes_the_record_name(self):
-		"""Link values must be the stable FSD token, not an autoincremented id."""
+		"""Link values must be the stable token, not an autoincremented id."""
 		seed_role_levels()
 		doc = frappe.get_doc("Grievance Role Level", "nodal_officer")
 		self.assertEqual(doc.name, doc.level_code)
@@ -74,7 +74,9 @@ class TestGrievanceRoleLevel(FrappeTestCase):
 
 	def test_rbac_assignment_links_to_role_level(self):
 		"""Grievance RBAC Assignment must link to a valid Grievance Role Level."""
-		from oan_grievance_service.permissions import find_officer_by_role_level
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			find_officer_by_role_level,
+		)
 
 		seed_role_levels()
 		test_user = "test_nodal_user@example.com"

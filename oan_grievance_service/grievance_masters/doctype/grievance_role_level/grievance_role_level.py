@@ -3,7 +3,7 @@
 
 """A position in the escalation chain, as a master rather than an enum.
 
-FSD Appendix F names four rungs - L1, L2, Nodal and Department Head - and
+The original design had four rungs - L1, L2, Nodal and Department Head - and
 `database-schema.md` carried them as a `role_level` enum on the assignment row. They
 live here as records so the ordering is data: escalation walks upward by `level_order`,
 and inserting a rung between two others is a row, not a migration.

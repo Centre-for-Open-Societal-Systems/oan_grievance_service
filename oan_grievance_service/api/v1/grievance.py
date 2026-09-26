@@ -1,5 +1,5 @@
-"""FR-02 submission and FR-06 submitter actions, exposed for the mobile app, web
-portal, IVR and call centre channels described in FSD 3.2.1.
+"""Grievance submission and submitter actions, exposed for the mobile app, web
+portal, IVR and call centre channels.
 
 Every entry point is whitelisted, validates its own input, and routes through the
 service layer so the audit trail and notifications cannot be bypassed.
@@ -21,6 +21,7 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import (
 	active_channels,
 	expand_status_filter,
@@ -212,7 +213,7 @@ def _resolve_submitter_identity(kwargs):
 	those details directly, because there is nothing to copy from.
 	"""
 	user = frappe.session.user
-	is_staff = bool(set(frappe.get_roles(user)) & STAFF_ROLES)
+	is_staff = permissions.is_staff(user)
 
 	if is_staff:
 		profile_name = kwargs.get("submitter")
@@ -305,23 +306,20 @@ def resolve_grievance_type(type_identifier: str | None, category: str | None = N
 
 
 def _request_anonymity(doc, justification):
-	"""FSD 9.2: anonymity is requested at submission and approved separately."""
-	frappe.get_doc(
-		{
-			"doctype": "Grievance Anonymity Request",
-			"grievance": doc.name,
-			# The request and the grievance use different vocabularies: the request
-			# is "Pending", the flag it drives on the grievance is "Pending Approval".
-			"status": "Pending",
-			"requested_at": now_datetime(),
-			"justification": justification,
-		}
-	).insert(ignore_permissions=True)
-	doc.db_set("anonymity_status", "Pending Approval", update_modified=False)
+	"""Anonymity is requested at submission and approved separately.
+
+	The case is withheld as anonymous while the request is pending; the change
+	request asks for that to be confirmed, and a rejection makes it identifiable.
+	Called after routing, so the request goes to the officer the case landed with.
+	"""
+	from oan_grievance_service.api.v1.change_request import raise_change_request
+
+	doc.db_set({"is_anonymous": 1, "anonymity_status": "Pending Approval"}, update_modified=False)
+	raise_change_request(doc, _("Anonymity request"), {"anonymity_status": "Approved"}, reason=justification)
 
 
 def detect_duplicates(grievance, window_days=7):
-	"""FSD 3.2.3 / E3: match on submitter identity, grievance type and time proximity."""
+	"""Match on submitter identity, grievance type and time proximity."""
 	if not grievance.submitter:
 		return []
 
@@ -332,8 +330,7 @@ def detect_duplicates(grievance, window_days=7):
 			"submitter": grievance.submitter,
 			"grievance_type": grievance.grievance_type,
 			"creation": [">=", frappe.utils.add_days(now_datetime(), -window_days)],
-			"status": ["!=", "Draft"],
-			"workflow_state": ["!=", "Draft"],
+			"docstatus": ["!=", 0],
 		},
 		pluck="name",
 	)
@@ -463,8 +460,7 @@ def list_grievances(
 	offset = (page - 1) * effective_limit
 
 	filters = [
-		["workflow_state", "!=", "Draft"],
-		["status", "!=", "Draft"],
+		["docstatus", "!=", 0],
 	]
 
 	status_raw = next((val for val in (status, kwargs.get("status")) if val is not None), None)
@@ -584,7 +580,7 @@ def list_grievances(
 		# A ticket is printed grouped and read back over a phone line, but
 		# stored flat, so a pasted `B-001-0012-0` matches nothing on the raw
 		# pattern alone. Added beside the raw clause rather than replacing it:
-		# grievances numbered under FSD 3.2.3 carry real hyphens in the stored
+		# grievances numbered under the old hyphenated format carry real hyphens in the stored
 		# value, and cleaning the term would stop those matching.
 		ticket_term = tn.clean(term)
 		if ticket_term and ticket_term != term:
@@ -629,7 +625,7 @@ def list_grievances(
 		"assigned_dept",
 		"assigned_to",
 		"sla_due_date",
-		"confirmation_deadline",
+		"state_deadline",
 		"creation as submitted_on",
 		"modified as updated_at",
 	]
@@ -653,13 +649,6 @@ def list_grievances(
 	)
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0
 
-	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
-
-	user = frappe.session.user
-	user_roles = set(frappe.get_roles(user))
-	is_admin = bool(user_roles & UNRESTRICTED_ROLES)
-	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
-
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
@@ -674,13 +663,15 @@ def list_grievances(
 
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
-		is_anon = bool(item.get("is_anonymous"))
-		item["is_anonymous"] = is_anon
-		if is_anon and not is_admin:
-			if not (item.get("submitter") and item.get("submitter") in user_profiles):
-				item["submitter_name"] = _("Anonymous Submitter")
-				item["contact_mobile"] = None
-				item["contact_email"] = None
+		state_deadline = item.pop("state_deadline", None)
+		item["confirmation_deadline"] = (
+			state_deadline if item.get("status") == C.STATE_PENDING_SUBMITTER else None
+		)
+		if not permissions.can_see_identity(item):
+			item["submitter_name"] = _("Anonymous Submitter")
+			item["contact_mobile"] = None
+			item["contact_email"] = None
+		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
@@ -717,8 +708,7 @@ def _grievance_page(items, page, page_size, total_count):
 def _get_available_actions_for_user(doc):
 	"""List actions available to the current user on this grievance with localized labels."""
 	user = frappe.session.user
-	roles = set(frappe.get_roles(user))
-	is_staff = bool(roles & STAFF_ROLES)
+	is_staff = permissions.is_staff(user)
 
 	actions = lifecycle.actions_available(doc)
 	result = []
@@ -811,18 +801,7 @@ def submit(**kwargs):
 def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 	if not entry:
 		return None
-	user = frappe.session.user
-	user_roles = set(frappe.get_roles(user))
-	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
-
-	is_anon = bool(doc.is_anonymous) or getattr(doc, "anonymity_status", None) == "Approved"
-	is_admin = bool(user_roles & UNRESTRICTED_ROLES)
-	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
-	is_owner = (doc.submitter and doc.submitter in user_profiles) or doc.owner == user
-
-	masked_name = (
-		_("Anonymous Submitter") if (is_anon and not is_admin and not is_owner) else doc.submitter_name
-	)
+	masked_name = doc.submitter_name if permissions.can_see_identity(doc) else _("Anonymous Submitter")
 	author_type = "submitter" if entry.author_submitter else "officer" if entry.author_user else "system"
 	if entry.author_submitter:
 		author_name = masked_name or entry.author_submitter
@@ -917,8 +896,7 @@ def action(
 		from oan_grievance_service.services import notifications
 
 		notifications.queue(doc, C.EVENT_REOPENED)
-		user_roles = set(frappe.get_roles(frappe.session.user))
-		is_staff = bool(user_roles & STAFF_ROLES)
+		is_staff = permissions.is_staff()
 		timeline_entry = GrievanceTimeline.record(
 			grievance=doc.name,
 			entry_type="status_change",
@@ -929,8 +907,7 @@ def action(
 		)
 
 	elif matching_action == "Reject":
-		roles = set(frappe.get_roles(frappe.session.user))
-		if not (roles & STAFF_ROLES):
+		if not permissions.is_staff():
 			frappe.throw(_("Only staff can reject grievances."), frappe.PermissionError)
 		if not reason or not reason.strip():
 			frappe.throw(_("A reason is required to reject a grievance."), title=_("Reason Required"))
@@ -962,7 +939,7 @@ def action(
 
 		notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
 
-	elif matching_action in ("Request More Info", "More Info Needed"):
+	elif matching_action in ("Request More Info", C.STATE_MORE_INFO_NEEDED):
 		req_text = body or reason or note or "Additional information requested"
 		timeline_entry = GrievanceTimeline.record(
 			grievance=doc.name,
@@ -1010,7 +987,9 @@ def action(
 	elif matching_action == "Start Work":
 		if not doc.assigned_dept:
 			if doc.assigned_to:
-				from oan_grievance_service.permissions import active_scopes
+				from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+					active_scopes,
+				)
 
 				scopes = active_scopes(doc.assigned_to)
 				if scopes and scopes[0].get("department_scope"):
@@ -1075,8 +1054,7 @@ def timeline(
 	audit.record_access(audit.ACTION_VIEW_DETAIL, grievance=doc.name)
 
 	user = frappe.session.user
-	roles = set(frappe.get_roles(user))
-	is_staff = bool(roles & STAFF_ROLES)
+	is_staff = permissions.is_staff(user)
 
 	filters = {"grievance": doc.name}
 
@@ -1113,18 +1091,10 @@ def timeline(
 
 	next_cursor = entries[-1]["created_on"].isoformat() if (has_more and entries) else None
 
-	from oan_grievance_service.permissions import UNRESTRICTED_ROLES, _submitter_profiles
-
-	is_anon = bool(doc.is_anonymous) or getattr(doc, "anonymity_status", None) == "Approved"
-	is_admin = bool(roles & UNRESTRICTED_ROLES)
-	user_profiles = set(_submitter_profiles(user)) if user != "Guest" else set()
-	is_owner = (doc.submitter and doc.submitter in user_profiles) or doc.owner == user
-
-	masked_name = (
-		_("Anonymous Submitter") if (is_anon and not is_admin and not is_owner) else doc.submitter_name
-	)
-	masked_mobile = None if (is_anon and not is_admin and not is_owner) else doc.contact_mobile
-	masked_email = None if (is_anon and not is_admin and not is_owner) else doc.contact_email
+	show_identity = permissions.can_see_identity(doc)
+	masked_name = doc.submitter_name if show_identity else _("Anonymous Submitter")
+	masked_mobile = doc.contact_mobile if show_identity else None
+	masked_email = doc.contact_email if show_identity else None
 
 	for entry in entries:
 		entry["is_internal"] = bool(entry.get("is_internal"))
@@ -1218,7 +1188,11 @@ def timeline(
 				"sla_due_date": doc.sla_due_date,
 				"sla_consumed_percent": sla.consumed_percent(doc),
 				"next_escalation_at": doc.next_escalation_at,
-				"confirmation_deadline": doc.confirmation_deadline,
+				# Kept under its old name for existing clients: the confirmation window is
+				# the Pending Submitter state's timer.
+				"confirmation_deadline": doc.state_deadline
+				if doc.workflow_state == C.STATE_PENDING_SUBMITTER
+				else None,
 			},
 			"assignment": {
 				"department": doc.assigned_dept,
@@ -1313,8 +1287,7 @@ def _post_message(
 	is_internal = _parse_flag(is_internal)
 	doc = _load(ticket_number, ptype="write")
 	user = frappe.session.user
-	user_roles = set(frappe.get_roles(user))
-	is_staff = bool(user_roles & STAFF_ROLES)
+	is_staff = permissions.is_staff(user)
 
 	req_type = (type or "").strip()
 	resp_type_name = (response_type or "").strip()
@@ -1425,7 +1398,7 @@ def _post_message(
 
 	# 3. Citizen Reply to Information Request
 	if req_type.lower() in ("info_response", "submitter_reply", "reply") or (
-		not is_staff and doc.status == "More Info Needed"
+		not is_staff and doc.status == C.STATE_MORE_INFO_NEEDED
 	):
 		if "Submitter Reply" in lifecycle.actions_available(doc):
 			lifecycle.transition(doc, "Submitter Reply", note="Submitter replied to information request")
@@ -1490,6 +1463,31 @@ def _post_message(
 	)
 
 
+def _change_response(doc, req, applied_message, pending_message, **extra):
+	"""The answer every change-request-backed endpoint gives: the case as it now
+	stands, and the request that holds the change."""
+	from oan_grievance_service.api.v1.change_request import serialize
+
+	doc.reload()
+	current_state = _current_state(doc)
+	timeline_entry = req.flags.timeline_entry
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"status": doc.status,
+			"change_request": serialize(req),
+			"current_state": current_state,
+			"timeline_event": (
+				_format_timeline_event(timeline_entry, doc, doc.status, doc.status)
+				if timeline_entry
+				else None
+			),
+			**{k: doc.get(k) for k in extra.get("fields", ())},
+		},
+		message=applied_message if req.status == "Approved" else pending_message,
+	)
+
+
 @route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
 @frappe.whitelist()
 @validate_request(ReassignGrievanceRequest)
@@ -1502,77 +1500,26 @@ def reassign(
 	reason: str | None = None,
 	**kwargs,
 ):
-	"""Raise a reassignment request, and carry it out when the caller may approve it.
+	"""Request a new department and/or officer for the case.
 
-	FSD 3.3.1: a reassignment is ruled on by a supervising officer. The request record
-	does the work - it snapshots the prior assignment, checks the approver and only then
-	writes the new one - so a caller who is not a supervisor of the current assignee
-	leaves a Pending request for one to decide, and the case does not move.
+	A shorthand for a change request. It is applied at once when the caller already
+	stands above the case (a supervisor of the assignee, or an admin); otherwise it
+	waits for the next person up and the case does not move.
 	"""
-	from oan_grievance_service.permissions import can_approve_reassignment
+	from oan_grievance_service.api.v1.change_request import raise_change_request
 
 	doc = _load(ticket_number, ptype="write")
+	changes = {"assigned_dept": target_department}
+	if target_officer:
+		changes["assigned_to"] = target_officer
 
-	if not frappe.db.exists("Grievance Department", target_department):
-		frappe.throw(
-			_("Department '{0}' does not exist.").format(target_department),
-			frappe.ValidationError,
-			title=_("Invalid Department"),
-		)
-
-	if target_officer and not frappe.db.exists("User", target_officer):
-		frappe.throw(
-			_("Officer '{0}' does not exist.").format(target_officer),
-			frappe.ValidationError,
-			title=_("Invalid Officer"),
-		)
-
-	can_approve = can_approve_reassignment(
-		user=frappe.session.user,
-		request_doc={
-			"grievance": doc.name,
-			"initiated_by": frappe.session.user,
-			"prior_department": doc.assigned_dept,
-			"prior_officer": doc.assigned_to,
-		},
-	)
-
-	req_doc = frappe.get_doc(
-		{
-			"doctype": "Grievance Reassignment Request",
-			"grievance": doc.name,
-			"target_department": target_department,
-			"target_officer": target_officer,
-			"sla_treatment": "Continue",
-			"reason": (reason or "").strip() or "Reassigned via API",
-			"decision": "Approved" if can_approve else "Pending",
-		}
-	).insert(ignore_permissions=True)
-
-	doc.reload()
-	current_state = _current_state(doc)
-	timeline_entry = req_doc.flags.timeline_entry
-
-	return success_response(
-		data={
-			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
-			"assigned_dept": doc.assigned_dept,
-			"assigned_to": doc.assigned_to,
-			"reassignment_request": req_doc.name,
-			"decision": req_doc.decision,
-			"current_state": current_state,
-			"timeline_event": (
-				_format_timeline_event(timeline_entry, doc, doc.status, doc.status)
-				if timeline_entry
-				else None
-			),
-		},
-		message=(
-			_("Grievance reassigned successfully")
-			if req_doc.decision == "Approved"
-			else _("Reassignment requested; awaiting supervisor approval")
-		),
+	req = raise_change_request(doc, _("Reassignment"), changes, reason=reason)
+	return _change_response(
+		doc,
+		req,
+		_("Grievance reassigned successfully"),
+		_("Reassignment requested; awaiting approval"),
+		fields=("assigned_dept", "assigned_to"),
 	)
 
 
@@ -1587,37 +1534,30 @@ def defer_sla(
 	reason: str,
 	**kwargs,
 ):
-	"""Extend the SLA window for a case directly via API.
+	"""Request the SLA deadline be pushed out by `additional_days`.
 
-	The deferral record does the work: saving it Approved checks the approver and the
-	policy ceiling, moves the deadline and writes the timeline entry.
+	A shorthand for a change request on `sla_due_date`, decided up the hierarchy
+	unless the deferral policy lets officers defer without a supervisor.
 	"""
+	from frappe.utils import add_days, get_datetime
+
+	from oan_grievance_service.api.v1.change_request import raise_change_request
+
 	doc = _load(ticket_number, ptype="write")
+	if not doc.sla_due_date:
+		frappe.throw(_("This grievance has no SLA deadline to defer."), title=_("No SLA Deadline"))
 
-	def_doc = frappe.get_doc(
-		{
-			"doctype": "Grievance SLA Deferral",
-			"grievance": doc.name,
-			"additional_days": int(additional_days),
-			"justification": reason.strip(),
-			"requested_by": frappe.session.user,
-			"requested_at": now_datetime(),
-			"status": "Approved",
-		}
-	).insert(ignore_permissions=True)
-	timeline_entry = def_doc.flags.timeline_entry
-
-	doc.reload()
-	current_state = _current_state(doc, {"sla_due_date": _iso(doc.sla_due_date)})
-
-	return success_response(
-		data={
-			"ticket_number": tn.display(doc.ticket_number),
-			"sla_due_date": current_state["sla_due_date"],
-			"current_state": current_state,
-			"timeline_event": _format_timeline_event(timeline_entry, doc, doc.status, doc.status),
-		},
-		message=_("SLA deadline extended successfully"),
+	days = int(additional_days)
+	new_due = add_days(get_datetime(doc.sla_due_date), days)
+	req = raise_change_request(
+		doc, _("SLA deferral: +{0} days").format(days), {"sla_due_date": str(new_due)}, reason=reason
+	)
+	return _change_response(
+		doc,
+		req,
+		_("SLA deadline extended successfully"),
+		_("Deferral requested; awaiting approval"),
+		fields=("sla_due_date",),
 	)
 
 
@@ -1632,78 +1572,34 @@ def anonymity_decision(
 	reason: str | None = None,
 	**kwargs,
 ):
-	"""Approve or reject a submitter's anonymity request."""
+	"""Rule on the submitter's pending anonymity request for this case."""
 	doc = _load(ticket_number, ptype="write")
-	from oan_grievance_service.permissions import can_decide_anonymity
 
-	if not can_decide_anonymity(doc):
-		frappe.throw(
-			_("Not permitted to decide on anonymity for this grievance."),
-			frappe.PermissionError,
-			title=_("Forbidden"),
-		)
-
-	decision = decision.strip().title()
-	if decision not in ("Approved", "Rejected"):
-		frappe.throw(_("Decision must be either Approved or Rejected."), frappe.ValidationError)
-
-	req_name = frappe.db.get_value(
-		"Grievance Anonymity Request",
-		{"grievance": doc.name, "status": "Pending"},
-		"name",
-		order_by="creation desc",
+	req_name = frappe.db.sql(
+		"""
+		SELECT r.name
+		FROM `tabGrievance Change Request` r
+		JOIN `tabGrievance Change Request Item` i ON i.parent = r.name
+		WHERE r.grievance = %(grievance)s AND r.status = 'Pending' AND i.fieldname = 'anonymity_status'
+		ORDER BY r.creation DESC
+		LIMIT 1
+		""",
+		{"grievance": doc.name},
 	)
-	if req_name:
-		req_doc = frappe.get_doc("Grievance Anonymity Request", req_name)
-		req_doc.status = decision
-		req_doc.decided_by = frappe.session.user
-		req_doc.decided_at = now_datetime()
-		req_doc.decision_reason = reason
-		req_doc.save(ignore_permissions=True)
-	else:
-		req_doc = frappe.get_doc(
-			{
-				"doctype": "Grievance Anonymity Request",
-				"grievance": doc.name,
-				"status": decision,
-				"requested_at": now_datetime(),
-				"decided_by": frappe.session.user,
-				"decided_at": now_datetime(),
-				"decision_reason": reason,
-			}
-		).insert(ignore_permissions=True)
+	if not req_name:
+		frappe.throw(_("There is no pending anonymity request for this grievance."), frappe.DoesNotExistError)
 
-	if decision == "Approved":
-		doc.db_set("anonymity_status", "Approved", update_modified=False)
-		doc.db_set("is_anonymous", 1, update_modified=False)
-	else:
-		doc.db_set("anonymity_status", "Rejected", update_modified=False)
+	req = frappe.get_doc("Grievance Change Request", req_name[0][0])
+	req.status = decision.strip().title()
+	req.decision_note = (reason or "").strip() or None
+	req.save(ignore_permissions=True)
 
-	body_text = _("Anonymity request {0}. Reason: {1}").format(
-		_(decision.lower()), reason or _("None provided")
-	)
-	timeline_entry = GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="note",
-		is_internal=True,
-		body=body_text,
-		author_user=frappe.session.user,
-		ref_doctype="Grievance Anonymity Request",
-		ref_docname=req_doc.name,
-	)
-
-	doc.reload()
-	current_state = _current_state(doc)
-
-	return success_response(
-		data={
-			"ticket_number": tn.display(doc.ticket_number),
-			"is_anonymous": bool(doc.is_anonymous),
-			"anonymity_status": doc.anonymity_status,
-			"current_state": current_state,
-			"timeline_event": _format_timeline_event(timeline_entry, doc, doc.status, doc.status),
-		},
-		message=_("Anonymity decision recorded successfully"),
+	return _change_response(
+		doc,
+		req,
+		_("Anonymity decision recorded successfully"),
+		_("Anonymity decision recorded successfully"),
+		fields=("is_anonymous", "anonymity_status"),
 	)
 
 

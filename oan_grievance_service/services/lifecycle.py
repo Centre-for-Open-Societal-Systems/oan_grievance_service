@@ -1,4 +1,4 @@
-"""FR-04 Tracking and Status Management.
+"""Tracking and status management.
 
 Every move goes through Frappe's workflow engine. `transition` asks
 `frappe.model.workflow.apply_workflow` for an action by name; the engine checks the
@@ -29,12 +29,8 @@ def transition(
 	automated=False,
 	notify=True,
 	closure_type=None,
-	sla_behaviour=None,
 ):
 	"""Take a workflow action on a grievance. Returns the Grievance Status History row.
-
-	`sla_behaviour` is what a Grievance Response asked of the clock -- `running`,
-	`paused` or `stopped`. Left None, the site's paused-status list decides.
 
 	`automated` is for moves the system makes on its own -- auto-routing, the
 	auto-close job, an anonymity ruling's rejection. The Workflow allows those
@@ -46,7 +42,7 @@ def transition(
 	the API checks the caller can act on the case); the workflow's role check is
 	the authorisation for the move. The save inside the engine is therefore told
 	not to re-check DocPerms, which for a submitter's own confirm would otherwise
-	refuse `submit` -- a permission type the FSD roles never hold directly.
+	refuse `submit` -- a permission type the grievance roles never hold directly.
 	"""
 	context = frappe._dict(
 		action=action,
@@ -55,7 +51,6 @@ def transition(
 		automated=automated,
 		notify=notify,
 		closure_type=closure_type,
-		sla_behaviour=sla_behaviour,
 		history=None,
 	)
 	outer = frappe.flags.grievance_transition
@@ -96,26 +91,9 @@ def actions_available(grievance):
 
 
 STATUS_EVENT = {
-	"In Progress": C.EVENT_STATUS_IN_PROGRESS,
-	"More Info Needed": C.EVENT_MORE_INFO_REQUESTED,
-	"Pending Submitter": C.EVENT_CONFIRMATION_WINDOW,
-	"Resolved": C.EVENT_CONFIRMED,
-	"Closed": C.EVENT_CLOSED,
+	C.STATE_IN_PROGRESS: C.EVENT_STATUS_IN_PROGRESS,
+	C.STATE_MORE_INFO_NEEDED: C.EVENT_MORE_INFO_REQUESTED,
+	C.STATE_PENDING_SUBMITTER: C.EVENT_CONFIRMATION_WINDOW,
+	C.STATE_RESOLVED: C.EVENT_CONFIRMED,
+	C.STATE_CLOSED: C.EVENT_CLOSED,
 }
-
-
-def confirmation_window_days(service_category: str | None = None) -> int:
-	"""FSD 3.6: Dynamic citizen confirmation/appeal window in days.
-
-	Reads from the active Grievance SLA Configuration for the category if configured,
-	falling back to site config `grievance_confirmation_window_days` or default 7 days.
-	"""
-	if service_category:
-		appeal_days = frappe.db.get_value(
-			"Grievance SLA Configuration",
-			{"service_category": service_category, "active": 1},
-			"appeal_window_days",
-		)
-		if appeal_days:
-			return int(appeal_days)
-	return int(frappe.conf.get("grievance_confirmation_window_days") or C.DEFAULT_CONFIRMATION_DAYS)

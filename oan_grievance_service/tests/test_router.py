@@ -99,6 +99,16 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
+		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance SLA Configuration",
+					"service_category": "Inputs",
+					"sla_days": 15,
+					"active": 1,
+				}
+			).insert(ignore_permissions=True)
+
 		self.area = a_leaf_area()
 
 		# Create a test farmer user and profile
@@ -406,8 +416,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		"""Test direct REST APIs for reassignment, deferral, and anonymity decisions."""
 		import uuid
 
-		import frappe.api
-
+		from oan_grievance_service.services import lifecycle
 		from oan_grievance_service.tests.fixtures import a_department
 
 		# 1. Submit a grievance
@@ -432,6 +441,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		}
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
+		self.assertEqual(res_submit.status_code, 200, res_submit.get_data(as_text=True))
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
 		frappe.db.commit()
 
@@ -450,16 +460,18 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_reassign.status_code, 200, res_reassign.get_data(as_text=True))
 		reassign_data = json.loads(res_reassign.get_data(as_text=True))
 		self.assertEqual(reassign_data["status"], "success")
-		self.assertEqual(reassign_data["data"]["assigned_dept"], dept)
+		# 3. Assign case to start SLA clock, then Defer SLA endpoint
+		doc_case = frappe.get_doc("Grievance", tn.normalize(ticket_number))
+		lifecycle.transition(doc_case, "Assign")
+		frappe.db.commit()
 
-		# 3. Defer SLA endpoint
 		req_defer = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/defer-sla",
 			method="POST",
 			data={"additional_days": 5, "reason": "Awaiting soil lab sample results"},
 		)
 		res_defer = frappe.api.handle(req_defer)
-		self.assertEqual(res_defer.status_code, 200)
+		self.assertEqual(res_defer.status_code, 200, res_defer.get_data(as_text=True))
 		defer_data = json.loads(res_defer.get_data(as_text=True))
 		self.assertEqual(defer_data["status"], "success")
 		self.assertIn("sla_due_date", defer_data["data"])

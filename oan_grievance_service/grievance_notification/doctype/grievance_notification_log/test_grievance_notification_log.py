@@ -1,12 +1,12 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
-"""FR-08 acceptance tests.
+"""Notification acceptance tests.
 
 These cover the behaviour that is ours rather than core's: that a lifecycle event
 produces exactly one queued row per recipient, that re-firing does not duplicate it,
 that a disabled or condition-failing Notification produces nothing, that each
-Appendix C role resolves through the Link hops core cannot follow, and that a log row
+recipient role resolves through the Link hops core cannot follow, and that a log row
 cannot be deleted by anyone.
 """
 
@@ -243,7 +243,7 @@ class TestGrievanceNotificationLog(NotificationCase):
 		notifications.queue(self.grievance, EVENT)
 		self.assertEqual(len(self._rows()), 1)
 
-		# Appendix C's control against redundant messaging.
+		# Control against redundant messaging.
 		notifications.queue(self.grievance, EVENT)
 		rows = self._rows()
 		self.assertEqual(len(rows), 1)
@@ -284,11 +284,11 @@ class TestGrievanceNotificationLog(NotificationCase):
 		self.assertIn(self.grievance.name, rows[0].message)
 
 	def test_both_channels_of_one_event_each_get_a_row(self):
-		"""FSD "SMS + Email" is two Notification records, because channel is a Select.
+		"""An "SMS + Email" event is two Notification records, because channel is a Select.
 
 		Regression guard: with the dedupe key on (grievance, event, recipient) alone,
 		whichever of the pair was queued second was silently dropped, so every
-		"SMS + Email" row in Appendix C delivered on one channel only.
+		"SMS + Email" event delivered on one channel only.
 		"""
 		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD, channel="Email")
 		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD, channel="SMS")

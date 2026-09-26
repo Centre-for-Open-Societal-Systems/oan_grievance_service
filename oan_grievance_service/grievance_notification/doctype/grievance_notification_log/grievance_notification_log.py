@@ -7,7 +7,7 @@ from frappe.model.document import Document
 
 
 class GrievanceNotificationLog(Document):
-	"""FR-08 delivery evidence. Append-only by construction.
+	"""Notification delivery evidence. Append-only by construction.
 
 	Every role's DocPerm already has delete=0, but DocPerms are bypassed by
 	Administrator and by ignore_permissions, so the guard is repeated here. A

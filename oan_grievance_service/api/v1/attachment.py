@@ -13,7 +13,7 @@ An upload is not stored and then checked. It is checked and then stored:
    File doctype derives content_type from `mimetypes.guess_type(file_name)`, which
    a payload renamed from .exe to .jpg defeats outright.
 2. Location metadata is stripped from images. A submitter who asked for anonymity
-   under FSD 9.2 and attached a photograph of their own plot has published their
+   and attached a photograph of their own plot has published their
    coordinates, whatever the database says about their name.
 3. The object is withheld until a scanner has looked at it. Uploads land Pending
    and `is_servable()` passes only on Clean, so an unscanned file never reaches an
@@ -150,7 +150,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_CLEAN,
 	SCAN_PENDING,
 )
-from oan_grievance_service.services import audit, scanning
+from oan_grievance_service.services import audit, scanning, sla
 
 from .grievance import ALLOWED_GRIEVANCE_ROLES
 
@@ -445,7 +445,7 @@ def delete(attachment: str):
 	doc = frappe.get_doc("Grievance Attachment", attachment)
 	case = _case_for_write(doc.grievance)
 
-	if case.status in ("Closed", "Rejected", "Resolved"):
+	if sla.sla_category_of(case.workflow_state) == sla.STOPPED:
 		frappe.throw(
 			_("Evidence cannot be removed once the grievance is {0}.").format(case.status),
 			title=_("Case Is Closed"),

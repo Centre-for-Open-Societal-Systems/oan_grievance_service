@@ -1,4 +1,4 @@
-"""FR-03 Routing and Assignment with Nearest-Ancestor Administrative Area matching.
+"""Routing and assignment with nearest-ancestor Administrative Area matching.
 
 Auto-routing rules consider service category, grievance type, service provider, and
 administrative area (tree hierarchy) configured on Grievance RBAC Assignment desks.
@@ -11,8 +11,11 @@ from typing import Any
 
 import frappe
 
-from oan_grievance_service.permissions import get_area_bounds
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+	get_area_bounds,
+)
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import sla
 
 MATCH_FIELDS = (
 	("category_scope", "service_category"),
@@ -179,15 +182,16 @@ def pick_officer_by_strategy(assignment_doc):
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
+			# A case whose SLA clock has Stopped is no longer open load.
 			rows = frappe.db.sql(
 				"""
 				SELECT assigned_to, COUNT(name) AS open_count
 				FROM `tabGrievance`
 				WHERE assigned_to IN %(users)s
-				  AND status NOT IN ('Closed', 'Rejected', 'Resolved')
+				  AND status NOT IN %(concluded)s
 				GROUP BY assigned_to
 				""",
-				{"users": tuple(users)},
+				{"users": tuple(users), "concluded": tuple(sla.states_in_category(sla.STOPPED)) or ("",)},
 				as_dict=True,
 			)
 			counts = {r.assigned_to: r.open_count for r in rows}
@@ -213,7 +217,7 @@ def pick_officer_by_strategy(assignment_doc):
 def apply_routing(grievance, commit_status=True):
 	"""Route a grievance. Returns the matching Grievance RBAC Assignment, or None.
 
-	FSD 3.3 / Database Schema 8: resolves Tier 1 (department) and Tier 2 (officer) from the
+	Resolves Tier 1 (department) and Tier 2 (officer) from the
 	matching Grievance RBAC Assignment desk record.
 	Where none matches, the grievance stays Submitted in the manual queue.
 	"""
@@ -244,31 +248,3 @@ def apply_routing(grievance, commit_status=True):
 		)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc
-
-
-def manual_assign(grievance, department, officer=None, assigned_by=None):
-	"""FSD 3.3 / 4.1 step 8b: the nodal officer assigns from the manual queue."""
-	from oan_grievance_service.services import lifecycle, notifications
-
-	updates = {
-		"assigned_dept": department,
-		"routed_automatically": 0,
-	}
-	if officer:
-		updates["assigned_to"] = officer
-	grievance.db_set(updates, update_modified=False)
-
-	lifecycle.transition(
-		grievance, "Assign", note=f"Manually assigned by {assigned_by or frappe.session.user}"
-	)
-	notifications.queue(grievance, C.EVENT_ASSIGNED_MANUAL)
-
-
-def manual_queue():
-	"""FSD 3.3: grievances awaiting a nodal officer's routing decision."""
-	return frappe.get_all(
-		"Grievance",
-		filters={"status": "Submitted", "assigned_dept": ["is", "not set"]},
-		fields=["name", "ticket_number", "service_category", "administrative_area", "creation"],
-		order_by="creation asc",
-	)

@@ -3,7 +3,7 @@
  "allow_rename": 0,
  "autoname": "format:GR-NOTIF-{######}",
  "creation": "2026-09-03 18:15:06.437817",
- "description": "FR-08 cross-channel delivery record. Core has no per-ticket history that spans SMS and email: Communication covers email only, and SMS Log is an unlinked, success-only, batch-level gateway trace whose only DocPerm is System Manager read. This is the one place an officer can answer 'what did we notify on this ticket, on which channel, and did it land'.",
+ "description": "Cross-channel delivery record. Core has no per-ticket history that spans SMS and email: Communication covers email only, and SMS Log is an unlinked, success-only, batch-level gateway trace whose only DocPerm is System Manager read. This is the one place an officer can answer 'what did we notify on this ticket, on which channel, and did it land'.",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -38,7 +38,7 @@
    "search_index": 1
   },
   {
-   "description": "FSD Appendix C notification matrix event key, e.g. submission_received",
+   "description": "Notification event key, e.g. submission_received",
    "fieldname": "event",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -71,7 +71,7 @@
   },
   {
    "default": "en",
-   "description": "FSD 3.8: citizen messages are localized in Amharic and English. Resolved per recipient from User.language at send time, never stored on the Grievance.",
+   "description": "Citizen messages are localized in Amharic and English. Resolved per recipient from User.language at send time, never stored on the Grievance.",
    "fieldname": "language",
    "fieldtype": "Link",
    "label": "Language",
@@ -99,7 +99,7 @@
    "label": "Message"
   },
   {
-   "description": "Rendered subject. Used by email and reused as the in-app notification title; SMS carries the body alone, which is why Appendix C wording repeats the ticket number inside the message.",
+   "description": "Rendered subject. Used by email and reused as the in-app notification title; SMS carries the body alone, which is why the wording repeats the ticket number inside the message.",
    "fieldname": "subject",
    "fieldtype": "Data",
    "label": "Subject"

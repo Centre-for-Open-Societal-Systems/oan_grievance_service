@@ -1,6 +1,15 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
+"""Grievance Submitter Profile: one person or organisation that files grievances.
+
+What belongs here: profile validation, the dedupe key, and queries over profiles such
+as which profiles a user owns.
+
+What does not belong here: identity format rules shared with intake (services/identity.py)
+and whether an owner may see a case (permissions.py).
+"""
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -15,7 +24,7 @@ class GrievanceSubmitterProfile(Document):
 
 	def validate_required_identity(self):
 		"""Enforce the registration requirements for this submitter type."""
-		rule = identity.rule_for(self.submitter_type)
+		rule = identity.SUBMITTER_TYPE_RULES.get(self.submitter_type)
 		if not rule:
 			frappe.throw(
 				_("{0} is not a submitter type this service knows how to register.").format(
@@ -94,3 +103,13 @@ def build_dedupe_key(scheme, value):
 	if scheme not in valid_schemes:
 		frappe.throw(_("Unknown identity scheme {0}.").format(scheme))
 	return f"{scheme}:{(value or '').strip()}"
+
+
+def profiles_of(user):
+	"""Profiles this user owns.
+
+	Resolved through the explicit `user` link rather than by matching a contact address,
+	so changing a contact email cannot transfer someone else's cases, and two profiles
+	sharing an address do not both match.
+	"""
+	return frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name")

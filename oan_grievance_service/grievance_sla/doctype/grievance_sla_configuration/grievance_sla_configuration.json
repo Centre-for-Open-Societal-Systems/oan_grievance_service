@@ -18,7 +18,8 @@
   "update_cadence_hours",
   "col_milestones",
   "remand_execution_hours",
-  "appeal_window_days"
+  "sec_state_timers",
+  "state_timers"
  ],
  "fields": [
   {
@@ -30,7 +31,7 @@
    "reqd": 1
   },
   {
-   "description": "FSD 3.7: expected response time in days",
+   "description": "Expected response time in days",
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -94,11 +95,16 @@
    "label": "Supervisor Remand Execution (Hours)"
   },
   {
-   "default": "15",
-   "description": "Post-resolution citizen objection & appeal window in days",
-   "fieldname": "appeal_window_days",
-   "fieldtype": "Int",
-   "label": "Appeal Window (Days)"
+   "fieldname": "sec_state_timers",
+   "fieldtype": "Section Break",
+   "label": "State Timers",
+   "description": "How long a case may sit in a state before something happens. With no row for Pending Submitter, the confirmation window defaults to grievance_confirmation_window_days (7 days)."
+  },
+  {
+   "fieldname": "state_timers",
+   "fieldtype": "Table",
+   "label": "State Timers",
+   "options": "Grievance State Timer"
   }
  ],
  "grid_page_length": 50,

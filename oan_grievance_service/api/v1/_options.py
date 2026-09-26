@@ -2,6 +2,7 @@
 
 import frappe
 
+from oan_grievance_service.permissions import is_staff
 from oan_grievance_service.services import constants as C
 
 
@@ -78,7 +79,7 @@ def get_identity_schemes() -> list[dict]:
 
 def get_submitter_types() -> list[dict]:
 	"""Retrieve active submitter types with their accepted identity schemes."""
-	from oan_grievance_service.services.identity import rule_for
+	from oan_grievance_service.services.identity import SUBMITTER_TYPE_RULES
 
 	types = frappe.get_all(
 		"Grievance Submitter Type",
@@ -88,7 +89,7 @@ def get_submitter_types() -> list[dict]:
 		ignore_permissions=True,
 	)
 	for t in types:
-		rule = rule_for(t["type_name"])
+		rule = SUBMITTER_TYPE_RULES.get(t["type_name"])
 		t["allowed_schemes"] = list(rule.schemes) if rule else ["phone"]
 	return types
 
@@ -123,37 +124,37 @@ _STATUS_CARDS = (
 	{
 		"status": "Assigned",
 		"label": "Assigned",
-		"workflow_states": ("Assigned",),
+		"workflow_states": (C.STATE_ASSIGNED,),
 		"officer_only": True,
 	},
 	{
 		"status": "In Progress",
 		"label": "In Progress",
-		"workflow_states": ("Submitted", "In Progress", "Pending Submitter"),
+		"workflow_states": (C.STATE_SUBMITTED, C.STATE_IN_PROGRESS, C.STATE_PENDING_SUBMITTER),
 		"officer_only": False,
 	},
 	{
 		"status": "Require More Info",
 		"label": "Require More Info",
-		"workflow_states": ("More Info Needed",),
+		"workflow_states": (C.STATE_MORE_INFO_NEEDED,),
 		"officer_only": False,
 	},
 	{
 		"status": "Rejected",
 		"label": "Rejected",
-		"workflow_states": ("Rejected",),
+		"workflow_states": (C.STATE_REJECTED,),
 		"officer_only": False,
 	},
 	{
 		"status": "Resolved",
 		"label": "Resolved",
-		"workflow_states": ("Resolved",),
+		"workflow_states": (C.STATE_RESOLVED,),
 		"officer_only": False,
 	},
 	{
 		"status": "Closed",
 		"label": "Closed",
-		"workflow_states": ("Closed",),
+		"workflow_states": (C.STATE_CLOSED,),
 		"officer_only": False,
 	},
 )
@@ -179,11 +180,6 @@ for _card in _STATUS_CARDS:
 def _canonical_status(value: str) -> str | None:
 	key = " ".join(str(value).strip().lower().replace("_", " ").replace("-", " ").split())
 	return _STATUS_ALIASES.get(key)
-
-
-def _caller_is_staff() -> bool:
-	"""Officers and admins see the Assigned KPI card; submitters do not."""
-	return bool(set(frappe.get_roles()) & C.STAFF_ROLES)
 
 
 def _workflow_terminals() -> dict[str, int] | None:
@@ -215,9 +211,9 @@ def _workflow_terminals() -> dict[str, int] | None:
 	terminals: dict[str, int] = {}
 	for row in rows:
 		state = row.get("state")
-		if not state or state in terminals or state == "Draft":
+		doc_status = str(row.get("doc_status") or "0")
+		if not state or state in terminals or doc_status == "0":
 			continue
-		doc_status = str(row.get("doc_status") or "")
 		terminals[state] = 1 if doc_status == "2" or state not in outgoing else 0
 	return terminals
 
@@ -239,7 +235,7 @@ def _is_terminal(workflow_states: tuple[str, ...], terminals: dict[str, int] | N
 def _status_cards() -> list[dict]:
 	"""Queue statuses for the caller, in display order, with terminal from the workflow."""
 	terminals = _workflow_terminals()
-	include_officer_cards = _caller_is_staff()
+	include_officer_cards = is_staff()
 	cards = []
 	order = 0
 	for card in _STATUS_CARDS:
@@ -273,10 +269,10 @@ def public_status(workflow_status: str | None) -> str:
 	Unknown open states are In Progress. Assigned maps to Assigned for staff and
 	to In Progress for submitters (who do not get an Assigned KPI card).
 	"""
-	if not workflow_status or workflow_status == "Draft":
+	if not workflow_status or workflow_status == C.STATE_DRAFT:
 		return workflow_status or ""
 	canonical = _canonical_status(workflow_status)
-	if canonical == "Assigned" and not _caller_is_staff():
+	if canonical == "Assigned" and not is_staff():
 		return "In Progress"
 	return canonical or "In Progress"
 
@@ -291,7 +287,7 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 	if not values:
 		return []
 
-	include_officer_cards = _caller_is_staff()
+	include_officer_cards = is_staff()
 	selected: list[str] = []
 	for raw in values:
 		canonical = _canonical_status(str(raw))
@@ -305,7 +301,7 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 						selected.extend(card["workflow_states"])
 			continue
 		text = str(raw).strip()
-		if text and text != "Draft":
+		if text and text != C.STATE_DRAFT:
 			selected.append(text)
 
 	seen: list[str] = []
@@ -324,14 +320,14 @@ def get_status_summary() -> list[dict]:
 	"""
 	rows = frappe.get_list(
 		"Grievance",
-		filters=[["workflow_state", "!=", "Draft"], ["status", "!=", "Draft"]],
+		filters=[["docstatus", "!=", 0]],
 		fields=["status", {"COUNT": "*", "as": "total"}],
 		group_by="status",
 	)
 	counts: dict[str, int] = {}
 	for row in rows:
 		status = row.get("status") or ""
-		if not status or status == "Draft":
+		if not status:
 			continue
 		counts[status] = counts.get(status, 0) + int(row.get("total") or 0)
 

@@ -146,7 +146,7 @@ class TestUploadGate(AttachmentAPITestCase):
 
 class TestLocationMetadataIsStripped(AttachmentAPITestCase):
 	def test_coordinates_do_not_survive_the_upload(self):
-		"""FSD 9.2 anonymity would otherwise die in the EXIF block."""
+		"""Anonymity would otherwise die in the EXIF block."""
 		original = _jpeg(with_gps=True)
 		self.assertTrue(scanning.has_location_metadata(original))
 

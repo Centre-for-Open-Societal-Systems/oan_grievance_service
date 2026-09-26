@@ -16,5 +16,36 @@ class GrievanceSLAConfiguration(Document):
 			frappe.throw(_("Update Cadence Hours cannot be negative."))
 		if self.remand_execution_hours is not None and self.remand_execution_hours < 0:
 			frappe.throw(_("Remand Execution Hours cannot be negative."))
-		if self.appeal_window_days is not None and self.appeal_window_days < 0:
-			frappe.throw(_("Appeal Window Days cannot be negative."))
+		self.validate_state_timers()
+
+	def validate_state_timers(self):
+		"""One timer per state, and only an expiry the Workflow can carry out."""
+		from frappe.model.workflow import get_workflow
+
+		workflow = get_workflow("Grievance")
+		categories = {row.state: row.get("sla_category") for row in workflow.states}
+		auto_close_from = {row.state for row in workflow.transitions if row.action == "Auto Close"}
+
+		seen = set()
+		for row in self.state_timers:
+			if row.workflow_state in seen:
+				frappe.throw(_("Row {0}: {1} already has a timer.").format(row.idx, row.workflow_state))
+			seen.add(row.workflow_state)
+			if row.workflow_state not in categories:
+				frappe.throw(
+					_("Row {0}: {1} is not a state of the Grievance Workflow.").format(
+						row.idx, row.workflow_state
+					)
+				)
+			if (row.hours or 0) <= 0:
+				frappe.throw(_("Row {0}: Hours must be greater than zero.").format(row.idx))
+			if row.on_expiry == "Auto Close" and row.workflow_state not in auto_close_from:
+				frappe.throw(
+					_("Row {0}: the Workflow has no Auto Close from {1}.").format(row.idx, row.workflow_state)
+				)
+			if row.on_expiry == "Escalate" and categories[row.workflow_state] == "Stopped":
+				frappe.throw(
+					_("Row {0}: the SLA clock is stopped in {1}, so there is nothing to escalate.").format(
+						row.idx, row.workflow_state
+					)
+				)

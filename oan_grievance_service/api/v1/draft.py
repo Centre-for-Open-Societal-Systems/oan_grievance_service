@@ -134,7 +134,7 @@ def save(
 	if name:
 		doc = frappe.get_doc("Grievance", name)
 		_assert_owner(doc, session_user)
-		if doc.workflow_state != "Draft" and doc.docstatus != 0:
+		if doc.docstatus != 0:
 			frappe.throw(
 				_("This draft has already been submitted as {0}.").format(doc.ticket_number or doc.name),
 				title=_("Already Submitted"),
@@ -145,8 +145,8 @@ def save(
 		doc = frappe.new_doc("Grievance")
 		doc.client_submission_uuid = client_submission_uuid
 		doc.owner = session_user
-		doc.workflow_state = "Draft"
-		doc.status = "Draft"
+		doc.workflow_state = C.STATE_DRAFT
+		doc.status = C.STATE_DRAFT
 		doc.docstatus = 0
 
 	# Associate submitter profile if available
@@ -319,7 +319,7 @@ def submit_draft(
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, session_user)
-	if doc.workflow_state != "Draft" and doc.docstatus != 0:
+	if doc.docstatus != 0:
 		frappe.throw(
 			_("This draft has already been submitted as {0}.").format(doc.ticket_number or doc.name),
 			title=_("Already Submitted"),
@@ -463,9 +463,9 @@ def submit_draft(
 			update_modified=False,
 		)
 
-	if is_anonymous or doc.is_anonymous:
+	wants_anonymity = bool(is_anonymous or doc.is_anonymous)
+	if wants_anonymity:
 		doc.is_anonymous = 1
-		_request_anonymity(doc, anonymity_justification)
 
 	duplicates = detect_duplicates(doc)
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
@@ -473,6 +473,10 @@ def submit_draft(
 		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
 	rule = routing.apply_routing(doc)
 	doc.reload()
+
+	# After routing, so the request goes to the officer the case landed with.
+	if wants_anonymity:
+		_request_anonymity(doc, anonymity_justification)
 
 	return success_response(
 		data={
@@ -511,7 +515,7 @@ def discard(client_submission_uuid: str):
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, session_user)
-	if doc.workflow_state != "Draft" and doc.docstatus != 0:
+	if doc.docstatus != 0:
 		frappe.throw(
 			_("This draft became grievance {0} and cannot be discarded.").format(
 				doc.ticket_number or doc.name
@@ -537,7 +541,6 @@ def purge_expired_drafts():
 	stale = frappe.get_all(
 		"Grievance",
 		filters={
-			"workflow_state": "Draft",
 			"docstatus": 0,
 			"creation": ["<", cutoff],
 		},
@@ -593,7 +596,7 @@ def _latest_own_draft_name(user):
 	"""The caller's newest unsubmitted draft, or None."""
 	return frappe.db.get_value(
 		"Grievance",
-		filters={"owner": user, "workflow_state": "Draft", "docstatus": 0},
+		filters={"owner": user, "docstatus": 0},
 		fieldname="name",
 		order_by="modified desc",
 	)

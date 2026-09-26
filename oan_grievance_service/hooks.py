@@ -24,15 +24,15 @@ before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
 # Installation
 # ------------------
 
-# FSD Appendix F roles, 3.2.2 categories, 3.11.8 regions and the Appendix C
-# notification matrix are seeded so a fresh site comes up usable.
+# Roles, escalation levels, categories, regions and the notification matrix
+# are seeded so a fresh site comes up usable.
 
 after_install = "oan_grievance_service.setup.install.after_install"
 after_migrate = "oan_grievance_service.setup.install.after_migrate"
 
 # Permissions
 # ------------------
-# FSD 3.1.1 deny-by-default RBAC. The query condition filters list views, reports and
+# Deny-by-default RBAC. The query condition filters list views, reports and
 # the API uniformly; has_permission mirrors it for a single document.
 
 permission_query_conditions = {
@@ -52,10 +52,9 @@ has_permission = {
 
 # Document Events
 # ------------------
-# FSD 3.4's lifecycle is the Grievance Workflow record (setup/install.py); the
+# The lifecycle is the Grievance Workflow record (setup/install.py); the
 # Grievance controller records each move from the save Frappe's engine makes.
-# FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
-# gates reassignment on L2 approval. FR-10 records every read of a case.
+# A structured response advances the lifecycle. Every read of a case is audited.
 
 _CLEAR_LOOKUP_CACHE = {
 	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
@@ -68,7 +67,7 @@ doc_events = {
 	"Grievance Response": {
 		"after_insert": "oan_grievance_service.services.hooks_handlers.response_after_insert",
 	},
-	# FSD 3.8: our send path renders per recipient inside print_language(), which only
+	# Our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
 	# text. Extends a core doctype through the supported hook rather than editing it.
 	"Notification": {
@@ -78,20 +77,21 @@ doc_events = {
 
 # Scheduled Tasks
 # ------------------
-# FSD 4.3: a background process monitors open grievances against their SLA deadlines.
-# FSD 7 requires the batch to complete within 30 minutes.
+# A background process monitors open grievances against their SLA deadlines.
+# The batch must complete within 30 minutes.
 
 scheduler_events = {
 	"hourly": [
 		"oan_grievance_service.tasks.send_sla_reminders",
 		"oan_grievance_service.tasks.escalate_breached",
+		"oan_grievance_service.tasks.expire_state_timers",
+		"oan_grievance_service.tasks.forward_stale_change_requests",
 		"oan_grievance_service.tasks.dispatch_notifications",
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.scan_pending_attachments",
 	],
 	"daily": [
-		"oan_grievance_service.tasks.auto_close_expired",
 		"oan_grievance_service.tasks.purge_expired_drafts",
 	],
 }
@@ -106,7 +106,7 @@ on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_ho
 
 # Portal
 # ------------------
-# FSD 3.2.1 lists the web portal as a channel open to all submitter types.
+# The web portal is a channel open to all submitter types.
 
 website_route_rules = [
 	{"from_route": "/grievance/track/<path:ticket>", "to_route": "grievance-track"},

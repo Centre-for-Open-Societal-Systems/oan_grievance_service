@@ -1,5 +1,4 @@
 Grievance Management
-Grievance Routing
 Grievance SLA
 Grievance Notification
 Grievance Masters
