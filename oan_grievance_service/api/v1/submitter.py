@@ -24,7 +24,7 @@ from oan_grievance_service.api.v1._options import (
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	MIN_DESCRIPTION_LENGTH,
 )
-from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	split_dedupe_key,
 )
 from oan_grievance_service.services.constants import STAFF_ROLES

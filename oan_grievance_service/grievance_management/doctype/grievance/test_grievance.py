@@ -429,10 +429,10 @@ class TestGrievance(FrappeTestCase):
 		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
-		g = frappe.get_doc("Grievance", ticket)
+		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
 		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
 		self.assertEqual(g.administrative_unit, "Village 2 West")
-		discard_grievance(ticket)
+		discard_grievance(ticket_number.normalize(ticket))
 
 	def test_kebele_digit_name_does_not_silently_misroute(self):
 		"""Kebele passed as common numeric name (e.g. '1') must not match random other region."""
@@ -455,11 +455,11 @@ class TestGrievance(FrappeTestCase):
 		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
-		g = frappe.get_doc("Grievance", ticket)
+		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
 		# Must remain attached to woreda, not random kebele '1' across the country
 		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
 		self.assertEqual(g.administrative_unit, "1")
-		discard_grievance(ticket)
+		discard_grievance(ticket_number.normalize(ticket))
 
 	def test_nearest_ancestor_routing(self):
 		# Create a broad assignment on Region, and a specific assignment on Woreda Leaf
@@ -471,6 +471,13 @@ class TestGrievance(FrappeTestCase):
 				"department_scope": "Regional Agronomy Dept",
 				"effective_from": frappe.utils.today(),
 				"active": 1,
+				"officers": [
+					{
+						"user": "Administrator",
+						"role_level": "nodal_officer",
+						"active": 1,
+					}
+				],
 			}
 		).insert(ignore_permissions=True)
 
@@ -482,6 +489,13 @@ class TestGrievance(FrappeTestCase):
 				"department_scope": "Agriculture Dept",
 				"effective_from": frappe.utils.today(),
 				"active": 1,
+				"officers": [
+					{
+						"user": "Administrator",
+						"role_level": "nodal_officer",
+						"active": 1,
+					}
+				],
 			}
 		).insert(ignore_permissions=True)
 

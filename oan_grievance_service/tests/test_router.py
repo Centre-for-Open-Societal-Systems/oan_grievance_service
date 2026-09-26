@@ -23,12 +23,18 @@ def make_test_request(
 	environ_base: dict | None = None,
 ) -> Request:
 	"""Helper to construct a Werkzeug Request and set up frappe.local state."""
+	query_string = None
+	if "?" in path:
+		path, query_string = path.split("?", 1)
+
 	builder_kwargs = {
 		"path": path,
 		"method": method.upper(),
 		"base_url": f"{scheme}://testsite.localhost",
 		"headers": headers or {},
 	}
+	if query_string:
+		builder_kwargs["query_string"] = query_string
 	if data is not None:
 		builder_kwargs["json"] = data
 
@@ -40,7 +46,10 @@ def make_test_request(
 
 	frappe.local.request = req
 	frappe.local.request_ip = "127.0.0.1"
-	frappe.local.form_dict = frappe._dict(data or {})
+	form_data = dict(req.args)
+	if data:
+		form_data.update(data)
+	frappe.local.form_dict = frappe._dict(form_data)
 	frappe.local.response = frappe._dict({})
 
 	return req
@@ -341,7 +350,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 		from oan_grievance_service.tests.fixtures import a_department
 
-		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		doc.assigned_dept = a_department()
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
@@ -498,7 +507,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 
 		# Assign and Start Work
 		frappe.set_user("Administrator")
-		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		doc.assigned_dept = a_department()
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
@@ -559,3 +568,61 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(resp_data["data"]["status"], "Pending Submitter")
 		self.assertEqual(resp_data["data"]["entry_type"], "response")
 		self.assertEqual(resp_data["data"]["response_type"], "Resolved")
+
+	def test_list_grievances_prioritizes_escalated(self):
+		"""Test that GET /api/v1/grievances returns escalated cases first."""
+		import uuid
+
+		import frappe.api
+
+		frappe.set_user("Administrator")
+		test_tag = f"tag_{uuid.uuid4().hex[:8]}"
+
+		# Create non-escalated grievance
+		g_normal = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": f"Citizen Normal {test_tag}",
+				"contact_mobile": "+251911998877",
+				"administrative_area": self.area,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype.name,
+				"description": f"Normal non-escalated case {test_tag}",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"escalated": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		# Create escalated grievance
+		g_escalated = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": f"Citizen Escalated {test_tag}",
+				"contact_mobile": "+251911998877",
+				"administrative_area": self.area,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype.name,
+				"description": f"Critical escalated case {test_tag}",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"escalated": 1,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+
+		req = make_test_request(f"/api/v1/grievances?search={test_tag}", method="GET")
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		data = json.loads(res.get_data(as_text=True))
+		items = data["data"]["items"]
+
+		# Find index of each
+		esc_idx = next(i for i, item in enumerate(items) if item["name"] == g_escalated.name)
+		normal_idx = next(i for i, item in enumerate(items) if item["name"] == g_normal.name)
+
+		self.assertLess(esc_idx, normal_idx, "Escalated grievance must appear before non-escalated grievance")

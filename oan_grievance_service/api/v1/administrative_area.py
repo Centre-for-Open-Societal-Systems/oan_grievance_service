@@ -2,7 +2,11 @@
 
 import frappe
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, success_response
+from oan_auth_service.api.utils import (
+	handle_api_errors,
+	parse_multi_value,
+	success_response,
+)
 
 route = prefixed("/api/v1/administrative-areas")
 
@@ -13,18 +17,19 @@ route = prefixed("/api/v1/administrative-areas")
 @frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
 def get_areas(
-	parent: str | None = None,
+	parent: str | list[str] | None = None,
 	level_name: str | None = None,
 	search: str | None = None,
 	ancestors_of: str | None = None,
 	limit: int = 100,
+	**kwargs,
 ):
 	"""Public endpoint to fetch administrative areas for cascading dropdowns and searches.
 
 	Query Modes:
 	    1. Cascading Drill-Down:
 	       - No parent provided: returns all top-level Regions (level_name='Region').
-	       - parent provided (e.g. 'region-ET14' or path_code 'ET.ET14'): returns immediate child nodes.
+	       - parent provided (e.g. 'region-ET14', ['region-ET14', 'region-ET07'], or 'region-ET14,region-ET07'): returns immediate child nodes or tier descendants.
 	    2. Level Filter:
 	       - level_name provided (e.g. 'Region', 'Zone', 'Woreda', 'Kebele').
 	    3. Free-Text Search:
@@ -33,7 +38,7 @@ def get_areas(
 	       - ancestors_of provided (area ID or path_code): returns the chain from Country down to the node.
 
 	Args:
-	    parent (str, optional): Name or path_code of parent area.
+	    parent (str | list[str], optional): Name, path_code, or comma-separated list of parent area(s).
 	    level_name (str, optional): Hierarchy tier (Region, Zone, Woreda, Kebele).
 	    search (str, optional): Search query matching area name or code.
 	    ancestors_of (str, optional): Area name or path_code to fetch ancestor hierarchy for.
@@ -48,67 +53,98 @@ def get_areas(
 	if ancestors_of:
 		return success_response(data=get_ancestors(ancestors_of))
 
-	# Decommissioned areas stay in the tree for historical grievances but must never
-	# reach a citizen intake picker, so every listing mode is scoped to active nodes.
-	filters = [["is_active", "=", 1]]
+	parents = parse_multi_value(parent or kwargs.get("parents"))
+	if level_name:
+		level_name = str(level_name).strip()
 
-	# Resolve parent ID if a path_code, code, or area_name was passed
-	if parent:
+	subtree_parents = []
+	direct_parents = []
+
+	for p in parents:
 		parent_doc = None
-		if frappe.db.exists("Grievance Administrative Area", parent):
-			parent_doc = frappe.get_doc("Grievance Administrative Area", parent)
+		if frappe.db.exists("Grievance Administrative Area", p):
+			parent_doc = frappe.get_doc("Grievance Administrative Area", p)
 		else:
 			name = (
-				frappe.db.get_value("Grievance Administrative Area", {"path_code": parent}, "name")
-				or frappe.db.get_value("Grievance Administrative Area", {"code": parent}, "name")
-				or frappe.db.get_value("Grievance Administrative Area", {"area_name": parent}, "name")
+				frappe.db.get_value("Grievance Administrative Area", {"path_code": p}, "name")
+				or frappe.db.get_value("Grievance Administrative Area", {"code": p}, "name")
+				or frappe.db.get_value("Grievance Administrative Area", {"area_name": p}, "name")
 			)
 			if name:
 				parent_doc = frappe.get_doc("Grievance Administrative Area", name)
-				parent = name
 
 		if parent_doc:
 			if level_name and parent_doc.level_name != level_name:
-				filters.append(["lft", ">", parent_doc.lft])
-				filters.append(["rgt", "<", parent_doc.rgt])
+				subtree_parents.append(parent_doc)
 			else:
-				filters.append(["parent_administrative_area", "=", parent_doc.name])
+				direct_parents.append(parent_doc.name)
 		else:
-			filters.append(["parent_administrative_area", "=", parent])
+			direct_parents.append(p)
+
+	where_clauses = ["is_active = 1"]
+	params = {}
+
+	if parents:
+		parent_or_clauses = []
+		if direct_parents:
+			if len(direct_parents) == 1:
+				parent_or_clauses.append("parent_administrative_area = %(direct_parent_0)s")
+				params["direct_parent_0"] = direct_parents[0]
+			else:
+				parent_or_clauses.append("parent_administrative_area IN %(direct_parents)s")
+				params["direct_parents"] = tuple(direct_parents)
+
+		for i, sp in enumerate(subtree_parents):
+			lft_key = f"lft_{i}"
+			rgt_key = f"rgt_{i}"
+			parent_or_clauses.append(f"(lft > %({lft_key})s AND rgt < %({rgt_key})s)")
+			params[lft_key] = sp.lft
+			params[rgt_key] = sp.rgt
+
+		if parent_or_clauses:
+			where_clauses.append(f"({' OR '.join(parent_or_clauses)})")
 	elif not search and not level_name:
 		# Default root view: Top-level Regions
-		filters.append(["level_name", "=", "Region"])
+		where_clauses.append("level_name = %(default_level)s")
+		params["default_level"] = "Region"
 
 	if level_name:
-		filters.append(["level_name", "=", level_name])
+		where_clauses.append("level_name = %(level_name)s")
+		params["level_name"] = level_name
 
 	if search:
 		search_term = f"%{search.strip()}%"
-		filters.append(["area_name", "like", search_term])
+		where_clauses.append("area_name LIKE %(search_term)s")
+		params["search_term"] = search_term
 
-	areas = frappe.get_all(
-		"Grievance Administrative Area",
-		filters=filters,
-		fields=[
-			"name as area_id",
-			"area_name",
-			"code",
-			"path_code",
-			"level_name",
-			"parent_administrative_area",
-			"is_group",
-			"depth",
-		],
-		order_by="area_name asc",
-		limit=limit,
-		ignore_permissions=True,
-	)
+	where_sql = " AND ".join(where_clauses)
+	params["limit"] = limit
+
+	query = f"""
+		SELECT
+			name AS area_id,
+			area_name,
+			code,
+			path_code,
+			level_name,
+			parent_administrative_area,
+			is_group,
+			depth
+		FROM `tabGrievance Administrative Area`
+		WHERE {where_sql}
+		ORDER BY area_name ASC
+		LIMIT %(limit)s
+	"""
+
+	areas = frappe.db.sql(query, params, as_dict=True)
 
 	return success_response(
 		data={
 			"areas": areas,
 			"count": len(areas),
-			"parent": parent,
+			"parent": parent
+			if parent is not None
+			else (parents if len(parents) > 1 else (parents[0] if parents else None)),
 			"level_name": level_name,
 		}
 	)

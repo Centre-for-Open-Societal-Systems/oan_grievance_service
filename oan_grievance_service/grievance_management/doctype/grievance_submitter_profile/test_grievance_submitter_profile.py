@@ -4,7 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.grievance_masters.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	build_dedupe_key,
 	split_dedupe_key,
 )

@@ -44,16 +44,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance Comment",
-   "link_count": 0,
-   "link_to": "Grievance Comment",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Grievance Timeline",
    "link_count": 0,
    "link_to": "Grievance Timeline",

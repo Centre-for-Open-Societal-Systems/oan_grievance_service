@@ -255,10 +255,13 @@ class TestDraftRoundTrip(FrappeTestCase):
 		)
 		self.assertEqual(submit_res["status"], "success")
 		ticket = submit_res["data"]["ticket_number"]
-		self.assertEqual(len(ticket), 9)
+		self.assertEqual(len(ticket), 12)
+		self.assertIn("-", ticket)
 
 		# 3. Verify Grievance state in database
-		doc = frappe.get_doc("Grievance", ticket)
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket))
 		self.assertEqual(doc.workflow_state, "Submitted")
 		self.assertEqual(doc.status, "Submitted")
 		self.assertEqual(doc.docstatus, 1)
@@ -289,9 +292,12 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(res["data"]["status"], "Submitted")
 		self.assertEqual(res["data"]["workflow_state"], "Submitted")
 		ticket = res["data"]["ticket_number"]
-		self.assertEqual(len(ticket), 9)
+		self.assertEqual(len(ticket), 12)
+		self.assertIn("-", ticket)
 
-		doc = frappe.get_doc("Grievance", ticket)
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket))
 		self.assertEqual(doc.workflow_state, "Submitted")
 		self.assertEqual(doc.status, "Submitted")
 		self.assertEqual(doc.docstatus, 1)

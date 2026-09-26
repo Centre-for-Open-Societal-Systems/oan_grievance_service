@@ -425,6 +425,21 @@ def can_approve_reassignment(user=None, request_doc=None):
 		return request_doc.get("initiated_by") != user
 	if assignee == user:
 		return False
+
+	from oan_grievance_service.services import sla
+
+	# The reports_to line is read from the assignment covering this case, so a
+	# supervisor from the officer's other department cannot rule on it.
+	grievance = request_doc.get("grievance")
+	area = frappe.db.get_value("Grievance", grievance, "administrative_area") if grievance else None
+	supervisor = sla.get_officer_supervisor(
+		assignee,
+		department=request_doc.get("prior_department"),
+		administrative_area=area,
+		strict=True,
+	)
+	if supervisor == user:
+		return True
 	return _outranks(user, assignee)
 
 
@@ -449,7 +464,7 @@ def can_decide_anonymity(grievance, user=None):
 	return user not in requesters
 
 
-def can_approve_deferral(user=None, assignee=None):
+def can_approve_deferral(user=None, assignee=None, grievance=None):
 	"""FSD 3.11.7: supervisor approval unless policy explicitly permits self-approval.
 
 	"Supervisor" is read off the escalation chain rather than a role name: the approver
@@ -460,6 +475,7 @@ def can_approve_deferral(user=None, assignee=None):
 	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
 		requires_supervisor_approval,
 	)
+	from oan_grievance_service.services import sla
 
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -472,6 +488,16 @@ def can_approve_deferral(user=None, assignee=None):
 	if not assignee or assignee == user:
 		# Self-approval is exactly what the policy is there to stop.
 		return assignee != user
+
+	# Scoped to the case's department and area, as for reassignment.
+	supervisor = sla.get_officer_supervisor(
+		assignee,
+		department=grievance.get("assigned_dept") if grievance else None,
+		administrative_area=grievance.get("administrative_area") if grievance else None,
+		strict=True,
+	)
+	if supervisor == user:
+		return True
 
 	return _outranks(user, assignee)
 

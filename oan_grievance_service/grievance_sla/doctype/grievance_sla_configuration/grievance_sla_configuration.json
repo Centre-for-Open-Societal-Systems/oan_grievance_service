@@ -13,7 +13,6 @@
   "col_sla_esc",
   "auto_escalate",
   "auto_escalation_threshold",
-  "top_level_authority",
   "sec_milestones",
   "first_response_hours",
   "update_cadence_hours",
@@ -63,13 +62,6 @@
    "fieldtype": "Int",
    "label": "Auto Escalation Threshold (%)",
    "non_negative": 1
-  },
-  {
-   "description": "FSD 3.7: notified on second-level (2x SLA) breach",
-   "fieldname": "top_level_authority",
-   "fieldtype": "Link",
-   "label": "Top Level Authority",
-   "options": "User"
   },
   {
    "fieldname": "sec_milestones",

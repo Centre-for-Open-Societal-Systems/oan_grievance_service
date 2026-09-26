@@ -476,7 +476,7 @@ def submit_draft(
 
 	return success_response(
 		data={
-			"ticket_number": doc.ticket_number,
+			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,

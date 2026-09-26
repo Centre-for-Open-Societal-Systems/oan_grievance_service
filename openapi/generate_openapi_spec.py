@@ -728,7 +728,7 @@ REQ["GrievanceActionRequest"] = OBJ(
 	{
 		"action": S(
 			minLength=1,
-			description="Canonical workflow action name (e.g. 'Start Work', 'Confirm Resolution', 'Reopen', 'Reject', 'Escalate')",
+			description="Canonical workflow action name (e.g. 'Start Work', 'Confirm Resolution', 'Reopen', 'Reject')",
 		),
 		"reason": S(nullable=True, description="Mandatory justification when required by the action"),
 		"note": S(nullable=True, description="Optional note text"),
@@ -856,14 +856,14 @@ QP = {
 			"in": "query",
 			"required": False,
 			"schema": S(),
-			"description": "Parent area ID or path_code (drill-down)",
+			"description": "Parent area ID, path_code, or comma-separated list of parents (cascading drill-down)",
 		},
 		{
 			"name": "level_name",
 			"in": "query",
 			"required": False,
-			"schema": S(enum=["Region", "Zone", "Woreda", "Kebele"]),
-			"description": "Filter by administrative tier",
+			"schema": S(),
+			"description": "Filter by administrative tier (e.g. Region, Zone, Woreda, Kebele)",
 		},
 		{
 			"name": "search",

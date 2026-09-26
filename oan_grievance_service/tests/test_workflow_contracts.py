@@ -48,6 +48,11 @@ def workflow():
 
 
 class WorkflowTestCase(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		install.seed_workflow()
+
 	def setUp(self):
 		self.grievance = a_grievance()
 
@@ -106,6 +111,7 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 		docstatus = {row.state: row.doc_status for row in wf.states}
 		self.assertEqual(docstatus["Draft"], "0")
 		self.assertEqual(docstatus["Rejected"], "2")
+		self.assertEqual(docstatus["Closed"], "2")
 		for state in (
 			"Submitted",
 			"Assigned",
@@ -113,7 +119,6 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 			"More Info Needed",
 			"Pending Submitter",
 			"Resolved",
-			"Closed",
 		):
 			self.assertEqual(docstatus[state], "1", state)
 
@@ -177,7 +182,7 @@ class TestTheEngineMovesTheCase(WorkflowTestCase):
 		self._at_pending_submitter()
 		lifecycle.transition(self._saved(), "Confirm Resolution", closure_type="confirmed")
 		lifecycle.transition(self._saved(), "Close Case", closure_type="confirmed")
-		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed", "docstatus": 1})
+		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed", "docstatus": 2})
 		self.assertEqual(get_transitions(self._saved()), [])
 
 	def test_a_rejected_case_is_a_cancelled_document(self):

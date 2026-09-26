@@ -1,28 +1,25 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:GR-REASSIGN-{#####}",
- "creation": "2026-09-03 18:15:08.176850",
+ "autoname": "format:GR-DEFER-{#####}",
+ "creation": "2026-09-03 19:13:18.207920",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "grievance",
-  "decision",
+  "status",
+  "additional_days",
+  "col_defer_req",
+  "requested_by",
   "requested_at",
-  "col_reassign_from",
-  "initiated_by",
-  "prior_department",
-  "prior_officer",
-  "sec_target",
-  "target_department",
-  "target_officer",
-  "reason",
+  "sec_justification",
+  "justification",
   "sec_approval",
   "approver",
   "decided_at",
-  "col_approval",
-  "sla_treatment"
+  "col_defer_dec",
+  "decision_note"
  ],
  "fields": [
   {
@@ -35,12 +32,31 @@
   },
   {
    "default": "Pending",
-   "fieldname": "decision",
+   "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Decision",
+   "label": "Status",
    "options": "Pending\nApproved\nRejected"
+  },
+  {
+   "description": "FSD 3.11.7: capped by the global maximum deferral days, default 30",
+   "fieldname": "additional_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Additional Days",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_defer_req",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "reqd": 1
   },
   {
    "fieldname": "requested_at",
@@ -49,52 +65,15 @@
    "reqd": 1
   },
   {
-   "fieldname": "col_reassign_from",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "initiated_by",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Initiated By",
-   "options": "User",
-   "reqd": 1
-  },
-  {
-   "fieldname": "prior_department",
-   "fieldtype": "Link",
-   "label": "Prior Department",
-   "options": "Grievance Department"
-  },
-  {
-   "fieldname": "prior_officer",
-   "fieldtype": "Link",
-   "label": "Prior Officer",
-   "options": "User"
-  },
-  {
-   "fieldname": "sec_target",
+   "fieldname": "sec_justification",
    "fieldtype": "Section Break",
-   "label": "Target"
+   "label": "Justification"
   },
   {
-   "fieldname": "target_department",
-   "fieldtype": "Link",
-   "label": "Target Department",
-   "options": "Grievance Department",
-   "reqd": 1
-  },
-  {
-   "fieldname": "target_officer",
-   "fieldtype": "Link",
-   "label": "Target Officer",
-   "options": "User"
-  },
-  {
-   "description": "FSD 3.3.1: a mandatory reason is required",
-   "fieldname": "reason",
+   "description": "FSD 3.11.7: an L1 officer requesting a deferral must give at least 20 characters",
+   "fieldname": "justification",
    "fieldtype": "Small Text",
-   "label": "Reason",
+   "label": "Justification",
    "reqd": 1
   },
   {
@@ -103,6 +82,7 @@
    "label": "Approval"
   },
   {
+   "description": "FSD 3.11.7: requires L2 approval unless policy permits self-approval",
    "fieldname": "approver",
    "fieldtype": "Link",
    "label": "Approver (L2)",
@@ -114,24 +94,22 @@
    "label": "Decided At"
   },
   {
-   "fieldname": "col_approval",
+   "fieldname": "col_defer_dec",
    "fieldtype": "Column Break"
   },
   {
-   "description": "UNRESOLVED: FSD 3.3.1 makes this configurable, Appendix D-2 hardcodes a reset",
-   "fieldname": "sla_treatment",
-   "fieldtype": "Select",
-   "label": "SLA Treatment",
-   "options": "\nReset\nContinue"
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 18:15:08.176850",
+ "modified": "2026-09-03 19:13:18.207920",
  "modified_by": "Administrator",
- "module": "Grievance Routing",
- "name": "Grievance Reassignment Request",
+ "module": "Grievance Requests",
+ "name": "Grievance SLA Deferral",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
@@ -170,7 +148,7 @@
    "read": 1,
    "write": 1,
    "create": 1,
-   "delete": 1,
+   "delete": 0,
    "submit": 0,
    "cancel": 0,
    "amend": 0,

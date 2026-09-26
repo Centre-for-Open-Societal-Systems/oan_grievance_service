@@ -1659,8 +1659,7 @@
                 "{{ticket_number}}",
                 "escalate"
               ]
-            },
-            "description": "FSD 3.7: Allows the submitter to trigger a manual escalation once the SLA window has expired."
+            }
           },
           "response": []
         },

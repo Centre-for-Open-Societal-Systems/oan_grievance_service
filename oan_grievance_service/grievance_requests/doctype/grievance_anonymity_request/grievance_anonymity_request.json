@@ -1,24 +1,21 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "format:GR-DEFER-{#####}",
- "creation": "2026-09-03 19:13:18.207920",
+ "autoname": "format:GR-ANON-{#####}",
+ "creation": "2026-09-03 19:13:20.800792",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "grievance",
   "status",
-  "additional_days",
-  "col_defer_req",
-  "requested_by",
   "requested_at",
-  "sec_justification",
+  "sec_just",
   "justification",
-  "sec_approval",
-  "approver",
+  "sec_decision",
+  "decided_by",
   "decided_at",
-  "col_defer_dec",
+  "col_anon_dec",
   "decision_note"
  ],
  "fields": [
@@ -28,7 +25,8 @@
    "in_list_view": 1,
    "label": "Grievance",
    "options": "Grievance",
-   "reqd": 1
+   "reqd": 1,
+   "unique": 1
   },
   {
    "default": "Pending",
@@ -37,55 +35,35 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending\nApproved\nRejected"
-  },
-  {
-   "description": "FSD 3.11.7: capped by the global maximum deferral days, default 30",
-   "fieldname": "additional_days",
-   "fieldtype": "Int",
-   "in_list_view": 1,
-   "label": "Additional Days",
-   "reqd": 1
-  },
-  {
-   "fieldname": "col_defer_req",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "requested_by",
-   "fieldtype": "Link",
-   "label": "Requested By",
-   "options": "User",
-   "reqd": 1
+   "options": "Pending\nApproved\nIdentity Disclosure Requested\nRejected"
   },
   {
    "fieldname": "requested_at",
    "fieldtype": "Datetime",
-   "label": "Requested At",
-   "reqd": 1
+   "label": "Requested At"
   },
   {
-   "fieldname": "sec_justification",
+   "fieldname": "sec_just",
    "fieldtype": "Section Break",
    "label": "Justification"
   },
   {
-   "description": "FSD 3.11.7: an L1 officer requesting a deferral must give at least 20 characters",
+   "description": "FSD 9.2: why the submitter is seeking anonymity",
    "fieldname": "justification",
    "fieldtype": "Small Text",
    "label": "Justification",
    "reqd": 1
   },
   {
-   "fieldname": "sec_approval",
+   "fieldname": "sec_decision",
    "fieldtype": "Section Break",
-   "label": "Approval"
+   "label": "Nodal Officer Decision"
   },
   {
-   "description": "FSD 3.11.7: requires L2 approval unless policy permits self-approval",
-   "fieldname": "approver",
+   "description": "FSD 9.2: reviewed by a designated authority, typically the nodal officer",
+   "fieldname": "decided_by",
    "fieldtype": "Link",
-   "label": "Approver (L2)",
+   "label": "Decided By",
    "options": "User"
   },
   {
@@ -94,7 +72,7 @@
    "label": "Decided At"
   },
   {
-   "fieldname": "col_defer_dec",
+   "fieldname": "col_anon_dec",
    "fieldtype": "Column Break"
   },
   {
@@ -106,10 +84,10 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:18.207920",
+ "modified": "2026-09-03 19:13:20.800792",
  "modified_by": "Administrator",
- "module": "Grievance SLA",
- "name": "Grievance SLA Deferral",
+ "module": "Grievance Requests",
+ "name": "Grievance Anonymity Request",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
@@ -145,6 +123,21 @@
   },
   {
    "role": "Grievance Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Submitter",
    "read": 1,
    "write": 1,
    "create": 1,

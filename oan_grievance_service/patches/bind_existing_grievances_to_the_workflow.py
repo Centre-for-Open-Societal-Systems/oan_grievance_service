@@ -18,7 +18,7 @@ import frappe
 def execute():
 	frappe.reload_doc("grievance_management", "doctype", "grievance")
 
-	docstatus_for = {"Draft": 0, "Rejected": 2}
+	docstatus_for = {"Draft": 0, "Rejected": 2, "Closed": 2}
 	for status in frappe.get_all("Grievance", distinct=True, pluck="status"):
 		if not status:
 			continue

@@ -51,7 +51,7 @@ WORKFLOW_STATES = [
 	("More Info Needed", "1", "Warning"),
 	("Pending Submitter", "1", "Warning"),
 	("Resolved", "1", "Success"),
-	("Closed", "1", "Success"),
+	("Closed", "2", "Success"),
 	("Rejected", "2", "Danger"),
 ]
 
@@ -400,21 +400,12 @@ NOTIFICATION_EVENTS = [
 		("doc.ticket_number", "doc.sla_due_date"),
 	),
 	(
-		C.EVENT_SLA_BREACH_L1,
-		"SLA Breached - L1",
+		C.EVENT_SLA_BREACH,
+		"SLA Breached",
 		"Department Head",
 		("Email",),
 		"SLA deadline passed",
 		"Grievance {0} has breached its SLA and has been escalated. Immediate action is required.",
-		("doc.ticket_number",),
-	),
-	(
-		C.EVENT_SLA_BREACH_L2,
-		"SLA Breached - L2",
-		"Top Level Authority",
-		("Email",),
-		"2x SLA deadline passed",
-		"Grievance {0} has breached twice its SLA window and is escalated to second level.",
 		("doc.ticket_number",),
 	),
 	(

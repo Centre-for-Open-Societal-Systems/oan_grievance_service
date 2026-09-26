@@ -120,7 +120,8 @@
    "fieldname": "officers",
    "fieldtype": "Table",
    "label": "Officers",
-   "options": "Grievance RBAC Assignment Officer"
+   "options": "Grievance RBAC Assignment Officer",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,

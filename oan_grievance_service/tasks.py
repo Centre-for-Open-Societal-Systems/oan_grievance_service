@@ -14,7 +14,7 @@ from oan_grievance_service.services import lifecycle, notifications, sla
 
 def open_grievances_with_sla(extra_filters=None):
 	filters = {
-		"status": ["not in", ["Closed", "Rejected", "Draft"]],
+		"docstatus": 1,
 		"sla_due_date": ["is", "set"],
 	}
 	if extra_filters:
@@ -89,7 +89,7 @@ def escalate_breached():
 	due_now = frappe.get_all(
 		"Grievance",
 		filters={
-			"status": ["not in", ["Closed", "Rejected", "Draft"]],
+			"docstatus": 1,
 			"next_escalation_at": ["<=", now_datetime()],
 			"on_hold_since": ["is", "not set"],
 		},
@@ -99,8 +99,7 @@ def escalate_breached():
 	escalated = 0
 	for name in due_now:
 		try:
-			grievance = frappe.get_doc("Grievance", name)
-			if sla.escalate(grievance, trigger="System"):
+			if sla.escalate(frappe.get_doc("Grievance", name)):
 				escalated += 1
 		except Exception:
 			frappe.log_error(
