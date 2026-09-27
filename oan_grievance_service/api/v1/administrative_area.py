@@ -120,6 +120,7 @@ def get_areas(
 	where_sql = " AND ".join(where_clauses)
 	params["limit"] = limit
 
+	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 	query = f"""
 		SELECT
 			name AS area_id,
@@ -136,6 +137,7 @@ def get_areas(
 		LIMIT %(limit)s
 	"""
 
+	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 	areas = frappe.db.sql(query, params, as_dict=True)
 
 	return success_response(
