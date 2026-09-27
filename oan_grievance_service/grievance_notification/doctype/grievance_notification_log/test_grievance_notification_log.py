@@ -515,7 +515,7 @@ class TestSmsFailsClosed(NotificationCase):
 		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD, channel="SMS")
 		notifications.queue(self.grievance, EVENT)
 
-		notifications.dispatch_queued()
+		notifications.dispatch_queued(grievance=self.grievance.name)
 
 		row = self._rows()[0]
 		self.assertEqual(row.status, "Failed")

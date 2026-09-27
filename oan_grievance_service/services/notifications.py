@@ -439,11 +439,14 @@ def _send_system_row(row, grievance):
 	return {}
 
 
-def dispatch_queued(limit=100):
+def dispatch_queued(limit=100, grievance=None):
 	"""Send whatever is queued. Called by the scheduler."""
+	filters = {"status": "Queued"}
+	if grievance:
+		filters["grievance"] = grievance
 	pending = frappe.get_all(
 		"Grievance Notification Log",
-		filters={"status": "Queued"},
+		filters=filters,
 		fields=["name", "grievance", "channel", "recipient", "message", "subject"],
 		limit=limit,
 		order_by="creation asc",
