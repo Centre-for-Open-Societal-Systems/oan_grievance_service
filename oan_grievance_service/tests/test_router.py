@@ -604,6 +604,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				"description": f"Normal non-escalated case {test_tag}",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
+				"docstatus": 1,
 				"escalated": 0,
 			}
 		).insert(ignore_permissions=True)
@@ -622,6 +623,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				"description": f"Critical escalated case {test_tag}",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
+				"docstatus": 1,
 				"escalated": 1,
 			}
 		).insert(ignore_permissions=True)

@@ -60,22 +60,11 @@ def after_workflow_action(doc, from_state):
 	).insert(ignore_permissions=True)
 	context.history = history
 
-	if to_state == C.STATE_ASSIGNED and doc.assigned_to and not doc.assigned_dept:
-		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
-			active_scopes,
-		)
-
-		scopes = active_scopes(doc.assigned_to)
-		if scopes and scopes[0].get("department_scope"):
-			doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
-
 	sla.on_status_change(doc, to_state)
 	sla.arm_state_timer(doc, to_state)
 
 	if context.get("notify", True):
-		event = lifecycle.STATUS_EVENT.get(to_state)
-		if event:
-			notifications.queue(doc, event)
+		notifications.queue(doc, C.EVENT_STATUS_CHANGED)
 
 
 def response_after_insert(doc, method=None):

@@ -58,3 +58,12 @@ class GrievanceResponse(Document):
 				indicator="orange",
 				alert=True,
 			)
+
+	@property
+	def sla_behaviour(self):
+		"""What the resulting grievance status does to the SLA clock ('running', 'paused', 'stopped')."""
+		if not self.new_status:
+			return None
+		from oan_grievance_service.services import sla
+
+		return (sla.sla_category_of(self.new_status) or "").lower()

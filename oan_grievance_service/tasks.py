@@ -209,7 +209,7 @@ def expire_state_timers():
 				body=body,
 				author_user=None,
 			)
-			notifications.queue(grievance, C.EVENT_AUTO_CLOSED)
+			notifications.queue(grievance, C.EVENT_STATUS_CHANGED)
 		except Exception:
 			frappe.log_error(
 				title="Grievance state timer failed",

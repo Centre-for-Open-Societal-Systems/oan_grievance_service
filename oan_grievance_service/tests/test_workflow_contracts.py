@@ -217,7 +217,7 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 		self.assertEqual(state["workflow_state"], "Pending Submitter")
 		self.assertEqual(response.new_status, "Pending Submitter")
 		self.assertEqual(response.sla_behaviour, "paused")
-		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "confirmation_deadline"))
+		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "state_deadline"))
 
 	def test_partially_resolved_does_the_same(self):
 		response = self._respond("Partially Resolved")

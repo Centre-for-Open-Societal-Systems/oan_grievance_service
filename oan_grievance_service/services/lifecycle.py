@@ -88,12 +88,3 @@ def actions_available(grievance):
 	from frappe.model.workflow import get_transitions
 
 	return [row["action"] for row in get_transitions(grievance)]
-
-
-STATUS_EVENT = {
-	C.STATE_IN_PROGRESS: C.EVENT_STATUS_IN_PROGRESS,
-	C.STATE_MORE_INFO_NEEDED: C.EVENT_MORE_INFO_REQUESTED,
-	C.STATE_PENDING_SUBMITTER: C.EVENT_CONFIRMATION_WINDOW,
-	C.STATE_RESOLVED: C.EVENT_CONFIRMED,
-	C.STATE_CLOSED: C.EVENT_CLOSED,
-}

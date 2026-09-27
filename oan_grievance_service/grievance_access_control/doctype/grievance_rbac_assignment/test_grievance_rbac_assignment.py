@@ -151,6 +151,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"service_category": "Inputs",
 				"assigned_to": "other_officer@example.com",
 				"status": "In Progress",
+				"docstatus": 1,
 			}
 		)
 		self.assertTrue(
