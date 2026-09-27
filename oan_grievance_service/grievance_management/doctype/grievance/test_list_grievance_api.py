@@ -6,7 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.grievance import list_grievances, timeline
 from oan_grievance_service.services import ticket_number as tn
-from oan_grievance_service.tests.fixtures import a_leaf_area
+from oan_grievance_service.tests.fixtures import a_leaf_area, discard_grievance
 
 
 class TestListGrievanceAPI(FrappeTestCase):
@@ -122,10 +122,17 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		# Clean up any leftover test grievances from previous runs
+		for name in frappe.get_all(
+			"Grievance", filters={"submitter_name": ["like", "Farmer Submitter %"]}, pluck="name"
+		):
+			discard_grievance(name)
+
 		self.created_docs = []
 
 		# Create sample grievances
 		for i in range(5):
+			state = "Submitted" if i < 3 else "In Progress"
 			g = frappe.get_doc(
 				{
 					"doctype": "Grievance",
@@ -139,11 +146,14 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"grievance_type": self.gtype_name if i % 2 == 0 else self.gtype_credit_name,
 					"description": f"Grievance test issue number {i}",
 					"consent_given": 1,
-					"status": "Submitted" if i < 3 else "In Progress",
+					"workflow_state": state,
+					"status": state,
 					"assigned_dept": "Dept of Agriculture",
 					"assigned_to": self.officer.name if i >= 3 else None,
 				}
 			).insert(ignore_permissions=True)
+			g.db_set("docstatus", 1, update_modified=False)
+			g.reload()
 			self.created_docs.append(g)
 
 		self.addCleanup(frappe.set_user, "Administrator")
@@ -151,8 +161,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 	def tearDown(self):
 		frappe.flags.in_test = True
 		for g in getattr(self, "created_docs", []):
-			if frappe.db.exists("Grievance", g.name):
-				frappe.delete_doc("Grievance", g.name, force=True, ignore_permissions=True)
+			discard_grievance(g.name)
 		if hasattr(self, "farmer_profile") and frappe.db.exists(
 			"Grievance Submitter Profile", self.farmer_profile.name
 		):

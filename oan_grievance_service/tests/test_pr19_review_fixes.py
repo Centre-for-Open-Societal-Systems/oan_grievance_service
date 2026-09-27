@@ -245,13 +245,16 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		from oan_grievance_service.tests.fixtures import a_grievance
 
 		# Create Officer A and Officer B
-		officer_a_email = f"officer.a.{frappe.generate_hash(length=6)}@example.com"
-		officer_b_email = f"officer.b.{frappe.generate_hash(length=6)}@example.com"
+		h1 = frappe.generate_hash(length=6)
+		h2 = frappe.generate_hash(length=6)
+		officer_a_email = f"officer.a.{h1}@example.com"
+		officer_b_email = f"officer.b.{h2}@example.com"
 		frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": officer_a_email,
-				"first_name": "OfficerA",
+				"first_name": f"OfficerA_{h1}",
+				"send_welcome_email": 0,
 				"roles": [{"role": "Grievance Officer"}],
 			}
 		).insert(ignore_permissions=True)
@@ -259,7 +262,8 @@ class TestPR19ReviewFixes(FrappeTestCase):
 			{
 				"doctype": "User",
 				"email": officer_b_email,
-				"first_name": "OfficerB",
+				"first_name": f"OfficerB_{h2}",
+				"send_welcome_email": 0,
 				"roles": [{"role": "Grievance Officer"}],
 			}
 		).insert(ignore_permissions=True)
@@ -299,12 +303,14 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		"""Issue 9: List and timeline mask name, phone, and email for anonymous grievances when viewed by officers."""
 		from oan_grievance_service.tests.fixtures import a_grievance
 
-		officer_email = f"officer.view.{frappe.generate_hash(length=6)}@example.com"
+		h = frappe.generate_hash(length=6)
+		officer_email = f"officer.view.{h}@example.com"
 		frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": officer_email,
-				"first_name": "OfficerView",
+				"first_name": f"OfficerView_{h}",
+				"send_welcome_email": 0,
 				"roles": [{"role": "Grievance Officer"}],
 			}
 		).insert(ignore_permissions=True)
