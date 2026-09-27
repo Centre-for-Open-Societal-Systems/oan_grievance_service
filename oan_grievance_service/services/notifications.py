@@ -282,18 +282,90 @@ def queue(grievance, event_code, recipient_override=None):
 	return rows
 
 
+# The auth service names every User it registers with a synthetic address in this
+# domain and keeps the real one in the custom `oan_login_email` field, because core's
+# User.validate copies `name` back into `email` on every save (user/user.py:222).
+# So `User.email` is never a mailbox for a registered submitter or officer.
+SYNTHETIC_ADDRESS_DOMAIN = "@id.openagrinet.internal"
+
+
+def _submitter_profile_for(recipient, grievance):
+	"""The submitter's profile name when the queued row is addressed to a registered
+	submitter, else None.
+
+	`resolve_recipient` hands back the submitter's User when they registered one.
+	When they did not, it hands back the bare contact snapshot from the case, and
+	this returns None: there is no registered contact to prefer.
+	"""
+	if not grievance.submitter:
+		return None
+	user = frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user")
+	return grievance.submitter if user and user == recipient else None
+
+
+def _address_candidates(recipient, grievance, profile_field, user_fields, case_field):
+	"""Where to look for a recipient's contact, in order.
+
+	Precedence, agreed on PR #26 review: for a registered submitter the registered
+	contact always wins, first the profile (which the farmer can update) and then
+	the User record (from registration). The contact snapshot on the case is used
+	only for a submitter with no account, a walk-in or IVR caller that staff filed,
+	where the snapshot is the only contact there is. For staff recipients only the
+	User record applies. The snapshot is taken at filing time, so for a registered
+	farmer it can only ever equal or lag the profile, never lead it.
+	"""
+	candidates = []
+	profile = _submitter_profile_for(recipient, grievance)
+	if profile:
+		candidates.append(frappe.db.get_value("Grievance Submitter Profile", profile, profile_field))
+
+	if frappe.db.exists("User", recipient):
+		for fieldname in user_fields:
+			if frappe.db.has_column("User", fieldname):
+				candidates.append(frappe.db.get_value("User", recipient, fieldname))
+	else:
+		# No account: the row carries the contact snapshot itself.
+		candidates += [getattr(grievance, case_field, None), recipient]
+	return candidates
+
+
+def _deliverable_email(recipient, grievance):
+	"""The address a queued email row actually goes to.
+
+	Registered contact first (profile, then the User's login email), the case's
+	snapshot only for a submitter without an account. `User.email` is the last
+	resort and is skipped when it is the synthetic registration address. Found on
+	the dev bench: every acknowledgement email went to xxxx@id.openagrinet.internal,
+	which no mail server delivers.
+	"""
+	candidates = _address_candidates(
+		recipient, grievance, "contact_email", ("oan_login_email", "email"), "contact_email"
+	)
+	for address in candidates:
+		if not address:
+			continue
+		address = address.strip()
+		if address.lower().endswith(SYNTHETIC_ADDRESS_DOMAIN):
+			continue
+		if validate_email_address(address):
+			return address
+	raise ValueError(f"No deliverable email address for {recipient}")
+
+
+def _deliverable_mobile(recipient, grievance):
+	"""The number a queued SMS row actually goes to, same precedence as email."""
+	candidates = _address_candidates(recipient, grievance, "contact_mobile", ("mobile_no",), "contact_mobile")
+	for mobile in candidates:
+		if mobile and mobile.strip():
+			return mobile.strip()
+	raise ValueError(f"No mobile number for {recipient}")
+
+
 def _send_email_row(row, grievance):
 	"""Deliver one queued email row and return the Communication it threaded onto."""
 	from frappe.core.doctype.communication.email import _make as make_communication
 
-	recipient = row.recipient
-	# A User's name is its email address, but only when the User was registered with a
-	# real one. Submitters registered without an email carry a synthetic
-	# @id.openagrinet.internal address which is syntactically valid and undeliverable,
-	# so the address is checked before the send rather than after the bounce.
-	address = frappe.db.get_value("User", recipient, "email") or recipient
-	if not validate_email_address(address):
-		raise ValueError(f"{address} is not a deliverable email address")
+	address = _deliverable_email(row.recipient, grievance)
 
 	communication = make_communication(
 		doctype="Grievance",
@@ -318,23 +390,32 @@ def _send_email_row(row, grievance):
 	return {"communication": communication}
 
 
-def _send_sms_row(row):
+def _send_sms_row(row, grievance):
 	"""Deliver one queued SMS row.
 
 	Core writes an SMS Log only on gateway success, and not at all once a send_sms hook
 	is registered, so the Grievance Notification Log row is the durable evidence and the
 	sms_log link is opportunistic.
+
+	With no gateway configured, core's `_send_sms` only msgprints and returns, so a
+	row would be marked Sent for a message that never left. Found on the dev bench:
+	every SMS row read Sent with SMS Settings empty. Fail closed instead, so a
+	gateway that is missing or not answering shows up as Failed in the log.
 	"""
-	recipient = row.recipient
-	mobile = frappe.db.get_value("User", recipient, "mobile_no") or recipient
-	if not mobile:
-		raise ValueError(f"No mobile number for {recipient}")
+	mobile = _deliverable_mobile(row.recipient, grievance)
+	hooked = bool(frappe.get_hooks("send_sms"))
+
+	if not hooked and not frappe.db.get_single_value("SMS Settings", "sms_gateway_url"):
+		raise ValueError("No SMS gateway configured in SMS Settings; message not sent.")
 
 	before = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 	_send_sms([mobile], strip_html_tags(row.message), success_msg=False)
 	after = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 
-	return {"sms_log": after} if after and after != before else {}
+	delivered = bool(after and after != before)
+	if not hooked and not delivered:
+		raise ValueError("SMS gateway did not confirm delivery: no SMS Log was written.")
+	return {"sms_log": after} if delivered else {}
 
 
 def _send_system_row(row, grievance):
@@ -391,7 +472,7 @@ def dispatch_queued(limit=100):
 			if row.channel == CHANNEL_EMAIL:
 				update.update(_send_email_row(row, _get_cached_grievance(row.grievance)))
 			elif row.channel == CHANNEL_SMS:
-				update.update(_send_sms_row(row))
+				update.update(_send_sms_row(row, _get_cached_grievance(row.grievance)))
 			elif row.channel == CHANNEL_SYSTEM:
 				update.update(_send_system_row(row, _get_cached_grievance(row.grievance)))
 			else:
