@@ -270,6 +270,8 @@ class TestPR19ReviewFixes(FrappeTestCase):
 
 		# Case assigned to Officer A
 		case = a_grievance(assigned_to=officer_a_email, workflow_state="In Progress", status="In Progress")
+		case.db_set("docstatus", 1, update_modified=False)
+		case.reload()
 		frappe.db.commit()
 
 		# Officer B attempts to add note
@@ -324,6 +326,8 @@ class TestPR19ReviewFixes(FrappeTestCase):
 			workflow_state="In Progress",
 			status="In Progress",
 		)
+		anon_case.db_set("docstatus", 1, update_modified=False)
+		anon_case.reload()
 
 		frappe.set_user(officer_email)
 		# Timeline test
