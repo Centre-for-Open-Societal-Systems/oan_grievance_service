@@ -55,6 +55,10 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 
 	submitter_type: str | None = None
 	submitter_name: str | None = None
+	contact_mobile: str | None = None
+	country_code: str | None = None
+	phone_number: str | None = None
+	phone: str | None = None
 	contact_email: SafeEmail | None = None
 	submission_channel: str | None = None
 	administrative_area: str | None = None
@@ -102,7 +106,7 @@ class ListGrievancesRequest(BaseModel):
 	to_date: str | None = None
 	search: str | None = None
 	sort_by: str = "creation"
-	sort_order: str = "desc"
+	sort_order: str = "asc"
 
 
 class GrievanceActionRequest(BaseModel):
@@ -437,7 +441,7 @@ def list_grievances(
 	to_date: str | None = None,
 	search: str | None = None,
 	sort_by: str = "creation",
-	sort_order: str = "desc",
+	sort_order: str = "asc",
 	**kwargs,
 ):
 	"""Retrieve paginated and filtered list of grievances.
@@ -585,6 +589,7 @@ def list_grievances(
 		ticket_term = tn.clean(term)
 		if ticket_term and ticket_term != term:
 			or_filters.append(["ticket_number", "like", f"%{ticket_term}%"])
+			or_filters.append(["name", "like", f"%{ticket_term}%"])
 		if matching_types:
 			or_filters.append(["grievance_type", "in", matching_types])
 		else:
@@ -601,9 +606,9 @@ def list_grievances(
 		"escalated",
 	}
 	order_field = sort_by if sort_by in allowed_sort_fields else "creation"
-	order_direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+	order_direction = "desc" if str(sort_order).lower() == "desc" else "asc"
 	if order_field == "escalated":
-		order_by = f"`tabGrievance`.escalated {order_direction}, `tabGrievance`.creation desc"
+		order_by = f"`tabGrievance`.escalated {order_direction}, `tabGrievance`.creation asc"
 	else:
 		order_by = f"`tabGrievance`.escalated desc, `tabGrievance`.{order_field} {order_direction}"
 
@@ -661,6 +666,8 @@ def list_grievances(
 		loc = format_administrative_location(h)
 		area_cache[area_id] = {"hierarchy": h, "location": loc}
 
+	from oan_auth_service.api.utils import split_phone_number
+
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		state_deadline = item.pop("state_deadline", None)
@@ -671,6 +678,13 @@ def list_grievances(
 			item["submitter_name"] = _("Anonymous Submitter")
 			item["contact_mobile"] = None
 			item["contact_email"] = None
+
+		phone_cc, phone_nat = (
+			split_phone_number(item.get("contact_mobile")) if item.get("contact_mobile") else (None, None)
+		)
+		item["country_code"] = phone_cc
+		item["phone_number"] = phone_nat
+
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
@@ -777,6 +791,9 @@ def submit(**kwargs):
 		"submitter_type",
 		"submitter_name",
 		"contact_mobile",
+		"country_code",
+		"phone_number",
+		"phone",
 		"contact_email",
 		"administrative_area",
 		"administrative_unit",
@@ -801,16 +818,19 @@ def submit(**kwargs):
 def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 	if not entry:
 		return None
-	masked_name = doc.submitter_name if permissions.can_see_identity(doc) else _("Anonymous Submitter")
 	author_type = "submitter" if entry.author_submitter else "officer" if entry.author_user else "system"
 	if entry.author_submitter:
-		author_name = masked_name or entry.author_submitter
 		author_role = doc.submitter_type or "Grievance Submitter"
 	elif entry.author_user:
-		author_name = frappe.db.get_value("User", entry.author_user, "full_name") or entry.author_user
-		author_role = "Grievance Officer"
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			current_level_of,
+		)
+
+		level_id = current_level_of(entry.author_user)
+		author_role = (
+			frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
+		) or "Grievance Officer"
 	else:
-		author_name = "System"
 		author_role = "System"
 
 	return {
@@ -818,7 +838,6 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 		"entry_type": entry.entry_type,
 		"body": entry.body,
 		"is_internal": bool(entry.is_internal),
-		"author_name": author_name,
 		"author_role": author_role,
 		"author_type": author_type,
 		"from_status": from_status,
@@ -1096,23 +1115,29 @@ def timeline(
 	masked_mobile = doc.contact_mobile if show_identity else None
 	masked_email = doc.contact_email if show_identity else None
 
+	from oan_auth_service.api.utils import split_phone_number
+
+	masked_phone_cc, masked_phone_nat = split_phone_number(masked_mobile) if masked_mobile else (None, None)
+
 	for entry in entries:
 		entry["is_internal"] = bool(entry.get("is_internal"))
 		if entry["author_submitter"]:
 			entry["author_type"] = "submitter"
-			entry["author_name"] = masked_name or entry["author_submitter"]
+			entry["author_role"] = doc.submitter_type or "Grievance Submitter"
 		elif entry["author_user"]:
 			entry["author_type"] = "officer"
-			entry["author_name"] = (
-				frappe.db.get_value("User", entry["author_user"], "full_name") or entry["author_user"]
+			from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+				current_level_of,
 			)
+
+			level_id = current_level_of(entry["author_user"])
+			entry["author_role"] = (
+				frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
+			) or "Grievance Officer"
+		else:
+			entry["author_type"] = "system"
+			entry["author_role"] = "System"
 	# Fetch associated attachments
-	file_attachments = frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": "Grievance", "attached_to_name": doc.name},
-		fields=["name", "file_name", "file_url", "file_size", "is_private"],
-		order_by="creation asc",
-	)
 	grievance_attachments = frappe.get_all(
 		"Grievance Attachment",
 		filters={"grievance": doc.name},
@@ -1132,7 +1157,7 @@ def timeline(
 		order_by="creation asc",
 		ignore_permissions=True,
 	)
-	attachments = list(file_attachments) + list(grievance_attachments)
+	attachments = grievance_attachments
 
 	attachments_by_timeline = {}
 	for att in grievance_attachments:
@@ -1157,12 +1182,6 @@ def timeline(
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
-			"submitter_name": masked_name,
-			"service_category": doc.service_category,
-			"grievance_type": doc.grievance_type,
-			"administrative_area": doc.administrative_area,
-			"administrative_hierarchy": area_hierarchy,
-			"location": location_str,
 			"summary": {
 				"description": doc.description,
 				"desired_outcome": doc.desired_outcome,
@@ -1177,7 +1196,11 @@ def timeline(
 			"submitter": {
 				"name": masked_name,
 				"mobile": masked_mobile,
+				"contact_mobile": masked_mobile,
+				"country_code": masked_phone_cc,
+				"phone_number": masked_phone_nat,
 				"email": masked_email,
+				"contact_email": masked_email,
 				"submitter_type": doc.submitter_type,
 				"is_anonymous": bool(doc.is_anonymous),
 				"assisted_by_officer": doc.assisted_by_officer,

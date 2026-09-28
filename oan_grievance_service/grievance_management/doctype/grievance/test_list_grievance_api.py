@@ -25,8 +25,6 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
-		else:
-			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
 		if not frappe.db.exists("Grievance Service Category", "Credit"):
 			frappe.get_doc(
@@ -37,8 +35,6 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
-		else:
-			frappe.db.set_value("Grievance Service Category", "Credit", "code", "004")
 
 		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 		if not gtype_name:
@@ -162,12 +158,8 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.flags.in_test = True
 		for g in getattr(self, "created_docs", []):
 			discard_grievance(g.name)
-		if hasattr(self, "farmer_profile") and frappe.db.exists(
-			"Grievance Submitter Profile", self.farmer_profile.name
-		):
-			frappe.delete_doc(
-				"Grievance Submitter Profile", self.farmer_profile.name, force=True, ignore_permissions=True
-			)
+		frappe.set_user("Administrator")
+		super().tearDown()
 
 	def test_list_grievances_admin_pagination(self):
 		"""Admin retrieves paginated grievances."""
@@ -283,8 +275,31 @@ class TestListGrievanceAPI(FrappeTestCase):
 		self.assertEqual(res.get("status"), "success")
 		data = res.get("data", {})
 		self.assertEqual(data.get("ticket_number"), tn.display(target.ticket_number))
-		self.assertEqual(data.get("submitter_name"), target.submitter_name)
-		self.assertEqual(data.get("service_category"), "Inputs")
-		self.assertIn("location", data)
+		self.assertEqual(data.get("submitter", {}).get("name"), target.submitter_name)
+		self.assertEqual(data.get("summary", {}).get("service_category"), "Inputs")
 		self.assertIn("location", data.get("summary", {}))
 		self.assertIn("attachments", data)
+
+	def test_list_grievances_sorts_escalated_first_then_oldest_first(self):
+		"""Test default sorting shows escalated grievances first, then oldest tickets first."""
+		frappe.set_user("Administrator")
+		created_names = [g.name for g in self.created_docs]
+
+		# Escalate one of the newer tickets (e.g. index 4)
+		esc_doc = self.created_docs[4]
+		esc_doc.db_set("escalated", 1, update_modified=False)
+
+		res = list_grievances(page_size=100)
+		self.assertEqual(res["status"], "success")
+		items = [item for item in res["data"]["items"] if item["name"] in created_names]
+
+		# The escalated item must be the first among our created docs
+		self.assertEqual(items[0]["name"], esc_doc.name)
+		self.assertTrue(items[0]["escalated"])
+
+		# Remaining non-escalated items must be ordered oldest first (creation ascending)
+		non_esc_items = [it for it in items if not it["escalated"]]
+		self.assertEqual(len(non_esc_items), 4)
+		non_esc_names = [it["name"] for it in non_esc_items]
+		expected_order = [g.name for g in self.created_docs[:4]]
+		self.assertEqual(non_esc_names, expected_order)

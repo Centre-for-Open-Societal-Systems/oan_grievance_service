@@ -90,6 +90,8 @@ scheduler_events = {
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.scan_pending_attachments",
+		# Process unrouted submitted cases through the routing engine in the background
+		"oan_grievance_service.tasks.drain_routing_queue",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.purge_expired_drafts",
@@ -103,6 +105,7 @@ scheduler_events = {
 # with grievance profile data. Submitter profile registration is handled via REST API.
 
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
+on_user_registered = ["oan_grievance_service.api.v1.profile.on_user_registered_hook"]
 
 # Portal
 # ------------------

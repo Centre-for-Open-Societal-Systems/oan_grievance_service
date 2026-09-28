@@ -199,7 +199,7 @@ def expire_state_timers():
 				"Auto Close",
 				note=reason,
 				automated=True,
-				notify=False,
+				notify=True,
 				closure_type="auto_closed",
 			)
 			GrievanceTimeline.record(
@@ -209,7 +209,6 @@ def expire_state_timers():
 				body=body,
 				author_user=None,
 			)
-			notifications.queue(grievance, C.EVENT_STATUS_CHANGED)
 		except Exception:
 			frappe.log_error(
 				title="Grievance state timer failed",
@@ -235,6 +234,13 @@ def scan_pending_attachments():
 	return scanning.scan_pending()
 
 
+def drain_routing_queue():
+	"""Drain unrouted submitted cases from the routing queue without deleting them."""
+	from oan_grievance_service.services import routing
+
+	return routing.drain_routing_queue()
+
+
 def purge_expired_drafts():
 	"""Daily: clear abandoned drafts that expired without being submitted."""
 	from oan_grievance_service.api.v1 import draft
@@ -246,6 +252,7 @@ def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
 	scan_pending_attachments()
+	drain_routing_queue()
 	escalate_breached()
 	expire_state_timers()
 	dispatch_notifications()

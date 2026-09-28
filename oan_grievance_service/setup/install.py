@@ -276,13 +276,49 @@ NOTIFICATION_EVENTS = [
 		("doc.ticket_number", "doc.assigned_dept", "doc.sla_due_date"),
 	),
 	(
-		C.EVENT_STATUS_CHANGED,
-		"Status Changed",
+		C.EVENT_STATUS_IN_PROGRESS,
+		"Grievance Under Investigation",
 		"Submitter",
 		("SMS", "Email"),
-		"On workflow state transition",
-		"Grievance {0} status updated to {1}.",
-		("doc.ticket_number", "doc.status"),
+		"Officer starts work",
+		"Your grievance {0} is now under investigation.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_CONFIRMED,
+		"Grievance Confirmed",
+		"Submitter",
+		("SMS", "Email"),
+		"Submitter confirms resolution",
+		"Grievance {0} confirmed resolved. Thank you for your feedback. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_AUTO_CLOSED,
+		"Grievance Auto-Closed",
+		"Submitter",
+		("SMS", "Email"),
+		"Confirmation window expires",
+		"Grievance {0} has been closed as no response was received within the confirmation window. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_CLOSED,
+		"Grievance Closed",
+		"Submitter",
+		("SMS", "Email"),
+		"Grievance closed",
+		"Grievance {0} is now closed. Thank you for your feedback. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_STATUS_REJECTED,
+		"Grievance Rejected",
+		"Submitter",
+		("SMS", "Email"),
+		"Officer rejects grievance",
+		"Your grievance {0} was not accepted.",
+		("doc.ticket_number",),
 	),
 	(
 		C.EVENT_MORE_INFO_REQUESTED,
@@ -418,10 +454,56 @@ def seed_all():
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
+		"holiday_list": seed_holiday_list(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
 	return created
+
+
+def seed_holiday_list():
+	"""Seed standard Ethiopian public holiday list if absent."""
+	name = "Ethiopian Public Holidays"
+	if frappe.db.exists("Grievance Holiday List", name):
+		return []
+
+	year = frappe.utils.now_datetime().year
+	from_date = f"{year}-01-01"
+	to_date = f"{year + 1}-12-31"
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Grievance Holiday List",
+			"holiday_list_name": name,
+			"from_date": from_date,
+			"to_date": to_date,
+			"weekly_off": "Sunday",
+			"is_default": 1,
+		}
+	)
+	holidays = [
+		(f"{year}-01-07", "Ethiopian Christmas (Genna)"),
+		(f"{year}-01-19", "Timkat (Epiphany)"),
+		(f"{year}-03-02", "Victory of Adwa"),
+		(f"{year}-05-01", "International Labour Day"),
+		(f"{year}-05-05", "Patriots' Victory Day"),
+		(f"{year}-05-28", "Downfall of Derg"),
+		(f"{year}-09-11", "Ethiopian New Year (Enkutatash)"),
+		(f"{year}-09-27", "Meskel (Finding of True Cross)"),
+		(f"{year + 1}-01-07", "Ethiopian Christmas (Genna)"),
+		(f"{year + 1}-01-19", "Timkat (Epiphany)"),
+		(f"{year + 1}-03-02", "Victory of Adwa"),
+		(f"{year + 1}-05-01", "International Labour Day"),
+		(f"{year + 1}-05-05", "Patriots' Victory Day"),
+		(f"{year + 1}-05-28", "Downfall of Derg"),
+		(f"{year + 1}-09-11", "Ethiopian New Year (Enkutatash)"),
+		(f"{year + 1}-09-27", "Meskel (Finding of True Cross)"),
+	]
+	for h_date, desc in holidays:
+		doc.append("holidays", {"holiday_date": h_date, "description": desc, "weekly_off": 0})
+	doc.populate_weekly_offs()
+	doc.insert(ignore_permissions=True)
+	return [name]
 
 
 def seed_response_types():

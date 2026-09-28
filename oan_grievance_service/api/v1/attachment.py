@@ -192,14 +192,15 @@ class SubmitDocumentsRequest(BaseModel):
 		return self
 
 
-@grievance_route("/<grievance>/attachments", methods=("POST",), summary="Upload supporting documents")
+@grievance_route("/<ticket_number>/attachments", methods=("POST",), summary="Upload supporting documents")
 @route("", methods=("POST",), summary="Upload supporting documents")
 @frappe.whitelist(methods=["POST"])
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
 def submit_documents(
-	grievance: str,
+	ticket_number: str | None = None,
+	grievance: str | None = None,
 	document_type: str | list[str] | None = None,
 	response: str | None = None,
 	timeline_entry: str | None = None,
@@ -211,7 +212,7 @@ def submit_documents(
 	Accepts single or multiple files in multipart form data.
 	Always returns a list of created attachment records.
 	"""
-	case = _case_for_write(grievance)
+	case = _case_for_write(ticket_number or grievance)
 	owner = {"grievance": case.name}
 	submitter = case.submitter
 
@@ -302,19 +303,19 @@ def submit_documents(
 	)
 
 
-@grievance_route("/<grievance>/attachments", methods=("GET",), summary="List a grievance's attachments")
+@grievance_route("/<ticket_number>/attachments", methods=("GET",), summary="List a grievance's attachments")
 @route("", methods=("GET",), summary="List attachments for a grievance")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def get_attachments(grievance: str):
+def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
 	"""List the evidence on a case, with each file's scan verdict.
 
 	Infected and pending files are listed rather than hidden. An officer needs to
 	know something was submitted and what happened to it; silently omitting a row
 	would make the case look like it had less evidence than it did.
 	"""
-	case = _case_for_read(grievance)
+	case = _case_for_read(ticket_number or grievance)
 
 	rows = frappe.get_all(
 		"Grievance Attachment",
@@ -344,11 +345,15 @@ def get_attachments(grievance: str):
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@route("/<attachment>/view", methods=("GET",), summary="Stream a clean attachment inline")
+@route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def view(attachment: str, download: str | int | None = None):
+def view(
+	attachment_id: str | None = None,
+	attachment: str | None = None,
+	download: str | int | None = None,
+):
 	"""Serve the bytes of one attachment for display in the browser.
 
 	The private-file route that `file_url` points at sits outside the JWT
@@ -358,7 +363,7 @@ def view(attachment: str, download: str | int | None = None):
 	the way out. Inline by default so an image or PDF opens in the tab; pass
 	`download=1` for a Save As.
 	"""
-	doc = _servable(attachment)
+	doc = _servable(attachment_id or attachment)
 	content = scanning.read_object(doc.file_url)
 	if content is None:
 		frappe.throw(
@@ -385,18 +390,18 @@ def view(attachment: str, download: str | int | None = None):
 	return response
 
 
-@route("/<attachment>/download", methods=("GET",), summary="Get attachment download URL")
+@route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def download(attachment: str):
+def download(attachment_id: str | None = None, attachment: str | None = None):
 	"""Metadata for one attachment, but only once it has been scanned clean.
 
 	Kept for the desk and for clients with a Frappe session cookie, which can
 	fetch `file_url` directly. API clients should use `/view`, which streams the
 	bytes under the same gate.
 	"""
-	doc = _servable(attachment)
+	doc = _servable(attachment_id or attachment)
 	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
 	return success_response(
 		data={
@@ -431,18 +436,18 @@ def _servable(attachment: str):
 	return doc
 
 
-@route("/<attachment>", methods=("DELETE", "POST"), summary="Delete an attachment")
+@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment")
 @frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def delete(attachment: str):
+def delete(attachment_id: str | None = None, attachment: str | None = None):
 	"""Remove an attachment the submitter added by mistake.
 
 	Only while the case is still open: once it is resolved or closed, the evidence
 	is part of what the decision rested on and removing it would rewrite the record
 	after the fact.
 	"""
-	doc = frappe.get_doc("Grievance Attachment", attachment)
+	doc = frappe.get_doc("Grievance Attachment", attachment_id or attachment)
 	case = _case_for_write(doc.grievance)
 
 	if sla.sla_category_of(case.workflow_state) == sla.STOPPED:

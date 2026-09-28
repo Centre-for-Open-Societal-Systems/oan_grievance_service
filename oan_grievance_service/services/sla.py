@@ -3,16 +3,14 @@
 Reminders at 50% and 80% of the window, and escalation up the role-level chain on
 breach.
 
-The clock starts on assignment by default: a department cannot be held to a clock that
-ran before the case reached it. Set the `grievance_sla_clock_start` site config key to
-"creation" to count from submission instead.
+The clock starts from the creation date/time of the grievance.
 
 What each workflow state does to the clock is its SLA category, set per state in
 setup/install.py (WORKFLOW_STATES): Running, Paused or Stopped. A state can also carry
 a timer - how long a case may sit there - configured per service category on the SLA
 Configuration's State Timers.
 
-What belongs here: the SLA clock (start, pause, resume, stop, consumed percentage),
+What belongs here: the SLA clock (start, pause, resume, stop, consumed percentage, working days calculation),
 state timers, and walking a case up the escalation chain.
 
 What does not belong here: looking up who holds which rung or who reports to whom.
@@ -21,10 +19,11 @@ Scheduling lives in tasks.py; this module only answers what a run should do.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 import frappe
 from frappe.model.workflow import get_workflow
-from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
+from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
@@ -46,6 +45,9 @@ RUNNING = "Running"
 PAUSED = "Paused"
 STOPPED = "Stopped"
 
+CACHE_KEY_DEFAULT_HOLIDAY_LIST = "grievance_default_holiday_list"
+CACHE_KEY_HOLIDAYS_PREFIX = "grievance_holidays_"
+
 
 @dataclass(frozen=True, slots=True)
 class SLAPolicy:
@@ -58,6 +60,76 @@ class SLAPolicy:
 	first_response_hours: int | None = None
 	update_cadence_hours: int | None = None
 	remand_execution_hours: int | None = None
+	holiday_list: str | None = None
+
+
+def get_default_holiday_list() -> str | None:
+	"""Returns the default Grievance Holiday List name if one is marked default."""
+	cached = frappe.cache.get_value(CACHE_KEY_DEFAULT_HOLIDAY_LIST)
+	if cached is not None:
+		return cached or None
+	default_list = frappe.db.get_value("Grievance Holiday List", {"is_default": 1}, "name")
+	frappe.cache.set_value(CACHE_KEY_DEFAULT_HOLIDAY_LIST, default_list or "")
+	return default_list
+
+
+def get_holiday_dates(holiday_list_name: str | None) -> set:
+	"""Return set of datetime.date objects for all holidays in the given holiday list."""
+	if not holiday_list_name:
+		return set()
+	cache_key = f"{CACHE_KEY_HOLIDAYS_PREFIX}{holiday_list_name}"
+	cached = frappe.cache.get_value(cache_key)
+	if cached is not None:
+		return {getdate(d) for d in cached}
+
+	if not frappe.db.exists("Grievance Holiday List", holiday_list_name):
+		return set()
+
+	rows = frappe.get_all(
+		"Grievance Holiday",
+		filters={"parent": holiday_list_name, "is_half_day": 0},
+		pluck="holiday_date",
+	)
+	holidays_set = {getdate(d) for d in rows}
+	frappe.cache.set_value(cache_key, [str(d) for d in holidays_set])
+	return holidays_set
+
+
+def is_holiday(date, holiday_list_name: str | None = None) -> bool:
+	"""Check if a date is a holiday or weekly off."""
+	h_list = holiday_list_name or get_default_holiday_list()
+	if not h_list:
+		return False
+	holidays = get_holiday_dates(h_list)
+	return getdate(date) in holidays
+
+
+def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name: str | None = None):
+	"""Calculate target due date adding working days, skipping holidays and weekly offs.
+
+	Days allocated count from start_datetime (which defaults to creation date/time).
+	Preserves the time component of start_datetime.
+	"""
+	if not start_datetime:
+		start_datetime = now_datetime()
+	start_dt = get_datetime(start_datetime)
+	if not sla_days or sla_days <= 0:
+		return start_dt
+
+	h_list = holiday_list_name or get_default_holiday_list()
+	holidays = get_holiday_dates(h_list) if h_list else set()
+
+	if not holidays:
+		return add_days(start_dt, sla_days)
+
+	cur_dt = start_dt
+	days_added = 0
+	while days_added < sla_days:
+		cur_dt = add_to_date(cur_dt, days=1)
+		if cur_dt.date() not in holidays:
+			days_added += 1
+
+	return cur_dt
 
 
 def resolve_policy(service_category) -> SLAPolicy | None:
@@ -76,6 +148,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 			"first_response_hours",
 			"update_cadence_hours",
 			"remand_execution_hours",
+			"holiday_list",
 		],
 		limit=1,
 	)
@@ -90,6 +163,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 		first_response_hours=r.first_response_hours,
 		update_cadence_hours=r.update_cadence_hours,
 		remand_execution_hours=r.remand_execution_hours,
+		holiday_list=r.holiday_list or get_default_holiday_list(),
 	)
 
 
@@ -102,12 +176,8 @@ def start_clock(grievance):
 	if not policy or not policy.sla_days:
 		return
 
-	if (frappe.conf.get("grievance_sla_clock_start") or CLOCK_START_ASSIGNMENT) == CLOCK_START_CREATION:
-		started = get_datetime(grievance.creation)
-	else:
-		started = now_datetime()
-
-	due = add_days(started, policy.sla_days)
+	started = get_datetime(grievance.sla_start_at or grievance.creation or now_datetime())
+	due = calculate_working_deadline(started, policy.sla_days, holiday_list_name=policy.holiday_list)
 	grievance.db_set(
 		{
 			"sla_days": policy.sla_days,
@@ -119,11 +189,41 @@ def start_clock(grievance):
 	arm_escalation(grievance, policy=policy)
 
 
+def recalculate_sla_on_category_change(grievance, old_category=None, new_category=None):
+	"""Recalculate SLA due date and escalation timestamps when category changes.
+
+	Recalculates target resolution time based on the new category's policy starting from
+	the creation / start date, taking into account any banked hold time and holidays.
+	"""
+	cat = new_category or grievance.service_category
+	policy = resolve_policy(cat)
+	if not policy or not policy.sla_days:
+		return
+
+	started = get_datetime(grievance.sla_start_at or grievance.creation or now_datetime())
+	new_due = calculate_working_deadline(started, policy.sla_days, holiday_list_name=policy.holiday_list)
+
+	banked = grievance.get("total_hold_time") or 0
+	if banked:
+		new_due = add_to_date(new_due, seconds=banked)
+
+	updates = {
+		"sla_days": policy.sla_days,
+		"sla_start_at": started,
+		"sla_due_date": new_due,
+		"reminder_50_sent": 0,
+		"reminder_80_sent": 0,
+	}
+
+	grievance.db_set(updates, update_modified=False)
+	arm_escalation(grievance, policy=policy)
+
+
 def arm_escalation(grievance, policy):
 	"""Point the escalation clock at the first bump.
 
 	Until a case has escalated once the next bump is a fraction of its window, so this
-	is re-run whenever the deadline moves (resume from hold, approved deferral). Once
+	is re-run whenever the deadline moves (resume from hold, approved deferral, category change). Once
 	the case starts climbing, the rung's own hours own the schedule and the deadline is
 	no longer the thing being waited on.
 
@@ -363,7 +463,8 @@ def escalate(grievance, reason=None, reassign=True):
 		updates["assigned_to"] = target
 	grievance.db_set(updates, update_modified=False)
 
-	body = f"Case escalated to {target} ({level.level_name or level.name})"
+	level_role = level.level_name or level.name
+	body = f"Case escalated to {level_role}"
 	if reason:
 		body += f": {reason}"
 	GrievanceTimeline.record(

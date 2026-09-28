@@ -54,22 +54,49 @@ class GrievanceSubmitterProfile(Document):
 		elif self.contact_mobile:
 			key = build_dedupe_key(identity.SCHEME_PHONE, self.contact_mobile)
 
+		if not self.is_new() and self.get_doc_before_save() and self.get_doc_before_save().dedupe_key:
+			old_key = self.get_doc_before_save().dedupe_key
+			old_scheme, _old_value = split_dedupe_key(old_key)
+
+			# If the profile was previously anchored to phone, and contact_mobile changed,
+			# sync dedupe_key to the new contact_mobile unless an explicit new key (e.g. Fayda) was provided.
+			if old_scheme == identity.SCHEME_PHONE:
+				if (
+					key == old_key
+					and self.contact_mobile
+					and f"{identity.SCHEME_PHONE}:{self.contact_mobile}" != old_key
+				):
+					key = build_dedupe_key(identity.SCHEME_PHONE, self.contact_mobile)
+
+			if old_key != key:
+				# Phone-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
+				# Verified identities (Fayda / Org) are immutable.
+				if old_scheme != identity.SCHEME_PHONE:
+					frappe.throw(
+						_(
+							"This profile is already registered as {0} and its identity cannot be changed."
+						).format(old_key),
+						title=_("Identity Is Immutable"),
+					)
+
 		if not key:
 			frappe.throw(
 				_("A Submitter Profile must have a valid dedupe_key or contact_mobile."),
 				title=_("No Identity"),
 			)
 
-		# The key is the identity. Letting it move would silently re-point every grievance
-		# already filed under it at a different party.
-		if not self.is_new() and self.get_doc_before_save() and self.get_doc_before_save().dedupe_key:
-			old_key = self.get_doc_before_save().dedupe_key
-			if old_key != key:
+		# If dedupe_key changed, ensure it does not conflict with another existing profile
+		if not self.is_new() and self.get_doc_before_save() and self.get_doc_before_save().dedupe_key != key:
+			conflict = frappe.db.get_value(
+				"Grievance Submitter Profile",
+				{"dedupe_key": key, "name": ["!=", self.name]},
+				"name",
+			)
+			if conflict:
 				frappe.throw(
-					_("This profile is already registered as {0} and its identity cannot be changed.").format(
-						old_key
-					),
-					title=_("Identity Is Immutable"),
+					_("A Submitter Profile with dedupe key '{0}' is already registered.").format(key),
+					frappe.DuplicateEntryError,
+					title=_("Already Registered"),
 				)
 
 		self.dedupe_key = key

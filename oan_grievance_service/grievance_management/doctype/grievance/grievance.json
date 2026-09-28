@@ -273,6 +273,7 @@
    "label": "Classification"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -283,6 +284,7 @@
    "search_index": 1
   },
   {
+   "allow_on_submit": 1,
    "description": "Loaded per category.",
    "fieldname": "grievance_type",
    "fieldtype": "Link",

@@ -248,3 +248,57 @@ def apply_routing(grievance, commit_status=True):
 		)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc
+
+
+def enqueue_routing(grievance_name: str) -> None:
+	"""Asynchronously enqueue auto-routing for a submitted grievance."""
+	try:
+		frappe.enqueue(
+			"oan_grievance_service.services.routing.route_grievance_job",
+			queue="default",
+			grievance_name=grievance_name,
+			enqueue_after_commit=True,
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"Failed to enqueue routing for grievance: {grievance_name}",
+			message=frappe.get_traceback(),
+		)
+
+
+def route_grievance_job(grievance_name: str) -> None:
+	"""Worker task to route a grievance in the background queue."""
+	if not frappe.db.exists("Grievance", grievance_name):
+		return
+	doc = frappe.get_doc("Grievance", grievance_name)
+	# Only route if it is submitted and unassigned
+	if doc.docstatus != 1 or doc.workflow_state != C.STATE_SUBMITTED or doc.assigned_to:
+		return
+	apply_routing(doc)
+
+
+def drain_routing_queue(limit: int = 50) -> int:
+	"""Process unrouted submitted cases through the routing engine without deleting any cases."""
+	unrouted = frappe.get_all(
+		"Grievance",
+		filters={
+			"docstatus": 1,
+			"workflow_state": C.STATE_SUBMITTED,
+			"assigned_to": ["is", "not set"],
+			"routed_automatically": 0,
+		},
+		pluck="name",
+		limit=limit,
+	)
+	routed_count = 0
+	for name in unrouted:
+		try:
+			doc = frappe.get_doc("Grievance", name)
+			if apply_routing(doc):
+				routed_count += 1
+		except Exception:
+			frappe.log_error(
+				title=f"Scheduled queue routing failed for {name}",
+				message=frappe.get_traceback(),
+			)
+	return routed_count

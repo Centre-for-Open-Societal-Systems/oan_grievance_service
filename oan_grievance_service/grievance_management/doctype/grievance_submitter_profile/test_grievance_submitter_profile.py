@@ -65,6 +65,104 @@ class TestSubmitterProfile(FrappeTestCase):
 		self.assertEqual(profile.identity_scheme, "fayda")
 		self.assertEqual(profile.identity_value, "1234567890123456")
 
+	def test_phone_anchored_profile_allows_phone_number_update(self):
+		import random
+
+		phone_1 = f"+25191{random.randint(1000000, 9999999)}"
+		phone_2 = f"+25191{random.randint(1000000, 9999999)}"
+
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Farmer Phone Test",
+				"contact_mobile": phone_1,
+				"administrative_unit": "Bishoftu",
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			self.assertEqual(profile.dedupe_key, f"phone:{phone_1}")
+
+			# Update contact mobile
+			profile.contact_mobile = phone_2
+			profile.save(ignore_permissions=True)
+
+			profile.reload()
+			self.assertEqual(profile.contact_mobile, phone_2)
+			self.assertEqual(profile.dedupe_key, f"phone:{phone_2}")
+		finally:
+			frappe.delete_doc(
+				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
+			)
+
+	def test_phone_anchored_profile_upgrades_to_fayda(self):
+		import random
+
+		phone = f"+25191{random.randint(1000000, 9999999)}"
+		fayda = "".join(random.choices("0123456789", k=16))
+
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Farmer Upgrade Test",
+				"contact_mobile": phone,
+				"administrative_unit": "Bishoftu",
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			self.assertEqual(profile.dedupe_key, f"phone:{phone}")
+
+			# Upgrade to Fayda ID
+			profile.dedupe_key = f"fayda:{fayda}"
+			profile.save(ignore_permissions=True)
+
+			profile.reload()
+			self.assertEqual(profile.dedupe_key, f"fayda:{fayda}")
+			self.assertEqual(profile.identity_scheme, "fayda")
+		finally:
+			frappe.delete_doc(
+				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
+			)
+
+	def test_verified_fayda_profile_blocks_identity_mutation(self):
+		import random
+
+		phone = f"+25191{random.randint(1000000, 9999999)}"
+		fayda_1 = "".join(random.choices("0123456789", k=16))
+		fayda_2 = "".join(random.choices("0123456789", k=16))
+
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Farmer Immutable Fayda Test",
+				"contact_mobile": phone,
+				"dedupe_key": f"fayda:{fayda_1}",
+				"administrative_unit": "Bishoftu",
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			# Changing contact mobile should be permitted
+			new_phone = f"+25191{random.randint(1000000, 9999999)}"
+			profile.contact_mobile = new_phone
+			profile.save(ignore_permissions=True)
+			profile.reload()
+			self.assertEqual(profile.contact_mobile, new_phone)
+			self.assertEqual(profile.dedupe_key, f"fayda:{fayda_1}")
+
+			# But changing fayda identity must be blocked
+			profile.dedupe_key = f"fayda:{fayda_2}"
+			with self.assertRaises(frappe.ValidationError):
+				profile.save(ignore_permissions=True)
+		finally:
+			frappe.delete_doc(
+				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
+			)
+
 	def test_register_submitter_creates_individual_farmer_profile_unblocked(self):
 		import random
 
@@ -374,3 +472,157 @@ class TestSubmitterProfile(FrappeTestCase):
 		self.assertNotIn("phone_extensions", res_no_phones["data"])
 		self.assertIn("submitter_types", res_no_phones["data"])
 		self.assertIn("service_categories", res_no_phones["data"])
+
+	def test_on_user_registered_hook_auto_provisions_farmer_profile(self):
+		"""Test on_user_registered_hook automatically provisions a Grievance Submitter Profile."""
+		import random
+
+		from oan_grievance_service.api.v1.profile import on_user_registered_hook
+
+		phone = f"+25191{random.randint(1000000, 9999999)}"
+		email = f"user_{random.randint(1000, 9999)}@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"{frappe.generate_hash(length=12)}@id.openagrinet.internal",
+				"user_email": email,
+				"first_name": "Registered",
+				"last_name": "Farmer",
+				"mobile_no": phone,
+				"send_welcome_email": 0,
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			on_user_registered_hook(
+				user_doc=user,
+				role="Grievance Submitter",
+				roles=["Grievance Submitter"],
+				administrative_unit="Adama",
+			)
+
+			profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
+			self.assertIsNotNone(profile_name)
+
+			profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+			self.assertEqual(profile.submitter_type, "Individual Farmer")
+			self.assertEqual(profile.submitter_name, "Registered Farmer")
+			self.assertEqual(profile.contact_mobile, phone)
+			self.assertEqual(profile.contact_email, email)
+			self.assertEqual(profile.administrative_unit, "Adama")
+			self.assertEqual(profile.active, 1)
+			self.assertEqual(profile.is_blocked, 0)
+		finally:
+			if frappe.db.exists("Grievance Submitter Profile", {"user": user.name}):
+				p_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
+				frappe.delete_doc("Grievance Submitter Profile", p_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("User", user.name):
+				frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_register_submitter_with_split_phone_number_inputs(self):
+		import random
+
+		from oan_grievance_service.api.v1.submitter import register_submitter
+
+		national_no = f"91{random.randint(1000000, 9999999)}"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"test_split_phone_{frappe.generate_hash(length=6)}@example.com",
+				"first_name": "Split",
+				"last_name": "Submitter",
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			frappe.set_user(user.name)
+			res = register_submitter(
+				submitter_type="Individual Farmer",
+				submitter_name="Split Submitter",
+				country_code="+251",
+				phone_number=national_no,
+				administrative_unit="Hawassa",
+			)
+			self.assertEqual(res["status"], "success")
+			data = res["data"]
+			self.assertEqual(data["contact_mobile"], f"+251{national_no}")
+			self.assertEqual(data["country_code"], "+251")
+			self.assertEqual(data["phone_number"], national_no)
+			self.assertNotIn("phone_country_code", data)
+			self.assertNotIn("phone_national_number", data)
+		finally:
+			frappe.set_user("Administrator")
+			if frappe.db.exists("Grievance Submitter Profile", {"user": user.name}):
+				p_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
+				frappe.delete_doc("Grievance Submitter Profile", p_name, force=True, ignore_permissions=True)
+			frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
+	def test_end_to_end_auth_register_creates_grievance_submitter_profile(self):
+		"""Test registering via oan_auth_service.api.v1.auth.register_user triggers hook and creates profile."""
+		import random
+
+		from oan_auth_service.api.v1.auth import get_me, register_user
+		from oan_auth_service.tests.utils import configured_keys, override_conf
+
+		national_no = f"91{random.randint(1000000, 9999999)}"
+		email = f"farmer_{frappe.generate_hash(length=6)}@example.com"
+
+		with configured_keys(), override_conf(jwt_self_registerable_roles=["Grievance Submitter"]):
+			res = register_user(
+				email=email,
+				password="SecurePassword123!",
+				full_name="Hook Registered Farmer",
+				country_code="+251",
+				phone=national_no,
+				role="Grievance Submitter",
+				administrative_unit="Bishoftu",
+			)
+			self.assertEqual(res["status"], "success")
+			user_id = res["data"]["user"]
+
+			try:
+				# Verify Grievance Submitter Profile was auto-provisioned
+				profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
+				self.assertIsNotNone(profile_name)
+
+				profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+				self.assertEqual(profile.submitter_type, "Individual Farmer")
+				self.assertEqual(profile.submitter_name, "Hook Registered Farmer")
+				self.assertEqual(profile.contact_mobile, f"+251{national_no}")
+				self.assertEqual(profile.contact_email, email)
+				self.assertEqual(profile.administrative_unit, "Bishoftu")
+				self.assertEqual(profile.is_blocked, 0)
+				self.assertEqual(profile.active, 1)
+
+				# Verify GET /api/v1/auth/me resolves the profile
+				frappe.set_user(user_id)
+				me_res = get_me()
+				self.assertEqual(me_res["status"], "success")
+				me_data = me_res["data"]
+				self.assertEqual(me_data["mobile_no"], f"+251{national_no}")
+				self.assertEqual(me_data["country_code"], "+251")
+				self.assertEqual(me_data["phone_number"], national_no)
+				self.assertNotIn("phone_country_code", me_data)
+				self.assertNotIn("phone_national_number", me_data)
+				self.assertIn("profiles", me_data)
+				self.assertIn("grievance", me_data["profiles"])
+				grv_profile = me_data["profiles"]["grievance"]
+				self.assertEqual(grv_profile["profile_id"], profile.name)
+				self.assertEqual(grv_profile["type"], "Individual Farmer")
+				self.assertEqual(grv_profile["submitter_name"], "Hook Registered Farmer")
+				self.assertEqual(grv_profile["contact_mobile"], f"+251{national_no}")
+				self.assertEqual(grv_profile["country_code"], "+251")
+				self.assertEqual(grv_profile["phone_number"], national_no)
+				self.assertNotIn("phone_country_code", grv_profile)
+				self.assertNotIn("phone_national_number", grv_profile)
+			finally:
+				frappe.set_user("Administrator")
+				if frappe.db.exists("Grievance Submitter Profile", {"user": user_id}):
+					p_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_id}, "name")
+					frappe.delete_doc(
+						"Grievance Submitter Profile", p_name, force=True, ignore_permissions=True
+					)
+				if frappe.db.exists("User", user_id):
+					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)

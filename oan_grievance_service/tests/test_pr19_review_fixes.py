@@ -333,7 +333,7 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		# Timeline test
 		tl_res = grievance.timeline(anon_case.ticket_number or anon_case.name)
 		self.assertEqual(tl_res["status"], "success")
-		self.assertEqual(tl_res["data"]["submitter_name"], "Anonymous Submitter")
+		self.assertEqual(tl_res["data"]["submitter"]["name"], "Anonymous Submitter")
 		self.assertIsNone(tl_res["data"]["submitter"]["mobile"])
 		self.assertIsNone(tl_res["data"]["submitter"]["email"])
 

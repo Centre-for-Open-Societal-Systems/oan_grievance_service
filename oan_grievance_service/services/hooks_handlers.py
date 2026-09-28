@@ -64,7 +64,19 @@ def after_workflow_action(doc, from_state):
 	sla.arm_state_timer(doc, to_state)
 
 	if context.get("notify", True):
-		notifications.queue(doc, C.EVENT_STATUS_CHANGED)
+		if to_state == C.STATE_IN_PROGRESS and from_state in (C.STATE_ASSIGNED, C.STATE_SUBMITTED):
+			notifications.queue(doc, C.EVENT_STATUS_IN_PROGRESS)
+		elif to_state == C.STATE_MORE_INFO_NEEDED:
+			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
+		elif to_state == C.STATE_RESOLVED:
+			notifications.queue(doc, C.EVENT_CONFIRMED)
+		elif to_state == C.STATE_CLOSED:
+			if context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close":
+				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
+			else:
+				notifications.queue(doc, C.EVENT_CLOSED)
+		elif to_state == C.STATE_REJECTED:
+			notifications.queue(doc, C.EVENT_STATUS_REJECTED)
 
 
 def response_after_insert(doc, method=None):

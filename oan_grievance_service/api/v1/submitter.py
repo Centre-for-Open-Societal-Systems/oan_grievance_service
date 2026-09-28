@@ -29,6 +29,8 @@ from oan_grievance_service.grievance_management.doctype.grievance_submitter_prof
 )
 from oan_grievance_service.services.constants import STAFF_ROLES
 from oan_grievance_service.services.identity import (
+	SCHEME_FAYDA,
+	SCHEME_ORG,
 	derive_dedupe_key,
 	validate_mobile,
 )
@@ -45,6 +47,9 @@ class RegisterSubmitterRequest(BaseModel):
 	)
 	submitter_name: str | None = Field(default=None, description="Submitter name or organization name")
 	contact_mobile: str | None = Field(default=None, description="Contact mobile number")
+	country_code: str | None = Field(default=None, description="Country phone code prefix (e.g. +251)")
+	phone_number: str | None = Field(default=None, description="National phone number")
+	phone: str | None = Field(default=None, description="Phone number alias")
 	contact_email: SafeEmail | None = Field(default=None, description="Contact email address")
 	administrative_area: str | None = Field(default=None, description="Administrative area Link")
 	administrative_unit: str | None = Field(default=None, description="Administrative unit / woreda / branch")
@@ -112,6 +117,13 @@ def _create_or_update_submitter_profile(
 	submitter_name = (submitter_name or "").strip()
 	if not submitter_name:
 		frappe.throw(_("Submitter Name is required."), frappe.ValidationError, title=_("Missing Name"))
+
+	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	country_code = kwargs.get("country_code")
+	if incoming_phone:
+		from oan_auth_service.api.utils import assemble_phone_number
+
+		contact_mobile = assemble_phone_number(incoming_phone, country_code=country_code)
 
 	if not contact_mobile and user_doc:
 		contact_mobile = user_doc.mobile_no or ""
@@ -188,7 +200,15 @@ def _create_or_update_submitter_profile(
 		profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
-		profile.dedupe_key = derived_key
+
+		# Preserve verified national / org key if no new explicit identifier was provided in the update
+		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
+		has_explicit_id = bool(fayda_id or national_id or registration_number or org_number or dedupe_key)
+		if old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id:
+			pass
+		else:
+			profile.dedupe_key = derived_key
+
 		if admin_area:
 			profile.administrative_area = admin_area
 		if admin_unit:
@@ -287,6 +307,9 @@ def register_submitter(
 	submitter_type: str = "Individual Farmer",
 	submitter_name: str | None = None,
 	contact_mobile: str | None = None,
+	country_code: str | None = None,
+	phone_number: str | None = None,
+	phone: str | None = None,
 	contact_email: str | None = None,
 	administrative_area: str | None = None,
 	administrative_unit: str | None = None,
@@ -317,6 +340,9 @@ def register_submitter(
 		submitter_type=submitter_type,
 		submitter_name=submitter_name,
 		contact_mobile=contact_mobile,
+		country_code=country_code,
+		phone_number=phone_number,
+		phone=phone,
 		contact_email=contact_email,
 		administrative_area=administrative_area,
 		administrative_unit=administrative_unit,
@@ -327,16 +353,25 @@ def register_submitter(
 		org_number=org_number,
 		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
+		**kwargs,
 	)
 
 	scheme, ident_val = split_dedupe_key(profile.dedupe_key)
 	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
+
+	from oan_auth_service.api.utils import split_phone_number
+
+	phone_cc, phone_nat = (
+		split_phone_number(profile.contact_mobile) if profile.contact_mobile else (None, None)
+	)
 
 	data = {
 		"profile_id": profile.name,
 		"submitter_type": profile.submitter_type,
 		"submitter_name": profile.submitter_name,
 		"contact_mobile": profile.contact_mobile,
+		"country_code": phone_cc,
+		"phone_number": phone_nat,
 		"contact_email": profile.contact_email,
 		"dedupe_key": profile.dedupe_key,
 		"identities": identities,

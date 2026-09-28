@@ -16,6 +16,8 @@ class GrievanceSLAConfiguration(Document):
 			frappe.throw(_("Update Cadence Hours cannot be negative."))
 		if self.remand_execution_hours is not None and self.remand_execution_hours < 0:
 			frappe.throw(_("Remand Execution Hours cannot be negative."))
+		if self.holiday_list and not frappe.db.exists("Grievance Holiday List", self.holiday_list):
+			frappe.throw(_("Holiday List '{0}' does not exist.").format(self.holiday_list))
 		self.validate_state_timers()
 
 	def validate_state_timers(self):

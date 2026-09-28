@@ -9,6 +9,7 @@
  "field_order": [
   "service_category",
   "sla_days",
+  "holiday_list",
   "active",
   "col_sla_esc",
   "auto_escalate",
@@ -37,6 +38,13 @@
    "in_list_view": 1,
    "label": "SLA Days",
    "reqd": 1
+  },
+  {
+   "description": "Holiday list used for working day calculations. If blank, default holiday list is used.",
+   "fieldname": "holiday_list",
+   "fieldtype": "Link",
+   "label": "Holiday List",
+   "options": "Grievance Holiday List"
   },
   {
    "default": "1",
@@ -110,7 +118,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:27.860923",
+ "modified": "2026-09-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",
@@ -167,5 +175,6 @@
  "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

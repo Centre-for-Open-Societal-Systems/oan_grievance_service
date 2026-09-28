@@ -119,12 +119,12 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(frappe.response["http_status_code"], 403)
 		self.assertIn("another user", result["message"])
 
-	def test_loading_with_no_draft_is_a_404_not_an_empty_success(self):
+	def test_loading_with_no_draft_returns_success_with_none_data(self):
 		other = _a_submitter_user("draft.empty@example.com")
 		frappe.set_user(other.name)
 		result = draft.load()
-		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 404)
+		self.assertEqual(result["status"], "success")
+		self.assertIsNone(result["data"])
 
 	def test_discarding_removes_it(self):
 		draft.save(client_submission_uuid=self.uuid, **self._params())
@@ -215,8 +215,8 @@ class TestDraftRoundTrip(FrappeTestCase):
 		frappe.set_user(other.name)
 
 		result = draft.load()
-		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 404)
+		self.assertEqual(result["status"], "success")
+		self.assertIsNone(result["data"])
 
 	def test_guest_cannot_load_a_draft(self):
 		draft.save(client_submission_uuid=self.uuid, **self._params())
@@ -329,6 +329,30 @@ class TestDraftRoundTrip(FrappeTestCase):
 		)
 		self.assertEqual(res_val["status"], "error")
 		self.assertIn("at least 20", str(res_val))
+
+	def test_draft_save_and_load_with_split_phone_numbers(self):
+		res = draft.save(
+			client_submission_uuid=self.uuid,
+			country_code="+251",
+			phone="911234567",
+			description="Valid description with split phone number details.",
+		)
+		self.assertEqual(res["status"], "success")
+		data = res["data"]
+		self.assertEqual(data["contact_mobile"], "+251911234567")
+		self.assertEqual(data["country_code"], "+251")
+		self.assertEqual(data["phone_number"], "911234567")
+		self.assertNotIn("phone_country_code", data)
+		self.assertNotIn("phone_national_number", data)
+
+		loaded = draft.load()
+		self.assertEqual(loaded["status"], "success")
+		loaded_data = loaded["data"]
+		self.assertEqual(loaded_data["contact_mobile"], "+251911234567")
+		self.assertEqual(loaded_data["country_code"], "+251")
+		self.assertEqual(loaded_data["phone_number"], "911234567")
+		self.assertNotIn("phone_country_code", loaded_data)
+		self.assertNotIn("phone_national_number", loaded_data)
 
 
 def _a_submitter_user(email):

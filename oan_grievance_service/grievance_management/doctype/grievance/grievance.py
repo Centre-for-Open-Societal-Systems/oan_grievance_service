@@ -15,7 +15,14 @@ MIN_DESCRIPTION_LENGTH = 20
 # Fields a submitted grievance only changes through an approved Grievance Change
 # Request. System paths (routing, escalation) write them with db_set and are not
 # requests; every save that changes one of these must carry the request.
-REQUESTABLE_FIELDS = ("assigned_dept", "assigned_to", "sla_due_date", "anonymity_status")
+REQUESTABLE_FIELDS = (
+	"assigned_dept",
+	"assigned_to",
+	"sla_due_date",
+	"anonymity_status",
+	"service_category",
+	"grievance_type",
+)
 
 # Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
 # are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
@@ -276,6 +283,17 @@ class Grievance(Document):
 		if fieldname == "assigned_to" and new_value and not frappe.db.exists("User", new_value):
 			frappe.throw(_("Officer '{0}' does not exist.").format(new_value), title=_("Invalid Officer"))
 
+		if fieldname == "service_category" and not frappe.db.exists("Grievance Service Category", new_value):
+			frappe.throw(
+				_("Service Category '{0}' does not exist.").format(new_value),
+				title=_("Invalid Service Category"),
+			)
+
+		if fieldname == "grievance_type" and new_value and not frappe.db.exists("Grievance Type", new_value):
+			frappe.throw(
+				_("Grievance Type '{0}' does not exist.").format(new_value), title=_("Invalid Grievance Type")
+			)
+
 		if fieldname == "sla_due_date":
 			self._validate_deferral(new_value)
 
@@ -325,24 +343,35 @@ class Grievance(Document):
 		if any(row.fieldname == "anonymity_status" for row in request.changes):
 			self.db_set("anonymity_status", "Rejected", update_modified=False)
 
+	def on_update(self):
+		if not getattr(self.flags, "change_request", None) and self.has_value_changed("service_category"):
+			if self.docstatus != 0 and self.sla_due_date:
+				from oan_grievance_service.services import sla
+
+				sla.recalculate_sla_on_category_change(self)
+
 	def react_to_approved_change(self):
 		"""Fields that move with a requested change."""
 		from frappe.utils import get_datetime
 
 		from oan_grievance_service.services import sla
 
+		if self.has_value_changed("service_category"):
+			sla.recalculate_sla_on_category_change(self)
+
 		if self.has_value_changed("sla_due_date"):
 			# Reminders reopen against the new deadline. A case already climbing keeps its
 			# rung's remaining time, shifted by the same amount; one that has not escalated
 			# is re-armed against the new deadline.
 			before = self.get_doc_before_save()
-			shift = get_datetime(self.sla_due_date) - get_datetime(before.sla_due_date)
-			updates = {"reminder_50_sent": 0, "reminder_80_sent": 0}
-			if self.escalated and self.next_escalation_at:
-				updates["next_escalation_at"] = get_datetime(self.next_escalation_at) + shift
-			self.db_set(updates, update_modified=False)
-			if "next_escalation_at" not in updates:
-				sla.arm_escalation(self, sla.resolve_policy(self.service_category))
+			if before and before.sla_due_date:
+				shift = get_datetime(self.sla_due_date) - get_datetime(before.sla_due_date)
+				updates = {"reminder_50_sent": 0, "reminder_80_sent": 0}
+				if self.escalated and self.next_escalation_at:
+					updates["next_escalation_at"] = get_datetime(self.next_escalation_at) + shift
+				self.db_set(updates, update_modified=False)
+				if "next_escalation_at" not in updates:
+					sla.arm_escalation(self, sla.resolve_policy(self.service_category))
 
 	def set_administrative_area_metadata(self):
 		"""Denormalise area_lft and capture immutable area_path_code snapshot."""

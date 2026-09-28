@@ -76,6 +76,9 @@ class SaveDraftRequest(BaseModel):
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
+	country_code: str | None = None
+	phone_number: str | None = None
+	phone: str | None = None
 	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
@@ -128,6 +131,13 @@ def save(
 	session_user = _session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	country_code = kwargs.get("country_code")
+	if incoming_phone:
+		from oan_auth_service.api.utils import assemble_phone_number
+
+		contact_mobile = assemble_phone_number(incoming_phone, country_code=country_code)
 
 	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 
@@ -247,7 +257,7 @@ def load():
 
 	name = _latest_own_draft_name(user)
 	if not name:
-		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
+		return success_response(data=None, message=_("No saved draft found"))
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, user)
@@ -275,6 +285,9 @@ class SubmitDraftRequest(BaseModel):
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
+	country_code: str | None = None
+	phone_number: str | None = None
+	phone: str | None = None
 	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
@@ -307,11 +320,19 @@ def submit_draft(
 	associated_service_provider: str | None = None,
 	description: str | None = None,
 	desired_outcome: str | None = None,
+	**kwargs,
 ):
 	"""Submit an existing draft grievance, transitioning its status to Submitted."""
 	session_user = _session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	country_code = kwargs.get("country_code")
+	if incoming_phone:
+		from oan_auth_service.api.utils import assemble_phone_number
+
+		contact_mobile = assemble_phone_number(incoming_phone, country_code=country_code)
 
 	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 	if not name:
@@ -471,10 +492,9 @@ def submit_draft(
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
 	if duplicates:
 		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
-	rule = routing.apply_routing(doc)
+	routing.enqueue_routing(doc.name)
 	doc.reload()
 
-	# After routing, so the request goes to the officer the case landed with.
 	if wants_anonymity:
 		_request_anonymity(doc, anonymity_justification)
 
@@ -484,7 +504,7 @@ def submit_draft(
 			"status": doc.status,
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
-			"routing_rule": rule.name if hasattr(rule, "name") else str(rule) if rule else None,
+			"routing_rule": getattr(doc, "routing_rule", None),
 		},
 		message=_("Grievance submitted successfully"),
 	)
@@ -604,6 +624,8 @@ def _latest_own_draft_name(user):
 
 def _draft_state(doc):
 	"""Draft document attributes returned directly."""
+	from oan_auth_service.api.utils import split_phone_number
+
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
@@ -615,6 +637,7 @@ def _draft_state(doc):
 	grievance_type_name = (
 		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
 	)
+	phone_cc, phone_nat = split_phone_number(doc.contact_mobile) if doc.contact_mobile else (None, None)
 
 	return {
 		"name": doc.name,
@@ -626,6 +649,8 @@ def _draft_state(doc):
 		"submitter_type": doc.submitter_type,
 		"submitter_name": doc.submitter_name,
 		"contact_mobile": doc.contact_mobile,
+		"country_code": phone_cc,
+		"phone_number": phone_nat,
 		"contact_email": doc.contact_email,
 		"administrative_area": doc.administrative_area,
 		"administrative_hierarchy": hierarchy,

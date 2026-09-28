@@ -364,7 +364,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		doc.assigned_dept = a_department()
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
-		frappe.db.commit()
 
 		# Execute Start Work via unified action endpoint
 		req_action = make_test_request(
@@ -377,7 +376,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		action_data = json.loads(res_action.get_data(as_text=True))
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
-		frappe.db.commit()
 
 		# Attempting 'Submit Response' action without a formal Grievance Response is refused
 		req_resp_bad = make_test_request(
@@ -443,7 +441,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		res_submit = frappe.api.handle(req_submit)
 		self.assertEqual(res_submit.status_code, 200, res_submit.get_data(as_text=True))
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# 2. Reassign endpoint
 		frappe.set_user("Administrator")
@@ -463,7 +460,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		# 3. Assign case to start SLA clock, then Defer SLA endpoint
 		doc_case = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		lifecycle.transition(doc_case, "Assign")
-		frappe.db.commit()
 
 		req_defer = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/defer-sla",
@@ -515,7 +511,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# Assign and Start Work
 		frappe.set_user("Administrator")
@@ -524,7 +519,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
 		lifecycle.transition(doc, "Start Work")
-		frappe.db.commit()
 
 		# 2. Staff posts an internal note
 		req_note = make_test_request(
@@ -627,7 +621,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 				"escalated": 1,
 			}
 		).insert(ignore_permissions=True)
-		frappe.db.commit()
 
 		req = make_test_request(f"/api/v1/grievances?search={test_tag}", method="GET")
 		res = frappe.api.handle(req)
