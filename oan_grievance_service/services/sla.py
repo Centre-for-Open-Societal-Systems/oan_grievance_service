@@ -18,6 +18,7 @@ Those are RBAC assignment queries and live in the Grievance RBAC Assignment modu
 Scheduling lives in tasks.py; this module only answers what a run should do.
 """
 
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -364,7 +365,7 @@ def resume_clock(grievance):
 
 
 def consumed_percent(grievance):
-	"""The SLA tracker's consumed percentage, excluding hold time."""
+	"""The SLA tracker's consumed percentage, calculated hourly with upper limit (ceiling), excluding hold time."""
 	start_val = grievance.get("sla_start_at")
 	due_val = grievance.get("sla_due_date")
 	if not (start_val and due_val):
@@ -373,12 +374,19 @@ def consumed_percent(grievance):
 	due = get_datetime(due_val)
 	banked = grievance.get("total_hold_time") or 0
 
-	window = (due - start).total_seconds() - banked
-	if window <= 0:
+	window_seconds = (due - start).total_seconds() - banked
+	if window_seconds <= 0:
 		return 100
 
-	elapsed = (now_datetime() - start).total_seconds() - banked - open_hold_seconds(grievance)
-	return max(0, min(round(elapsed / window * 100), 999))
+	elapsed_seconds = (now_datetime() - start).total_seconds() - banked - open_hold_seconds(grievance)
+	if elapsed_seconds <= 0:
+		return 0
+
+	# Hourly calculation taking upper limit (ceil)
+	window_hours = max(1, math.ceil(window_seconds / 3600))
+	elapsed_hours = math.ceil(elapsed_seconds / 3600)
+	percent = math.ceil((elapsed_hours / window_hours) * 100)
+	return max(0, min(percent, 999))
 
 
 def higher_authority_of(user, department=None, administrative_area=None, log_unstaffed_for=None):

@@ -1,9 +1,9 @@
 """Tests for the Werkzeug REST Router in OAN Grievance Service."""
 
 import json
-import unittest
 
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.utils import _resolve_version_meta
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
@@ -55,14 +55,15 @@ def make_test_request(
 	return req
 
 
-class TestGrievanceRESTRouter(unittest.TestCase):
+class TestGrievanceRESTRouter(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
+		super().setUpClass()
 		ensure_routes_registered()
 
 	def setUp(self):
+		super().setUp()
 		frappe.set_user("Administrator")
-		frappe.db.rollback()
 
 		# Ensure required roles exist
 		for role in ("Grievance Submitter", "Grievance Officer", "Grievance Admin"):
@@ -149,6 +150,12 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			if self.farmer_profile.user != self.farmer_user.name:
 				self.farmer_profile.user = self.farmer_user.name
 				self.farmer_profile.save(ignore_permissions=True)
+
+		frappe.db.commit()
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		super().tearDown()
 
 	def test_version_meta_isolation(self):
 		"""Verify that version_meta resolves from oan_grievance_service and not oan_auth_service."""

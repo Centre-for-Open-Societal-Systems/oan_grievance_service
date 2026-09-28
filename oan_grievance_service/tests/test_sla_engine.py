@@ -233,3 +233,41 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 
 		expected_due = datetime(2026, 1, 16, 10, 0, 0)
 		self.assertEqual(get_datetime(g.sla_due_date), expected_due)
+
+	def test_consumed_percent_calculated_hourly_with_upper_limit(self):
+		"""SLA consumed percentage is calculated hourly taking the ceiling (upper limit)."""
+		# 100 hours total window, 4h 59m elapsed -> ceiling gives 5 hours -> 5%
+		now = now_datetime()
+		start_under = add_to_date(now, seconds=-(5 * 3600 - 60))
+		g_under = frappe._dict(
+			{
+				"sla_start_at": start_under,
+				"sla_due_date": add_to_date(start_under, hours=100),
+				"total_hold_time": 0,
+				"on_hold_since": None,
+			}
+		)
+		self.assertEqual(sla.consumed_percent(g_under), 5)
+
+		# 5 hours and 1 minute elapsed out of 100 hours -> ceiling gives 6 hours -> 6%
+		start_part_hour = add_to_date(now, seconds=-(5 * 3600 + 60))
+		g_part = frappe._dict(
+			{
+				"sla_start_at": start_part_hour,
+				"sla_due_date": add_to_date(start_part_hour, hours=100),
+				"total_hold_time": 0,
+				"on_hold_since": None,
+			}
+		)
+		self.assertEqual(sla.consumed_percent(g_part), 6)
+
+		# 0 elapsed -> 0%
+		g_zero = frappe._dict(
+			{
+				"sla_start_at": add_to_date(now, hours=1),
+				"sla_due_date": add_to_date(now, hours=101),
+				"total_hold_time": 0,
+				"on_hold_since": None,
+			}
+		)
+		self.assertEqual(sla.consumed_percent(g_zero), 0)
