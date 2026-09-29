@@ -184,7 +184,9 @@ class TestListGrievanceAPI(FrappeTestCase):
 		frappe.set_user("Administrator")
 		created = {g.name for g in self.created_docs}
 
-		res = list_grievances(status="Submitted,In Progress", page_size=100)
+		res = list_grievances(
+			status="Submitted,In Progress", sort_by="creation", sort_order="desc", page_size=100
+		)
 		items = res.get("data", {}).get("items", [])
 		found = {item.get("name") for item in items} & created
 		self.assertEqual(found, created)
@@ -192,7 +194,9 @@ class TestListGrievanceAPI(FrappeTestCase):
 			if item.get("name") in created:
 				self.assertEqual(item.get("status"), "In Progress")
 
-		res_list = list_grievances(status=["Submitted", "In Progress"], page_size=100)
+		res_list = list_grievances(
+			status=["Submitted", "In Progress"], sort_by="creation", sort_order="desc", page_size=100
+		)
 		found_list = {item.get("name") for item in res_list.get("data", {}).get("items", [])} & created
 		self.assertEqual(found_list, created)
 
@@ -289,7 +293,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 		esc_doc = self.created_docs[4]
 		esc_doc.db_set("escalated", 1, update_modified=False)
 
-		res = list_grievances(page_size=100)
+		res = list_grievances(search="Farmer Submitter", page_size=100)
 		self.assertEqual(res["status"], "success")
 		items = [item for item in res["data"]["items"] if item["name"] in created_names]
 

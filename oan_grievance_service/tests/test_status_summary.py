@@ -121,7 +121,7 @@ class TestStatusSummary(FrappeTestCase):
 		self.assertIn("Assigned", expand_status_filter(["Assigned"]))
 		self.assertIn("More Info Needed", expand_status_filter(["Require More Info"]))
 
-		res = list_grievances(status="In Progress", page_size=100)
+		res = list_grievances(status="In Progress", sort_by="creation", sort_order="desc", page_size=100)
 		names = {item["name"] for item in res["data"]["items"]}
 		self.assertIn(open_case.name, names)
 		self.assertNotIn(draft.name, names)

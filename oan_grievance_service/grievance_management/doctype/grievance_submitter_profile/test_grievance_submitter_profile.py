@@ -575,7 +575,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				password="SecurePassword123!",
 				full_name="Hook Registered Farmer",
 				country_code="+251",
-				phone=national_no,
+				phone_number=national_no,
 				role="Grievance Submitter",
 				administrative_unit="Bishoftu",
 			)
