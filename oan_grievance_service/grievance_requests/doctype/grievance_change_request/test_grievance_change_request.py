@@ -17,7 +17,7 @@ from frappe.utils import add_days, add_to_date, now_datetime, today
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle
-from oan_grievance_service.setup.install import seed_role_levels, seed_workflow
+from oan_grievance_service.setup.install import seed_notifications, seed_role_levels, seed_workflow
 from oan_grievance_service.tests.fixtures import (
 	a_department,
 	a_grievance,
@@ -48,6 +48,7 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		super().setUpClass()
 		seed_role_levels()
 		seed_workflow()
+		seed_notifications()
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -58,26 +59,25 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		self.officer2 = _ensure_test_user("cr_officer2@example.com", "Grievance Officer", "Officer Two")
 		self.senior = _ensure_test_user("cr_senior@example.com", "Grievance Officer", "Senior Nodal")
 		self.head = _ensure_test_user("cr_head@example.com", "Grievance Officer", "Dept Head")
+		self.head2 = _ensure_test_user("cr_head2@example.com", "Grievance Officer", "Dept 2 Head")
 		self.submitter_user = _ensure_test_user(
 			"cr_submitter@example.com", "Grievance Submitter", "Submitter"
 		)
 
-		# Ensure second department for reassignment tests
-		if not frappe.db.exists("Grievance Department", "Secondary Dept"):
-			self.dept2 = (
-				frappe.get_doc(
-					{
-						"doctype": "Grievance Department",
-						"dept_name": "Secondary Dept",
-						"email_account": "sec_dept@example.com",
-						"active": 1,
-					}
-				)
-				.insert(ignore_permissions=True)
-				.name
+		# Ensure second department for reassignment tests (distinct from self.dept)
+		dept2_name = f"Secondary Dept {frappe.generate_hash(length=6)}"
+		self.dept2 = (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": dept2_name,
+					"email_account": f"sec_{frappe.generate_hash(length=4)}@example.com",
+					"active": 1,
+				}
 			)
-		else:
-			self.dept2 = "Secondary Dept"
+			.insert(ignore_permissions=True)
+			.name
+		)
 
 		# Setup RBAC hierarchy
 		# officer1 (nodal_officer) -> senior (senior_nodal_officer) -> head (department_head)
@@ -97,6 +97,13 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 						"active": 1,
 					},
 					{
+						"user": self.officer2,
+						"role_level": "nodal_officer",
+						"reports_to": self.senior,
+						"is_primary": 0,
+						"active": 1,
+					},
+					{
 						"user": self.senior,
 						"role_level": "senior_nodal_officer",
 						"reports_to": self.head,
@@ -105,6 +112,31 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 					},
 					{
 						"user": self.head,
+						"role_level": "department_head",
+						"is_primary": 0,
+						"active": 1,
+					},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assignment2 = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept2,
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{
+						"user": self.officer2,
+						"role_level": "nodal_officer",
+						"reports_to": self.head2,
+						"is_primary": 1,
+						"active": 1,
+					},
+					{
+						"user": self.head2,
 						"role_level": "department_head",
 						"is_primary": 0,
 						"active": 1,
@@ -128,8 +160,16 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 			frappe.delete_doc(
 				"Grievance RBAC Assignment", self.assignment1.name, force=True, ignore_permissions=True
 			)
+		if hasattr(self, "assignment2") and frappe.db.exists(
+			"Grievance RBAC Assignment", self.assignment2.name
+		):
+			frappe.delete_doc(
+				"Grievance RBAC Assignment", self.assignment2.name, force=True, ignore_permissions=True
+			)
 		for cr in frappe.get_all("Grievance Change Request", pluck="name"):
 			frappe.delete_doc("Grievance Change Request", cr, force=True, ignore_permissions=True)
+		if hasattr(self, "dept2") and frappe.db.exists("Grievance Department", self.dept2):
+			frappe.delete_doc("Grievance Department", self.dept2, force=True, ignore_permissions=True)
 		if hasattr(self, "grievance") and frappe.db.exists("Grievance", self.grievance.name):
 			discard_grievance(self.grievance.name)
 
@@ -231,24 +271,8 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 	# Reassignment Request Tests
 	# ---------------------------------------------------------
 
-	def test_officer_reassignment_routes_to_supervisor(self):
-		"""Assigned officer requesting reassignment routes up to their supervisor."""
-		frappe.set_user(self.officer1)
-		cr = frappe.get_doc(
-			{
-				"doctype": "Grievance Change Request",
-				"grievance": self.grievance.name,
-				"subject": "Reassign to secondary officer",
-				"reason": "Case outside my specialty",
-				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
-			}
-		).insert(ignore_permissions=True)
-
-		self.assertEqual(cr.status, "Pending")
-		self.assertEqual(cr.pending_with, self.senior)
-
-	def test_supervisor_approval_applies_reassignment(self):
-		"""Supervisor approving reassignment updates grievance assigned_to."""
+	def test_officer_reassignment_within_dept_routes_to_dept_head(self):
+		"""Officer requesting reassignment within department routes to dept head; grievance unchanged."""
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
@@ -260,51 +284,390 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-		frappe.set_user(self.senior)
-		cr.status = "Approved"
-		cr.decision_note = "Approved reassignment"
-		cr.save(ignore_permissions=True)
-
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head)
 		self.grievance.reload()
-		self.assertEqual(self.grievance.assigned_to, self.officer2)
+		self.assertEqual(self.grievance.assigned_to, self.officer1)
 
-	def test_supervisor_auto_approval_when_requesting(self):
-		"""When a supervisor/head raises a reassignment, it is auto-approved."""
+	def test_senior_reassignment_within_dept_routes_to_dept_head(self):
+		"""Senior nodal reassigning within dept routes to head; outranking is not enough."""
 		frappe.set_user(self.senior)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
-				"subject": "Direct reassignment by supervisor",
+				"subject": "Reassign by senior",
+				"reason": "Rebalance",
+				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head)
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_to, self.officer1)
+
+	def test_dept_head_reassignment_within_dept_auto_approves(self):
+		"""Department head reassigning within dept is approved on insert and applied immediately."""
+		frappe.set_user(self.head)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Direct reassignment by head",
 				"reason": "Urgent reassignment",
 				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
 			}
 		).insert(ignore_permissions=True)
 
 		self.assertEqual(cr.status, "Approved")
+		self.assertIsNone(cr.pending_with)
 		self.grievance.reload()
 		self.assertEqual(self.grievance.assigned_to, self.officer2)
 
-	def test_reassignment_rejection_leaves_grievance_unchanged(self):
-		"""Rejecting reassignment keeps existing assignment."""
+	def test_officer_reassignment_to_other_dept_routes_to_target_dept_head(self):
+		"""Officer moving case to another dept routes to target dept head, not source head."""
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Reassign to secondary department",
+				"reason": "Case requires secondary department handling",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head2)
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept)
+		self.assertEqual(self.grievance.assigned_to, self.officer1)
+
+	def test_source_dept_head_reassignment_to_other_dept_routes_to_target_dept_head(self):
+		"""Source dept head cannot push case to target dept alone; routes to target head."""
+		frappe.set_user(self.head)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Handoff to dept 2",
+				"reason": "Wrong jurisdiction",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head2)
+
+	def test_target_dept_head_approves_or_rejects_reassignment(self):
+		"""Target head approving applies reassignment with timeline & notification; rejecting leaves unchanged."""
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Reassign to dept 2",
+				"reason": "Transferred",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		# Reject test
+		frappe.set_user(self.head2)
+		cr.status = "Rejected"
+		cr.decision_note = "Cannot accept case"
+		cr.save(ignore_permissions=True)
+
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept)
+		self.assertEqual(self.grievance.assigned_to, self.officer1)
+
+		# New request to test approve
+		frappe.set_user(self.officer1)
+		cr2 = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Reassign to dept 2 retry",
+				"reason": "Transferred retry",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.set_user(self.head2)
+		cr2.status = "Approved"
+		cr2.decision_note = "Accepted"
+		cr2.save(ignore_permissions=True)
+
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+		self.assertEqual(self.grievance.assigned_to, self.officer2)
+
+		# Timeline entry verification
+		timeline_entries = frappe.get_all(
+			"Grievance Timeline",
+			filters={"grievance": self.grievance.name},
+			fields=["body", "entry_type"],
+		)
+		self.assertTrue(any("Reassign to dept 2 retry" in t.body for t in timeline_entries))
+
+		# Notification queued for new officer
+		logs = frappe.get_all(
+			"Grievance Notification Log",
+			filters={
+				"grievance": self.grievance.name,
+				"event": C.EVENT_ASSIGNED_MANUAL,
+				"recipient": self.officer2,
+			},
+		)
+		self.assertTrue(len(logs) > 0)
+
+	def test_admin_reassignment_auto_approved(self):
+		"""Administrator moves case to dept2: Approved on insert."""
+		frappe.set_user("Administrator")
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Admin reassignment",
+				"reason": "Administrative move",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Approved")
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+
+	def test_reassignment_to_dept_without_head_routes_to_admin_queue(self):
+		"""Target department without head routes to admin queue (pending_with is None)."""
+		dept3 = (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": f"Headless Dept {frappe.generate_hash(length=4)}",
+					"email_account": f"headless_{frappe.generate_hash(length=4)}@example.com",
+					"active": 1,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+		desk3 = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept3,
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{
+						"user": self.officer2,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			frappe.set_user(self.officer1)
+			cr = frappe.get_doc(
+				{
+					"doctype": "Grievance Change Request",
+					"grievance": self.grievance.name,
+					"subject": "Move to headless dept",
+					"reason": "Routing",
+					"changes": [
+						{"fieldname": "assigned_dept", "new_value": dept3},
+						{"fieldname": "assigned_to", "new_value": self.officer2},
+					],
+				}
+			).insert(ignore_permissions=True)
+
+			self.assertEqual(cr.status, "Pending")
+			self.assertIsNone(cr.pending_with)
+		finally:
+			frappe.delete_doc("Grievance RBAC Assignment", desk3.name, force=True, ignore_permissions=True)
+			frappe.delete_doc("Grievance Department", dept3, force=True, ignore_permissions=True)
+
+	def test_notification_queued_for_approving_head_when_pending(self):
+		"""Notification row is queued for the approving head when a request goes pending."""
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
 				"subject": "Reassign to secondary officer",
-				"reason": "Workload balancing",
+				"reason": "Workload",
 				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head)
+
+		logs = frappe.get_all(
+			"Grievance Notification Log",
+			filters={
+				"grievance": self.grievance.name,
+				"event": C.EVENT_REASSIGNMENT_REQUESTED,
+				"recipient": self.head,
+			},
+		)
+		self.assertTrue(len(logs) > 0)
+
+	def test_reassignment_requires_approval_flag_off_auto_approves(self):
+		"""When reassignment_requires_approval is 0 on source desk, reassignment auto-approves."""
+		self.assignment1.db_set("reassignment_requires_approval", 0)
+		self.assignment1.reload()
+
+		frappe.set_user(self.officer1)
+		# 1. Within dept
+		cr1 = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Direct move within dept",
+				"reason": "Direct",
+				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+			}
+		).insert(ignore_permissions=True)
+		self.assertEqual(cr1.status, "Approved")
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_to, self.officer2)
+
+		# 2. To dept2
+		cr2 = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Direct move to dept2",
+				"reason": "Direct across dept",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.assertEqual(cr2.status, "Approved")
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+
+		# Restore
+		self.assignment1.db_set("reassignment_requires_approval", 1)
+
+	def test_source_flag_on_target_flag_off_and_subsequent_handoff(self):
+		"""Moving from desk with approval ON to OFF is Pending; once moved, handoff in target desk is direct."""
+		self.assignment1.db_set("reassignment_requires_approval", 1)
+		self.assignment2.db_set("reassignment_requires_approval", 0)
+
+		# Step 1: officer1 moving dept -> dept2 is Pending with head2
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Move to dept2",
+				"reason": "Move",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.head2)
+
+		# Step 2: head2 approves
+		frappe.set_user(self.head2)
+		cr.status = "Approved"
+		cr.save(ignore_permissions=True)
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+
+		# Step 3: Now that case sits on dept2 (which has flag OFF), handoff within dept2 is auto-approved
+		frappe.set_user(self.officer2)
+		cr_internal = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Handoff within dept2",
+				"reason": "Direct handoff",
+				"changes": [{"fieldname": "assigned_to", "new_value": self.head2}],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr_internal.status, "Approved")
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_to, self.head2)
+
+	def test_no_desk_found_for_source_requires_approval(self):
+		"""When no source desk is found, safe default is that approval is required."""
+		self.assignment1.db_set("active", 0)
+
+		try:
+			frappe.set_user(self.officer1)
+			cr = frappe.get_doc(
+				{
+					"doctype": "Grievance Change Request",
+					"grievance": self.grievance.name,
+					"subject": "Move with no source desk",
+					"reason": "Move",
+					"changes": [
+						{"fieldname": "assigned_dept", "new_value": self.dept2},
+						{"fieldname": "assigned_to", "new_value": self.officer2},
+					],
+				}
+			).insert(ignore_permissions=True)
+
+			self.assertEqual(cr.status, "Pending")
+			self.assertEqual(cr.pending_with, self.head2)
+		finally:
+			self.assignment1.db_set("active", 1)
+
+	def test_change_request_rejection_leaves_grievance_unchanged(self):
+		"""Rejecting a routed change request (SLA extension) keeps existing values."""
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 10)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Request SLA Extension",
+				"reason": "Need more time",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
 			}
 		).insert(ignore_permissions=True)
 
 		frappe.set_user(self.senior)
 		cr.status = "Rejected"
-		cr.decision_note = "Maintain original assignment"
+		cr.decision_note = "Maintain original deadline"
 		cr.save(ignore_permissions=True)
 
 		self.grievance.reload()
-		self.assertEqual(self.grievance.assigned_to, self.officer1)
+		self.assertEqual(str(self.grievance.sla_due_date)[:10], str(initial_deadline)[:10])
 
 	# ---------------------------------------------------------
 	# SLA Deferral Request Tests
@@ -377,14 +740,18 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 
 	def test_forwarding_up_the_hierarchy(self):
 		"""forward() hands the request one step up the chain; reaching the top lands in admin queue."""
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 10)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
-				"subject": "Reassign to secondary officer",
-				"reason": "Workload",
-				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+				"subject": "Request SLA Extension",
+				"reason": "Complex investigation",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
 			}
 		).insert(ignore_permissions=True)
 
@@ -405,14 +772,18 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		"""forward_stale_change_requests() identifies overdue change requests and forwards them."""
 		from oan_grievance_service.tasks import forward_stale_change_requests
 
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 10)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
-				"subject": "Reassign to secondary officer",
-				"reason": "Workload",
-				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+				"subject": "Request SLA Extension",
+				"reason": "Complex investigation",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
 			}
 		).insert(ignore_permissions=True)
 
@@ -451,16 +822,23 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 
 	def test_requester_cannot_approve_their_own_request(self):
 		"""Officer cannot decide their own change request unless unrestricted."""
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 10)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
-				"subject": "Reassign",
-				"reason": "Workload",
-				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+				"subject": "Request SLA Extension",
+				"reason": "Need more time",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
 			}
 		).insert(ignore_permissions=True)
+
+		self.assertEqual(cr.status, "Pending")
+		self.assertEqual(cr.pending_with, self.senior)
 
 		# Officer 1 attempts to self-approve
 		cr.status = "Approved"
@@ -469,14 +847,18 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 
 	def test_already_decided_request_cannot_be_redecided(self):
 		"""Cannot approve or reject an already decided request."""
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 10)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
 		frappe.set_user(self.officer1)
 		cr = frappe.get_doc(
 			{
 				"doctype": "Grievance Change Request",
 				"grievance": self.grievance.name,
-				"subject": "Reassign",
-				"reason": "Workload",
-				"changes": [{"fieldname": "assigned_to", "new_value": self.officer2}],
+				"subject": "Request SLA Extension",
+				"reason": "Need more time",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
 			}
 		).insert(ignore_permissions=True)
 

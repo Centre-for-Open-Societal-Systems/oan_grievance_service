@@ -451,7 +451,36 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# 2. Reassign endpoint
 		frappe.set_user("Administrator")
+		officer_email = "router_officer@test.org"
+		if not frappe.db.exists("User", officer_email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": officer_email,
+					"first_name": "Router Officer",
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+
 		dept = a_department()
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": officer_email,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
 		req_reassign = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/reassign",
 			method="POST",

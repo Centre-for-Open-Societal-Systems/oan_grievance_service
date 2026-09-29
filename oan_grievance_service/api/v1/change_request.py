@@ -16,22 +16,7 @@ from oan_grievance_service.services import ticket_number as tn
 
 DOCTYPE = "Grievance Change Request"
 
-grievance_route = prefixed("/api/v1/grievances")
 route = prefixed("/api/v1/change-requests")
-
-
-class ChangeItem(BaseModel):
-	fieldname: str = Field(..., min_length=1)
-	new_value: str | None = None
-
-
-class RaiseChangeRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
-	ticket_number: str | None = None
-	subject: str = Field(..., min_length=1, max_length=140)
-	reason: str | None = None
-	changes: list[ChangeItem] = Field(..., min_length=1)
 
 
 class DecideChangeRequest(BaseModel):
@@ -43,14 +28,18 @@ class DecideChangeRequest(BaseModel):
 
 
 def raise_change_request(grievance, subject, changes, reason=None):
-	"""Insert a request for `changes` ({fieldname: new_value}) on a loaded grievance."""
+	"""Insert a request for `changes` ({fieldname: new_value} or list of dicts) on a loaded grievance."""
+	if isinstance(changes, dict):
+		change_rows = [{"fieldname": f, "new_value": v} for f, v in changes.items()]
+	else:
+		change_rows = changes
 	return frappe.get_doc(
 		{
 			"doctype": DOCTYPE,
 			"grievance": grievance.name,
 			"subject": subject,
 			"reason": (reason or "").strip() or None,
-			"changes": [{"fieldname": f, "new_value": v} for f, v in changes.items()],
+			"changes": change_rows,
 		}
 	).insert(ignore_permissions=True)
 
@@ -85,29 +74,6 @@ def _can_view(req, user):
 		is_unrestricted(user)
 		or user in (req.requested_by, req.pending_with, req.decided_by)
 		or frappe.has_permission("Grievance", "read", req.grievance, user=user)
-	)
-
-
-@grievance_route(
-	"/<ticket_number>/change-requests", methods=("POST",), summary="Request a change to a grievance"
-)
-@frappe.whitelist()
-@validate_request(RaiseChangeRequest)
-@handle_api_errors
-def raise_request(ticket_number: str, subject: str, changes: list, reason: str | None = None, **kwargs):
-	"""Ask for new values on a grievance. Applied at once when the caller may approve it."""
-	from oan_grievance_service.api.v1.grievance import _load
-
-	doc = _load(ticket_number, ptype="read")
-	values = {}
-	for item in changes:
-		item = item if isinstance(item, dict) else item.model_dump()
-		values[item["fieldname"]] = item.get("new_value")
-
-	req = raise_change_request(doc, subject, values, reason=reason)
-	return success_response(
-		data=serialize(req),
-		message=_("Change applied") if req.status == "Approved" else _("Change requested; awaiting approval"),
 	)
 
 

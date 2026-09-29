@@ -220,6 +220,31 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	arm_escalation(grievance, policy=policy)
 
 
+def reset_clock(grievance):
+	"""Restart the SLA window from now when category changes on reassignment."""
+	policy = resolve_policy(grievance.service_category)
+	now = now_datetime()
+	updates = {
+		"sla_start_at": now,
+		"total_hold_time": 0,
+		"reminder_50_sent": 0,
+		"reminder_80_sent": 0,
+		"escalated": 0,
+	}
+	if policy and policy.sla_days:
+		due = calculate_working_deadline(now, policy.sla_days, holiday_list_name=policy.holiday_list)
+		updates["sla_days"] = policy.sla_days
+		updates["sla_due_date"] = due
+	else:
+		updates["sla_days"] = 0
+		updates["sla_due_date"] = None
+
+	grievance.db_set(updates, update_modified=False)
+	for k, v in updates.items():
+		setattr(grievance, k, v)
+	arm_escalation(grievance, policy=policy)
+
+
 def arm_escalation(grievance, policy):
 	"""Point the escalation clock at the first bump.
 
@@ -412,34 +437,31 @@ def higher_authority_of(user, department=None, administrative_area=None, log_uns
 		return None, None
 	if current_rank + 1 >= len(chain):
 		return None, None
-	next_level = chain[current_rank + 1]
-
 	supervisor = get_officer_supervisor(user, department=department, administrative_area=administrative_area)
 	if supervisor and supervisor != user:
 		sup_level = current_level_of(supervisor)
 		if not sup_level:
-			return supervisor, next_level
+			return supervisor, chain[current_rank + 1]
 		if rank.get(sup_level, -1) > current_rank:
 			return supervisor, chain[rank[sup_level]]
 
-	officer = find_officer_by_role_level(
-		next_level.name, department=department, administrative_area=administrative_area
-	)
-	if not officer:
-		if log_unstaffed_for:
+	for next_level in chain[current_rank + 1 :]:
+		officer = find_officer_by_role_level(
+			next_level.name, department=department, administrative_area=administrative_area
+		)
+		if officer and officer != user:
+			return officer, next_level
+		if not officer and log_unstaffed_for:
 			frappe.log_error(
 				title=f"Grievance escalation rung unstaffed: {next_level.name}",
 				message=(
 					f"No active Grievance RBAC Assignment holds role level '{next_level.name}' for "
 					f"department '{department}' and administrative area '{administrative_area}'. "
-					f"Grievance {log_unstaffed_for} cannot escalate past this rung until an assignment covers it."
+					f"Grievance {log_unstaffed_for} skipped this rung."
 				),
 			)
-		return None, None
-	if officer == user:
-		return None, None
 
-	return officer, next_level
+	return None, None
 
 
 def escalate(grievance, reason=None, reassign=True):
@@ -457,8 +479,26 @@ def escalate(grievance, reason=None, reassign=True):
 		log_unstaffed_for=grievance.name,
 	)
 	if not target:
-		grievance.db_set("next_escalation_at", None, update_modified=False)
-		return None
+		updates = {
+			"escalated": 1,
+			"next_escalation_at": None,
+		}
+		grievance.db_set(updates, update_modified=False)
+
+		body = "Case escalated (no higher authority configured for reassignment)"
+		if reason:
+			body += f": {reason}"
+		GrievanceTimeline.record(
+			grievance=grievance.name,
+			entry_type="escalation",
+			is_internal=False,
+			body=body,
+			author_user=frappe.session.user if frappe.session.user != "Guest" else None,
+		)
+
+		if grievance.assigned_to:
+			notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=grievance.assigned_to)
+		return grievance.assigned_to or True
 
 	# The rung the case just landed on owns the next deadline. No hours means this is a
 	# terminal rung and the ladder stops here.

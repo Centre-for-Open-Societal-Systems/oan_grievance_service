@@ -271,3 +271,97 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 			}
 		)
 		self.assertEqual(sla.consumed_percent(g_zero), 0)
+
+	def test_escalate_with_no_higher_authority_sets_escalated_and_clears_next_escalation_at(self):
+		"""When no higher authority exists, escalate sets escalated=1 and next_escalation_at=None."""
+		officer_email = "lone_officer@example.com"
+		if not frappe.db.exists("User", officer_email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": officer_email,
+					"first_name": "Lone Officer",
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+
+		dept = a_department()
+		g = a_grievance(
+			service_category=self.cat_a,
+			grievance_type=self.gtype_a.name,
+			workflow_state="Assigned",
+			status="Assigned",
+			assigned_to=officer_email,
+			assigned_dept=dept,
+		)
+		g.db_set("next_escalation_at", now_datetime(), update_modified=False)
+		g.reload()
+
+		result = sla.escalate(g, reason="SLA Breached")
+		g.reload()
+
+		self.assertEqual(g.escalated, 1)
+		self.assertIsNone(g.next_escalation_at)
+		self.assertTrue(bool(result))
+
+		# Verify timeline entry was written
+		timeline_entries = frappe.get_all(
+			"Grievance Timeline",
+			filters={"grievance": g.name, "entry_type": "escalation"},
+			fields=["body"],
+		)
+		self.assertTrue(len(timeline_entries) > 0)
+		self.assertIn("Case escalated", timeline_entries[0].body)
+
+	def test_higher_authority_skips_unstaffed_intermediate_rung(self):
+		"""higher_authority_of skips an unstaffed intermediate rung to find the next higher officer."""
+		for email, name in [
+			("nodal_worker@example.com", "Nodal Worker"),
+			("head_worker@example.com", "Head Worker"),
+		]:
+			if not frappe.db.exists("User", email):
+				frappe.get_doc(
+					{
+						"doctype": "User",
+						"email": email,
+						"first_name": name,
+						"roles": [{"role": "Grievance Officer"}],
+					}
+				).insert(ignore_permissions=True)
+
+		dept = a_department()
+		area = a_leaf_area()
+
+		# Setup RBAC assignment with nodal_officer and department_head, leaving senior_nodal_officer unstaffed
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"category_scope": self.cat_a,
+				"administrative_area_scope": area,
+				"active": 1,
+				"effective_from": "2026-01-01",
+				"officers": [
+					{
+						"user": "nodal_worker@example.com",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					},
+					{
+						"user": "head_worker@example.com",
+						"role_level": "department_head",
+						"is_primary": 1,
+						"active": 1,
+					},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		target, level = sla.higher_authority_of(
+			"nodal_worker@example.com",
+			department=dept,
+			administrative_area=area,
+		)
+		self.assertEqual(target, "head_worker@example.com")
+		self.assertEqual(level.name, "department_head")

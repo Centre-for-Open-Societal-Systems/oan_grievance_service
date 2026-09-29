@@ -120,7 +120,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 
 		# Clean up any leftover test grievances from previous runs
 		for name in frappe.get_all(
-			"Grievance", filters={"submitter_name": ["like", "Farmer Submitter %"]}, pluck="name"
+			"Grievance", filters={"submitter_name": ["like", "%Farmer Submitter%"]}, pluck="name"
 		):
 			discard_grievance(name)
 

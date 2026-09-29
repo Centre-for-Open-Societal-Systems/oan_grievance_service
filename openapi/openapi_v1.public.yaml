@@ -712,11 +712,9 @@ paths:
       description: 'Request a new department and/or officer for the case.
 
 
-        A shorthand for a change request. It is applied at once when the caller already
+        Applied at once for the target department head or an admin; otherwise it waits
 
-        stands above the case (a supervisor of the assignee, or an admin); otherwise it
-
-        waits for the next person up and the case does not move.'
+        for the receiving department''s head and the case does not move.'
       operationId: post_api_v1_grievances_ticket_number_reassign
       responses:
         '200':
@@ -1489,65 +1487,6 @@ paths:
         description: Attachment Id identifier
       security:
       - BearerAuth: []
-  /api/v1/grievances/{ticket_number}/change-requests:
-    post:
-      tags:
-      - Change Requests
-      summary: Request a change to a grievance
-      description: Ask for new values on a grievance. Applied at once when the caller may approve it.
-      operationId: post_api_v1_grievances_ticket_number_change_requests
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChangeRequestResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: ticket_number
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RaiseChangeRequest'
   /api/v1/change-requests:
     get:
       tags:
@@ -3599,6 +3538,12 @@ components:
         assigned_to:
           type: string
           nullable: true
+        service_category:
+          type: string
+          nullable: true
+        grievance_type:
+          type: string
+          nullable: true
         sla_due_date:
           type: string
           format: date-time
@@ -3966,37 +3911,6 @@ components:
       required:
       - action
       description: Workflow action and state transition payload
-    RaiseChangeRequest:
-      type: object
-      properties:
-        subject:
-          type: string
-          minLength: 1
-          maxLength: 140
-          description: Subject headline of requested change
-        reason:
-          type: string
-          nullable: true
-          description: Detailed justification for the change
-        changes:
-          type: array
-          items:
-            type: object
-            properties:
-              fieldname:
-                type: string
-                minLength: 1
-              new_value:
-                type: string
-                nullable: true
-            required:
-            - fieldname
-          minItems: 1
-          description: List of fields and requested new values
-      required:
-      - subject
-      - changes
-      description: Payload to request field modifications on an active grievance
     DecideChangeRequest:
       type: object
       properties:
@@ -4025,6 +3939,14 @@ components:
           type: string
           nullable: true
           description: Target officer user email
+        target_category:
+          type: string
+          nullable: true
+          description: Target service category name
+        target_grievance_type:
+          type: string
+          nullable: true
+          description: Target grievance type name
         reason:
           type: string
           nullable: true

@@ -156,6 +156,8 @@ class ReassignGrievanceRequest(BaseModel):
 	ticket_number: str | None = None
 	target_department: str = Field(..., min_length=1)
 	target_officer: str | None = None
+	target_category: str | None = None
+	target_grievance_type: str | None = None
 	reason: str | None = None
 
 
@@ -686,6 +688,7 @@ def list_grievances(
 		item["phone_number"] = phone_nat
 
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
+		item["can_request_more_info"] = bool(item.get("contact_mobile") or item.get("contact_email"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
@@ -724,12 +727,20 @@ def _get_available_actions_for_user(doc):
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
+	# Information requests and submitter replies are only possible when the
+	# submitter is reachable.  If neither a mobile number nor an e-mail address
+	# is on file, those actions are suppressed because there is no channel to
+	# deliver the request through or collect the reply on.
+	submitter_reachable = bool(doc.get("contact_mobile") or doc.get("contact_email"))
+
 	actions = lifecycle.actions_available(doc)
 	result = []
 	for act in actions:
 		if act == "Reject" and not is_staff:
 			continue
 		if act in ("Assign", "Submit Response"):
+			continue
+		if not submitter_reachable and act in ("Request More Info", "Submitter Reply"):
 			continue
 		req_reason = act in ("Reject", "Reopen")
 		result.append(
@@ -768,6 +779,7 @@ def _current_state(doc, extra=None):
 		"department": doc.assigned_dept,
 		"updated_at": _iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
+		"can_request_more_info": bool(doc.get("contact_mobile") or doc.get("contact_email")),
 	}
 	if extra:
 		state.update(extra)
@@ -884,6 +896,22 @@ def action(
 		frappe.throw(
 			_("Action '{0}' is not available for this grievance in status '{1}'.").format(
 				action_name, doc.status
+			),
+			frappe.ValidationError,
+			title=_("Action Not Permitted"),
+		)
+
+	# 3. Information requests and submitter replies require the submitter to be
+	#    reachable. If no contact details are on file, these actions are refused.
+	if (
+		matching_action in ("Request More Info", "Submitter Reply")
+		and not doc.get("contact_mobile")
+		and not doc.get("contact_email")
+	):
+		frappe.throw(
+			_(
+				"Cannot request information or expect a reply because the submitter "
+				"has no contact details on file."
 			),
 			frappe.ValidationError,
 			title=_("Action Not Permitted"),
@@ -1226,6 +1254,7 @@ def timeline(
 				"routed_automatically": bool(doc.routed_automatically),
 			},
 			"available_actions": _get_available_actions_for_user(doc),
+			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 			"attachments": attachments,
 			"timeline": entries,
 			"has_more": has_more,
@@ -1341,6 +1370,20 @@ def _post_message(
 				frappe.ValidationError,
 			)
 
+		# A response type whose workflow action is 'Request More Info' cannot be
+		# used when the submitter has no contact details: there is no channel to
+		# deliver the request through.
+		if (
+			not doc.get("contact_mobile")
+			and not doc.get("contact_email")
+			and resp_type_doc.get("workflow_action") == "Request More Info"
+		):
+			frappe.throw(
+				_("Cannot request further information because the submitter has no contact details on file."),
+				frappe.ValidationError,
+				title=_("Action Not Permitted"),
+			)
+
 		from frappe.utils import add_days, today
 
 		close_date = proposed_close_date or add_days(today(), 7)
@@ -1394,6 +1437,13 @@ def _post_message(
 	if req_type.lower() in ("info_request", "request_more_info", "information request"):
 		if not is_staff:
 			frappe.throw(_("Only staff members can issue an information request."), frappe.PermissionError)
+
+		if not doc.get("contact_mobile") and not doc.get("contact_email"):
+			frappe.throw(
+				_("Cannot request information because the submitter has no contact details on file."),
+				frappe.ValidationError,
+				title=_("Action Not Permitted"),
+			)
 
 		if "Request More Info" in lifecycle.actions_available(doc):
 			lifecycle.transition(doc, "Request More Info", reason=body)
@@ -1523,21 +1573,28 @@ def reassign(
 	ticket_number: str,
 	target_department: str,
 	target_officer: str | None = None,
+	target_category: str | None = None,
+	target_grievance_type: str | None = None,
 	reason: str | None = None,
 	**kwargs,
 ):
 	"""Request a new department and/or officer for the case.
 
-	A shorthand for a change request. It is applied at once when the caller already
-	stands above the case (a supervisor of the assignee, or an admin); otherwise it
-	waits for the next person up and the case does not move.
+	Applied at once for the target department head or an admin; otherwise it waits
+	for the receiving department's head and the case does not move.
 	"""
 	from oan_grievance_service.api.v1.change_request import raise_change_request
+	from oan_grievance_service.services import reassignment
 
 	doc = _load(ticket_number, ptype="write")
-	changes = {"assigned_dept": target_department}
-	if target_officer:
-		changes["assigned_to"] = target_officer
+	changes = reassignment.resolve(
+		doc,
+		target_department,
+		target_officer,
+		frappe.session.user,
+		category=target_category,
+		grievance_type=target_grievance_type,
+	)
 
 	req = raise_change_request(doc, _("Reassignment"), changes, reason=reason)
 	return _change_response(
@@ -1545,7 +1602,13 @@ def reassign(
 		req,
 		_("Grievance reassigned successfully"),
 		_("Reassignment requested; awaiting approval"),
-		fields=("assigned_dept", "assigned_to"),
+		fields=(
+			"assigned_dept",
+			"assigned_to",
+			"service_category",
+			"grievance_type",
+			"sla_due_date",
+		),
 	)
 
 

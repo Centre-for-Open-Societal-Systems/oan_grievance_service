@@ -75,6 +75,31 @@ def _evaluate_ancestor_area(case_area, case_lft, case_rgt, rule_area):
 	return (True, int(anc_rgt) - int(anc_lft), True)
 
 
+def _score_desk(desk, case_area, case_lft, case_rgt):
+	"""Score a desk against a case area.
+
+	Returns (matched, area_span, specificity).
+	Specificity counts matching constraints on the desk.
+	"""
+	area_match, area_span, has_area_constraint = _evaluate_ancestor_area(
+		case_area, case_lft, case_rgt, desk.get("administrative_area_scope")
+	)
+	if not area_match:
+		return False, 999999999, 0
+
+	specificity = 0
+	if desk.get("category_scope"):
+		specificity += 1
+	if desk.get("grievance_type_scope"):
+		specificity += 1
+	if desk.get("service_provider_scope"):
+		specificity += 1
+	if has_area_constraint:
+		specificity += 1
+
+	return True, area_span, specificity
+
+
 def find_matching_assignment(grievance):
 	"""Return the winning Grievance RBAC Assignment (Desk), or None.
 
@@ -106,12 +131,12 @@ def find_matching_assignment(grievance):
 			"service_provider_scope",
 			"administrative_area_scope",
 			"routing_strategy",
+			"reassignment_requires_approval",
 		],
 	)
 
 	candidates = []
 	for a in assignments:
-		specificity = 0
 		matched = True
 
 		# Direct fields match: category_scope, grievance_type_scope, service_provider_scope
@@ -119,7 +144,6 @@ def find_matching_assignment(grievance):
 			constraint = a.get(scope_field)
 			if not constraint:
 				continue
-			specificity += 1
 			doc_val = (
 				grievance.get(doc_field)
 				if isinstance(grievance, dict) or hasattr(grievance, "get")
@@ -131,13 +155,9 @@ def find_matching_assignment(grievance):
 		if not matched:
 			continue
 
-		area_match, area_span, has_area_constraint = _evaluate_ancestor_area(
-			case_area, case_lft, case_rgt, a.administrative_area_scope
-		)
+		area_match, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
 		if not area_match:
 			continue
-		if has_area_constraint:
-			specificity += 1
 
 		# Candidate tuple: (area_span, -specificity, assignment)
 		candidates.append((area_span, -specificity, a))
@@ -146,6 +166,90 @@ def find_matching_assignment(grievance):
 		return None
 	candidates.sort(key=lambda row: (row[0], row[1]))
 	return candidates[0][2]
+
+
+def officer_desks(grievance, department, officer):
+	"""Return the active desks held by `officer` that cover `department` and the grievance's area,
+	ranked by (area_span asc, -specificity).
+	"""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		query_active_officer_assignments,
+	)
+
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	rows = query_active_officer_assignments(
+		user=officer,
+		fields=[
+			"p.name AS name",
+			"p.department_scope",
+			"p.category_scope",
+			"p.grievance_type_scope",
+			"p.service_provider_scope",
+			"p.administrative_area_scope",
+			"p.routing_strategy",
+			"p.reassignment_requires_approval",
+		],
+		order_by=None,
+	)
+
+	seen = set()
+	candidates = []
+	for r in rows:
+		desk = dict(r)
+		desk_name = desk.get("name")
+		if not desk_name or desk_name in seen:
+			continue
+
+		if desk.get("department_scope") and desk.get("department_scope") != department:
+			continue
+
+		matched, area_span, specificity = _score_desk(desk, case_area, case_lft, case_rgt)
+		if not matched:
+			continue
+
+		seen.add(desk_name)
+		candidates.append((area_span, -specificity, desk))
+
+	candidates.sort(key=lambda row: (row[0], row[1]))
+	return [row[2] for row in candidates]
+
+
+def department_desks(grievance, department):
+	"""Return active desks with department_scope == department covering the grievance's area,
+	ranked by (area_span asc, -specificity).
+	"""
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	today = frappe.utils.today()
+	assignments = frappe.get_all(
+		"Grievance RBAC Assignment",
+		filters={"active": 1, "department_scope": department, "effective_from": ["<=", today]},
+		or_filters=[
+			["effective_to", "is", "not set"],
+			["effective_to", ">=", today],
+		],
+		fields=[
+			"name",
+			"department_scope",
+			"category_scope",
+			"grievance_type_scope",
+			"service_provider_scope",
+			"administrative_area_scope",
+			"routing_strategy",
+			"reassignment_requires_approval",
+		],
+	)
+
+	candidates = []
+	for a in assignments:
+		if a.get("department_scope") and a.get("department_scope") != department:
+			continue
+		matched, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
+		if not matched:
+			continue
+		candidates.append((area_span, -specificity, a))
+
+	candidates.sort(key=lambda row: (row[0], row[1]))
+	return [row[2] for row in candidates]
 
 
 def pick_officer_by_strategy(assignment_doc):

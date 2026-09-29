@@ -837,6 +837,8 @@ data(
 			),
 			"assigned_dept": S(nullable=True),
 			"assigned_to": S(nullable=True),
+			"service_category": S(nullable=True),
+			"grievance_type": S(nullable=True),
 			"sla_due_date": S(format="date-time", nullable=True),
 			"is_anonymous": B(nullable=True),
 			"anonymity_status": S(nullable=True),
@@ -990,23 +992,6 @@ REQ["GrievanceActionRequest"] = OBJ(
 	description="Workflow action and state transition payload",
 )
 
-REQ["RaiseChangeRequest"] = OBJ(
-	{
-		"subject": S(minLength=1, maxLength=140, description="Subject headline of requested change"),
-		"reason": S(nullable=True, description="Detailed justification for the change"),
-		"changes": ARR(
-			OBJ(
-				{"fieldname": S(minLength=1), "new_value": S(nullable=True)},
-				required=["fieldname"],
-			),
-			minItems=1,
-			description="List of fields and requested new values",
-		),
-	},
-	required=["subject", "changes"],
-	description="Payload to request field modifications on an active grievance",
-)
-
 REQ["DecideChangeRequest"] = OBJ(
 	{
 		"decision": S(minLength=1, enum=["Approved", "Rejected"], description="Approval decision"),
@@ -1020,6 +1005,8 @@ REQ["ReassignGrievanceRequest"] = OBJ(
 	{
 		"target_department": S(minLength=1, description="Target department identifier"),
 		"target_officer": S(nullable=True, description="Target officer user email"),
+		"target_category": S(nullable=True, description="Target service category name"),
+		"target_grievance_type": S(nullable=True, description="Target grievance type name"),
 		"reason": S(nullable=True, description="Reassignment rationale"),
 	},
 	required=["target_department"],
@@ -1448,7 +1435,6 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"download": "AttachmentDownloadResponse",
 		"view": None,  # Binary stream
 		"delete": "DeleteAttachmentResponse",
-		"raise_request": "ChangeRequestResponse",
 		"list_requests": "ChangeRequestListResponse",
 		"get_request": "ChangeRequestResponse",
 		"decide": "ChangeRequestResponse",

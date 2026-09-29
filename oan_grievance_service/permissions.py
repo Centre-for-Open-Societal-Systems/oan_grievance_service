@@ -246,3 +246,16 @@ def outranks(approver, assignee, if_unplaced=True):
 		)
 	}
 	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)
+
+
+def is_department_head(user, department, area=None):
+	"""Whether `user` holds the top active rung (department head) covering department and area."""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		holds_rung,
+		top_rung,
+	)
+
+	top = top_rung()
+	if not top:
+		return False
+	return holds_rung(user, top, department=department, area=area)

@@ -14,6 +14,7 @@
   "administrative_area_scope",
   "service_provider_scope",
   "routing_strategy",
+  "reassignment_requires_approval",
   "active",
   "sec_validity",
   "effective_from",
@@ -75,6 +76,14 @@
    "in_list_view": 1,
    "label": "Routing Strategy",
    "options": "Primary First\nRound Robin\nLeast Loaded"
+  },
+  {
+   "default": "1",
+   "description": "Whether moving a case off this desk needs department head approval.",
+   "fieldname": "reassignment_requires_approval",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Reassignment Requires Approval"
   },
   {
    "default": "1",

@@ -215,7 +215,12 @@ class Grievance(Document):
 
 	def on_update_after_submit(self):
 		if self.flags.change_request:
-			self.react_to_approved_change()
+			if getattr(self.flags, "reassignment", False):
+				from oan_grievance_service.services import reassignment
+
+				reassignment.on_applied(self, getattr(self.flags, "change_request_doc", None))
+			else:
+				self.react_to_approved_change()
 
 	def before_cancel(self):
 		self.keep_status_in_step_with_the_workflow()
@@ -332,6 +337,10 @@ class Grievance(Document):
 			self.is_anonymous = 1
 			self.anonymity_approved_by = request.decided_by
 		self.flags.change_request = request.name
+		self.flags.change_request_doc = request
+		from oan_grievance_service.services import reassignment
+
+		self.flags.reassignment = reassignment.is_reassignment(request)
 		self.save(ignore_permissions=True)
 
 	def reject_change_request(self, request):

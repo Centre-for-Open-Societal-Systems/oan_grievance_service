@@ -54,7 +54,7 @@ def query_active_officer_assignments(
 	field_str = (
 		", ".join(fields)
 		if fields
-		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope"
+		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
 	)
 	sql = f"""  # nosemgrep: frappe-sql-format-injection
 		SELECT {field_str}
@@ -113,6 +113,49 @@ def find_officer_by_role_level(role_level, department=None, administrative_area=
 		return o.user
 
 	return None
+
+
+def top_rung():
+	"""The name of the last entry in GrievanceRoleLevel.get_chain(), or None."""
+	from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+		GrievanceRoleLevel,
+	)
+
+	chain = GrievanceRoleLevel.get_chain()
+	return chain[-1].name if chain else None
+
+
+def department_head_of(department, area=None):
+	"""Find the department head officer user for this department and area."""
+	top = top_rung()
+	if not top:
+		return None
+	return find_officer_by_role_level(top, department=department, administrative_area=area)
+
+
+def holds_rung(user, role_level, department=None, area=None):
+	"""Whether `user` has a live desk at `role_level` covering `department` and `area`."""
+	if not user or not role_level:
+		return False
+	rows = query_active_officer_assignments(
+		user=user,
+		role_level=role_level,
+		fields=["p.department_scope", "p.administrative_area_scope"],
+		order_by=None,
+	)
+	if not rows:
+		return False
+	target_lft = None
+	if area:
+		target_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
+	for r in rows:
+		if department and r.department_scope and r.department_scope != department:
+			continue
+		if target_lft is not None and r.administrative_area_scope:
+			if not is_in_area_subtree(target_lft, r.administrative_area_scope):
+				continue
+		return True
+	return False
 
 
 def get_subordinate_officers(user):

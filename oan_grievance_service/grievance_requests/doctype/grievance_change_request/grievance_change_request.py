@@ -53,10 +53,22 @@ class GrievanceChangeRequest(Document):
 		self.snapshot_changes(grievance)
 		self.log("Requested", self.requested_by)
 
-		if requester_may_decide(self.requested_by, grievance, self):
+		from oan_grievance_service.services import reassignment
+
+		if reassignment.is_reassignment(self):
+			reassignment.validate(grievance, self)
+			decide = reassignment.may_decide(self.requested_by, grievance, self)
+			target_approver = reassignment.approver(grievance, self)
+		else:
+			decide = requester_may_decide(self.requested_by, grievance, self)
+			target_approver = approver_for(self.requested_by, grievance)
+
+		if decide:
 			self.decide("Approved", self.requested_by)
 		else:
-			self.route_to(approver_for(self.requested_by, grievance))
+			self.route_to(target_approver)
+			if reassignment.is_reassignment(self):
+				reassignment.on_pending(grievance, self)
 
 	def snapshot_changes(self, grievance):
 		staff = is_staff(self.requested_by)

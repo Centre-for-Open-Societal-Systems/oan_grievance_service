@@ -505,6 +505,7 @@ def submit_draft(
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
 			"routing_rule": getattr(doc, "routing_rule", None),
+			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 		},
 		message=_("Grievance submitted successfully"),
 	)
