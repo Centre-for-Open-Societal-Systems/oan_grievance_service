@@ -112,6 +112,19 @@ class GrievanceAttachment(Document):
 				title=_("Response Does Not Match Grievance"),
 			)
 
+	def on_trash(self):
+		"""The row owns its object: deleting the attachment deletes the File.
+
+		Every other path used to find the File by its URL string and delete it.
+		Core reuses one URL for identical uploads, so that lookup could pick another
+		attachment's File. The Link makes the pairing exact. Core's File.on_trash
+		still unlinks the bytes on disk at once, not at commit, so a failure after
+		this point leaves a File row without an object; that window is core's own,
+		the same one every File delete has, and deleting the right File is the fix.
+		"""
+		if self.file and frappe.db.exists("File", self.file):
+			frappe.delete_doc("File", self.file, force=True, ignore_permissions=True)
+
 	def is_servable(self):
 		"""Whether this file may be handed to a reader.
 
