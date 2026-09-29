@@ -70,33 +70,49 @@ def execute():
 				file_name, file_url = replacement.name, replacement.file_url
 			checksum = scanning.sha256_of(content)
 
-		attachment = frappe.get_doc(
-			{
-				"doctype": "Grievance Attachment",
-				"grievance": stored.attached_to_name,
-				"file": file_name,
-				"file_name": stored.file_name,
-				"file_url": file_url,
-				"mime_type": mime,
-				"size_bytes": len(content) if content else (stored.file_size or 0),
-				"checksum_sha256": checksum,
-				"uploaded_by_user": stored.owner or "Administrator",
-				"scan_status": status,
-				"scan_detail": detail,
-			}
-		)
-		attachment.flags.ignore_validate = True
-		attachment.insert(ignore_permissions=True)
+		# A row the first pass linked by URL may point at this very File while it
+		# is still attached to the Grievance. That row is the evidence; a second
+		# one would put two rows on one File, and deleting either would take it.
+		existing = frappe.db.get_value("Grievance Attachment", {"file": stored.name}, "name")
+		if existing:
+			updates = {}
+			if file_name != stored.name:
+				updates = {"file": file_name, "file_url": file_url, "checksum_sha256": checksum}
+				if content:
+					updates["size_bytes"] = len(content)
+			if updates:
+				frappe.db.set_value("Grievance Attachment", existing, updates, update_modified=False)
+			attachment_name = existing
+		else:
+			attachment = frappe.get_doc(
+				{
+					"doctype": "Grievance Attachment",
+					"grievance": stored.attached_to_name,
+					"file": file_name,
+					"file_name": stored.file_name,
+					"file_url": file_url,
+					"mime_type": mime,
+					"size_bytes": len(content) if content else (stored.file_size or 0),
+					"checksum_sha256": checksum,
+					"uploaded_by_user": stored.owner or "Administrator",
+					"scan_status": status,
+					"scan_detail": detail,
+				}
+			)
+			attachment.flags.ignore_validate = True
+			attachment.insert(ignore_permissions=True)
+			attachment_name = attachment.name
+			if status == scanning.SCAN_PENDING:
+				created.append(attachment_name)
+
 		frappe.db.set_value(
 			"File",
 			file_name,
-			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
+			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment_name},
 			update_modified=False,
 		)
 		if file_name != stored.name:
 			frappe.delete_doc("File", stored.name, force=True, ignore_permissions=True)
-		if status == scanning.SCAN_PENDING:
-			created.append(attachment.name)
 
 	if created:
 		scanning.enqueue_scan_attachments(created)

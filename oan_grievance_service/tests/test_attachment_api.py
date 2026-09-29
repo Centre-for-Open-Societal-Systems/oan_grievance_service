@@ -508,6 +508,59 @@ class TestLegacyFilesGoThroughTheGate(AttachmentAPITestCase):
 
 		self.assertEqual(frappe.db.get_value("Grievance Attachment", name, "file"), file_name)
 
+	def _legacy_row(self):
+		"""An attachment row whose File is still attached to the Grievance and whose
+		link is empty: the state the first pass links by URL and the second pass
+		then sees as an unfiled legacy File."""
+		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+		frappe.db.set_value(
+			"File", file_name, {"attached_to_doctype": "Grievance", "attached_to_name": self.grievance.name}
+		)
+		frappe.db.set_value("Grievance Attachment", name, "file", None)
+		return name, file_name
+
+	def test_the_patch_does_not_file_a_legacy_file_twice(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		name, file_name = self._legacy_row()
+		execute()
+
+		rows = frappe.get_all(
+			"Grievance Attachment", filters={"grievance": self.grievance.name}, pluck="name"
+		)
+		self.assertEqual(rows, [name])
+		self.assertEqual(frappe.db.get_value("Grievance Attachment", name, "file"), file_name)
+		stored = frappe.get_doc("File", file_name)
+		self.assertEqual(
+			(stored.attached_to_doctype, stored.attached_to_name), ("Grievance Attachment", name)
+		)
+
+	def test_a_stripped_replacement_is_carried_onto_the_existing_row(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		name, file_name = self._legacy_row()
+		clean = _jpeg()
+		self.addCleanup(setattr, scanning, "has_location_metadata", scanning.has_location_metadata)
+		self.addCleanup(setattr, scanning, "strip_location_metadata", scanning.strip_location_metadata)
+		scanning.has_location_metadata = lambda content: True
+		scanning.strip_location_metadata = lambda content, mime: clean
+
+		execute()
+
+		row = frappe.db.get_value(
+			"Grievance Attachment", name, ["file", "file_url", "checksum_sha256", "size_bytes"], as_dict=True
+		)
+		self.assertNotEqual(row.file, file_name)
+		self.assertFalse(frappe.db.exists("File", file_name))
+		self.assertEqual(frappe.db.get_value("File", row.file, "file_url"), row.file_url)
+		self.assertEqual(row.checksum_sha256, scanning.sha256_of(clean))
+		self.assertEqual(row.size_bytes, len(clean))
+		self.assertEqual(
+			frappe.get_all("Grievance Attachment", filters={"grievance": self.grievance.name}, pluck="name"),
+			[name],
+		)
+
 	def test_the_patch_refuses_to_guess_between_rows_that_share_a_url(self):
 		"""Core keeps a File row per upload and one URL per content. Two rows with
 		the same URL and no File attached to them cannot be told apart, and a
