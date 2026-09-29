@@ -262,6 +262,7 @@ def submit_documents(
 				"response": response,
 				"timeline_entry": timeline_entry,
 				"document_type": doc_type,
+				"file": stored.name,
 				"file_name": stored.file_name,
 				"file_url": stored.file_url,
 				"mime_type": item["mime_type"],
@@ -359,7 +360,7 @@ def view(attachment: str, download: str | int | None = None):
 	`download=1` for a Save As.
 	"""
 	doc = _servable(attachment)
-	content = scanning.read_object(doc.file_url)
+	content = scanning.read_object(doc.file or doc.file_url)
 	if content is None:
 		frappe.throw(
 			_("{0} has no stored object.").format(frappe.bold(doc.file_name)),
@@ -451,10 +452,8 @@ def delete(attachment: str):
 			title=_("Case Is Closed"),
 		)
 
-	file_name = frappe.db.get_value("File", {"file_url": doc.file_url}, "name")
-	if file_name:
-		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
-
+	# The row's on_trash removes its File: one owner for the object, and the
+	# disk delete happens last, after everything that could still roll back.
 	frappe.delete_doc("Grievance Attachment", doc.name, force=True, ignore_permissions=True)
 	audit.record_access(audit.ACTION_DELETE_ATTACHMENT, grievance=case.name)
 

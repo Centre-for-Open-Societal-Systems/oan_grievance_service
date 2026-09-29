@@ -551,16 +551,9 @@ def purge_expired_drafts():
 
 def _purge_draft_uploads(grievance_name):
 	"""Delete uploads linked to an abandoned draft."""
-	rows = frappe.get_all(
-		"Grievance Attachment",
-		filters={"grievance": grievance_name},
-		fields=["name", "file_url"],
-	)
-	for row in rows:
-		file_name = frappe.db.get_value("File", {"file_url": row.file_url}, "name")
-		if file_name:
-			frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
-		frappe.delete_doc("Grievance Attachment", row.name, force=True, ignore_permissions=True)
+	# Each row's on_trash removes its own File.
+	for name in frappe.get_all("Grievance Attachment", filters={"grievance": grievance_name}, pluck="name"):
+		frappe.delete_doc("Grievance Attachment", name, force=True, ignore_permissions=True)
 
 	files = frappe.get_all(
 		"File",
@@ -642,29 +635,16 @@ def _draft_state(doc):
 
 
 def _attachments(grievance_name):
-	att_rows = frappe.get_all(
+	"""The draft's evidence, scan verdicts included.
+
+	Only Grievance Attachment rows: they are the ones that went through the
+	scan gate. This used to fall back to Files attached straight to the case and
+	call them Clean, which no scanner had said. Such Files are folded into
+	attachment rows by the link_attachments_to_files patch and scanned there.
+	"""
+	return frappe.get_all(
 		"Grievance Attachment",
 		filters={"grievance": grievance_name},
 		fields=["name", "file_name", "file_url", "size_bytes", "mime_type", "scan_status", "creation"],
 		order_by="creation asc",
 	)
-	if att_rows:
-		return att_rows
-	files = frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": "Grievance", "attached_to_name": grievance_name},
-		fields=["name", "file_name", "file_url", "file_size", "is_private", "creation"],
-		order_by="creation asc",
-	)
-	return [
-		{
-			"name": f["name"],
-			"file_name": f["file_name"],
-			"file_url": f["file_url"],
-			"size_bytes": f.get("file_size"),
-			"mime_type": None,
-			"scan_status": "Clean",
-			"creation": f["creation"],
-		}
-		for f in files
-	]

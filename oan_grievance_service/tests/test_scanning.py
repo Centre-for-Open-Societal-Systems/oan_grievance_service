@@ -93,22 +93,56 @@ class TestLocationMetadata(FrappeTestCase):
 
 
 class TestScannerFailsClosed(FrappeTestCase):
-	"""An outage makes attachments unavailable; it must not make them trusted."""
+	"""An outage makes attachments unavailable; it must not make them trusted.
 
-	def test_no_scanner_configured_yields_failed_not_clean(self):
+	The answer for "could not ask the scanner" is a retry marker, never Clean and
+	no longer Failed: Failed was final, and one outage left every upload of that
+	window unviewable for good. The row stays Pending and is asked again.
+	"""
+
+	def test_no_scanner_configured_asks_for_a_retry_not_clean(self):
 		status, detail = scanning.scan_bytes(JPEG_HEADER)
-		self.assertEqual(status, scanning.SCAN_FAILED)
+		self.assertEqual(status, scanning.SCAN_RETRY)
 		self.assertIn("No scanner configured", detail)
 
-	def test_an_unreachable_scanner_yields_failed_not_clean(self):
+	def test_an_unreachable_scanner_asks_for_a_retry_not_clean(self):
 		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
 		frappe.conf["grievance_clamav_port"] = 1  # nothing listens here
 		try:
-			status, _ = scanning.scan_bytes(JPEG_HEADER)
-			self.assertEqual(status, scanning.SCAN_FAILED)
+			status, detail = scanning.scan_bytes(JPEG_HEADER)
+			self.assertEqual(status, scanning.SCAN_RETRY)
+			self.assertIn("unreachable", detail)
 		finally:
 			frappe.conf.pop("grievance_clamav_host", None)
 			frappe.conf.pop("grievance_clamav_port", None)
+
+	def test_the_retry_marker_is_never_a_stored_status(self):
+		self.assertNotIn(scanning.SCAN_RETRY, ("Pending", "Clean", "Infected", "Failed"))
+
+
+class TestScannerAvailability(FrappeTestCase):
+	"""The sweep pings once before a batch so an outage costs no row a retry."""
+
+	def tearDown(self):
+		frappe.conf.pop("grievance_clamav_host", None)
+		frappe.conf.pop("grievance_clamav_port", None)
+
+	def test_no_scanner_configured_is_unavailable(self):
+		self.assertFalse(scanning.scanner_available())
+
+	def test_an_unreachable_scanner_is_unavailable(self):
+		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
+		frappe.conf["grievance_clamav_port"] = 1
+		self.assertFalse(scanning.scanner_available())
+
+	def test_a_pong_means_available(self):
+		frappe.conf["grievance_clamav_host"] = "fake-clamd"
+		fake = _FakeClamd(b"PONG\x00")
+		self.addCleanup(setattr, scanning.socket, "create_connection", scanning.socket.create_connection)
+		scanning.socket.create_connection = fake
+
+		self.assertTrue(scanning.scanner_available())
+		self.assertEqual(fake.sent, b"zPING\x00")
 
 
 class _FakeClamd:
