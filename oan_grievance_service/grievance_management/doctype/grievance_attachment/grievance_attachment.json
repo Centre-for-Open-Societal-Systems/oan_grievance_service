@@ -15,6 +15,7 @@
   "uploaded_by_user",
   "uploaded_by_submitter",
   "sec_file",
+  "file",
   "file_name",
   "file_url",
   "mime_type",
@@ -25,7 +26,8 @@
   "scan_status",
   "scanned_at",
   "col_scan",
-  "scan_detail"
+  "scan_detail",
+  "scan_attempts"
  ],
  "fields": [
   {
@@ -85,6 +87,14 @@
    "fieldname": "sec_file",
    "fieldtype": "Section Break",
    "label": "File"
+  },
+  {
+   "description": "The stored object. Removing the attachment removes it; an infected verdict clears it.",
+   "fieldname": "file",
+   "fieldtype": "Link",
+   "label": "File",
+   "options": "File",
+   "read_only": 1
   },
   {
    "fieldname": "file_name",
@@ -159,12 +169,20 @@
    "fieldtype": "Small Text",
    "label": "Scan Detail",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Scans deferred by a scanner outage. The row gives up after a day of hourly retries.",
+   "fieldname": "scan_attempts",
+   "fieldtype": "Int",
+   "label": "Scan Attempts",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-13 12:00:00.000000",
+ "modified": "2026-09-29 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Attachment",

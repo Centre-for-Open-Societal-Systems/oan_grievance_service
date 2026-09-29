@@ -1137,7 +1137,10 @@ def timeline(
 		else:
 			entry["author_type"] = "system"
 			entry["author_role"] = "System"
-	# Fetch associated attachments
+
+	# Only scanned evidence is listed. Files attached straight to the case used
+	# to be shown beside these rows without a verdict; the
+	# link_attachments_to_files patch turned them into attachment rows.
 	grievance_attachments = frappe.get_all(
 		"Grievance Attachment",
 		filters={"grievance": doc.name},
@@ -1157,7 +1160,7 @@ def timeline(
 		order_by="creation asc",
 		ignore_permissions=True,
 	)
-	attachments = grievance_attachments
+	attachments = list(grievance_attachments)
 
 	attachments_by_timeline = {}
 	for att in grievance_attachments:
