@@ -115,11 +115,12 @@ class GrievanceAttachment(Document):
 	def on_trash(self):
 		"""The row owns its object: deleting the attachment deletes the File.
 
-		Every other path used to find the File by its URL string and delete it
-		first. Core reuses one URL for identical uploads, so that lookup could pick
-		another attachment's File, and a rollback after the disk delete left a File
-		row with no bytes. The Link makes the pairing exact, and doing it here means
-		the disk delete is the last thing before commit.
+		Every other path used to find the File by its URL string and delete it.
+		Core reuses one URL for identical uploads, so that lookup could pick another
+		attachment's File. The Link makes the pairing exact. Core's File.on_trash
+		still unlinks the bytes on disk at once, not at commit, so a failure after
+		this point leaves a File row without an object; that window is core's own,
+		the same one every File delete has, and deleting the right File is the fix.
 		"""
 		if self.file and frappe.db.exists("File", self.file):
 			frappe.delete_doc("File", self.file, force=True, ignore_permissions=True)

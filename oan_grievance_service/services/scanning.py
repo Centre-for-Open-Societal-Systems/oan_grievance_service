@@ -44,9 +44,10 @@ site config.
 
 FAIL CLOSED
 -----------
-With no scanner reachable, a file is marked `Failed`, never `Clean`. Nothing is
-served to an officer until something has actually looked at it. An outage makes
-attachments unavailable; it does not make them trusted.
+With no scanner reachable, a file stays `Pending`, never `Clean`, and is asked
+about again on the next sweep. Nothing is served to an officer until something
+has actually looked at it. An outage makes attachments unavailable; it does not
+make them trusted.
 """
 
 import hashlib
@@ -384,8 +385,15 @@ def scan_attachment(name: str) -> str:
 	if status == SCAN_RETRY:
 		return _defer(name, row.scan_attempts or 0, detail)
 
+	# A twin condemned while this scan was in flight condemns this row too; a
+	# Clean written now would leave the same bytes servable here.
+	if status == SCAN_CLEAN:
+		twin = _infected_twin(row.checksum_sha256, exclude=name)
+		if twin:
+			status, detail = SCAN_INFECTED, f"Identical to {twin}, which was found infected."
+
 	settled = _settle(name, status, detail)
-	if settled == SCAN_INFECTED and status == SCAN_INFECTED:
+	if status == SCAN_INFECTED and settled == SCAN_INFECTED:
 		_discard_infected(name, file_name, row.checksum_sha256)
 	return settled
 
@@ -396,6 +404,14 @@ def scan_pending(limit: int = 50) -> int:
 	Skipped whole while the scanner is down, so an outage costs no row a retry.
 	"""
 	if not scanner_available():
+		# One line in the Error Log per skipped sweep, so an outage is visible
+		# without charging every waiting row a retry.
+		waiting = frappe.db.count("Grievance Attachment", {"scan_status": SCAN_PENDING})
+		if waiting:
+			frappe.log_error(
+				title="Attachment scan sweep skipped: scanner unreachable",
+				message=f"{waiting} attachment(s) are waiting for a scan. No retry was charged.",
+			)
 		return 0
 
 	pending = frappe.get_all(
@@ -414,15 +430,19 @@ def scan_pending(limit: int = 50) -> int:
 
 
 def _settle(name: str, status: str, detail: str) -> str:
-	"""Record a verdict on a row that is still Pending, and say what the row holds now.
+	"""Record a verdict, and say what the row holds now.
 
-	The write is conditional on the row still being Pending. If another scanner
-	settled it first, or a delete removed it, this verdict is dropped and the
-	row's actual status (or Failed for a vanished row) is returned instead.
+	Clean and Failed only fill a row that is still Pending: if another scanner
+	settled it first, or a delete removed it, the verdict is dropped and the
+	row's actual status (or Failed for a vanished row) is returned. Infected
+	outranks Clean. The sweep calls scan_attachment directly, so two scanners can
+	be inside clamd for one row at once; if the Clean lands first, the malware
+	this call found must still condemn the row and discard the object.
 	"""
+	overwrites = [SCAN_PENDING, SCAN_CLEAN] if status == SCAN_INFECTED else [SCAN_PENDING]
 	frappe.db.set_value(
 		"Grievance Attachment",
-		{"name": name, "scan_status": SCAN_PENDING},
+		{"name": name, "scan_status": ["in", overwrites]},
 		{"scan_status": status, "scan_detail": detail[:500], "scanned_at": now_datetime()},
 		update_modified=False,
 	)
@@ -452,7 +472,8 @@ def _defer(name: str, attempts: int, detail: str) -> str:
 		{"scan_attempts": attempts, "scan_detail": f"Deferred ({attempts}): {detail}"[:500]},
 		update_modified=False,
 	)
-	return SCAN_PENDING
+	# The row may have settled or vanished meanwhile; say what it holds, as _settle does.
+	return frappe.db.get_value("Grievance Attachment", name, "scan_status") or SCAN_FAILED
 
 
 def _infected_twin(checksum: str | None, exclude: str) -> str | None:
