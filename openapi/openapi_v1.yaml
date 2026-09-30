@@ -1891,7 +1891,8 @@ paths:
       - *id005
       - *id006
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvKpis
-      security: &id007 []
+      security: &id007
+      - DashboardKeyAuth: []
   /api/v1/charts/grvPerformanceKpis:
     get:
       tags:
@@ -2601,6 +2602,13 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Provide JWT access token as `Bearer <token>` in the Authorization header.
+    DashboardKeyAuth:
+      type: apiKey
+      in: header
+      name: apikey
+      description: API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`).
+        Checked and stripped by the gateway; the platform itself treats the chart routes as public, so
+        before the gateway enforces keys the header is simply ignored.
   schemas:
     ApiMeta:
       type: object

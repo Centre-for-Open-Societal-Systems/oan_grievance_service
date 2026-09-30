@@ -1245,7 +1245,9 @@ PUBLIC_CHART_IDS = (
 	"grvFilterRegions",
 	"grvFilterCategories",
 )
-PUBLIC_CHART_SECURITY = []
+# Guest to the platform; the gateway asks the OAN dashboards for their key once it
+# enforces auth (DashboardKeyAuth below).
+PUBLIC_CHART_SECURITY = [{"DashboardKeyAuth": []}]
 
 
 # ---------------------------------------------------------------------------
@@ -1943,7 +1945,13 @@ def build_openapi():
 					"scheme": "bearer",
 					"bearerFormat": "JWT",
 					"description": "Provide JWT access token as `Bearer <token>` in the Authorization header.",
-				}
+				},
+				"DashboardKeyAuth": {
+					"type": "apiKey",
+					"in": "header",
+					"name": "apikey",
+					"description": "API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`). Checked and stripped by the gateway; the platform itself treats the chart routes as public, so before the gateway enforces keys the header is simply ignored.",
+				},
 			},
 			"schemas": components_schemas,
 		},
