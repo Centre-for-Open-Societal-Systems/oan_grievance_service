@@ -264,30 +264,35 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		h2 = frappe.generate_hash(length=6)
 		officer_a_email = f"officer.a.{h1}@example.com"
 		officer_b_email = f"officer.b.{h2}@example.com"
-		frappe.get_doc(
-			{
-				"doctype": "User",
-				"email": officer_a_email,
-				"first_name": f"OfficerA_{h1}",
-				"send_welcome_email": 0,
-				"roles": [{"role": "Grievance Officer"}],
-			}
-		).insert(ignore_permissions=True)
-		frappe.get_doc(
-			{
-				"doctype": "User",
-				"email": officer_b_email,
-				"first_name": f"OfficerB_{h2}",
-				"send_welcome_email": 0,
-				"roles": [{"role": "Grievance Officer"}],
-			}
-		).insert(ignore_permissions=True)
 
-		# Case assigned to Officer A
-		case = a_grievance(assigned_to=officer_a_email, workflow_state="In Progress", status="In Progress")
-		case.db_set("docstatus", 1, update_modified=False)
-		case.reload()
-		frappe.db.commit()
+		def ensure_setup():
+			frappe.set_user("Administrator")
+			if not frappe.db.exists("User", officer_a_email):
+				frappe.get_doc(
+					{
+						"doctype": "User",
+						"email": officer_a_email,
+						"first_name": f"OfficerA_{h1}",
+						"send_welcome_email": 0,
+						"roles": [{"role": "Grievance Officer"}],
+					}
+				).insert(ignore_permissions=True)
+			if not frappe.db.exists("User", officer_b_email):
+				frappe.get_doc(
+					{
+						"doctype": "User",
+						"email": officer_b_email,
+						"first_name": f"OfficerB_{h2}",
+						"send_welcome_email": 0,
+						"roles": [{"role": "Grievance Officer"}],
+					}
+				).insert(ignore_permissions=True)
+			c = a_grievance(assigned_to=officer_a_email, workflow_state="In Progress", status="In Progress")
+			c.db_set("docstatus", 1, update_modified=False)
+			c.reload()
+			return c
+
+		case = ensure_setup()
 
 		# Officer B attempts to add note
 		frappe.set_user(officer_b_email)
@@ -296,22 +301,29 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		self.assertEqual(res_note["code"], "PERMISSION_DENIED")
 
 		# Officer B attempts to post message
+		case = ensure_setup()
+		frappe.set_user(officer_b_email)
 		res_msg = grievance.message(case.ticket_number or case.name, body="Unauthorized officer message")
 		self.assertEqual(res_msg["status"], "error")
 		self.assertEqual(res_msg["code"], "PERMISSION_DENIED")
 
 		# Officer B attempts to execute workflow action (Request More Info or Assign)
+		case = ensure_setup()
+		frappe.set_user(officer_b_email)
 		res_act = grievance.action(
 			case.ticket_number or case.name, action="Request More Info", reason="Need info"
 		)
 		self.assertEqual(res_act["status"], "error")
 		self.assertEqual(res_act["code"], "PERMISSION_DENIED")
 
+		case = ensure_setup()
+		frappe.set_user(officer_b_email)
 		res_assign = grievance.action(case.ticket_number or case.name, action="Assign")
 		self.assertEqual(res_assign["status"], "error")
 		self.assertEqual(res_assign["code"], "PERMISSION_DENIED")
 
 		# Assigned Officer A can add note
+		case = ensure_setup()
 		frappe.set_user(officer_a_email)
 		note_res = grievance.add_note(case.ticket_number or case.name, body="Assigned officer note")
 		self.assertEqual(note_res["status"], "success")

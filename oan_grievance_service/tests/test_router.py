@@ -148,8 +148,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				cls.farmer_profile.user = cls.farmer_user.name
 				cls.farmer_profile.save(ignore_permissions=True)
 
-		frappe.db.commit()
-
 	def setUp(self):
 		super().setUp()
 		frappe.set_user("Administrator")
@@ -346,7 +344,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# 2. As submitter, check timeline returns available_actions
 		req_tl = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
@@ -366,16 +363,14 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(body_assign_bad["status"], "error")
 		self.assertIn("not permitted", body_assign_bad["message"].lower())
 
-		from oan_grievance_service.tests.fixtures import a_department
+		from oan_grievance_service.tests.fixtures import a_department, a_grievance
 
-		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
-		doc.assigned_dept = a_department()
-		doc.save(ignore_permissions=True)
-		lifecycle.transition(doc, "Assign")
+		case = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(case, "Assign", automated=True)
 
 		# Execute Start Work via unified action endpoint
 		req_action = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
 			data={"action": "Start Work"},
 		)
@@ -387,7 +382,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# Attempting 'Submit Response' action without a formal Grievance Response is refused
 		req_resp_bad = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
 			data={"action": "Submit Response"},
 		)
@@ -397,8 +392,9 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertIn("response", body_resp_bad["message"].lower())
 
 		# 4. Reject without reason is refused (400)
+		rej_case = a_grievance()
 		req_rej_bad = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{rej_case.ticket_number or rej_case.name}/action",
 			method="POST",
 			data={"action": "Reject", "reason": ""},
 		)
@@ -408,8 +404,9 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertIn("reason is required", body_rej_bad["message"].lower())
 
 		# 5. Reject with reason succeeds
+		rej_case_2 = a_grievance()
 		req_rej_ok = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{rej_case_2.ticket_number or rej_case_2.name}/action",
 			method="POST",
 			data={"action": "Reject", "reason": "Not an agricultural grievance."},
 		)

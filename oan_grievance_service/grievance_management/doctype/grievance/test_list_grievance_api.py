@@ -127,47 +127,40 @@ class TestListGrievanceAPI(FrappeTestCase):
 		):
 			discard_grievance(name)
 
-		cls.created_docs = []
-
-		# Create sample grievances
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
+		self.created_docs = []
 		for i in range(5):
 			state = "Submitted" if i < 3 else "In Progress"
 			g = frappe.get_doc(
 				{
 					"doctype": "Grievance",
 					"submitter_type": "Individual Farmer",
-					"submitter": cls.farmer_profile.name,
+					"submitter": self.farmer_profile.name,
 					"submitter_name": f"Farmer Submitter {i}",
 					"contact_mobile": "+251911998877",
 					"submission_channel": "Mobile App",
-					"administrative_area": cls.area.name,
+					"administrative_area": self.area.name,
 					"service_category": "Inputs" if i % 2 == 0 else "Credit",
-					"grievance_type": cls.gtype_name if i % 2 == 0 else cls.gtype_credit_name,
+					"grievance_type": self.gtype_name if i % 2 == 0 else self.gtype_credit_name,
 					"description": f"Grievance test issue number {i}",
 					"consent_given": 1,
 					"workflow_state": state,
 					"status": state,
 					"assigned_dept": "Dept of Agriculture",
-					"assigned_to": cls.officer.name if i >= 3 else None,
+					"assigned_to": self.officer.name if i >= 3 else None,
 				}
 			).insert(ignore_permissions=True)
 			g.db_set("docstatus", 1, update_modified=False)
 			g.reload()
-			cls.created_docs.append(g)
-		frappe.db.commit()
+			self.created_docs.append(g)
 
-	@classmethod
-	def tearDownClass(cls):
-		frappe.flags.in_test = True
-		for g in getattr(cls, "created_docs", []):
+	def tearDown(self):
+		for g in getattr(self, "created_docs", []):
 			discard_grievance(g.name)
-		frappe.db.commit()
 		frappe.set_user("Administrator")
-		super().tearDownClass()
-
-	def setUp(self):
-		super().setUp()
-		frappe.set_user("Administrator")
+		super().tearDown()
 
 	def test_list_grievances_admin_pagination(self):
 		"""Admin retrieves paginated grievances."""

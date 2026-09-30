@@ -120,65 +120,9 @@ class NotificationCase(FrappeTestCase):
 
 	def _ensure_area(self):
 		"""A leaf area. Grievance refuses to attach to a group node."""
-		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
-			frappe.get_doc(
-				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
-			).insert(ignore_permissions=True)
+		from oan_grievance_service.tests.fixtures import a_leaf_area
 
-		root = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Root"}, "name")
-		if not root:
-			root = (
-				frappe.get_doc(
-					{
-						"doctype": "Grievance Administrative Area",
-						"area_name": "Notif Root",
-						"level_name": "Country",
-						"code": "NFR",
-						"is_group": 1,
-					}
-				)
-				.insert(ignore_permissions=True)
-				.name
-			)
-
-		# A region sits between country and woreda: the ticket number takes its
-		# character from the region, so a woreda hung straight off the country is
-		# not a tree a grievance can be filed in.
-		region = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Region"}, "name")
-		if not region:
-			region = (
-				frappe.get_doc(
-					{
-						"doctype": "Grievance Administrative Area",
-						"area_name": "Notif Region",
-						"level_name": "Region",
-						"code": "NFG",
-						"ticket_code": "N",
-						"parent_administrative_area": root,
-						"is_group": 1,
-					}
-				)
-				.insert(ignore_permissions=True)
-				.name
-			)
-
-		leaf = frappe.db.get_value("Grievance Administrative Area", {"area_name": "Notif Woreda"}, "name")
-		if not leaf:
-			leaf = (
-				frappe.get_doc(
-					{
-						"doctype": "Grievance Administrative Area",
-						"area_name": "Notif Woreda",
-						"level_name": "Woreda",
-						"code": "NFW",
-						"parent_administrative_area": region,
-						"is_group": 0,
-					}
-				)
-				.insert(ignore_permissions=True)
-				.name
-			)
-		return leaf
+		return a_leaf_area()
 
 	def _ensure_grievance_type(self):
 		existing = frappe.db.get_value("Grievance Type", {"type_name": "Notif Test Type"}, "name")
