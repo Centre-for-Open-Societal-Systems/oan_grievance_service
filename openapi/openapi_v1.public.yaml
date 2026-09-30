@@ -29,6 +29,8 @@ tags:
   description: Communication threads, notes, reopen, reject, escalate, and resolution confirmation
 - name: Attachments
   description: Supporting document and evidence upload, listing, download, and deletion
+- name: Administration
+  description: Category-to-department routing rules for the Category Assignments admin tab
 paths:
   /api/v1/grievances/health:
     get:
@@ -1380,6 +1382,316 @@ paths:
         description: Unique attachment record ID
       security:
       - BearerAuth: []
+  /api/v1/category-assignments:
+    get:
+      tags:
+      - Administration
+      summary: List category assignments
+      description: Admin list of category-to-department routing rules. One record per service category,
+        with the L1 and L2 officers, priority, SLA window, and escalation flags.
+      operationId: get_api_v1_category_assignments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryAssignmentListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by service category name or code
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by department name or short name
+      - name: priority
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - Low
+          - Normal
+          - High
+        description: Filter by priority
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Filter by active flag. Omit to return active and inactive rules.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          minimum: 1
+        description: Page number
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+        description: Page size
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create a category assignment
+      description: Create the routing rule for one service category. Projects a routing desk and the category
+        SLA configuration. A second rule for the same category is rejected.
+      operationId: post_api_v1_category_assignments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryAssignmentRequest'
+  /api/v1/category-assignments/{assignment}:
+    get:
+      tags:
+      - Administration
+      summary: Get a category assignment
+      description: Fetch one category routing rule.
+      operationId: get_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Category assignment id, for example GR-CAT-00001
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update a category assignment
+      description: Change department, officers, priority, SLA window, or flags. The service category cannot
+        be changed.
+      operationId: patch_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Category assignment id, for example GR-CAT-00001
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryAssignmentRequest'
+    delete:
+      tags:
+      - Administration
+      summary: Deactivate a category assignment
+      description: Retire the routing rule. The record is kept, and the projected desk and SLA row are
+        marked inactive. Repeating the call leaves the rule inactive.
+      operationId: delete_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Category assignment id, for example GR-CAT-00001
+      security:
+      - BearerAuth: []
 components:
   securitySchemes:
     BearerAuth:
@@ -2206,8 +2518,8 @@ components:
           example: 1
         is_terminal:
           type: integer
-          description: 1 when every mapped Frappe workflow state is terminal. Absent workflow states
-            are non-terminal.
+          description: 1 when every mapped Frappe workflow state is terminal. Absent workflow states are
+            non-terminal.
           enum:
           - 0
           - 1
@@ -2312,6 +2624,119 @@ components:
       required:
       - deleted
       description: Confirmation of attachment removal
+    CategoryAssignment:
+      type: object
+      properties:
+        name:
+          type: string
+          example: GR-CAT-00001
+          description: Category assignment id
+        service_category:
+          type: string
+          example: Inputs
+          description: Grievance service category
+        department:
+          type: string
+          description: Owning department the category routes to
+        l1_officer:
+          type: string
+          description: L1 nodal officer user id
+        l1_officer_name:
+          type: string
+          nullable: true
+          description: L1 officer display name
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer user id
+        l2_officer_name:
+          type: string
+          nullable: true
+          description: L2 officer display name
+        priority:
+          type: string
+          enum:
+          - Low
+          - Normal
+          - High
+          example: High
+        sla_days:
+          type: integer
+          minimum: 1
+          example: 14
+          description: SLA window in days
+        auto_escalate:
+          type: boolean
+          description: Escalate automatically when the SLA is breached
+        notify_on_submit:
+          type: boolean
+          description: Notify the department when a case in this category is submitted
+        active:
+          type: boolean
+          description: False once the rule has been deactivated
+        rbac_assignment:
+          type: string
+          nullable: true
+          description: Desk this rule projects onto for auto-routing
+      required:
+      - name
+      - service_category
+      - department
+      - l1_officer
+      - priority
+      - sla_days
+      - auto_escalate
+      - notify_on_submit
+      - active
+      description: Category-to-department routing rule
+    CategoryAssignmentData:
+      type: object
+      properties:
+        assignment:
+          $ref: '#/components/schemas/CategoryAssignment'
+      required:
+      - assignment
+      description: One category assignment
+    CategoryAssignmentPagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 20
+        total_count:
+          type: integer
+          example: 5
+        total_pages:
+          type: integer
+          example: 1
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+      required:
+      - page
+      - page_size
+      - total_count
+      - total_pages
+      - has_next
+      - has_prev
+      description: Page window for a category assignment list
+    CategoryAssignmentListData:
+      type: object
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryAssignment'
+        pagination:
+          $ref: '#/components/schemas/CategoryAssignmentPagination'
+      required:
+      - assignments
+      - pagination
+      description: One page of category assignments
     SaveDraftRequest:
       type: object
       properties:
@@ -2547,6 +2972,88 @@ components:
       required:
       - action
       description: Workflow action and state transition payload
+    CreateCategoryAssignmentRequest:
+      type: object
+      properties:
+        service_category:
+          type: string
+          minLength: 1
+          description: Category name or code
+        department:
+          type: string
+          minLength: 1
+          description: Department name or short name
+        l1_officer:
+          type: string
+          minLength: 1
+          description: L1 nodal officer user id
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer user id. Omit or null for none.
+        priority:
+          type: string
+          enum:
+          - Low
+          - Normal
+          - High
+          default: Normal
+        sla_days:
+          type: integer
+          minimum: 1
+          description: SLA window in days
+        auto_escalate:
+          type: boolean
+          default: true
+        notify_on_submit:
+          type: boolean
+          default: true
+        active:
+          type: boolean
+          default: true
+      required:
+      - service_category
+      - department
+      - l1_officer
+      - sla_days
+      description: Create the routing rule for one service category
+    UpdateCategoryAssignmentRequest:
+      type: object
+      properties:
+        department:
+          type: string
+          nullable: true
+          description: Department name or short name
+        l1_officer:
+          type: string
+          nullable: true
+          description: L1 nodal officer user id
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer. Null clears it.
+        priority:
+          type: string
+          nullable: true
+          enum:
+          - Low
+          - Normal
+          - High
+        sla_days:
+          type: integer
+          nullable: true
+          minimum: 1
+        auto_escalate:
+          type: boolean
+          nullable: true
+        notify_on_submit:
+          type: boolean
+          nullable: true
+        active:
+          type: boolean
+          nullable: true
+          description: Set false to deactivate without DELETE
+      description: Partial update. Only sent fields change. Service category is fixed.
     HealthResponse:
       type: object
       properties:
@@ -3051,3 +3558,53 @@ components:
       - status
       - data
       description: Attachment deletion response
+    CategoryAssignmentResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/CategoryAssignmentData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Category assignment response
+    CategoryAssignmentListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/CategoryAssignmentListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Category assignment list response

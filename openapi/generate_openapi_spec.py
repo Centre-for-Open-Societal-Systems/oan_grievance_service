@@ -635,6 +635,78 @@ data(
 	),
 )
 
+data(
+	"CategoryAssignment",
+	OBJ(
+		{
+			"name": S(example="GR-CAT-00001", description="Category assignment id"),
+			"service_category": S(example="Inputs", description="Grievance service category"),
+			"department": S(description="Owning department the category routes to"),
+			"l1_officer": S(description="L1 nodal officer user id"),
+			"l1_officer_name": S(nullable=True, description="L1 officer display name"),
+			"l2_officer": S(nullable=True, description="L2 senior nodal officer user id"),
+			"l2_officer_name": S(nullable=True, description="L2 officer display name"),
+			"priority": S(enum=["Low", "Normal", "High"], example="High"),
+			"sla_days": I(minimum=1, example=14, description="SLA window in days"),
+			"auto_escalate": B(description="Escalate automatically when the SLA is breached"),
+			"notify_on_submit": B(
+				description="Notify the department when a case in this category is submitted"
+			),
+			"active": B(description="False once the rule has been deactivated"),
+			"rbac_assignment": S(nullable=True, description="Desk this rule projects onto for auto-routing"),
+		},
+		required=[
+			"name",
+			"service_category",
+			"department",
+			"l1_officer",
+			"priority",
+			"sla_days",
+			"auto_escalate",
+			"notify_on_submit",
+			"active",
+		],
+		description="Category-to-department routing rule",
+	),
+)
+
+data(
+	"CategoryAssignmentData",
+	OBJ(
+		{"assignment": REF("CategoryAssignment")},
+		required=["assignment"],
+		description="One category assignment",
+	),
+)
+
+data(
+	"CategoryAssignmentPagination",
+	OBJ(
+		{
+			"page": I(example=1),
+			"page_size": I(example=20),
+			"total_count": I(example=5),
+			"total_pages": I(example=1),
+			"has_next": B(),
+			"has_prev": B(),
+		},
+		required=["page", "page_size", "total_count", "total_pages", "has_next", "has_prev"],
+		description="Page window for a category assignment list",
+	),
+)
+
+data(
+	"CategoryAssignmentListData",
+	OBJ(
+		{
+			"assignments": ARR(REF("CategoryAssignment")),
+			"pagination": REF("CategoryAssignmentPagination"),
+		},
+		required=["assignments", "pagination"],
+		description="One page of category assignments",
+	),
+)
+
 
 # ---------------------------------------------------------------------------
 # Request Body Schemas
@@ -745,6 +817,36 @@ REQ["GrievanceActionRequest"] = OBJ(
 	description="Workflow action and state transition payload",
 )
 
+REQ["CreateCategoryAssignmentRequest"] = OBJ(
+	{
+		"service_category": S(minLength=1, description="Category name or code"),
+		"department": S(minLength=1, description="Department name or short name"),
+		"l1_officer": S(minLength=1, description="L1 nodal officer user id"),
+		"l2_officer": S(nullable=True, description="L2 senior nodal officer user id. Omit or null for none."),
+		"priority": S(enum=["Low", "Normal", "High"], default="Normal"),
+		"sla_days": I(minimum=1, description="SLA window in days"),
+		"auto_escalate": B(default=True),
+		"notify_on_submit": B(default=True),
+		"active": B(default=True),
+	},
+	required=["service_category", "department", "l1_officer", "sla_days"],
+	description="Create the routing rule for one service category",
+)
+
+REQ["UpdateCategoryAssignmentRequest"] = OBJ(
+	{
+		"department": S(nullable=True, description="Department name or short name"),
+		"l1_officer": S(nullable=True, description="L1 nodal officer user id"),
+		"l2_officer": S(nullable=True, description="L2 senior nodal officer. Null clears it."),
+		"priority": S(nullable=True, enum=["Low", "Normal", "High"]),
+		"sla_days": I(nullable=True, minimum=1),
+		"auto_escalate": B(nullable=True),
+		"notify_on_submit": B(nullable=True),
+		"active": B(nullable=True, description="Set false to deactivate without DELETE"),
+	},
+	description="Partial update. Only sent fields change. Service category is fixed.",
+)
+
 
 # ---------------------------------------------------------------------------
 # Envelope Builder Helper
@@ -812,6 +914,12 @@ ENVELOPES = {
 	),
 	"DeleteAttachmentResponse": make_envelope(
 		"DeleteAttachmentData", description="Attachment deletion response"
+	),
+	"CategoryAssignmentResponse": make_envelope(
+		"CategoryAssignmentData", description="Category assignment response"
+	),
+	"CategoryAssignmentListResponse": make_envelope(
+		"CategoryAssignmentListData", description="Category assignment list response"
 	),
 }
 
@@ -981,6 +1089,50 @@ QP = {
 			"required": False,
 			"schema": S(default="desc", enum=["asc", "desc"]),
 			"description": "Sort direction",
+		},
+	],
+	"ListCategoryAssignments": [
+		{
+			"name": "service_category",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by service category name or code",
+		},
+		{
+			"name": "department",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by department name or short name",
+		},
+		{
+			"name": "priority",
+			"in": "query",
+			"required": False,
+			"schema": S(enum=["Low", "Normal", "High"]),
+			"description": "Filter by priority",
+		},
+		{
+			"name": "active",
+			"in": "query",
+			"required": False,
+			"schema": B(),
+			"description": "Filter by active flag. Omit to return active and inactive rules.",
+		},
+		{
+			"name": "page",
+			"in": "query",
+			"required": False,
+			"schema": I(default=1, minimum=1),
+			"description": "Page number",
+		},
+		{
+			"name": "page_size",
+			"in": "query",
+			"required": False,
+			"schema": I(default=20, minimum=1, maximum=100),
+			"description": "Page size",
 		},
 	],
 }
@@ -1406,6 +1558,100 @@ ROUTES = [
 		legacy="oan_grievance_service.api.v1.attachment.delete",
 		description="Remove an attachment added by mistake, permitted only while the case is open.",
 	),
+	# Domain 8: Administration — category assignments (design §3.8 routing rules)
+	R(
+		"get",
+		"/api/v1/category-assignments",
+		summary="List category assignments",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		query=QP["ListCategoryAssignments"],
+		response="CategoryAssignmentListResponse",
+		legacy="oan_grievance_service.api.v1.category_assignment.list_assignments",
+		description=(
+			"Admin list of category-to-department routing rules. One record per service category, "
+			+ "with the L1 and L2 officers, priority, SLA window, and escalation flags."
+		),
+	),
+	R(
+		"post",
+		"/api/v1/category-assignments",
+		summary="Create a category assignment",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		request="CreateCategoryAssignmentRequest",
+		response="CategoryAssignmentResponse",
+		status=200,
+		legacy="oan_grievance_service.api.v1.category_assignment.create_assignment",
+		description=(
+			"Create the routing rule for one service category. Projects a routing desk and the "
+			+ "category SLA configuration. A second rule for the same category is rejected."
+		),
+	),
+	R(
+		"get",
+		"/api/v1/category-assignments/{assignment}",
+		summary="Get a category assignment",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "assignment",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Category assignment id, for example GR-CAT-00001",
+			}
+		],
+		response="CategoryAssignmentResponse",
+		legacy="oan_grievance_service.api.v1.category_assignment.get_assignment",
+		description="Fetch one category routing rule.",
+	),
+	R(
+		"patch",
+		"/api/v1/category-assignments/{assignment}",
+		summary="Update a category assignment",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "assignment",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Category assignment id, for example GR-CAT-00001",
+			}
+		],
+		request="UpdateCategoryAssignmentRequest",
+		response="CategoryAssignmentResponse",
+		legacy="oan_grievance_service.api.v1.category_assignment.update_assignment",
+		description=(
+			"Change department, officers, priority, SLA window, or flags. "
+			+ "The service category cannot be changed."
+		),
+	),
+	R(
+		"delete",
+		"/api/v1/category-assignments/{assignment}",
+		summary="Deactivate a category assignment",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "assignment",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Category assignment id, for example GR-CAT-00001",
+			}
+		],
+		response="CategoryAssignmentResponse",
+		legacy="oan_grievance_service.api.v1.category_assignment.deactivate_assignment",
+		description=(
+			"Retire the routing rule. The record is kept, and the projected desk and SLA row "
+			+ "are marked inactive. Repeating the call leaves the rule inactive."
+		),
+	),
 ]
 
 
@@ -1528,6 +1774,10 @@ def build_openapi():
 			{
 				"name": "Attachments",
 				"description": "Supporting document and evidence upload, listing, download, and deletion",
+			},
+			{
+				"name": "Administration",
+				"description": "Category-to-department routing rules for the Category Assignments admin tab",
 			},
 		],
 		"paths": paths,

@@ -1,0 +1,186 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:GR-CAT-{#####}",
+ "creation": "2026-09-29 13:10:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "service_category",
+  "department",
+  "priority",
+  "active",
+  "col_officers",
+  "l1_officer",
+  "l2_officer",
+  "sec_sla",
+  "sla_days",
+  "auto_escalate",
+  "notify_on_submit",
+  "col_projection",
+  "rbac_assignment"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Category",
+   "options": "Grievance Service Category",
+   "reqd": 1,
+   "set_only_once": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Department",
+   "options": "Grievance Department",
+   "reqd": 1
+  },
+  {
+   "default": "Normal",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Low\nNormal\nHigh",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "col_officers",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Primary nodal officer. Auto-routing assigns new cases in this category to this user.",
+   "fieldname": "l1_officer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "L1 Nodal Officer",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "description": "Senior nodal officer for escalation. Optional.",
+   "fieldname": "l2_officer",
+   "fieldtype": "Link",
+   "label": "L2 Senior Nodal Officer",
+   "options": "User"
+  },
+  {
+   "fieldname": "sec_sla",
+   "fieldtype": "Section Break",
+   "label": "SLA and Notifications"
+  },
+  {
+   "description": "Resolution window in days, snapshotted onto the case at assignment.",
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "SLA Window (Days)",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Hand a breached case up to the L2 officer without anyone asking.",
+   "fieldname": "auto_escalate",
+   "fieldtype": "Check",
+   "label": "Auto-escalate on Breach"
+  },
+  {
+   "default": "1",
+   "description": "Notify the assigned department when a grievance in this category is submitted.",
+   "fieldname": "notify_on_submit",
+   "fieldtype": "Check",
+   "label": "Notify on Submit"
+  },
+  {
+   "fieldname": "col_projection",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Desk this assignment projects onto so auto-routing can use it. Maintained by the server.",
+   "fieldname": "rbac_assignment",
+   "fieldtype": "Link",
+   "label": "RBAC Assignment",
+   "options": "Grievance RBAC Assignment",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-29 13:10:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Routing",
+ "name": "Grievance Category Assignment",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "service_category"
+}
