@@ -104,3 +104,42 @@ class TestGrievanceFeedback(FrappeTestCase):
 
 		g_doc = frappe.get_doc("Grievance", self.grievance.name)
 		self.assertEqual(g_doc.satisfaction_rating, 4)
+
+	def test_feedback_rejected_for_non_owner_submitter(self):
+		"""A submitter cannot insert feedback for someone else's grievance."""
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Response",
+				"grievance": self.grievance.name,
+				"response_type": "Resolved",
+				"action_taken": "Resolved case issue.",
+				"resolution_summary": "Resolved.",
+				"proposed_close_date": frappe.utils.today(),
+			}
+		).insert(ignore_permissions=True)
+
+		other_user = f"unauthorized_submitter_{frappe.generate_hash(length=6)}@example.com"
+		if not frappe.db.exists("User", other_user):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": other_user,
+					"first_name": "Unauthorized",
+					"roles": [{"role": "Grievance Submitter"}],
+				}
+			).insert(ignore_permissions=True)
+
+		try:
+			frappe.set_user(other_user)
+			fb = frappe.get_doc(
+				{
+					"doctype": "Grievance Feedback",
+					"grievance": self.grievance.name,
+					"rating": 5,
+					"comments": "Illegitimate feedback",
+				}
+			)
+			with self.assertRaises(frappe.PermissionError):
+				fb.insert()
+		finally:
+			frappe.set_user("Administrator")

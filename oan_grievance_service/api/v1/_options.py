@@ -64,6 +64,71 @@ def get_departments() -> list[dict]:
 	)
 
 
+def get_department_officers(
+	department: str | None = None,
+	service_category: str | None = None,
+	administrative_area: str | None = None,
+) -> list[dict]:
+	"""Retrieve active officers assigned to a department, optionally filtered by category/area."""
+	if not department:
+		return []
+
+	today = frappe.utils.today()
+	conditions = [
+		"c.active = 1",
+		"p.active = 1",
+		"p.effective_from <= %(today)s",
+		"(p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)",
+		"(p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')",
+	]
+	params = {"department": str(department).strip(), "today": today}
+
+	if service_category:
+		conditions.append(
+			"(p.category_scope = %(service_category)s OR p.category_scope IS NULL OR p.category_scope = '')"
+		)
+		params["service_category"] = str(service_category).strip()
+
+	sql = f"""
+		SELECT DISTINCT
+			c.user AS user_id,
+			COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
+			u.email,
+			c.role_level,
+			c.is_primary,
+			c.reports_to,
+			p.administrative_area_scope
+		FROM `tabGrievance RBAC Assignment Officer` c
+		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+		JOIN `tabUser` u ON u.name = c.user
+		WHERE {" AND ".join(conditions)}
+		ORDER BY c.is_primary DESC, u.full_name ASC
+	"""
+	officers = frappe.db.sql(sql, params, as_dict=True)
+
+	if administrative_area and officers:
+		from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+			is_in_area_subtree,
+		)
+
+		target_lft = frappe.db.get_value(
+			"Grievance Administrative Area", str(administrative_area).strip(), "lft"
+		)
+		if target_lft is not None:
+			filtered = []
+			for off in officers:
+				area_scope = off.get("administrative_area_scope")
+				if not area_scope or is_in_area_subtree(target_lft, area_scope):
+					filtered.append(off)
+			officers = filtered
+
+	for off in officers:
+		off.pop("administrative_area_scope", None)
+		off["is_primary"] = bool(off.get("is_primary"))
+
+	return officers
+
+
 def get_identity_schemes() -> list[dict]:
 	"""Retrieve supported identity schemes and descriptions."""
 	return [

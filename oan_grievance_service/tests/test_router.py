@@ -216,10 +216,13 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertIn("areas", data["data"])
 
 	def test_grievance_options_endpoint(self):
-		"""Test GET /api/v1/grievances/options."""
+		"""Test GET /api/v1/grievances/options and cascading department officers."""
 		import frappe.api
 
+		from oan_grievance_service.tests.fixtures import a_department
+
 		frappe.set_user("Administrator")
+		# 1. Base options without department
 		req = make_test_request("/api/v1/grievances/options", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
@@ -228,6 +231,58 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertIn("departments", data["data"])
 		self.assertIn("statuses", data["data"])
 		self.assertIn("service_categories", data["data"])
+		self.assertNotIn("officers", data["data"])
+
+		# 2. Cascading options with department
+		dept = a_department()
+		if not frappe.db.exists("Grievance Role Level", "nodal_officer"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Role Level",
+					"level_code": "nodal_officer",
+					"level_name": "Nodal Officer",
+					"level_order": 10,
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		# Create an RBAC assignment for this department
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "Administrator",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			req_dept = make_test_request(f"/api/v1/grievances/options?department={dept}", method="GET")
+			res_dept = frappe.api.handle(req_dept)
+			self.assertEqual(res_dept.status_code, 200)
+			data_dept = json.loads(res_dept.get_data(as_text=True))
+			self.assertIn("officers", data_dept["data"])
+			officers = data_dept["data"]["officers"]
+			self.assertTrue(any(o["user_id"] == "Administrator" for o in officers))
+
+			# 3. Cascading options with department and service_category
+			req_cat = make_test_request(
+				f"/api/v1/grievances/options?department={dept}&service_category=Inputs", method="GET"
+			)
+			res_cat = frappe.api.handle(req_cat)
+			self.assertEqual(res_cat.status_code, 200)
+			data_cat = json.loads(res_cat.get_data(as_text=True))
+			self.assertIn("officers", data_cat["data"])
+		finally:
+			frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
 
 	def test_auth_me_returns_namespaced_grievance_profile(self):
 		"""Test GET /api/v1/auth/me enriches data.profiles.grievance via on_user_profile hook."""
@@ -684,3 +739,58 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		normal_idx = next(i for i, item in enumerate(items) if item["name"] == g_normal.name)
 
 		self.assertLess(esc_idx, normal_idx, "Escalated grievance must appear before non-escalated grievance")
+
+	def test_kong_cors_methods_and_jwt_secret(self):
+		"""Kong CORS must allow DELETE and not expose dummy JWT secrets."""
+		from pathlib import Path
+
+		import yaml
+
+		kong_path = Path(__file__).resolve().parent.parent.parent / "kong" / "kong.yml"
+		self.assertTrue(kong_path.exists())
+		with open(kong_path) as f:
+			conf = yaml.safe_load(f)
+
+		cors_plugin = next(p for p in conf["services"][0]["plugins"] if p["name"] == "cors")
+		self.assertIn("DELETE", cors_plugin["config"]["methods"])
+		if "*" in cors_plugin["config"]["origins"]:
+			self.assertFalse(cors_plugin["config"].get("credentials", False))
+
+		for c in conf.get("consumers", []):
+			for sec in c.get("jwt_secrets", []):
+				self.assertNotEqual(sec.get("secret"), "REPLACE_WITH_OAN_AUTH_JWT_SECRET")
+
+	def test_attachment_routes_present_in_spec_and_kong(self):
+		"""Attachment endpoints must be present in OpenAPI and Kong."""
+		from pathlib import Path
+
+		import yaml
+
+		spec_path = Path(__file__).resolve().parent.parent.parent / "openapi" / "openapi_v1.public.yaml"
+		self.assertTrue(spec_path.exists())
+		with open(spec_path) as f:
+			spec = yaml.safe_load(f)
+
+		paths = spec["paths"]
+		self.assertIn("/api/v1/grievances/{ticket_number}/attachments", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}/download", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}/view", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}", paths)
+
+		view = paths["/api/v1/attachments/{attachment_id}/view"]["get"]
+		self.assertEqual(view["responses"]["200"]["content"]["*/*"]["schema"]["format"], "binary")
+
+	def test_channels_are_data_driven(self):
+		"""Intake channels come from master data, not hardcoded constants."""
+		self.assertIn("Web Portal", grievance.active_channels())
+		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 0)
+		self.assertNotIn("Web Portal", grievance.active_channels())
+		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 1)
+
+	def test_status_summary_endpoint(self):
+		"""Status summary queue exposes valid card counts and public statuses."""
+		res = grievance.summary()
+		self.assertEqual(res["status"], "success")
+		card_statuses = [card["status"] for card in res["data"]["cards"]]
+		self.assertIn("All", card_statuses)
+		self.assertIn("In Progress", card_statuses)

@@ -534,6 +534,66 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/GrievanceActionRequest'
+  /api/v1/grievances/{ticket_number}/feedback:
+    post:
+      tags:
+      - Grievances Core
+      summary: Submit citizen feedback / satisfaction rating
+      description: Submit satisfaction rating and feedback for a resolved or closed grievance.
+      operationId: post_api_v1_grievances_ticket_number_feedback
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.feedback
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrievanceFeedbackRequest'
   /api/v1/grievances/{ticket_number}/timeline:
     get:
       tags:
@@ -845,66 +905,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DeferSLARequest'
-  /api/v1/grievances/{ticket_number}/anonymity-decision:
-    post:
-      tags:
-      - Grievance Lifecycle & Actions
-      summary: Decide on anonymity request
-      description: Rule on the submitter's pending anonymity request for this case.
-      operationId: post_api_v1_grievances_ticket_number_anonymity_decision
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GrievanceChangeResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: ticket_number
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
-      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.anonymity_decision
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnonymityDecisionRequest'
   /api/v1/grievances/summary:
     get:
       tags:
@@ -968,11 +968,16 @@ paths:
       summary: Get grievance options and dropdowns
       description: "Management and lookup options for submitters, grievance officers and admins.\n\nReturns\
         \ reference lists for case filing, management, triage, and filtering,\nincluding departments,\
-        \ lifecycle statuses, categories, and types.\n\nArgs:\n    service_category (str, optional): Filter\
-        \ grievance types by a specific service category (e.g. 'Inputs').\n\nReturns:\n    departments:\
-        \ Active grievance departments\n    statuses: Grievance lifecycle statuses with metadata\n   \
-        \ service_categories: Active service categories\n    grievance_types: Active grievance types (optionally\
-        \ filtered by service_category)\n    submission_channels: Active intake channels"
+        \ lifecycle statuses, categories, and types.\nWhen `department` is provided, cascades and includes\
+        \ active officers under that\ndepartment (optionally narrowed by `service_category` and `administrative_area`).\n\
+        \nArgs:\n    service_category (str, optional): Filter grievance types & officers by service category\
+        \ (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n    department\
+        \ (str, optional): Department ID to fetch assigned officers.\n    administrative_area (str, optional):\
+        \ Administrative area to scope officer assignments.\n\nReturns:\n    departments: Active grievance\
+        \ departments\n    statuses: Grievance lifecycle statuses with metadata\n    service_categories:\
+        \ Active service categories\n    grievance_types: Active grievance types (optionally filtered\
+        \ by service_category)\n    submission_channels: Active intake channels\n    officers: Active\
+        \ officers under the specified department (present only if `department` is passed)"
       operationId: get_api_v1_grievances_options
       responses:
         '200':
@@ -1011,6 +1016,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter grievance types and officers by service category
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Alias for service_category
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Department ID to cascade and return active assigned officers
+      - name: administrative_area
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Administrative area ID to filter officer assignments
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.options
       security:
       - BearerAuth: []
@@ -3220,6 +3250,32 @@ components:
           type: array
           items:
             type: string
+        officers:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: string
+                description: Officer user ID
+              full_name:
+                type: string
+                description: Officer display name
+              email:
+                type: string
+                description: Officer email address
+              role_level:
+                type: string
+                description: Grievance role level code
+              is_primary:
+                type: boolean
+                description: Whether officer is designated primary
+              reports_to:
+                type: string
+                description: Supervisor user email or ID
+                nullable: true
+          description: Active officers under the specified department (present only when department is
+            supplied)
       required:
       - statuses
       - departments

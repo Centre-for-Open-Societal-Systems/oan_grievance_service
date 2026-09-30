@@ -25,6 +25,7 @@ from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import (
 	active_channels,
 	expand_status_filter,
+	get_department_officers,
 	get_departments,
 	get_grievance_types,
 	get_service_categories,
@@ -1765,14 +1766,25 @@ def summary():
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def options(service_category: str | None = None):
+def options(
+	service_category: str | None = None,
+	category: str | None = None,
+	department: str | None = None,
+	administrative_area: str | None = None,
+	**kwargs,
+):
 	"""Management and lookup options for submitters, grievance officers and admins.
 
 	Returns reference lists for case filing, management, triage, and filtering,
 	including departments, lifecycle statuses, categories, and types.
+	When `department` is provided, cascades and includes active officers under that
+	department (optionally narrowed by `service_category` and `administrative_area`).
 
 	Args:
-	    service_category (str, optional): Filter grievance types by a specific service category (e.g. 'Inputs').
+	    service_category (str, optional): Filter grievance types & officers by service category (e.g. 'Inputs').
+	    category (str, optional): Alias for service_category.
+	    department (str, optional): Department ID to fetch assigned officers.
+	    administrative_area (str, optional): Administrative area to scope officer assignments.
 
 	Returns:
 	    departments: Active grievance departments
@@ -1780,9 +1792,11 @@ def options(service_category: str | None = None):
 	    service_categories: Active service categories
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
+	    officers: Active officers under the specified department (present only if `department` is passed)
 	"""
+	cat = service_category or category
 	service_categories = get_service_categories()
-	grievance_types = get_grievance_types(service_category=service_category)
+	grievance_types = get_grievance_types(service_category=cat)
 
 	data = {
 		"departments": get_departments(),
@@ -1791,5 +1805,12 @@ def options(service_category: str | None = None):
 		"grievance_types": grievance_types,
 		"submission_channels": active_channels(),
 	}
+
+	if department:
+		data["officers"] = get_department_officers(
+			department=department,
+			service_category=cat,
+			administrative_area=administrative_area,
+		)
 
 	return success_response(data=data, message=_("Grievance options fetched successfully"))

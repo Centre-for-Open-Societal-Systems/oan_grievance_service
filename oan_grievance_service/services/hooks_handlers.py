@@ -72,12 +72,14 @@ def after_workflow_action(doc, from_state):
 		elif to_state == C.STATE_MORE_INFO_NEEDED:
 			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
 		elif to_state == C.STATE_RESOLVED:
-			notifications.queue(doc, C.EVENT_CONFIRMED)
+			pass
 		elif to_state == C.STATE_CLOSED:
 			if from_state == C.STATE_RESOLVED and (
 				context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close"
 			):
 				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
+			elif context.get("closure_type") == "confirmed" or context.get("action") == "Confirm Resolution":
+				notifications.queue(doc, C.EVENT_CONFIRMED)
 			else:
 				notifications.queue(doc, C.EVENT_CLOSED)
 		elif to_state == C.STATE_REJECTED:

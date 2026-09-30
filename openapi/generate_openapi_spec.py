@@ -630,6 +630,19 @@ data(
 			"service_categories": ARR(REF("OptionKeyValue")),
 			"grievance_types": ARR(REF("OptionKeyValue")),
 			"submission_channels": ARR(S()),
+			"officers": ARR(
+				OBJ(
+					{
+						"user_id": S(description="Officer user ID"),
+						"full_name": S(description="Officer display name"),
+						"email": S(description="Officer email address"),
+						"role_level": S(description="Grievance role level code"),
+						"is_primary": B(description="Whether officer is designated primary"),
+						"reports_to": S(description="Supervisor user email or ID", nullable=True),
+					}
+				),
+				description="Active officers under the specified department (present only when department is supplied)",
+			),
 		},
 		required=["statuses", "departments", "service_categories", "grievance_types", "submission_channels"],
 		description="Grievance management options and active dropdown choices for staff",
@@ -1194,6 +1207,36 @@ QP: dict[str, list[dict[str, Any]]] = {
 			"description": "Filter grievance types by category",
 		},
 	],
+	"GrievanceOptions": [
+		{
+			"name": "service_category",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter grievance types and officers by service category",
+		},
+		{
+			"name": "category",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Alias for service_category",
+		},
+		{
+			"name": "department",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Department ID to cascade and return active assigned officers",
+		},
+		{
+			"name": "administrative_area",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Administrative area ID to filter officer assignments",
+		},
+	],
 	"AdministrativeAreas": [
 		{
 			"name": "parent",
@@ -1515,6 +1558,8 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					parameters.extend(QP["AdministrativeAreas"])
 				elif func_name == "options" and "submitters" in openapi_path:
 					parameters.extend(QP["SubmitterOptions"])
+				elif func_name == "options" and "grievances" in openapi_path:
+					parameters.extend(QP["GrievanceOptions"])
 				elif func_name == "list_requests":
 					parameters.extend(QP["ListChangeRequests"])
 				elif func_name == "view":

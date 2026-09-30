@@ -15,7 +15,7 @@ from oan_grievance_service.permissions import (
 	has_grievance_permission,
 )
 from oan_grievance_service.services import routing
-from oan_grievance_service.tests.fixtures import discard_grievance
+from oan_grievance_service.tests.fixtures import a_leaf_area, discard_grievance
 
 
 class TestGrievanceRBACAssignment(FrappeTestCase):
@@ -448,9 +448,68 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			self.assertIsNone(unmatched_g.assigned_to)
 			self.assertEqual(unmatched_g.routed_automatically, 0)
 		finally:
-			if frappe.db.exists("Grievance", matching_g.name):
-				discard_grievance(matching_g.name)
-			if frappe.db.exists("Grievance", unmatched_g.name):
-				discard_grievance(unmatched_g.name)
 			if frappe.db.exists("Grievance RBAC Assignment", desk.name):
 				frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
+
+	def test_empty_officer_scope_matches_no_cases(self):
+		"""An officer with empty scope assignment must not match all grievances."""
+		officer_email = f"empty.scope.{frappe.generate_hash(length=8)}@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": officer_email,
+				"first_name": "EmptyScope",
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+
+		parent_assignment = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"assignment_name": f"Empty Scope {frappe.generate_hash(length=6)}",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"administrative_area_scope": None,
+				"department_scope": None,
+				"category_scope": None,
+				"officers": [
+					{
+						"user": user.name,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		)
+		parent_assignment.flags.ignore_mandatory = True
+		parent_assignment.insert(ignore_permissions=True)
+
+		cond = grievance_query_conditions(user.name)
+		self.assertNotIn(
+			"docstatus != 0)",
+			cond.replace(
+				f"`tabGrievance`.assigned_to in ('{user.name}') and `tabGrievance`.docstatus != 0",
+				"",
+			),
+		)
+
+		other_case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": a_leaf_area(),
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_name,
+				"description": "Unassigned case for permission test",
+				"assigned_to": "Administrator",
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+				"docstatus": 1,
+			}
+		)
+		other_case.flags.ignore_mandatory = True
+		other_case.insert(ignore_permissions=True)
+		self.assertFalse(has_grievance_permission(other_case, ptype="read", user=user.name))
+		discard_grievance(other_case.name)

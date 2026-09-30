@@ -391,6 +391,43 @@ class TestDraftRoundTrip(FrappeTestCase):
 			)
 		)
 
+	def test_purge_expired_drafts_scheduled_daily(self):
+		import oan_grievance_service.hooks as hooks
+
+		daily_tasks = hooks.scheduler_events.get("daily", [])
+		self.assertIn("oan_grievance_service.tasks.purge_expired_drafts", daily_tasks)
+
+	def test_client_uuid_alias_accepted(self):
+		key = frappe.generate_hash(length=16)
+		res = draft.save(client_uuid=key, description="Initial draft description")
+		self.assertEqual(res["status"], "success")
+		self.assertEqual(res["data"]["client_submission_uuid"], key)
+
+	def test_draft_field_clearing_and_anonymity_preservation(self):
+		key = frappe.generate_hash(length=16)
+		res1 = draft.save(client_submission_uuid=key, is_anonymous=1, description="Something to clear")
+		self.assertEqual(res1["data"]["is_anonymous"], 1)
+		self.assertEqual(res1["data"]["description"], "Something to clear")
+
+		res2 = draft.save(client_submission_uuid=key, description="")
+		self.assertEqual(res2["data"]["description"], "")
+		self.assertEqual(res2["data"]["is_anonymous"], 1, "Omitted is_anonymous must not reset to 0")
+
+	def test_draft_does_not_consume_real_ticket_number(self):
+		key = frappe.generate_hash(length=16)
+		area = a_leaf_area()
+		cat = a_service_category()
+
+		res = draft.save(
+			client_submission_uuid=key,
+			administrative_area=area,
+			service_category=cat,
+			description="Draft test",
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertTrue(res["data"]["name"].startswith("DRAFT-"))
+		self.assertIsNone(res["data"]["ticket_number"])
+
 
 def _a_submitter_user(email):
 	current = frappe.session.user

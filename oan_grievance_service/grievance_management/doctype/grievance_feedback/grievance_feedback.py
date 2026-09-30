@@ -31,6 +31,20 @@ class GrievanceFeedback(Document):
 				frappe.ValidationError,
 			)
 
+		user = frappe.session.user
+		from oan_grievance_service import permissions
+		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+			profiles_of,
+		)
+
+		if not permissions.is_staff(user) and not permissions.is_unrestricted(user):
+			user_profiles = profiles_of(user)
+			if grievance.submitter not in user_profiles and grievance.owner != user:
+				frappe.throw(
+					_("You can only submit feedback for your own grievances."),
+					frappe.PermissionError,
+				)
+
 	def after_insert(self):
 		# Sync latest rating to grievance for fast reporting and list view display
 		frappe.db.set_value(

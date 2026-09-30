@@ -372,3 +372,25 @@ class TestContractFiveTheClockFollowsTheState(WorkflowTestCase):
 		clock = self._clock()
 		self.assertIsNone(clock["on_hold_since"])
 		self.assertIsNotNone(clock["total_hold_time"])
+
+	def test_close_case_on_resolved_transitions_to_closed(self):
+		from oan_grievance_service.api.v1 import grievance
+
+		self._at_in_progress()
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Response",
+				"grievance": self.grievance.name,
+				"response_type": "Resolved",
+				"action_taken": "Resolved problem.",
+				"resolution_summary": "Problem resolved.",
+				"proposed_close_date": today(),
+			}
+		).insert(ignore_permissions=True)
+		self.grievance.reload()
+		self.assertEqual(self.grievance.workflow_state, "Resolved")
+
+		res = grievance.action(self.grievance.ticket_number or self.grievance.name, action="Close Case")
+		self.assertEqual(res["status"], "success")
+		self.grievance.reload()
+		self.assertEqual(self.grievance.status, "Closed")

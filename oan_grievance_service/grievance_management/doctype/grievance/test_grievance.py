@@ -15,7 +15,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import routing, ticket_number
-from oan_grievance_service.tests.fixtures import discard_grievance
+from oan_grievance_service.tests.fixtures import a_grievance_type, a_leaf_area, discard_grievance
 
 
 class TestGrievance(FrappeTestCase):
@@ -802,3 +802,139 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertEqual(res.get("status"), "error")
 		self.assertEqual(res.get("code"), "PERMISSION_DENIED")
 		self.assertEqual(frappe.response.get("http_status_code"), 403)
+
+	def test_detect_duplicates_excludes_drafts(self):
+		"""detect_duplicates must not count existing drafts as duplicates."""
+		from oan_grievance_service.api.v1 import grievance
+
+		area = a_leaf_area()
+		gtype = a_grievance_type()
+
+		draft_key = frappe.generate_hash(length=16)
+		draft_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"name": f"DRAFT-{draft_key}",
+				"client_submission_uuid": draft_key,
+				"submitter_name": "Test Submitter",
+				"grievance_type": gtype,
+				"workflow_state": "Draft",
+				"status": "Draft",
+				"docstatus": 0,
+			}
+		)
+		draft_doc.flags.is_draft_wizard = True
+		draft_doc.flags.ignore_mandatory = True
+		draft_doc.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, draft_doc.name)
+
+		target_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"administrative_area": area,
+				"service_category": "Inputs",
+				"submitter_name": "Test Submitter",
+				"grievance_type": gtype,
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+			}
+		)
+		target_doc.flags.ignore_mandatory = True
+		target_doc.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, target_doc.name)
+
+		duplicates = grievance.detect_duplicates(target_doc)
+		self.assertEqual(len(duplicates), 0)
+
+	def test_actions_and_notes_require_assigned_officer_or_admin(self):
+		"""Officers cannot act on or add notes to cases assigned to other officers."""
+		from oan_grievance_service.api.v1 import grievance
+
+		area = a_leaf_area()
+		gtype = a_grievance_type()
+
+		h1 = frappe.generate_hash(length=6)
+		h2 = frappe.generate_hash(length=6)
+		officer_a_email = f"officer.a.{h1}@example.com"
+		officer_b_email = f"officer.b.{h2}@example.com"
+
+		for email, name in ((officer_a_email, f"OfficerA_{h1}"), (officer_b_email, f"OfficerB_{h2}")):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": name,
+					"send_welcome_email": 0,
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+			self.addCleanup(frappe.delete_doc, "User", email, force=True, ignore_permissions=True)
+
+		case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": area,
+				"service_category": "Inputs",
+				"grievance_type": gtype,
+				"description": "Officer permission test",
+				"assigned_to": officer_a_email,
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+				"docstatus": 1,
+			}
+		)
+		case.flags.ignore_mandatory = True
+		case.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, case.name)
+		frappe.db.commit()
+
+		# Officer B attempts to add note on Officer A's case
+		frappe.set_user(officer_b_email)
+		res_note = grievance.add_note(case.ticket_number or case.name, body="Unauthorized officer note")
+		self.assertEqual(res_note["status"], "error")
+		self.assertEqual(res_note["code"], "PERMISSION_DENIED")
+
+		# Assigned Officer A can add note
+		frappe.set_user(officer_a_email)
+		note_res = grievance.add_note(case.ticket_number or case.name, body="Assigned officer note")
+		self.assertEqual(note_res["status"], "success")
+
+	def test_anonymity_masked_in_list_and_timeline_for_officers(self):
+		"""List and timeline mask submitter details for anonymous grievances when viewed by officers."""
+		from oan_grievance_service.api.v1 import grievance
+
+		area = a_leaf_area()
+		gtype = a_grievance_type()
+
+		anon_case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": area,
+				"service_category": "Inputs",
+				"grievance_type": gtype,
+				"description": "Anonymous grievance case description",
+				"is_anonymous": 1,
+				"submitter_name": "Secret Citizen",
+				"contact_mobile": "+251911998877",
+				"contact_email": "secret@example.com",
+				"assigned_to": self.officer_user.name,
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+				"docstatus": 1,
+			}
+		)
+		anon_case.flags.ignore_mandatory = True
+		anon_case.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, anon_case.name)
+
+		frappe.set_user(self.officer_user.name)
+		tl_res = grievance.timeline(anon_case.ticket_number or anon_case.name)
+		self.assertEqual(tl_res["status"], "success")
+		self.assertEqual(tl_res["data"]["submitter"]["name"], "Anonymous Submitter")
+		self.assertIsNone(tl_res["data"]["submitter"]["mobile"])
+		self.assertIsNone(tl_res["data"]["submitter"]["email"])
