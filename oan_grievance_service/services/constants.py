@@ -8,6 +8,26 @@ FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
 
 
+# Grievance Workflow states, seeded by setup/install.py (WORKFLOW_STATES).
+STATE_DRAFT = "Draft"
+STATE_SUBMITTED = "Submitted"
+STATE_ASSIGNED = "Assigned"
+STATE_IN_PROGRESS = "In Progress"
+STATE_MORE_INFO_NEEDED = "More Info Needed"
+STATE_PENDING_SUBMITTER = "Pending Submitter"
+STATE_RESOLVED = "Resolved"
+STATE_CLOSED = "Closed"
+STATE_REJECTED = "Rejected"
+
+# The groups the dashboards count by. Awaiting Action is every state in which an
+# officer owes the next move. More Info Needed and Pending Submitter (a response
+# waiting on the submitter's confirmation) wait on the submitter, so they are open
+# but not awaiting. Resolved on the dashboards means Resolved or Closed.
+AWAITING_ACTION_STATES = (STATE_SUBMITTED, STATE_ASSIGNED, STATE_IN_PROGRESS)
+OPEN_STATES = (*AWAITING_ACTION_STATES, STATE_MORE_INFO_NEEDED, STATE_PENDING_SUBMITTER)
+RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
+
+
 # FSD Appendix C event codes. Each is the "method" on one core Notification record per
 # channel, seeded by setup/install.py and editable from the desk thereafter.
 EVENT_SUBMISSION_RECEIVED = "submission_received"

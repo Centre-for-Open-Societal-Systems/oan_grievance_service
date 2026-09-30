@@ -380,6 +380,12 @@ def disarm_escalation(grievance):
 	return None
 
 
+def _first_escalation(grievance):
+	"""`escalated_at` keeps the first escalation: a response clears the flag, and later
+	rungs must not move the day the case first escalated."""
+	return {} if grievance.get("escalated_at") else {"escalated_at": now_datetime()}
+
+
 def escalate(grievance, trigger, reason=None, reassign=True):
 	"""FSD 3.7: move the case one rung up the chain and re-arm the clock.
 
@@ -407,7 +413,7 @@ def escalate(grievance, trigger, reason=None, reassign=True):
 
 	if reassign:
 		grievance.db_set("assigned_to", target, update_modified=False)
-	grievance.db_set("escalated", 1, update_modified=False)
+	grievance.db_set({"escalated": 1, **_first_escalation(grievance)}, update_modified=False)
 
 	# The rung the case just landed on owns the next deadline. No hours means this is a
 	# terminal rung and the ladder stops here.

@@ -83,6 +83,8 @@ def after_workflow_action(doc, from_state):
 			update_modified=False,
 		)
 
+	stamp_resolution(doc, to_state)
+
 	if context.get("notify", True):
 		event = lifecycle.STATUS_EVENT.get(to_state)
 		if event:
@@ -96,6 +98,20 @@ def _action_between(doc, from_state, to_state):
 		if row.state == from_state and row.next_state == to_state:
 			return row.action
 	return None
+
+
+def stamp_resolution(doc, to_state):
+	"""Keep `resolved_at` on the moment the case last reached Resolved or Closed.
+
+	Resolved then Closed keeps the first stamp: the case was resolved when the
+	submitter confirmed it, not when they later closed it. A reopen clears it, so a
+	case resolved twice counts once, on the day it was finally resolved.
+	"""
+	if to_state in C.RESOLVED_STATES:
+		if not doc.resolved_at:
+			doc.db_set("resolved_at", now_datetime(), update_modified=False)
+	elif doc.resolved_at and to_state != C.STATE_REJECTED:
+		doc.db_set("resolved_at", None, update_modified=False)
 
 
 def response_after_insert(doc, method=None):
