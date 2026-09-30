@@ -285,7 +285,22 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		dept = a_department()
+		lone_dept = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": f"Lone Officer Dept {frappe.generate_hash(length=6)}",
+				"email_account": "lone_dept@example.com",
+				"active": 1,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Department",
+			lone_dept.name,
+			force=True,
+			ignore_permissions=True,
+		)
+		dept = lone_dept.name
 		g = a_grievance(
 			service_category=self.cat_a,
 			grievance_type=self.gtype_a.name,
@@ -333,7 +348,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		area = a_leaf_area()
 
 		# Setup RBAC assignment with nodal_officer and department_head, leaving senior_nodal_officer unstaffed
-		frappe.get_doc(
+		rbac_skip = frappe.get_doc(
 			{
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": dept,
@@ -357,6 +372,13 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				],
 			}
 		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			rbac_skip.name,
+			force=True,
+			ignore_permissions=True,
+		)
 
 		target, level = sla.higher_authority_of(
 			"nodal_worker@example.com",

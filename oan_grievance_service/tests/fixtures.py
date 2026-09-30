@@ -14,6 +14,11 @@ from frappe.utils import now_datetime
 from oan_grievance_service.services import constants as C
 
 SEED_CATEGORY = "Inputs"
+_CACHED_LEAF_AREA = None
+_CACHED_DEPARTMENT = None
+_CACHED_SUBMITTER_TYPE = None
+_CACHED_SERVICE_CATEGORY = None
+_CACHED_GRIEVANCE_TYPE = None
 
 
 def a_leaf_area():
@@ -24,6 +29,10 @@ def a_leaf_area():
 	seed provides plenty; one is created only when the seed has not been loaded,
 	which is the case on a bare test site.
 	"""
+	global _CACHED_LEAF_AREA
+	if _CACHED_LEAF_AREA and frappe.db.exists("Grievance Administrative Area", _CACHED_LEAF_AREA):
+		return _CACHED_LEAF_AREA
+
 	from oan_grievance_service.services.ticket_number import region_of
 
 	for area in frappe.db.get_all(
@@ -33,6 +42,7 @@ def a_leaf_area():
 		limit=20,
 	):
 		if region_of(area):
+			_CACHED_LEAF_AREA = area
 			return area
 
 	root = frappe.db.get_value(
@@ -146,10 +156,15 @@ def discard_grievance(name):
 
 def a_department():
 	"""A department for a case to be assigned to; work cannot start without one."""
+	global _CACHED_DEPARTMENT
+	if _CACHED_DEPARTMENT and frappe.db.exists("Grievance Department", _CACHED_DEPARTMENT):
+		return _CACHED_DEPARTMENT
+
 	existing = frappe.db.get_value("Grievance Department", {}, "name")
 	if existing:
+		_CACHED_DEPARTMENT = existing
 		return existing
-	return (
+	_CACHED_DEPARTMENT = (
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Department",
@@ -160,29 +175,41 @@ def a_department():
 		.insert(ignore_permissions=True)
 		.name
 	)
+	return _CACHED_DEPARTMENT
 
 
 def a_submitter_type():
 	"""Submitter Type became a master doctype; tests should not assume a seed."""
+	global _CACHED_SUBMITTER_TYPE
+	if _CACHED_SUBMITTER_TYPE and frappe.db.exists("Grievance Submitter Type", _CACHED_SUBMITTER_TYPE):
+		return _CACHED_SUBMITTER_TYPE
+
 	existing = frappe.db.get_value("Grievance Submitter Type", {}, "name")
 	if existing:
+		_CACHED_SUBMITTER_TYPE = existing
 		return existing
 
-	return (
+	_CACHED_SUBMITTER_TYPE = (
 		frappe.get_doc(
 			{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "is_active": 1}
 		)
 		.insert(ignore_permissions=True)
 		.name
 	)
+	return _CACHED_SUBMITTER_TYPE
 
 
 def a_service_category():
+	global _CACHED_SERVICE_CATEGORY
+	if _CACHED_SERVICE_CATEGORY and frappe.db.exists("Grievance Service Category", _CACHED_SERVICE_CATEGORY):
+		return _CACHED_SERVICE_CATEGORY
+
 	existing = frappe.db.get_value("Grievance Service Category", SEED_CATEGORY, "name")
 	if existing:
+		_CACHED_SERVICE_CATEGORY = existing
 		return existing
 
-	return (
+	_CACHED_SERVICE_CATEGORY = (
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Service Category",
@@ -195,16 +222,22 @@ def a_service_category():
 		.insert(ignore_permissions=True)
 		.name
 	)
+	return _CACHED_SERVICE_CATEGORY
 
 
 def a_grievance_type():
 	"""The seeded category has no types of its own, so make one on first use."""
+	global _CACHED_GRIEVANCE_TYPE
+	if _CACHED_GRIEVANCE_TYPE and frappe.db.exists("Grievance Type", _CACHED_GRIEVANCE_TYPE):
+		return _CACHED_GRIEVANCE_TYPE
+
 	category = a_service_category()
 	existing = frappe.db.get_value("Grievance Type", {"service_category": category}, "name")
 	if existing:
+		_CACHED_GRIEVANCE_TYPE = existing
 		return existing
 
-	return (
+	_CACHED_GRIEVANCE_TYPE = (
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Type",
@@ -216,3 +249,4 @@ def a_grievance_type():
 		.insert(ignore_permissions=True)
 		.name
 	)
+	return _CACHED_GRIEVANCE_TYPE

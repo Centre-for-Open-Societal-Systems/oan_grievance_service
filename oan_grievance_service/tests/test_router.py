@@ -60,9 +60,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		ensure_routes_registered()
-
-	def setUp(self):
-		super().setUp()
 		frappe.set_user("Administrator")
 
 		# Ensure required roles exist
@@ -88,7 +85,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
 		if not frappe.db.exists("Grievance Type", {"type_name": "Fertilizer Shortage"}):
-			self.gtype = frappe.get_doc(
+			cls.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -98,7 +95,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			).insert(ignore_permissions=True)
 		else:
 			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
-			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
+			cls.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
 		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
 			frappe.get_doc(
@@ -110,12 +107,12 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		self.area = a_leaf_area()
+		cls.area = a_leaf_area()
 
 		# Create a test farmer user and profile
-		self.farmer_user = frappe.db.get_value("User", {"email": "rest_farmer@test.org"}, "*")
-		if not self.farmer_user:
-			self.farmer_user = frappe.get_doc(
+		cls.farmer_user = frappe.db.get_value("User", {"email": "rest_farmer@test.org"}, "*")
+		if not cls.farmer_user:
+			cls.farmer_user = frappe.get_doc(
 				{
 					"doctype": "User",
 					"email": "rest_farmer@test.org",
@@ -124,11 +121,11 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.farmer_user = frappe.get_doc("User", self.farmer_user.name)
+			cls.farmer_user = frappe.get_doc("User", cls.farmer_user.name)
 
 		profile_name = frappe.db.get_value(
 			"Grievance Submitter Profile",
-			{"user": self.farmer_user.name},
+			{"user": cls.farmer_user.name},
 			"name",
 		) or frappe.db.get_value(
 			"Grievance Submitter Profile",
@@ -136,22 +133,26 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			"name",
 		)
 		if not profile_name:
-			self.farmer_profile = frappe.get_doc(
+			cls.farmer_profile = frappe.get_doc(
 				{
 					"doctype": "Grievance Submitter Profile",
 					"submitter_type": "Individual Farmer",
 					"submitter_name": "REST Test Submitter",
 					"contact_mobile": "+251911998877",
-					"user": self.farmer_user.name,
+					"user": cls.farmer_user.name,
 				}
 			).insert(ignore_permissions=True)
 		else:
-			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
-			if self.farmer_profile.user != self.farmer_user.name:
-				self.farmer_profile.user = self.farmer_user.name
-				self.farmer_profile.save(ignore_permissions=True)
+			cls.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+			if cls.farmer_profile.user != cls.farmer_user.name:
+				cls.farmer_profile.user = cls.farmer_user.name
+				cls.farmer_profile.save(ignore_permissions=True)
 
 		frappe.db.commit()
+
+	def setUp(self):
+		super().setUp()
+		frappe.set_user("Administrator")
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -462,11 +463,27 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		dept = a_department()
-		frappe.get_doc(
+		reassign_dept_name = f"Router Reassign Dept {uuid.uuid4().hex[:6]}"
+		reassign_dept = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": reassign_dept_name,
+				"email_account": "router_reassign@example.com",
+				"active": 1,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Department",
+			reassign_dept.name,
+			force=True,
+			ignore_permissions=True,
+		)
+
+		rbac_doc = frappe.get_doc(
 			{
 				"doctype": "Grievance RBAC Assignment",
-				"department_scope": dept,
+				"department_scope": reassign_dept.name,
 				"category_scope": "Inputs",
 				"active": 1,
 				"effective_from": frappe.utils.today(),
@@ -480,12 +497,19 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				],
 			}
 		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			rbac_doc.name,
+			force=True,
+			ignore_permissions=True,
+		)
 
 		req_reassign = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/reassign",
 			method="POST",
 			data={
-				"target_department": dept,
+				"target_department": reassign_dept.name,
 				"reason": "Routing to regional dept",
 			},
 		)
