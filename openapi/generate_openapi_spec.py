@@ -641,7 +641,10 @@ data(
 	"CategoryAssignment",
 	OBJ(
 		{
-			"name": S(example="GR-RBAC-00001", description="Grievance RBAC Assignment id for this department and category"),
+			"name": S(
+				example="GR-RBAC-00001",
+				description="Grievance RBAC Assignment id for this department and category",
+			),
 			"service_category": S(example="Inputs", description="Grievance service category"),
 			"department": S(description="Owning department the category routes to"),
 			"l1_officer": S(nullable=True, description="L1 nodal officer user id"),

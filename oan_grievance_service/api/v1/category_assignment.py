@@ -204,7 +204,9 @@ def _validate_links(state: dict):
 	_assert_officer(l1, _("L1 officer"))
 	if l2:
 		_assert_officer(l2, _("L2 officer"))
-	_assert_active("Grievance Service Category", state["service_category"], "is_active", _("Service category"))
+	_assert_active(
+		"Grievance Service Category", state["service_category"], "is_active", _("Service category")
+	)
 	_assert_active("Grievance Department", state["department"], "active", _("Department"))
 	prefs = frappe.db.get_value(
 		"Grievance Department",

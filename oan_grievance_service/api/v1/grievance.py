@@ -69,7 +69,7 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 
 
 class ListGrievancesRequest(PageParams):
-	model_config = {"extra": "allow"}
+	model_config = ConfigDict(extra="allow")
 
 	limit: int | None = Field(None, ge=1, le=100)
 	status: str | list | None = None
