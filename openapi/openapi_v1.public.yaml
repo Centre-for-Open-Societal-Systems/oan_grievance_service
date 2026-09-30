@@ -1577,7 +1577,7 @@ paths:
         required: true
         schema:
           type: string
-        description: Category assignment id, for example GR-CAT-00001
+        description: Grievance RBAC Assignment id, for example GR-RBAC-00001
       security:
       - BearerAuth: []
     patch:
@@ -1630,7 +1630,7 @@ paths:
         required: true
         schema:
           type: string
-        description: Category assignment id, for example GR-CAT-00001
+        description: Grievance RBAC Assignment id, for example GR-RBAC-00001
       security:
       - BearerAuth: []
       requestBody:
@@ -1689,7 +1689,7 @@ paths:
         required: true
         schema:
           type: string
-        description: Category assignment id, for example GR-CAT-00001
+        description: Grievance RBAC Assignment id, for example GR-RBAC-00001
       security:
       - BearerAuth: []
 components:
@@ -2629,8 +2629,8 @@ components:
       properties:
         name:
           type: string
-          example: GR-CAT-00001
-          description: Category assignment id
+          example: GR-RBAC-00001
+          description: Grievance RBAC Assignment id for this category
         service_category:
           type: string
           example: Inputs
@@ -2674,6 +2674,23 @@ components:
         active:
           type: boolean
           description: False once the rule has been deactivated
+        l1_role_level:
+          type: string
+          nullable: true
+          description: L1 role level copied from the department
+        l2_role_level:
+          type: string
+          nullable: true
+          description: L2 role level copied from the department
+        routing_strategy:
+          type: string
+          nullable: true
+          enum:
+          - Primary First
+          - Round Robin
+          - Least Loaded
+          description: Routing strategy copied from the department. Null when the department has not chosen
+            one.
         rbac_assignment:
           type: string
           nullable: true

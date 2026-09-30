@@ -11,7 +11,11 @@
   "short_name",
   "email_account",
   "phone",
-  "active"
+  "active",
+  "sec_routing",
+  "l1_role_level",
+  "l2_role_level",
+  "routing_strategy"
  ],
  "fields": [
   {
@@ -48,6 +52,32 @@
    "fieldname": "active",
    "fieldtype": "Check",
    "label": "Active"
+  },
+  {
+   "fieldname": "sec_routing",
+   "fieldtype": "Section Break",
+   "label": "Routing"
+  },
+  {
+   "description": "Role level copied onto the primary officer when a category assignment for this department is saved.",
+   "fieldname": "l1_role_level",
+   "fieldtype": "Link",
+   "label": "L1 Role Level",
+   "options": "Grievance Role Level"
+  },
+  {
+   "description": "Role level copied onto the senior officer when a category assignment for this department is saved.",
+   "fieldname": "l2_role_level",
+   "fieldtype": "Link",
+   "label": "L2 Role Level",
+   "options": "Grievance Role Level"
+  },
+  {
+   "description": "How this department's category desks pick an officer. Blank leaves the desk strategy unchanged.",
+   "fieldname": "routing_strategy",
+   "fieldtype": "Select",
+   "label": "Routing Strategy",
+   "options": "\nPrimary First\nRound Robin\nLeast Loaded"
   }
  ],
  "grid_page_length": 50,

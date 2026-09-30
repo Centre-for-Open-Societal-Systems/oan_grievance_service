@@ -1972,7 +1972,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
                 },
-                "description": "Fetch one rule by id, for example GR-CAT-00001."
+                "description": "Fetch one rule by its Grievance RBAC Assignment id, for example GR-RBAC-00001."
               },
               "response": []
             },

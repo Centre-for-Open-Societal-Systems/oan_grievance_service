@@ -639,7 +639,7 @@ data(
 	"CategoryAssignment",
 	OBJ(
 		{
-			"name": S(example="GR-CAT-00001", description="Category assignment id"),
+			"name": S(example="GR-RBAC-00001", description="Grievance RBAC Assignment id for this category"),
 			"service_category": S(example="Inputs", description="Grievance service category"),
 			"department": S(description="Owning department the category routes to"),
 			"l1_officer": S(description="L1 nodal officer user id"),
@@ -653,6 +653,19 @@ data(
 				description="Notify the department when a case in this category is submitted"
 			),
 			"active": B(description="False once the rule has been deactivated"),
+			"l1_role_level": S(
+				nullable=True,
+				description="L1 role level copied from the department",
+			),
+			"l2_role_level": S(
+				nullable=True,
+				description="L2 role level copied from the department",
+			),
+			"routing_strategy": S(
+				nullable=True,
+				enum=["Primary First", "Round Robin", "Least Loaded"],
+				description="Routing strategy copied from the department. Null when the department has not chosen one.",
+			),
 			"rbac_assignment": S(nullable=True, description="Desk this rule projects onto for auto-routing"),
 		},
 		required=[
@@ -1604,7 +1617,7 @@ ROUTES = [
 				"in": "path",
 				"required": True,
 				"schema": S(),
-				"description": "Category assignment id, for example GR-CAT-00001",
+				"description": "Grievance RBAC Assignment id, for example GR-RBAC-00001",
 			}
 		],
 		response="CategoryAssignmentResponse",
@@ -1623,7 +1636,7 @@ ROUTES = [
 				"in": "path",
 				"required": True,
 				"schema": S(),
-				"description": "Category assignment id, for example GR-CAT-00001",
+				"description": "Grievance RBAC Assignment id, for example GR-RBAC-00001",
 			}
 		],
 		request="UpdateCategoryAssignmentRequest",
@@ -1646,7 +1659,7 @@ ROUTES = [
 				"in": "path",
 				"required": True,
 				"schema": S(),
-				"description": "Category assignment id, for example GR-CAT-00001",
+				"description": "Grievance RBAC Assignment id, for example GR-RBAC-00001",
 			}
 		],
 		response="CategoryAssignmentResponse",

@@ -20,20 +20,14 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.l1 = _user("stg404-l1@example.com", "Tigist Alemu")
 		self.l2 = _user("stg404-l2@example.com", "Yonas Mekonnen")
 		self.category = _category("STG404 Inputs", "Z94")
+		_role_level("nodal_officer", 10)
+		_role_level("senior_nodal_officer", 20)
 		self.department = _department("STG404 Inputs Agency", "S404")
-		for level, order in (("nodal_officer", 10), ("senior_nodal_officer", 20)):
-			if not frappe.db.exists("Grievance Role Level", level):
-				frappe.get_doc(
-					{
-						"doctype": "Grievance Role Level",
-						"level_code": level,
-						"level_name": level,
-						"level_order": order,
-						"is_active": 1,
-					}
-				).insert(ignore_permissions=True)
 		frappe.set_user("Administrator")
-		frappe.db.delete("Grievance Category Assignment", {"service_category": self.category})
+		for name in frappe.get_all(
+			"Grievance RBAC Assignment", filters={"category_scope": self.category}, pluck="name"
+		):
+			frappe.delete_doc("Grievance RBAC Assignment", name, force=1, ignore_permissions=True)
 		frappe.clear_messages()
 
 	def test_crud_projects_desk_and_sla(self):
@@ -62,6 +56,9 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(desk.category_scope, self.category)
 		self.assertEqual(desk.department_scope, self.department)
 		self.assertEqual(desk.active, 1)
+		self.assertEqual(desk.routing_strategy, "Primary First")
+		self.assertEqual(assignment["l1_role_level"], "nodal_officer")
+		self.assertEqual(assignment["routing_strategy"], "Primary First")
 		officers = {row.role_level: row for row in desk.officers}
 		self.assertEqual(officers["nodal_officer"].user, self.l1)
 		self.assertEqual(officers["nodal_officer"].is_primary, 1)
@@ -110,6 +107,52 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		again = deactivate_assignment(assignment["name"])
 		self.assertFalse(again["data"]["assignment"]["active"])
 
+	def test_desk_uses_the_departments_role_levels_and_routing_strategy(self):
+		_role_level("desk_primary", 110)
+		_role_level("desk_senior", 120)
+		department = _department(
+			"STG404 Routing Agency",
+			"S404R",
+			l1_role_level="desk_primary",
+			l2_role_level="desk_senior",
+			routing_strategy="Round Robin",
+		)
+		category = _category("STG404 Routing", "Z9R")
+		created = create_assignment(
+			service_category=category,
+			department=department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=6,
+		)
+		self.assertEqual(created["status"], "success", msg=created)
+		assignment = created["data"]["assignment"]
+		self.assertEqual(assignment["l1_role_level"], "desk_primary")
+		self.assertEqual(assignment["l2_role_level"], "desk_senior")
+		self.assertEqual(assignment["routing_strategy"], "Round Robin")
+		desk = frappe.get_doc("Grievance RBAC Assignment", assignment["rbac_assignment"])
+		self.assertEqual(desk.routing_strategy, "Round Robin")
+		officers = {row.role_level: row.user for row in desk.officers}
+		self.assertEqual(officers["desk_primary"], self.l1)
+		self.assertEqual(officers["desk_senior"], self.l2)
+
+	def test_department_without_l1_role_level_is_rejected(self):
+		department = _department(
+			"STG404 No Level Agency",
+			"S404N",
+			l1_role_level=None,
+			l2_role_level=None,
+			routing_strategy=None,
+		)
+		result = create_assignment(
+			service_category=self.category,
+			department=department,
+			l1_officer=self.l1,
+			sla_days=5,
+		)
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("L1 role level", result["message"])
+
 	def test_duplicate_category_is_rejected(self):
 		create_assignment(
 			service_category=self.category,
@@ -125,22 +168,18 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		)
 		self.assertEqual(duplicate["code"], "DUPLICATE_ENTRY")
 
-	def test_projected_desk_name_stays_on_the_document(self):
-		doc = frappe.get_doc(
-			{
-				"doctype": "Grievance Category Assignment",
-				"service_category": self.category,
-				"department": self.department,
-				"l1_officer": self.l1,
-				"sla_days": 5,
-				"priority": "Normal",
-			}
-		).insert()
-		self.assertTrue(doc.rbac_assignment)
-		self.assertEqual(
-			frappe.db.get_value("Grievance Category Assignment", doc.name, "rbac_assignment"),
-			doc.rbac_assignment,
+	def test_category_assignment_is_the_rbac_desk(self):
+		created = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			sla_days=5,
 		)
+		self.assertEqual(created["status"], "success", msg=created)
+		assignment = created["data"]["assignment"]
+		self.assertEqual(assignment["rbac_assignment"], assignment["name"])
+		self.assertTrue(frappe.db.exists("Grievance RBAC Assignment", assignment["name"]))
+		self.assertFalse(assignment["name"].startswith("GR-CAT"))
 
 	def test_missing_assignment_is_not_found(self):
 		for result in (
@@ -165,14 +204,17 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 				self.assertIn(field, result["details"])
 		stored = frappe.db.get_value(
-			"Grievance Category Assignment",
+			"Grievance RBAC Assignment",
 			name,
-			["department", "l1_officer", "service_category"],
+			["department_scope", "category_scope"],
 			as_dict=True,
 		)
-		self.assertEqual(stored.department, self.department)
-		self.assertEqual(stored.l1_officer, self.l1)
-		self.assertEqual(stored.service_category, self.category)
+		l1 = frappe.db.get_value(
+			"Grievance RBAC Assignment Officer", {"parent": name, "is_primary": 1}, "user"
+		)
+		self.assertEqual(stored.department_scope, self.department)
+		self.assertEqual(l1, self.l1)
+		self.assertEqual(stored.category_scope, self.category)
 
 	def test_sla_days_must_be_at_least_one(self):
 		with _keep_transaction():
@@ -277,7 +319,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		stamp = "2026-01-01 00:00:00"
 		for name in (first, second):
 			frappe.db.set_value(
-				"Grievance Category Assignment",
+				"Grievance RBAC Assignment",
 				name,
 				"modified",
 				stamp,
@@ -389,9 +431,37 @@ def _category(name, code):
 	return name
 
 
-def _department(name, short_name, active=1):
+def _role_level(level, order):
+	if frappe.db.exists("Grievance Role Level", level):
+		return level
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Role Level",
+			"level_code": level,
+			"level_name": level,
+			"level_order": order,
+			"is_active": 1,
+		}
+	).insert(ignore_permissions=True)
+	return level
+
+
+def _department(
+	name,
+	short_name,
+	active=1,
+	l1_role_level="nodal_officer",
+	l2_role_level="senior_nodal_officer",
+	routing_strategy="Primary First",
+):
+	values = {
+		"active": active,
+		"l1_role_level": l1_role_level,
+		"l2_role_level": l2_role_level,
+		"routing_strategy": routing_strategy,
+	}
 	if frappe.db.exists("Grievance Department", name):
-		frappe.db.set_value("Grievance Department", name, "active", active, update_modified=False)
+		frappe.db.set_value("Grievance Department", name, values, update_modified=False)
 		return name
 	frappe.get_doc(
 		{
@@ -399,7 +469,7 @@ def _department(name, short_name, active=1):
 			"dept_name": name,
 			"short_name": short_name,
 			"email_account": "stg404@example.com",
-			"active": active,
+			**values,
 		}
 	).insert(ignore_permissions=True)
 	return name
