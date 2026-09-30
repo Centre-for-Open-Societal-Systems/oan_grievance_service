@@ -88,6 +88,9 @@ class SaveDraftRequest(BaseModel):
 	description: str | None = None
 	desired_outcome: str | None = None
 	is_anonymous: int | None = Field(None, ge=0, le=1)
+	can_request_more_info: bool | int | None = Field(
+		True, description="Whether submitter can be contacted for more information"
+	)
 	validate: bool | int | None = Field(False, description="If true, execute validation on the draft payload")
 
 	@model_validator(mode="after")
@@ -120,6 +123,7 @@ def save(
 	description: str | None = None,
 	desired_outcome: str | None = None,
 	is_anonymous: int | None = None,
+	can_request_more_info: bool | int | None = None,
 	validate: bool | int = False,
 	**kwargs,
 ):
@@ -218,6 +222,9 @@ def save(
 		doc.desired_outcome = desired_outcome
 	if is_anonymous is not None:
 		doc.is_anonymous = 1 if is_anonymous else 0
+	if can_request_more_info is not None and not can_request_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
 
 	if validate:
 		if doc.contact_mobile:
@@ -281,6 +288,9 @@ class SubmitDraftRequest(BaseModel):
 	consent_given: int | bool = 1
 	is_anonymous: int | bool = 0
 	anonymity_justification: str | None = None
+	can_request_more_info: bool | int = Field(
+		True, description="Whether submitter can be contacted for more information"
+	)
 	submission_channel: str | None = None
 	submitter_type: str | None = None
 	submitter_name: str | None = None
@@ -308,6 +318,7 @@ def submit_draft(
 	consent_given: int | bool = 1,
 	is_anonymous: int | bool = 0,
 	anonymity_justification: str | None = None,
+	can_request_more_info: bool | int = True,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
 	submitter_name: str | None = None,
@@ -389,6 +400,11 @@ def submit_draft(
 	if not doc.consent_recorded_at:
 		doc.consent_recorded_at = now_datetime()
 
+	wants_more_info = bool(can_request_more_info) if can_request_more_info is not None else True
+	if not wants_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
+
 	if not doc.submission_channel:
 		doc.submission_channel = "Web Portal"
 
@@ -405,8 +421,12 @@ def submit_draft(
 			doc.submitter = ident["submitter"]
 			doc.submitter_type = ident.get("submitter_type") or doc.submitter_type
 			doc.submitter_name = ident.get("submitter_name") or doc.submitter_name
-			doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
-			doc.contact_email = ident.get("contact_email") or doc.contact_email
+			if wants_more_info:
+				doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
+				doc.contact_email = ident.get("contact_email") or doc.contact_email
+			else:
+				doc.contact_mobile = None
+				doc.contact_email = None
 			if ident.get("assisted_by_officer"):
 				doc.assisted_by_officer = ident.get("assisted_by_officer")
 		else:
@@ -422,13 +442,20 @@ def submit_draft(
 		if profile:
 			doc.submitter_type = doc.submitter_type or profile.submitter_type
 			doc.submitter_name = doc.submitter_name or profile.submitter_name
-			doc.contact_mobile = doc.contact_mobile or profile.contact_mobile
-			doc.contact_email = doc.contact_email or profile.contact_email
+			if wants_more_info:
+				doc.contact_mobile = doc.contact_mobile or profile.contact_mobile
+				doc.contact_email = doc.contact_email or profile.contact_email
+			else:
+				doc.contact_mobile = None
+				doc.contact_email = None
 
-	if doc.contact_mobile:
+	if wants_more_info and doc.contact_mobile:
 		from oan_grievance_service.services import identity
 
 		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
+	elif not wants_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
 
 	from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 		validate_submission_payload,
@@ -449,7 +476,7 @@ def submit_draft(
 	doc.ticket_number = doc.name
 	doc.save(ignore_permissions=True)
 
-	from oan_grievance_service.api.v1.grievance import _request_anonymity, detect_duplicates
+	from oan_grievance_service.api.v1.grievance import detect_duplicates
 	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 		GrievanceTimeline,
 	)
@@ -487,6 +514,7 @@ def submit_draft(
 	wants_anonymity = bool(is_anonymous or doc.is_anonymous)
 	if wants_anonymity:
 		doc.is_anonymous = 1
+		doc.db_set("is_anonymous", 1, update_modified=False)
 
 	duplicates = detect_duplicates(doc)
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
@@ -494,9 +522,6 @@ def submit_draft(
 		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
 	routing.enqueue_routing(doc.name)
 	doc.reload()
-
-	if wants_anonymity:
-		_request_anonymity(doc, anonymity_justification)
 
 	return success_response(
 		data={
@@ -657,6 +682,7 @@ def _draft_state(doc):
 		"description": doc.description,
 		"desired_outcome": doc.desired_outcome,
 		"is_anonymous": doc.is_anonymous,
+		"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 		"attachments": attachments,
 		"attachment_count": len(attachments),
 		"owner": doc.owner,

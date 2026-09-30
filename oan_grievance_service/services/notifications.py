@@ -123,6 +123,11 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		return override
 
 	if recipient_role == RECIPIENT_SUBMITTER:
+		# If the case has no contact details on file (e.g. submitter opted out via can_request_more_info=False),
+		# do not notify the submitter.
+		if not grievance.contact_mobile and not grievance.contact_email:
+			return None
+
 		# submitter is a Link to Submitter Profile, so the User is one hop away. Fall
 		# back to the contact snapshot for submitters who never registered a User.
 		if grievance.submitter:

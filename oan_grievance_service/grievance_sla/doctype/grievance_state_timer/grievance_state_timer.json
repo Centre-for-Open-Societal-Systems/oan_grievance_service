@@ -30,7 +30,7 @@
    "fieldname": "on_expiry",
    "fieldtype": "Select",
    "label": "On Expiry",
-   "options": "Auto Close\nEscalate",
+   "options": "Auto Close\nAuto Resolve\nEscalate",
    "reqd": 1,
    "in_list_view": 1,
    "description": "Auto Close closes the case. Escalate hands it one rung up the chain."

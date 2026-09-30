@@ -19,7 +19,6 @@ REQUESTABLE_FIELDS = (
 	"assigned_dept",
 	"assigned_to",
 	"sla_due_date",
-	"anonymity_status",
 	"service_category",
 	"grievance_type",
 )
@@ -74,6 +73,7 @@ class GrievanceSubmissionPayload(BaseModel):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	administrative_area: str | None = None
+	can_request_more_info: bool | int = True
 
 	@field_validator("contact_mobile")
 	@classmethod
@@ -153,6 +153,15 @@ class Grievance(Document):
 	def _validate_mandatory(self):
 		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
 			return
+		if not self.contact_mobile:
+			field = self.meta.get_field("contact_mobile")
+			if field and field.reqd:
+				field.reqd = 0
+				try:
+					super()._validate_mandatory()
+				finally:
+					field.reqd = 1
+				return
 		super()._validate_mandatory()
 
 	def validate(self):
@@ -302,13 +311,6 @@ class Grievance(Document):
 		if fieldname == "sla_due_date":
 			self._validate_deferral(new_value)
 
-		if fieldname == "anonymity_status":
-			if new_value != "Approved" or self.anonymity_status != "Pending Approval":
-				frappe.throw(
-					_("Anonymity can only be requested for a case whose anonymity is pending approval."),
-					title=_("Invalid Anonymity Request"),
-				)
-
 	def _validate_deferral(self, new_value):
 		"""A deferral only moves the deadline out, and by no more than policy allows."""
 		from frappe.utils import get_datetime
@@ -333,9 +335,6 @@ class Grievance(Document):
 		records the change and the after-submit hooks run."""
 		for row in request.changes:
 			self.set(row.fieldname, row.new_value or None)
-		if any(row.fieldname == "anonymity_status" for row in request.changes):
-			self.is_anonymous = 1
-			self.anonymity_approved_by = request.decided_by
 		self.flags.change_request = request.name
 		self.flags.change_request_doc = request
 		from oan_grievance_service.services import reassignment
@@ -344,13 +343,8 @@ class Grievance(Document):
 		self.save(ignore_permissions=True)
 
 	def reject_change_request(self, request):
-		"""A rejected anonymity request records the ruling and nothing more.
-
-		`is_anonymous` is the submitter's own choice; an officer turning the request down
-		does not get to reveal them. What happens next is for the submitter to decide.
-		"""
-		if any(row.fieldname == "anonymity_status" for row in request.changes):
-			self.db_set("anonymity_status", "Rejected", update_modified=False)
+		"""A rejected change request records the decision note and timeline."""
+		pass
 
 	def on_update(self):
 		if not getattr(self.flags, "change_request", None) and self.has_value_changed("service_category"):

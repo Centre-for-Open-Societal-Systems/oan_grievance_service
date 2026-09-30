@@ -4,7 +4,7 @@
 """Acceptance tests for Grievance Change Request.
 
 Covers:
-- Submitter anonymity request creation, approval, and rejection
+- Submitter change request restriction
 - Department and officer reassignment with hierarchy routing & auto-approval
 - SLA deferral request validation (+days) and approval
 - Hierarchy forwarding on timeout and admin queue fallback
@@ -174,33 +174,11 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 			discard_grievance(self.grievance.name)
 
 	# ---------------------------------------------------------
-	# Anonymity Change Request Tests
+	# Submitter Change Request Tests
 	# ---------------------------------------------------------
 
-	def test_submitter_anonymity_request_creation_and_routing(self):
-		"""Submitter requests anonymity when pending approval; routes to assigned officer."""
-		self.grievance.db_set("anonymity_status", "Pending Approval", update_modified=False)
-		self.grievance.db_set("is_anonymous", 0, update_modified=False)
-
-		frappe.set_user(self.submitter_user)
-		cr = frappe.get_doc(
-			{
-				"doctype": "Grievance Change Request",
-				"grievance": self.grievance.name,
-				"subject": "Request Anonymity",
-				"reason": "Risk of retaliation in kebele",
-				"changes": [{"fieldname": "anonymity_status", "new_value": "Approved"}],
-			}
-		).insert(ignore_permissions=True)
-
-		self.assertEqual(cr.status, "Pending")
-		self.assertEqual(cr.pending_with, self.officer1)
-		self.assertEqual(cr.requested_by, self.submitter_user)
-		self.assertEqual(len(cr.changes), 1)
-		self.assertEqual(cr.changes[0].old_value, "Pending Approval")
-
-	def test_submitter_cannot_request_non_anonymity_fields(self):
-		"""Submitter cannot request department or SLA changes."""
+	def test_submitter_cannot_request_change_requests(self):
+		"""Submitters cannot request changes on a grievance."""
 		frappe.set_user(self.submitter_user)
 		with self.assertRaises(frappe.PermissionError):
 			frappe.get_doc(
@@ -211,61 +189,6 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 					"changes": [{"fieldname": "assigned_dept", "new_value": self.dept2}],
 				}
 			).insert(ignore_permissions=True)
-
-	def test_anonymity_approval(self):
-		"""Approving anonymity sets is_anonymous=1 and updates anonymity_status and approver."""
-		self.grievance.db_set("anonymity_status", "Pending Approval", update_modified=False)
-		self.grievance.db_set("is_anonymous", 0, update_modified=False)
-
-		frappe.set_user(self.submitter_user)
-		cr = frappe.get_doc(
-			{
-				"doctype": "Grievance Change Request",
-				"grievance": self.grievance.name,
-				"subject": "Request Anonymity",
-				"reason": "Fear of retaliation",
-				"changes": [{"fieldname": "anonymity_status", "new_value": "Approved"}],
-			}
-		).insert(ignore_permissions=True)
-
-		frappe.set_user(self.officer1)
-		cr.status = "Approved"
-		cr.decision_note = "Valid concern; anonymity granted"
-		cr.save(ignore_permissions=True)
-
-		self.assertEqual(cr.status, "Approved")
-		self.assertEqual(cr.decided_by, self.officer1)
-
-		self.grievance.reload()
-		self.assertEqual(self.grievance.is_anonymous, 1)
-		self.assertEqual(self.grievance.anonymity_status, "Approved")
-		self.assertEqual(self.grievance.anonymity_approved_by, self.officer1)
-
-	def test_anonymity_rejection(self):
-		"""Rejecting anonymity keeps is_anonymous=0 and sets anonymity_status to Rejected."""
-		self.grievance.db_set("anonymity_status", "Pending Approval", update_modified=False)
-		self.grievance.db_set("is_anonymous", 0, update_modified=False)
-
-		frappe.set_user(self.submitter_user)
-		cr = frappe.get_doc(
-			{
-				"doctype": "Grievance Change Request",
-				"grievance": self.grievance.name,
-				"subject": "Request Anonymity",
-				"reason": "Fear of retaliation",
-				"changes": [{"fieldname": "anonymity_status", "new_value": "Approved"}],
-			}
-		).insert(ignore_permissions=True)
-
-		frappe.set_user(self.officer1)
-		cr.status = "Rejected"
-		cr.decision_note = "Identity disclosure necessary to verify local plot"
-		cr.save(ignore_permissions=True)
-
-		self.assertEqual(cr.status, "Rejected")
-		self.grievance.reload()
-		self.assertEqual(self.grievance.is_anonymous, 0)
-		self.assertEqual(self.grievance.anonymity_status, "Rejected")
 
 	# ---------------------------------------------------------
 	# Reassignment Request Tests

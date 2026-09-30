@@ -121,6 +121,16 @@ class GrievanceActionRequest(BaseModel):
 	body: str | None = None
 
 
+class GrievanceFeedbackRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	rating: int = Field(..., ge=1, le=5)
+	comments: str | None = None
+	feedback_type: str | None = "Resolution"
+	feedback_channel: str | None = "Web Portal"
+
+
 class AddNoteRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
@@ -167,21 +177,6 @@ class DeferSLARequest(BaseModel):
 	ticket_number: str | None = None
 	additional_days: int = Field(..., ge=1)
 	reason: str = Field(..., min_length=1)
-
-
-class AnonymityDecisionRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
-	ticket_number: str | None = None
-	decision: str = Field(..., min_length=1)
-	reason: str | None = None
-
-
-class AnonymityChoiceRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
-	ticket_number: str | None = None
-	choice: str = Field(..., min_length=1)
 
 
 ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
@@ -309,19 +304,6 @@ def resolve_grievance_type(type_identifier: str | None, category: str | None = N
 	if resolved:
 		return resolved
 	return frappe.db.get_value("Grievance Type", {"type_name": type_identifier}, "name")
-
-
-def _request_anonymity(doc, justification):
-	"""Anonymity is requested at submission and approved separately.
-
-	The case is withheld as anonymous while the request is pending; the change
-	request asks for that to be confirmed, and a rejection makes it identifiable.
-	Called after routing, so the request goes to the officer the case landed with.
-	"""
-	from oan_grievance_service.api.v1.change_request import raise_change_request
-
-	doc.db_set({"is_anonymous": 1, "anonymity_status": "Pending Approval"}, update_modified=False)
-	raise_change_request(doc, _("Anonymity request"), {"anonymity_status": "Approved"}, reason=justification)
 
 
 def detect_duplicates(grievance, window_days=7):
@@ -673,9 +655,7 @@ def list_grievances(
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		state_deadline = item.pop("state_deadline", None)
-		item["confirmation_deadline"] = (
-			state_deadline if item.get("status") == C.STATE_PENDING_SUBMITTER else None
-		)
+		item["confirmation_deadline"] = state_deadline if item.get("status") == C.STATE_RESOLVED else None
 		if not permissions.can_see_identity(item):
 			item["submitter_name"] = _("Anonymous Submitter")
 			item["contact_mobile"] = None
@@ -815,6 +795,7 @@ def submit(**kwargs):
 		"description",
 		"desired_outcome",
 		"is_anonymous",
+		"can_request_more_info",
 	)
 	save_kwargs = {field: kwargs[field] for field in fields if kwargs.get(field) is not None}
 	draft.save(client_submission_uuid=client_submission_uuid, **save_kwargs)
@@ -824,6 +805,7 @@ def submit(**kwargs):
 		consent_given=kwargs.get("consent_given", 1),
 		is_anonymous=kwargs.get("is_anonymous", 0),
 		anonymity_justification=kwargs.get("anonymity_justification"),
+		can_request_more_info=kwargs.get("can_request_more_info", True),
 	)
 
 
@@ -927,6 +909,19 @@ def action(
 			doc, "Confirm Resolution", note="Confirmed by submitter", closure_type="confirmed"
 		)
 		doc.db_set("closure_reason", "Confirmed by submitter", update_modified=False)
+		if rating is not None:
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Feedback",
+					"grievance": doc.name,
+					"rating": int(rating),
+					"feedback_type": "Resolution",
+					"comments": comments.strip() if comments else None,
+					"submitted_by": frappe.session.user,
+					"author_submitter": doc.submitter,
+					"submitted_at": now_datetime(),
+				}
+			).insert(ignore_permissions=True)
 		timeline_entry = GrievanceTimeline.record(
 			grievance=doc.name,
 			entry_type="resolution",
@@ -938,11 +933,8 @@ def action(
 	elif matching_action == "Reopen":
 		if not reason or not reason.strip():
 			frappe.throw(_("A reason is required to reopen a grievance."), title=_("Reason Required"))
-		lifecycle.transition(doc, "Reopen", reason=reason.strip(), notify=False)
+		lifecycle.transition(doc, "Reopen", reason=reason.strip())
 		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
-		from oan_grievance_service.services import notifications
-
-		notifications.queue(doc, C.EVENT_REOPENED)
 		is_staff = permissions.is_staff()
 		timeline_entry = GrievanceTimeline.record(
 			grievance=doc.name,
@@ -1078,6 +1070,80 @@ def action(
 			"available_actions": current_state["available_actions"],
 		},
 		message=_("Grievance updated successfully"),
+	)
+
+
+@route(
+	"/<ticket_number>/feedback", methods=("POST",), summary="Submit citizen feedback / satisfaction rating"
+)
+@frappe.whitelist()
+@validate_request(GrievanceFeedbackRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def feedback(
+	ticket_number: str,
+	rating: int,
+	comments: str | None = None,
+	feedback_type: str = "Resolution",
+	feedback_channel: str = "Web Portal",
+	**kwargs,
+):
+	"""Submit satisfaction rating and feedback for a resolved or closed grievance."""
+	doc = _load(ticket_number, ptype="read")
+
+	allowed_states = (C.STATE_RESOLVED, C.STATE_CLOSED)
+	if doc.status not in allowed_states and doc.workflow_state not in allowed_states:
+		frappe.throw(
+			_("Feedback can only be submitted for grievances in Resolved or Closed status."),
+			frappe.ValidationError,
+			title=_("Action Not Permitted"),
+		)
+
+	user = frappe.session.user
+	is_staff = permissions.is_staff()
+	if not is_staff and doc.owner != user and doc.submitter != user:
+		from oan_grievance_service.api.v1.submitter import _caller_profile
+
+		profile = _caller_profile(user)
+		if not profile or doc.submitter != profile.name:
+			frappe.throw(_("You can only submit feedback for your own grievances."), frappe.PermissionError)
+
+	submitter_profile = None
+	if not is_staff:
+		from oan_grievance_service.api.v1.submitter import _caller_profile
+
+		profile = _caller_profile(user)
+		if profile:
+			submitter_profile = profile.name
+
+	ip = getattr(frappe.local, "request_ip", None)
+
+	fb_doc = frappe.get_doc(
+		{
+			"doctype": "Grievance Feedback",
+			"grievance": doc.name,
+			"rating": int(rating),
+			"feedback_type": feedback_type,
+			"feedback_channel": feedback_channel,
+			"comments": comments.strip() if comments else None,
+			"submitted_by": user,
+			"author_submitter": submitter_profile,
+			"submitted_at": now_datetime(),
+			"ip_address": ip,
+		}
+	).insert(ignore_permissions=True)
+
+	return success_response(
+		data={
+			"ticket_number": doc.ticket_number or doc.name,
+			"feedback_id": fb_doc.name,
+			"rating": fb_doc.rating,
+			"comments": fb_doc.comments,
+			"submitted_at": fb_doc.submitted_at.isoformat()
+			if hasattr(fb_doc.submitted_at, "isoformat")
+			else str(fb_doc.submitted_at),
+		},
+		message=_("Feedback submitted successfully"),
 	)
 
 
@@ -1243,9 +1309,9 @@ def timeline(
 				"sla_consumed_percent": sla.consumed_percent(doc),
 				"next_escalation_at": doc.next_escalation_at,
 				# Kept under its old name for existing clients: the confirmation window is
-				# the Pending Submitter state's timer.
+				# the Resolved state's timer.
 				"confirmation_deadline": doc.state_deadline
-				if doc.workflow_state == C.STATE_PENDING_SUBMITTER
+				if doc.workflow_state == C.STATE_RESOLVED
 				else None,
 			},
 			"assignment": {
@@ -1647,48 +1713,6 @@ def defer_sla(
 		_("SLA deadline extended successfully"),
 		_("Deferral requested; awaiting approval"),
 		fields=("sla_due_date",),
-	)
-
-
-@route("/<ticket_number>/anonymity-decision", methods=("POST",), summary="Decide on anonymity request")
-@frappe.whitelist()
-@validate_request(AnonymityDecisionRequest)
-@handle_api_errors
-@require_role(STAFF_ROLES)
-def anonymity_decision(
-	ticket_number: str,
-	decision: str,
-	reason: str | None = None,
-	**kwargs,
-):
-	"""Rule on the submitter's pending anonymity request for this case."""
-	doc = _load(ticket_number, ptype="write")
-
-	req_name = frappe.db.sql(
-		"""
-		SELECT r.name
-		FROM `tabGrievance Change Request` r
-		JOIN `tabGrievance Change Request Item` i ON i.parent = r.name
-		WHERE r.grievance = %(grievance)s AND r.status = 'Pending' AND i.fieldname = 'anonymity_status'
-		ORDER BY r.creation DESC
-		LIMIT 1
-		""",
-		{"grievance": doc.name},
-	)
-	if not req_name:
-		frappe.throw(_("There is no pending anonymity request for this grievance."), frappe.DoesNotExistError)
-
-	req = frappe.get_doc("Grievance Change Request", req_name[0][0])
-	req.status = decision.strip().title()
-	req.decision_note = (reason or "").strip() or None
-	req.save(ignore_permissions=True)
-
-	return _change_response(
-		doc,
-		req,
-		_("Anonymity decision recorded successfully"),
-		_("Anonymity decision recorded successfully"),
-		fields=("is_anonymous", "anonymity_status"),
 	)
 
 

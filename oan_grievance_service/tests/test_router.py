@@ -418,8 +418,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
 
-	def test_reassign_defer_and_anonymity_endpoints(self):
-		"""Test direct REST APIs for reassignment, deferral, and anonymity decisions."""
+	def test_reassign_and_defer_endpoints(self):
+		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
 		import uuid
 
 		from oan_grievance_service.services import lifecycle
@@ -532,17 +532,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(defer_data["status"], "success")
 		self.assertIn("sla_due_date", defer_data["data"])
 
-		# 4. Anonymity decision endpoint
-		req_anon = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/anonymity-decision",
-			method="POST",
-			data={"decision": "Approved", "reason": "Sensitive whistleblowing context"},
-		)
-		res_anon = frappe.api.handle(req_anon)
-		self.assertEqual(res_anon.status_code, 200)
-		anon_data = json.loads(res_anon.get_data(as_text=True))
-		self.assertEqual(anon_data["status"], "success")
-		self.assertTrue(anon_data["data"]["is_anonymous"])
+		# 4. Anonymity check: anonymous case was submitted as anonymous directly
+		self.assertTrue(doc_case.is_anonymous)
 
 	def test_unified_message_and_department_response_endpoint(self):
 		"""Test unified POST /api/v1/grievances/<ticket>/message for notes, messages, info requests, and department responses."""
@@ -617,7 +608,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(reply_data["data"]["status"], "In Progress")
 		self.assertEqual(reply_data["data"]["entry_type"], "info_response")
 
-		# 5. Staff posts formal department response -> moves state to Pending Submitter
+		# 5. Staff posts formal department response -> moves state to Resolved
 		frappe.set_user("Administrator")
 		req_resp = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
@@ -631,7 +622,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		res_resp = frappe.api.handle(req_resp)
 		self.assertEqual(res_resp.status_code, 200)
 		resp_data = json.loads(res_resp.get_data(as_text=True))
-		self.assertEqual(resp_data["data"]["status"], "Pending Submitter")
+		self.assertEqual(resp_data["data"]["status"], "Resolved")
 		self.assertEqual(resp_data["data"]["entry_type"], "response")
 		self.assertEqual(resp_data["data"]["response_type"], "Resolved")
 

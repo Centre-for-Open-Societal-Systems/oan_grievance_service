@@ -85,7 +85,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
+   "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
@@ -445,7 +445,7 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Pending Submitter this is the confirmation window.",
+   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved this is the closure window.",
    "fieldname": "state_deadline",
    "fieldtype": "Datetime",
    "label": "State Deadline",

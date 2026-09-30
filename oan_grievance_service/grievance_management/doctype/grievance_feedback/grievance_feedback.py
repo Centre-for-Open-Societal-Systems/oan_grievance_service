@@ -1,0 +1,59 @@
+# Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
+# For license information, please see license.txt
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import now_datetime
+
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
+from oan_grievance_service.services import constants as C
+
+
+class GrievanceFeedback(Document):
+	def validate(self):
+		if not self.rating or self.rating < 1 or self.rating > 5:
+			frappe.throw(_("Rating must be an integer between 1 and 5."), frappe.ValidationError)
+
+		if not self.submitted_at:
+			self.submitted_at = now_datetime()
+
+		if not self.grievance:
+			frappe.throw(_("Grievance is required."), frappe.ValidationError)
+
+		grievance = frappe.get_doc("Grievance", self.grievance)
+		allowed_states = (C.STATE_RESOLVED, C.STATE_CLOSED)
+		if grievance.workflow_state not in allowed_states and grievance.status not in allowed_states:
+			frappe.throw(
+				_("Feedback can only be submitted for grievances in Resolved or Closed status."),
+				frappe.ValidationError,
+			)
+
+	def after_insert(self):
+		# Sync latest rating to grievance for fast reporting and list view display
+		frappe.db.set_value(
+			"Grievance",
+			self.grievance,
+			{
+				"satisfaction_rating": self.rating,
+				"satisfaction_comments": self.comments,
+			},
+			update_modified=False,
+		)
+
+		# Add entry to unified timeline
+		body_text = f"Citizen Feedback ({self.feedback_type}): Rating {self.rating}/5."
+		if self.comments:
+			body_text += f" {self.comments}"
+		GrievanceTimeline.record(
+			grievance=self.grievance,
+			entry_type="feedback",
+			is_internal=0,
+			body=body_text.strip(),
+			author_user=self.submitted_by if not self.author_submitter else None,
+			author_submitter=self.author_submitter,
+			ref_doctype="Grievance Feedback",
+			ref_docname=self.name,
+		)

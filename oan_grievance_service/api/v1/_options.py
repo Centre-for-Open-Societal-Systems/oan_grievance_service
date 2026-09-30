@@ -130,7 +130,7 @@ _STATUS_CARDS = (
 	{
 		"status": "In Progress",
 		"label": "In Progress",
-		"workflow_states": (C.STATE_SUBMITTED, C.STATE_IN_PROGRESS, C.STATE_PENDING_SUBMITTER),
+		"workflow_states": (C.STATE_SUBMITTED, C.STATE_IN_PROGRESS),
 		"officer_only": False,
 	},
 	{

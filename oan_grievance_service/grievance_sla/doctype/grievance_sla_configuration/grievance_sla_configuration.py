@@ -26,7 +26,11 @@ class GrievanceSLAConfiguration(Document):
 
 		workflow = get_workflow("Grievance")
 		categories = {row.state: row.get("sla_category") for row in workflow.states}
-		auto_close_from = {row.state for row in workflow.transitions if row.action == "Auto Close"}
+		auto_actions = {
+			(row.state, row.action)
+			for row in workflow.transitions
+			if row.action in ("Auto Close", "Auto Resolve")
+		}
 
 		seen = set()
 		for row in self.state_timers:
@@ -41,9 +45,14 @@ class GrievanceSLAConfiguration(Document):
 				)
 			if (row.hours or 0) <= 0:
 				frappe.throw(_("Row {0}: Hours must be greater than zero.").format(row.idx))
-			if row.on_expiry == "Auto Close" and row.workflow_state not in auto_close_from:
+			if (
+				row.on_expiry in ("Auto Close", "Auto Resolve")
+				and (row.workflow_state, row.on_expiry) not in auto_actions
+			):
 				frappe.throw(
-					_("Row {0}: the Workflow has no Auto Close from {1}.").format(row.idx, row.workflow_state)
+					_("Row {0}: the Workflow has no {1} from {2}.").format(
+						row.idx, row.on_expiry, row.workflow_state
+					)
 				)
 			if row.on_expiry == "Escalate" and categories[row.workflow_state] == "Stopped":
 				frappe.throw(

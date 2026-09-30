@@ -354,6 +354,43 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertNotIn("phone_country_code", loaded_data)
 		self.assertNotIn("phone_national_number", loaded_data)
 
+	def test_draft_submit_with_can_request_more_info_false(self):
+		area = a_leaf_area()
+		category = a_service_category()
+		gtype = frappe.db.get_value("Grievance Type", {"service_category": category, "is_active": 1}, "name")
+
+		draft.save(
+			client_submission_uuid=self.uuid,
+			administrative_area=area,
+			service_category=category,
+			grievance_type=gtype,
+			contact_mobile="+251911234567",
+			contact_email="tester@example.com",
+			description="A draft description long enough to satisfy all requirements.",
+			submitter_type="Individual Farmer",
+			submitter_name="Draft Tester",
+		)
+
+		res = draft.submit_draft(
+			client_submission_uuid=self.uuid,
+			consent_given=1,
+			can_request_more_info=False,
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertFalse(res["data"]["can_request_more_info"])
+
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(res["data"]["ticket_number"]))
+		self.assertIsNone(doc.contact_mobile)
+		self.assertIsNone(doc.contact_email)
+		self.assertFalse(
+			frappe.db.exists(
+				"Grievance Notification Log",
+				{"grievance": doc.name, "recipient": "+251911234567"},
+			)
+		)
+
 
 def _a_submitter_user(email):
 	current = frappe.session.user

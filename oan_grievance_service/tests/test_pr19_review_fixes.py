@@ -175,17 +175,32 @@ class TestPR19ReviewFixes(FrappeTestCase):
 		self.assertEqual(len(duplicates), 0)
 
 	def test_issue10_confirm_resolution_transitions_only_to_resolved(self):
-		"""Issue 10: Confirm Resolution must transition to Resolved and not auto-close immediately."""
+		"""Issue 10: Close Case on resolved case transitions to Closed."""
+		from oan_grievance_service.services import lifecycle
 		from oan_grievance_service.tests.fixtures import a_grievance
 
-		# Setup grievance in Pending Submitter
-		g = a_grievance(workflow_state="Pending Submitter", status="Pending Submitter")
+		# Setup grievance in Resolved
+		g = a_grievance()
+		lifecycle.transition(g, "Assign", automated=True)
+		lifecycle.transition(g, "Start Work")
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Response",
+				"grievance": g.name,
+				"response_type": "Resolved",
+				"action_taken": "Resolved problem.",
+				"resolution_summary": "Problem resolved.",
+				"proposed_close_date": frappe.utils.today(),
+			}
+		).insert(ignore_permissions=True)
+		g.reload()
+		self.assertEqual(g.workflow_state, "Resolved")
 
-		# Action Confirm Resolution
-		res = grievance.action(g.ticket_number or g.name, action="Confirm Resolution", rating=5)
+		# Action Close Case
+		res = grievance.action(g.ticket_number or g.name, action="Close Case")
 		self.assertEqual(res["status"], "success")
 		g.reload()
-		self.assertEqual(g.status, "Resolved", "Case must remain in Resolved state, not Closed")
+		self.assertEqual(g.status, "Closed")
 
 	def test_issue11_empty_officer_scope_matches_no_cases(self):
 		"""Issue 11: An officer with empty scope assignment must not match all grievances."""

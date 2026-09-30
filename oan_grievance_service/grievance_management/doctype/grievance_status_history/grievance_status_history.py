@@ -60,7 +60,7 @@ def require_reason(from_status, to_status, reason):
 	before it writes the move, so the refusal arrives before the row does.
 	"""
 	is_reason_required = (to_status == C.STATE_REJECTED) or (
-		from_status == C.STATE_PENDING_SUBMITTER and to_status == C.STATE_IN_PROGRESS
+		from_status == C.STATE_RESOLVED and to_status == C.STATE_IN_PROGRESS
 	)
 	if not is_reason_required:
 		return

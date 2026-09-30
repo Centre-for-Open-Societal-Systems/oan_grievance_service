@@ -64,14 +64,19 @@ def after_workflow_action(doc, from_state):
 	sla.arm_state_timer(doc, to_state)
 
 	if context.get("notify", True):
-		if to_state == C.STATE_IN_PROGRESS and from_state in (C.STATE_ASSIGNED, C.STATE_SUBMITTED):
-			notifications.queue(doc, C.EVENT_STATUS_IN_PROGRESS)
+		if to_state == C.STATE_IN_PROGRESS:
+			if from_state in (C.STATE_ASSIGNED, C.STATE_SUBMITTED):
+				notifications.queue(doc, C.EVENT_STATUS_IN_PROGRESS)
+			elif from_state == C.STATE_RESOLVED or context.get("action") == "Reopen":
+				notifications.queue(doc, C.EVENT_REOPENED)
 		elif to_state == C.STATE_MORE_INFO_NEEDED:
 			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
 		elif to_state == C.STATE_RESOLVED:
 			notifications.queue(doc, C.EVENT_CONFIRMED)
 		elif to_state == C.STATE_CLOSED:
-			if context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close":
+			if from_state == C.STATE_RESOLVED and (
+				context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close"
+			):
 				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
 			else:
 				notifications.queue(doc, C.EVENT_CLOSED)
@@ -119,5 +124,8 @@ def response_after_insert(doc, method=None):
 	if grievance.escalated:
 		grievance.db_set("escalated", 0, update_modified=False)
 
-	notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
-	doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)
+	# structured_response_sent prompts the citizen to confirm resolution or reopen within
+	# the confirmation window, so queue it only for resolution responses.
+	if doc.response_type in ("Resolved", "Partially Resolved"):
+		notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
+		doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)

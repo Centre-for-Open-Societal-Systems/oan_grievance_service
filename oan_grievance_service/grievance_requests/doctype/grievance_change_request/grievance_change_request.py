@@ -26,9 +26,8 @@ from oan_grievance_service.services import constants as C
 
 DECIDED = ("Approved", "Rejected")
 
-# Deferral and reassignment are the department's business; a submitter may only
-# ask for their own identity to be withheld.
-SUBMITTER_REQUESTABLE_FIELDS = ("anonymity_status",)
+# Deferral and reassignment are the department's business; submitters cannot request changes.
+SUBMITTER_REQUESTABLE_FIELDS = ()
 
 # What was asked for is fixed once the request exists; only the ruling moves.
 _FROZEN_FIELDS = ("grievance", "subject", "reason", "requested_by", "requested_at")
@@ -76,7 +75,7 @@ class GrievanceChangeRequest(Document):
 		for row in self.changes:
 			if not staff and row.fieldname not in SUBMITTER_REQUESTABLE_FIELDS:
 				frappe.throw(
-					_("A submitter can only request anonymity."),
+					_("Submitters cannot request changes on a grievance."),
 					frappe.PermissionError,
 					title=_("Change Not Permitted"),
 				)

@@ -36,8 +36,8 @@ ROLES = [
 # case is born Draft (0), becomes a submitted document (1) on the Submit action and
 # stays one; Rejected is a cancelled document (2). Frappe refuses a workflow that
 # goes 1 -> 0 or 0 -> 2, which is why every active state is 1 and Draft exists.
-# Closed and Rejected have no outbound transition: a reopen happens inside the
-# confirmation window, from Pending Submitter, and nowhere else.
+# Closed and Rejected have no outbound transition: a reopen happens from
+# Resolved, and nowhere else.
 WORKFLOW_NAME = "Grievance Workflow"
 
 # (state, docstatus, style, SLA category). Order matters: Frappe treats the first row
@@ -52,7 +52,6 @@ WORKFLOW_STATES = [
 	(C.STATE_ASSIGNED, "1", "Primary", "Running"),
 	(C.STATE_IN_PROGRESS, "1", "Primary", "Running"),
 	(C.STATE_MORE_INFO_NEEDED, "1", "Warning", "Paused"),
-	(C.STATE_PENDING_SUBMITTER, "1", "Warning", "Paused"),
 	(C.STATE_RESOLVED, "1", "Success", "Stopped"),
 	(C.STATE_CLOSED, "2", "Success", "Stopped"),
 	(C.STATE_REJECTED, "2", "Danger", "Stopped"),
@@ -70,18 +69,14 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "Start Work", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
-	(C.STATE_IN_PROGRESS, "Submit Response", C.STATE_PENDING_SUBMITTER, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Submit Response", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
-	(C.STATE_PENDING_SUBMITTER, "Confirm Resolution", C.STATE_RESOLVED, SUBMITTER_ROLES),
-	(C.STATE_PENDING_SUBMITTER, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
-	(C.STATE_PENDING_SUBMITTER, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
-	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
-	# Taken only by a state timer that is configured to close on expiry
-	# (Grievance SLA Configuration > State Timers). Inert until one is.
 	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	(C.STATE_RESOLVED, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
 
