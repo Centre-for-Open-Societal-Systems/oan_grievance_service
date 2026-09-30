@@ -359,20 +359,18 @@ def register_submitter(
 	scheme, ident_val = split_dedupe_key(profile.dedupe_key)
 	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
 
-	from oan_auth_service.api.utils import split_phone_number
+	from oan_grievance_service.services.identity import mask_contact
 
-	phone_cc, phone_nat = (
-		split_phone_number(profile.contact_mobile) if profile.contact_mobile else (None, None)
-	)
+	contact = mask_contact(profile, show_identity=True)
 
 	data = {
 		"profile_id": profile.name,
 		"submitter_type": profile.submitter_type,
 		"submitter_name": profile.submitter_name,
-		"contact_mobile": profile.contact_mobile,
-		"country_code": phone_cc,
-		"phone_number": phone_nat,
-		"contact_email": profile.contact_email,
+		"contact_mobile": contact["contact_mobile"],
+		"country_code": contact["country_code"],
+		"phone_number": contact["phone_number"],
+		"contact_email": contact["contact_email"],
 		"dedupe_key": profile.dedupe_key,
 		"identities": identities,
 		"administrative_area": profile.administrative_area,

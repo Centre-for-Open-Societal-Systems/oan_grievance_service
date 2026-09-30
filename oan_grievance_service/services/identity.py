@@ -259,3 +259,43 @@ def find_or_create_submitter(payload: dict) -> str | None:
 	)
 	profile.insert(ignore_permissions=True)
 	return profile.name
+
+
+def is_reachable(doc: object) -> bool:
+	"""Whether the submitter has contact information on file (mobile or email)."""
+	if hasattr(doc, "get"):
+		return bool(doc.get("contact_mobile") or doc.get("contact_email"))
+	return bool(getattr(doc, "contact_mobile", None) or getattr(doc, "contact_email", None))
+
+
+def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
+	"""Extract and optionally mask contact mobile and split country/national phone numbers.
+
+	Returns dict with:
+	  'contact_mobile', 'contact_email', 'country_code', 'phone_number', 'can_request_more_info'
+	"""
+	from oan_auth_service.api.utils import split_phone_number
+
+	get_val = doc.get if hasattr(doc, "get") else lambda k, default=None: getattr(doc, k, default)
+
+	raw_mobile = get_val("contact_mobile")
+	raw_email = get_val("contact_email")
+
+	can_contact = bool(raw_mobile or raw_email)
+
+	if show_identity:
+		mobile = raw_mobile
+		email = raw_email
+		cc, nat = split_phone_number(mobile) if mobile else (None, None)
+	else:
+		mobile = None
+		email = None
+		cc, nat = (None, None)
+
+	return {
+		"contact_mobile": mobile,
+		"contact_email": email,
+		"country_code": cc,
+		"phone_number": nat,
+		"can_request_more_info": can_contact,
+	}

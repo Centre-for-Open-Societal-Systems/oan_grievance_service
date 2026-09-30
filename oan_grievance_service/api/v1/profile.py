@@ -42,28 +42,23 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 	]
 	profile = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, fields, as_dict=True)
 	if profile:
-		from oan_auth_service.api.utils import split_phone_number
-
 		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 			split_dedupe_key,
 		)
+		from oan_grievance_service.services.identity import mask_contact
 
 		scheme, ident_val = split_dedupe_key(profile.get("dedupe_key"))
 		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
-		phone_cc, phone_nat = (
-			split_phone_number(profile.get("contact_mobile"))
-			if profile.get("contact_mobile")
-			else (None, None)
-		)
+		contact = mask_contact(profile, show_identity=True)
 
 		return "grievance", {
 			"profile_id": profile.get("name"),
 			"type": profile.get("submitter_type"),
 			"submitter_name": profile.get("submitter_name"),
-			"contact_mobile": profile.get("contact_mobile"),
-			"country_code": phone_cc,
-			"phone_number": phone_nat,
-			"contact_email": profile.get("contact_email"),
+			"contact_mobile": contact["contact_mobile"],
+			"country_code": contact["country_code"],
+			"phone_number": contact["phone_number"],
+			"contact_email": contact["contact_email"],
 			"identities": identities,
 			"administrative_area": profile.get("administrative_area"),
 			"administrative_unit": profile.get("administrative_unit"),

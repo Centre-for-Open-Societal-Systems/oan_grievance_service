@@ -793,3 +793,53 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		cr.status = "Rejected"
 		with self.assertRaises(frappe.ValidationError):
 			cr.save(ignore_permissions=True)
+
+	def test_change_request_api_list_pagination_and_serialization(self):
+		"""Test API v1 change request list with pagination envelope and detail lookup."""
+		from oan_grievance_service.api.v1.change_request import decide, get_request, list_requests
+
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 8)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "API Deferral Request",
+				"reason": "Rain delay",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
+			}
+		).insert(ignore_permissions=True)
+
+		# List requests as senior
+		frappe.set_user(self.senior)
+		list_res = list_requests(scope="pending_with_me", page=1, page_size=10)
+		self.assertEqual(list_res["status"], "success")
+		self.assertIn("items", list_res["data"])
+		self.assertIn("pagination", list_res["data"])
+		self.assertGreaterEqual(list_res["data"]["pagination"]["total_count"], 1)
+		self.assertTrue(any(i["name"] == cr.name for i in list_res["data"]["items"]))
+
+		# Get request detail
+		get_res = get_request(name=cr.name)
+		self.assertEqual(get_res["status"], "success")
+		self.assertEqual(get_res["data"]["name"], cr.name)
+		self.assertEqual(get_res["data"]["subject"], "API Deferral Request")
+		self.assertEqual(len(get_res["data"]["changes"]), 1)
+
+		# Decide request
+		decide_res = decide(name=cr.name, decision="Approved", note="Approved via API")
+		self.assertEqual(decide_res["status"], "success")
+		self.assertEqual(decide_res["data"]["status"], "Approved")
+
+	def test_change_request_api_not_found_handling(self):
+		"""Missing change request ID returns standard error envelope (mapped from DoesNotExistError)."""
+		from oan_grievance_service.api.v1.change_request import decide, get_request
+
+		res1 = get_request(name="NON_EXISTENT_CR_123")
+		self.assertEqual(res1["status"], "error")
+
+		res2 = decide(name="NON_EXISTENT_CR_123", decision="Approved")
+		self.assertEqual(res2["status"], "error")

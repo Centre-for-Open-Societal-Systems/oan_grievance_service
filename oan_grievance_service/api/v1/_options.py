@@ -73,71 +73,17 @@ def get_department_officers(
 	if not department:
 		return []
 
-	params = {
-		"department": str(department).strip(),
-		"today": frappe.utils.today(),
-		"service_category": str(service_category).strip() if service_category else None,
-	}
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		query_active_officer_assignments,
+	)
 
-	if service_category:
-		sql = """
-			SELECT DISTINCT
-				c.user AS user_id,
-				COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
-				u.email,
-				c.role_level,
-				c.is_primary,
-				c.reports_to,
-				p.administrative_area_scope
-			FROM `tabGrievance RBAC Assignment Officer` c
-			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-			JOIN `tabUser` u ON u.name = c.user
-			WHERE c.active = 1
-				AND p.active = 1
-				AND p.effective_from <= %(today)s
-				AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
-				AND (p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')
-				AND (p.category_scope = %(service_category)s OR p.category_scope IS NULL OR p.category_scope = '')
-			ORDER BY c.is_primary DESC, u.full_name ASC
-		"""
-	else:
-		sql = """
-			SELECT DISTINCT
-				c.user AS user_id,
-				COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
-				u.email,
-				c.role_level,
-				c.is_primary,
-				c.reports_to,
-				p.administrative_area_scope
-			FROM `tabGrievance RBAC Assignment Officer` c
-			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-			JOIN `tabUser` u ON u.name = c.user
-			WHERE c.active = 1
-				AND p.active = 1
-				AND p.effective_from <= %(today)s
-				AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
-				AND (p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')
-			ORDER BY c.is_primary DESC, u.full_name ASC
-		"""
-
-	officers = frappe.db.sql(sql, params, as_dict=True)
-
-	if administrative_area and officers:
-		from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
-			is_in_area_subtree,
-		)
-
-		target_lft = frappe.db.get_value(
-			"Grievance Administrative Area", str(administrative_area).strip(), "lft"
-		)
-		if target_lft is not None:
-			filtered = []
-			for off in officers:
-				area_scope = off.get("administrative_area_scope")
-				if not area_scope or is_in_area_subtree(target_lft, area_scope):
-					filtered.append(off)
-			officers = filtered
+	officers = query_active_officer_assignments(
+		department=department,
+		category=service_category,
+		administrative_area=administrative_area,
+		include_user_details=True,
+		order_by="c.is_primary DESC, u.full_name ASC",
+	)
 
 	for off in officers:
 		off.pop("administrative_area_scope", None)

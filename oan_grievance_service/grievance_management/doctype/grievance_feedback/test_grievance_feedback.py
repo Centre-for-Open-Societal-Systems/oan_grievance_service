@@ -143,3 +143,58 @@ class TestGrievanceFeedback(FrappeTestCase):
 				fb.insert()
 		finally:
 			frappe.set_user("Administrator")
+
+	def test_feedback_api_endpoint_as_submitter(self):
+		"""Test submitter role calling POST /api/v1/grievances/{ticket_number}/feedback directly."""
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Response",
+				"grievance": self.grievance.name,
+				"response_type": "Resolved",
+				"action_taken": "Fixed issue.",
+				"resolution_summary": "Fixed issue.",
+				"proposed_close_date": frappe.utils.today(),
+			}
+		).insert(ignore_permissions=True)
+
+		submitter_user = f"citizen_{frappe.generate_hash(length=6)}@example.com"
+		if not frappe.db.exists("User", submitter_user):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": submitter_user,
+					"first_name": "Citizen",
+					"roles": [{"role": "Grievance Submitter"}],
+				}
+			).insert(ignore_permissions=True)
+
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"user": submitter_user,
+				"submitter_name": "Citizen User",
+				"submitter_type": "Individual Farmer",
+				"contact_mobile": "+251911999888",
+				"active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		self.grievance.db_set("submitter", profile.name, update_modified=False)
+		self.grievance.db_set("owner", submitter_user, update_modified=False)
+
+		try:
+			frappe.set_user(submitter_user)
+			res = submit_feedback(
+				ticket_number=self.grievance.ticket_number or self.grievance.name,
+				rating=5,
+				comments="Awesome redressal experience!",
+				feedback_type="Resolution",
+			)
+			self.assertEqual(res["data"]["rating"], 5)
+			self.assertEqual(res["data"]["comments"], "Awesome redressal experience!")
+		finally:
+			frappe.set_user("Administrator")
+			frappe.delete_doc(
+				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
+			)
+			frappe.delete_doc("User", submitter_user, force=True, ignore_permissions=True)

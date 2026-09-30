@@ -8,15 +8,34 @@ endpoints only load, insert or save it and shape the answer.
 import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, success_response, validate_request
+from oan_auth_service.api.utils import (
+	handle_api_errors,
+	success_response,
+	to_tz_aware_iso,
+	validate_request,
+)
 from pydantic import BaseModel, Field
 
+from oan_grievance_service.api.v1._pagination import page_meta
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 
 DOCTYPE = "Grievance Change Request"
 
 route = prefixed("/api/v1/change-requests")
+
+
+class ListChangeRequestsRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	status: str | None = Field(default="Pending", description="Filter by request status")
+	scope: str | None = Field(
+		default="pending_with_me", description="Scope: pending_with_me, raised_by_me, all"
+	)
+	ticket_number: str | None = Field(default=None, description="Filter by grievance ticket number")
+	page: int = Field(default=1, ge=1, description="Page number, 1-indexed")
+	page_size: int = Field(default=50, ge=1, le=200, description="Items per page")
+	limit: int | None = Field(default=None, description="Legacy limit parameter")
 
 
 class DecideChangeRequest(BaseModel):
@@ -45,26 +64,33 @@ def raise_change_request(grievance, subject, changes, reason=None):
 
 
 def serialize(req):
+	ticket_num = frappe.db.get_value("Grievance", req.grievance, "ticket_number") if req.grievance else None
 	return {
 		"name": req.name,
-		"ticket_number": tn.display(frappe.db.get_value("Grievance", req.grievance, "ticket_number")),
+		"ticket_number": tn.display(ticket_num),
 		"subject": req.subject,
 		"reason": req.reason,
 		"status": req.status,
 		"requested_by": req.requested_by,
-		"requested_at": req.requested_at,
+		"requested_at": to_tz_aware_iso(req.requested_at),
 		"pending_with": req.pending_with,
-		"pending_since": req.pending_since,
+		"pending_since": to_tz_aware_iso(req.pending_since),
 		"decided_by": req.decided_by,
-		"decided_at": req.decided_at,
+		"decided_at": to_tz_aware_iso(req.decided_at),
 		"decision_note": req.decision_note,
 		"changes": [
 			{"fieldname": r.fieldname, "old_value": r.old_value, "new_value": r.new_value}
-			for r in req.changes
+			for r in getattr(req, "changes", [])
 		],
 		"trail": [
-			{"action": r.action, "user": r.user, "pending_with": r.pending_with, "at": r.at, "note": r.note}
-			for r in req.approvals
+			{
+				"action": r.action,
+				"user": r.user,
+				"pending_with": r.pending_with,
+				"at": to_tz_aware_iso(r.at),
+				"note": r.note,
+			}
+			for r in getattr(req, "approvals", [])
 		],
 	}
 
@@ -79,12 +105,15 @@ def _can_view(req, user):
 
 @route("", methods=("GET",), summary="List change requests")
 @frappe.whitelist()
+@validate_request(ListChangeRequestsRequest)
 @handle_api_errors
 def list_requests(
 	status: str | None = "Pending",
 	scope: str | None = "pending_with_me",
 	ticket_number: str | None = None,
-	limit: int = 50,
+	page: int = 1,
+	page_size: int = 50,
+	limit: int | None = None,
 	**kwargs,
 ):
 	"""Change requests visible to the caller.
@@ -115,22 +144,134 @@ def list_requests(
 	else:
 		or_filters = [["pending_with", "=", user], ["requested_by", "=", user], ["decided_by", "=", user]]
 
-	names = frappe.get_all(
+	effective_limit = int(limit or page_size or 50)
+	effective_page = max(int(page or 1), 1)
+	start = (effective_page - 1) * effective_limit
+
+	all_names = frappe.get_all(
 		DOCTYPE,
 		filters=filters,
 		or_filters=or_filters,
-		order_by="creation desc",
-		limit=min(int(limit or 50), 200),
 		pluck="name",
 	)
-	items = [serialize(frappe.get_doc(DOCTYPE, n)) for n in names]
-	return success_response(data={"items": items, "count": len(items)})
+	total_count = len(all_names)
+
+	requests = frappe.get_all(
+		DOCTYPE,
+		filters=filters,
+		or_filters=or_filters,
+		fields=[
+			"name",
+			"grievance",
+			"subject",
+			"reason",
+			"status",
+			"requested_by",
+			"requested_at",
+			"pending_with",
+			"pending_since",
+			"decided_by",
+			"decided_at",
+			"decision_note",
+		],
+		order_by="creation desc, name desc",
+		start=start,
+		limit=effective_limit,
+	)
+
+	if not requests:
+		meta = page_meta(total_count, effective_page, effective_limit)
+		return success_response(
+			data={"items": [], "count": 0, "pagination": meta},
+			pagination=meta,
+			message=_("Change requests retrieved successfully"),
+		)
+
+	req_names = [r["name"] for r in requests]
+	grievance_ids = {r["grievance"] for r in requests if r.get("grievance")}
+
+	ticket_map = {}
+	if grievance_ids:
+		g_rows = frappe.get_all(
+			"Grievance",
+			filters={"name": ["in", list(grievance_ids)]},
+			fields=["name", "ticket_number"],
+		)
+		ticket_map = {g["name"]: tn.display(g["ticket_number"]) for g in g_rows}
+
+	changes_map = {name: [] for name in req_names}
+	change_items = frappe.get_all(
+		"Grievance Change Request Item",
+		filters={"parent": ["in", req_names]},
+		fields=["parent", "fieldname", "old_value", "new_value"],
+		order_by="idx asc",
+	)
+	for item in change_items:
+		changes_map[item["parent"]].append(
+			{
+				"fieldname": item["fieldname"],
+				"old_value": item["old_value"],
+				"new_value": item["new_value"],
+			}
+		)
+
+	approvals_map = {name: [] for name in req_names}
+	approval_items = frappe.get_all(
+		"Grievance Change Request Approval",
+		filters={"parent": ["in", req_names]},
+		fields=["parent", "action", "user", "pending_with", "at", "note"],
+		order_by="idx asc",
+	)
+	for app in approval_items:
+		approvals_map[app["parent"]].append(
+			{
+				"action": app["action"],
+				"user": app["user"],
+				"pending_with": app["pending_with"],
+				"at": to_tz_aware_iso(app["at"]),
+				"note": app["note"],
+			}
+		)
+
+	items = []
+	for r in requests:
+		items.append(
+			{
+				"name": r["name"],
+				"ticket_number": ticket_map.get(r.get("grievance")),
+				"subject": r["subject"],
+				"reason": r["reason"],
+				"status": r["status"],
+				"requested_by": r["requested_by"],
+				"requested_at": to_tz_aware_iso(r.get("requested_at")),
+				"pending_with": r["pending_with"],
+				"pending_since": to_tz_aware_iso(r.get("pending_since")),
+				"decided_by": r["decided_by"],
+				"decided_at": to_tz_aware_iso(r.get("decided_at")),
+				"decision_note": r["decision_note"],
+				"changes": changes_map.get(r["name"], []),
+				"trail": approvals_map.get(r["name"], []),
+			}
+		)
+
+	meta = page_meta(total_count, effective_page, effective_limit)
+	return success_response(
+		data={"items": items, "count": len(items), "pagination": meta},
+		pagination=meta,
+		message=_("Change requests retrieved successfully"),
+	)
 
 
 @route("/<name>", methods=("GET",), summary="Get a change request")
 @frappe.whitelist()
 @handle_api_errors
 def get_request(name: str, **kwargs):
+	if not frappe.db.exists(DOCTYPE, name):
+		frappe.throw(
+			_("Change request '{0}' does not exist.").format(name),
+			frappe.DoesNotExistError,
+			title=_("Not Found"),
+		)
 	req = frappe.get_doc(DOCTYPE, name)
 	if not _can_view(req, frappe.session.user):
 		frappe.throw(_("Not permitted to view this request."), frappe.PermissionError)
@@ -143,6 +284,12 @@ def get_request(name: str, **kwargs):
 @handle_api_errors
 def decide(name: str, decision: str, note: str | None = None, **kwargs):
 	"""Rule on a request. Only the person it is pending with, or an admin, may decide."""
+	if not frappe.db.exists(DOCTYPE, name):
+		frappe.throw(
+			_("Change request '{0}' does not exist.").format(name),
+			frappe.DoesNotExistError,
+			title=_("Not Found"),
+		)
 	req = frappe.get_doc(DOCTYPE, name)
 	req.status = decision.strip().title()
 	req.decision_note = (note or "").strip() or None

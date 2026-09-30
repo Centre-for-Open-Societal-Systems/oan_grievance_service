@@ -35,6 +35,8 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, model_validator
 from werkzeug.wrappers import Response
 
+from oan_grievance_service import permissions
+
 
 class UploadedFile:
 	def __init__(self, file_name: str, content: bytes):
@@ -270,7 +272,7 @@ def submit_documents(
 				"size_bytes": item["size_bytes"],
 				"checksum_sha256": item["checksum_sha256"],
 				"uploaded_by_submitter": submitter,
-				"uploaded_by_user": None if submitter else _acting_user(),
+				"uploaded_by_user": None if submitter else permissions.session_user(),
 				"scan_status": SCAN_PENDING,
 			}
 		).insert(ignore_permissions=True)
@@ -468,12 +470,6 @@ def delete(attachment_id: str | None = None, attachment: str | None = None):
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
-
-
-def _acting_user():
-	"""The signed-in user, or None for a guest filling in the wizard."""
-	user = frappe.session.user
-	return None if user in ("Guest", None) else user
 
 
 def _case_for_read(grievance):

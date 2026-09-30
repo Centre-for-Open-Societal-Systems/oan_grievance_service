@@ -20,6 +20,7 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field, model_validator
 
+from oan_grievance_service import permissions
 from oan_grievance_service.services import constants as C
 
 DRAFT_LIFETIME_DAYS = 30
@@ -44,7 +45,9 @@ def _resolve_grievance_type(grievance_type, category):
 	"""
 	if not grievance_type:
 		return None
-	from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+		resolve_grievance_type,
+	)
 
 	resolved = resolve_grievance_type(grievance_type, category)
 	if not resolved:
@@ -132,7 +135,7 @@ def save(
 	if not client_submission_uuid:
 		frappe.throw(_("client_submission_uuid or client_uuid is required."), frappe.ValidationError)
 
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
@@ -258,7 +261,7 @@ def save_draft(**kwargs):
 @require_role(ALLOWED_DRAFT_ROLES)
 def load():
 	"""Return the caller's latest unsubmitted draft."""
-	user = _session_user()
+	user = permissions.session_user()
 	if not user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
@@ -334,7 +337,7 @@ def submit_draft(
 	**kwargs,
 ):
 	"""Submit an existing draft grievance, transitioning its status to Submitted."""
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
@@ -551,7 +554,7 @@ class DiscardDraftRequest(BaseModel):
 @require_role(ALLOWED_DRAFT_ROLES)
 def discard(client_submission_uuid: str):
 	"""Delete a draft the submitter abandoned."""
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
@@ -613,11 +616,6 @@ def _purge_draft_uploads(grievance_name):
 		frappe.delete_doc("File", f.name, force=True, ignore_permissions=True)
 
 
-def _session_user():
-	user = frappe.session.user
-	return None if user in ("Guest", None) else user
-
-
 def _assert_owner(doc, session_user):
 	"""A draft claimed by a signed-in user stays with that user."""
 	if not doc.owner:
@@ -643,12 +641,11 @@ def _latest_own_draft_name(user):
 
 def _draft_state(doc):
 	"""Draft document attributes returned directly."""
-	from oan_auth_service.api.utils import split_phone_number
-
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
+	from oan_grievance_service.services.identity import mask_contact
 
 	attachments = _attachments(doc.name)
 	hierarchy = get_administrative_hierarchy(doc.administrative_area)
@@ -656,7 +653,7 @@ def _draft_state(doc):
 	grievance_type_name = (
 		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
 	)
-	phone_cc, phone_nat = split_phone_number(doc.contact_mobile) if doc.contact_mobile else (None, None)
+	contact = mask_contact(doc, show_identity=True)
 
 	return {
 		"name": doc.name,
@@ -667,10 +664,10 @@ def _draft_state(doc):
 		"submission_channel": doc.submission_channel,
 		"submitter_type": doc.submitter_type,
 		"submitter_name": doc.submitter_name,
-		"contact_mobile": doc.contact_mobile,
-		"country_code": phone_cc,
-		"phone_number": phone_nat,
-		"contact_email": doc.contact_email,
+		"contact_mobile": contact["contact_mobile"],
+		"country_code": contact["country_code"],
+		"phone_number": contact["phone_number"],
+		"contact_email": contact["contact_email"],
 		"administrative_area": doc.administrative_area,
 		"administrative_hierarchy": hierarchy,
 		"location": location_str,
@@ -682,7 +679,7 @@ def _draft_state(doc):
 		"description": doc.description,
 		"desired_outcome": doc.desired_outcome,
 		"is_anonymous": doc.is_anonymous,
-		"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
+		"can_request_more_info": contact["can_request_more_info"],
 		"attachments": attachments,
 		"attachment_count": len(attachments),
 		"owner": doc.owner,

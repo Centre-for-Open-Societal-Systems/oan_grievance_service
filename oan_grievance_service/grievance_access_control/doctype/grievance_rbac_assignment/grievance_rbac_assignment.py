@@ -27,6 +27,10 @@ def query_active_officer_assignments(
 	user=None,
 	role_level=None,
 	reports_to_list=None,
+	department=None,
+	category=None,
+	administrative_area=None,
+	include_user_details=False,
 	fields=None,
 	order_by="c.is_primary DESC, p.modified DESC",
 	limit=None,
@@ -50,24 +54,60 @@ def query_active_officer_assignments(
 	if reports_to_list:
 		conditions.append("c.reports_to IN %(reports_to_list)s")
 		params["reports_to_list"] = tuple(reports_to_list)
+	if department:
+		conditions.append(
+			"(p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')"
+		)
+		params["department"] = str(department).strip()
+	if category:
+		conditions.append(
+			"(p.category_scope = %(category)s OR p.category_scope IS NULL OR p.category_scope = '')"
+		)
+		params["category"] = str(category).strip()
 
-	field_str = (
-		", ".join(fields)
-		if fields
-		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
-	)
-	sql = f"""  # nosemgrep: frappe-sql-format-injection
-		SELECT {field_str}
-		FROM `tabGrievance RBAC Assignment Officer` c
-		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-		WHERE {" AND ".join(conditions)}
-	"""
+	if include_user_details:
+		field_str = (
+			", ".join(fields)
+			if fields
+			else "DISTINCT c.user AS user_id, COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name, u.email, c.role_level, c.is_primary, c.reports_to, p.administrative_area_scope"
+		)
+		sql = f"""  # nosemgrep: frappe-sql-format-injection
+			SELECT {field_str}
+			FROM `tabGrievance RBAC Assignment Officer` c
+			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+			JOIN `tabUser` u ON u.name = c.user
+			WHERE {" AND ".join(conditions)}
+		"""
+	else:
+		field_str = (
+			", ".join(fields)
+			if fields
+			else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
+		)
+		sql = f"""  # nosemgrep: frappe-sql-format-injection
+			SELECT {field_str}
+			FROM `tabGrievance RBAC Assignment Officer` c
+			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+			WHERE {" AND ".join(conditions)}
+		"""
 	if order_by:
 		sql += f" ORDER BY {order_by}"
 	if limit:
 		sql += f" LIMIT {int(limit)}"
 
-	return frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: frappe-sql-format-injection
+	rows = frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: frappe-sql-format-injection
+
+	if administrative_area and rows:
+		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
+		if target_lft is not None:
+			rows = [
+				r
+				for r in rows
+				if not r.get("administrative_area_scope")
+				or is_in_area_subtree(target_lft, r.get("administrative_area_scope"))
+			]
+
+	return rows
 
 
 def active_scopes(user=None):

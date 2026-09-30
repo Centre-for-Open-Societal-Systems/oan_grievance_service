@@ -56,6 +56,12 @@ GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_SUBMITTER)
 UNRESTRICTED_ROLES = {ROLE_ADMIN, "System Manager", "Administrator"}
 
 
+def session_user(user=None):
+	"""The signed-in user, or None for Guest / unauthenticated sessions."""
+	u = user or frappe.session.user
+	return None if u in ("Guest", None) else u
+
+
 def is_staff(user=None):
 	"""Officers and administrators: anyone who works cases rather than files them."""
 	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)

@@ -17,6 +17,7 @@ from oan_auth_service.api.utils import (
 	parse_multi_value,
 	require_role,
 	success_response,
+	to_tz_aware_iso,
 	validate_request,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,11 +34,15 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
+from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+	resolve_grievance_type,
 )
 from oan_grievance_service.services import audit, identity, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C
@@ -285,26 +290,6 @@ def resolve_administrative_area(area_identifier):
 			"Grievance Administrative Area", {"area_name": area_identifier, "level_name": "Region"}, "name"
 		)
 	)
-
-
-def resolve_grievance_type(type_identifier: str | None, category: str | None = None) -> str | None:
-	"""Resolve a grievance type identifier (DocType name or display type_name) to canonical doc name.
-
-	None when nothing matches. The caller decides whether that is an error; handing
-	back the raw input instead would let an unknown string reach a Link field.
-	"""
-	if not type_identifier:
-		return None
-	type_identifier = str(type_identifier).strip()
-	if frappe.db.exists("Grievance Type", type_identifier):
-		return type_identifier
-	filters = {"type_name": type_identifier}
-	if category:
-		filters["service_category"] = category
-	resolved = frappe.db.get_value("Grievance Type", filters, "name")
-	if resolved:
-		return resolved
-	return frappe.db.get_value("Grievance Type", {"type_name": type_identifier}, "name")
 
 
 def detect_duplicates(grievance, window_days=7):
@@ -627,7 +612,7 @@ def list_grievances(
 		fields=fields,
 		order_by=order_by,
 		start=offset,
-		page_length=effective_limit,
+		limit=effective_limit,
 	)
 
 	total_records = frappe.get_list(
@@ -635,7 +620,7 @@ def list_grievances(
 		filters=filters,
 		or_filters=or_filters if or_filters else None,
 		fields=[{"COUNT": "*", "as": "total"}],
-		limit_page_length=1,
+		limit=1,
 	)
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0
 
@@ -651,25 +636,18 @@ def list_grievances(
 		loc = format_administrative_location(h)
 		area_cache[area_id] = {"hierarchy": h, "location": loc}
 
-	from oan_auth_service.api.utils import split_phone_number
-
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		state_deadline = item.pop("state_deadline", None)
 		item["confirmation_deadline"] = state_deadline if item.get("status") == C.STATE_RESOLVED else None
-		if not permissions.can_see_identity(item):
-			item["submitter_name"] = _("Anonymous Submitter")
-			item["contact_mobile"] = None
-			item["contact_email"] = None
 
-		phone_cc, phone_nat = (
-			split_phone_number(item.get("contact_mobile")) if item.get("contact_mobile") else (None, None)
-		)
-		item["country_code"] = phone_cc
-		item["phone_number"] = phone_nat
+		show_id = permissions.can_see_identity(item)
+		contact = identity.mask_contact(item, show_identity=show_id)
+		item.update(contact)
+		if not show_id:
+			item["submitter_name"] = _("Anonymous Submitter")
 
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
-		item["can_request_more_info"] = bool(item.get("contact_mobile") or item.get("contact_email"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
@@ -686,19 +664,13 @@ def list_grievances(
 
 def _grievance_page(items, page, page_size, total_count):
 	"""The list endpoint's envelope, shared by the normal and the short-circuit path."""
-	total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
+	meta = page_meta(total_count, page, page_size)
 	return success_response(
 		data={
 			"items": items,
-			"pagination": {
-				"page": page,
-				"page_size": page_size,
-				"total_count": total_count,
-				"total_pages": total_pages,
-				"has_next": page < total_pages,
-				"has_prev": page > 1,
-			},
+			"pagination": meta,
 		},
+		pagination=meta,
 		message=_("Grievances retrieved successfully"),
 	)
 
@@ -709,10 +681,10 @@ def _get_available_actions_for_user(doc):
 	is_staff = permissions.is_staff(user)
 
 	# Information requests and submitter replies are only possible when the
-	# submitter is reachable.  If neither a mobile number nor an e-mail address
+	# submitter is reachable. If neither a mobile number nor an e-mail address
 	# is on file, those actions are suppressed because there is no channel to
 	# deliver the request through or collect the reply on.
-	submitter_reachable = bool(doc.get("contact_mobile") or doc.get("contact_email"))
+	submitter_reachable = identity.is_reachable(doc)
 
 	actions = lifecycle.actions_available(doc)
 	result = []
@@ -735,17 +707,6 @@ def _get_available_actions_for_user(doc):
 	return result
 
 
-def _iso(value):
-	"""Render a date/datetime field for the wire.
-
-	An unset field is null. Formatting it with `str()` would put the literal
-	string "None" on the wire, which a client cannot tell from a real value.
-	"""
-	if not value:
-		return None
-	return value.isoformat() if hasattr(value, "isoformat") else str(value)
-
-
 def _current_state(doc, extra=None):
 	"""The `current_state` block every mutating endpoint echoes back.
 
@@ -758,9 +719,9 @@ def _current_state(doc, extra=None):
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to,
 		"department": doc.assigned_dept,
-		"updated_at": _iso(doc.modified),
+		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
-		"can_request_more_info": bool(doc.get("contact_mobile") or doc.get("contact_email")),
+		"can_request_more_info": identity.is_reachable(doc),
 	}
 	if extra:
 		state.update(extra)
@@ -810,36 +771,58 @@ def submit(**kwargs):
 	)
 
 
-def _format_timeline_event(entry, doc, from_status=None, to_status=None):
-	if not entry:
-		return None
-	author_type = "submitter" if entry.author_submitter else "officer" if entry.author_user else "system"
-	if entry.author_submitter:
-		author_role = doc.submitter_type or "Grievance Submitter"
-	elif entry.author_user:
+def resolve_timeline_author(
+	author_submitter: str | None, author_user: str | None, submitter_type: str | None = None
+) -> tuple[str, str]:
+	"""Determine author_type and author_role for timeline formatting."""
+	if author_submitter:
+		return "submitter", submitter_type or "Grievance Submitter"
+	if author_user:
 		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 			current_level_of,
 		)
 
-		level_id = current_level_of(entry.author_user)
-		author_role = (
+		level_id = current_level_of(author_user)
+		role_name = (
 			frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
 		) or "Grievance Officer"
-	else:
-		author_role = "System"
+		return "officer", role_name
+	return "system", "System"
+
+
+def _format_timeline_event(entry, doc, from_status=None, to_status=None):
+	if not entry:
+		return None
+	author_submitter = (
+		getattr(entry, "author_submitter", None)
+		if hasattr(entry, "author_submitter")
+		else entry.get("author_submitter")
+	)
+	author_user = (
+		getattr(entry, "author_user", None) if hasattr(entry, "author_user") else entry.get("author_user")
+	)
+	author_type, author_role = resolve_timeline_author(author_submitter, author_user, doc.submitter_type)
+
+	created_val = (
+		getattr(entry, "created_on", None) if hasattr(entry, "created_on") else entry.get("created_on")
+	)
 
 	return {
-		"id": entry.name,
-		"entry_type": entry.entry_type,
-		"body": entry.body,
-		"is_internal": bool(entry.is_internal),
+		"id": getattr(entry, "name", None) if hasattr(entry, "name") else entry.get("name"),
+		"entry_type": getattr(entry, "entry_type", None)
+		if hasattr(entry, "entry_type")
+		else entry.get("entry_type"),
+		"body": getattr(entry, "body", None) if hasattr(entry, "body") else entry.get("body"),
+		"is_internal": bool(
+			getattr(entry, "is_internal", False)
+			if hasattr(entry, "is_internal")
+			else entry.get("is_internal")
+		),
 		"author_role": author_role,
 		"author_type": author_type,
 		"from_status": from_status,
 		"to_status": to_status or doc.status,
-		"created_on": entry.created_on.isoformat()
-		if hasattr(entry.created_on, "isoformat")
-		else str(entry.created_on),
+		"created_on": to_tz_aware_iso(created_val),
 	}
 
 
@@ -886,11 +869,7 @@ def action(
 
 	# 3. Information requests and submitter replies require the submitter to be
 	#    reachable. If no contact details are on file, these actions are refused.
-	if (
-		matching_action in ("Request More Info", "Submitter Reply")
-		and not doc.get("contact_mobile")
-		and not doc.get("contact_email")
-	):
+	if matching_action in ("Request More Info", "Submitter Reply") and not identity.is_reachable(doc):
 		frappe.throw(
 			_(
 				"Cannot request information or expect a reply because the submitter "
@@ -902,10 +881,6 @@ def action(
 
 	# 3. Action-specific dispatch and reason validation
 	if matching_action == "Confirm Resolution":
-		if rating is not None:
-			doc.db_set("satisfaction_rating", int(rating), update_modified=False)
-		if comments:
-			doc.db_set("satisfaction_comments", comments, update_modified=False)
 		lifecycle.transition(
 			doc, "Confirm Resolution", note="Confirmed by submitter", closure_type="confirmed"
 		)
@@ -923,13 +898,15 @@ def action(
 					"submitted_at": now_datetime(),
 				}
 			).insert(ignore_permissions=True)
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="resolution",
-			is_internal=False,
-			body=comments or "Confirmed resolution",
-			author_submitter=doc.submitter,
-		)
+			timeline_entry = frappe.get_last_doc("Grievance Timeline", filters={"grievance": doc.name})
+		else:
+			timeline_entry = GrievanceTimeline.record(
+				grievance=doc.name,
+				entry_type="resolution",
+				is_internal=False,
+				body=comments or "Confirmed resolution",
+				author_submitter=doc.submitter,
+			)
 
 	elif matching_action == "Reopen":
 		if not reason or not reason.strip():
@@ -1091,31 +1068,19 @@ def feedback(
 ):
 	"""Submit satisfaction rating and feedback for a resolved or closed grievance."""
 	doc = _load(ticket_number, ptype="read")
-
-	allowed_states = (C.STATE_RESOLVED, C.STATE_CLOSED)
-	if doc.status not in allowed_states and doc.workflow_state not in allowed_states:
-		frappe.throw(
-			_("Feedback can only be submitted for grievances in Resolved or Closed status."),
-			frappe.ValidationError,
-			title=_("Action Not Permitted"),
-		)
-
 	user = frappe.session.user
-	is_staff = permissions.is_staff()
-	if not is_staff and doc.owner != user and doc.submitter != user:
-		from oan_grievance_service.api.v1.submitter import _caller_profile
-
-		profile = _caller_profile(user)
-		if not profile or doc.submitter != profile.name:
-			frappe.throw(_("You can only submit feedback for your own grievances."), frappe.PermissionError)
 
 	submitter_profile = None
-	if not is_staff:
-		from oan_grievance_service.api.v1.submitter import _caller_profile
+	if not permissions.is_staff(user):
+		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+			profiles_of,
+		)
 
-		profile = _caller_profile(user)
-		if profile:
-			submitter_profile = profile.name
+		user_profiles = profiles_of(user)
+		if doc.submitter in user_profiles:
+			submitter_profile = doc.submitter
+		elif user_profiles:
+			submitter_profile = user_profiles[0]
 
 	ip = getattr(frappe.local, "request_ip", None)
 
@@ -1140,9 +1105,7 @@ def feedback(
 			"feedback_id": fb_doc.name,
 			"rating": fb_doc.rating,
 			"comments": fb_doc.comments,
-			"submitted_at": fb_doc.submitted_at.isoformat()
-			if hasattr(fb_doc.submitted_at, "isoformat")
-			else str(fb_doc.submitted_at),
+			"submitted_at": to_tz_aware_iso(fb_doc.submitted_at),
 		},
 		message=_("Feedback submitted successfully"),
 	)
@@ -1203,35 +1166,20 @@ def timeline(
 	if has_more:
 		entries = entries[:page_limit]
 
-	next_cursor = entries[-1]["created_on"].isoformat() if (has_more and entries) else None
+	next_cursor = to_tz_aware_iso(entries[-1]["created_on"]) if (has_more and entries) else None
 
 	show_identity = permissions.can_see_identity(doc)
+	contact = identity.mask_contact(doc, show_identity=show_identity)
 	masked_name = doc.submitter_name if show_identity else _("Anonymous Submitter")
-	masked_mobile = doc.contact_mobile if show_identity else None
-	masked_email = doc.contact_email if show_identity else None
-
-	from oan_auth_service.api.utils import split_phone_number
-
-	masked_phone_cc, masked_phone_nat = split_phone_number(masked_mobile) if masked_mobile else (None, None)
 
 	for entry in entries:
 		entry["is_internal"] = bool(entry.get("is_internal"))
-		if entry["author_submitter"]:
-			entry["author_type"] = "submitter"
-			entry["author_role"] = doc.submitter_type or "Grievance Submitter"
-		elif entry["author_user"]:
-			entry["author_type"] = "officer"
-			from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
-				current_level_of,
-			)
-
-			level_id = current_level_of(entry["author_user"])
-			entry["author_role"] = (
-				frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
-			) or "Grievance Officer"
-		else:
-			entry["author_type"] = "system"
-			entry["author_role"] = "System"
+		author_type, author_role = resolve_timeline_author(
+			entry.get("author_submitter"), entry.get("author_user"), doc.submitter_type
+		)
+		entry["author_type"] = author_type
+		entry["author_role"] = author_role
+		entry["created_on"] = to_tz_aware_iso(entry.get("created_on"))
 
 	# Only scanned evidence is listed. Files attached straight to the case used
 	# to be shown beside these rows without a verdict; the
@@ -1293,12 +1241,12 @@ def timeline(
 			},
 			"submitter": {
 				"name": masked_name,
-				"mobile": masked_mobile,
-				"contact_mobile": masked_mobile,
-				"country_code": masked_phone_cc,
-				"phone_number": masked_phone_nat,
-				"email": masked_email,
-				"contact_email": masked_email,
+				"mobile": contact["contact_mobile"],
+				"contact_mobile": contact["contact_mobile"],
+				"country_code": contact["country_code"],
+				"phone_number": contact["phone_number"],
+				"email": contact["contact_email"],
+				"contact_email": contact["contact_email"],
 				"submitter_type": doc.submitter_type,
 				"is_anonymous": bool(doc.is_anonymous),
 				"assisted_by_officer": doc.assisted_by_officer,
@@ -1321,7 +1269,7 @@ def timeline(
 				"routed_automatically": bool(doc.routed_automatically),
 			},
 			"available_actions": _get_available_actions_for_user(doc),
-			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
+			"can_request_more_info": contact["can_request_more_info"],
 			"attachments": attachments,
 			"timeline": entries,
 			"has_more": has_more,
@@ -1440,11 +1388,7 @@ def _post_message(
 		# A response type whose workflow action is 'Request More Info' cannot be
 		# used when the submitter has no contact details: there is no channel to
 		# deliver the request through.
-		if (
-			not doc.get("contact_mobile")
-			and not doc.get("contact_email")
-			and resp_type_doc.get("workflow_action") == "Request More Info"
-		):
+		if not identity.is_reachable(doc) and resp_type_doc.get("workflow_action") == "Request More Info":
 			frappe.throw(
 				_("Cannot request further information because the submitter has no contact details on file."),
 				frappe.ValidationError,
@@ -1505,7 +1449,7 @@ def _post_message(
 		if not is_staff:
 			frappe.throw(_("Only staff members can issue an information request."), frappe.PermissionError)
 
-		if not doc.get("contact_mobile") and not doc.get("contact_email"):
+		if not identity.is_reachable(doc):
 			frappe.throw(
 				_("Cannot request information because the submitter has no contact details on file."),
 				frappe.ValidationError,
