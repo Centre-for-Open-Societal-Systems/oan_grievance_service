@@ -116,9 +116,9 @@ def execute():
 
 	if created:
 		scanning.enqueue_scan_attachments(created)
-	print(
+	frappe.logger("patch").info(
 		f"link_attachments_to_files: linked {linked} rows, folded {len(legacy)} legacy files"
-	)  # nosemgrep: oan-no-print-in-production-code
+	)
 
 
 def _file_for(row):

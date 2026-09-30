@@ -73,38 +73,54 @@ def get_department_officers(
 	if not department:
 		return []
 
-	today = frappe.utils.today()
-	conditions = [
-		"c.active = 1",
-		"p.active = 1",
-		"p.effective_from <= %(today)s",
-		"(p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)",
-		"(p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')",
-	]
-	params = {"department": str(department).strip(), "today": today}
+	params = {
+		"department": str(department).strip(),
+		"today": frappe.utils.today(),
+		"service_category": str(service_category).strip() if service_category else None,
+	}
 
 	if service_category:
-		conditions.append(
-			"(p.category_scope = %(service_category)s OR p.category_scope IS NULL OR p.category_scope = '')"
-		)
-		params["service_category"] = str(service_category).strip()
+		sql = """
+			SELECT DISTINCT
+				c.user AS user_id,
+				COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
+				u.email,
+				c.role_level,
+				c.is_primary,
+				c.reports_to,
+				p.administrative_area_scope
+			FROM `tabGrievance RBAC Assignment Officer` c
+			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+			JOIN `tabUser` u ON u.name = c.user
+			WHERE c.active = 1
+				AND p.active = 1
+				AND p.effective_from <= %(today)s
+				AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+				AND (p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')
+				AND (p.category_scope = %(service_category)s OR p.category_scope IS NULL OR p.category_scope = '')
+			ORDER BY c.is_primary DESC, u.full_name ASC
+		"""
+	else:
+		sql = """
+			SELECT DISTINCT
+				c.user AS user_id,
+				COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
+				u.email,
+				c.role_level,
+				c.is_primary,
+				c.reports_to,
+				p.administrative_area_scope
+			FROM `tabGrievance RBAC Assignment Officer` c
+			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
+			JOIN `tabUser` u ON u.name = c.user
+			WHERE c.active = 1
+				AND p.active = 1
+				AND p.effective_from <= %(today)s
+				AND (p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)
+				AND (p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')
+			ORDER BY c.is_primary DESC, u.full_name ASC
+		"""
 
-	sql = f"""
-		SELECT DISTINCT
-			c.user AS user_id,
-			COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name,
-			u.email,
-			c.role_level,
-			c.is_primary,
-			c.reports_to,
-			p.administrative_area_scope
-		FROM `tabGrievance RBAC Assignment Officer` c
-		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-		JOIN `tabUser` u ON u.name = c.user
-		WHERE {" AND ".join(conditions)}
-		ORDER BY c.is_primary DESC, u.full_name ASC
-	"""
-	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 	officers = frappe.db.sql(sql, params, as_dict=True)
 
 	if administrative_area and officers:
