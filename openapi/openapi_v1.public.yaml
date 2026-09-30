@@ -1584,8 +1584,8 @@ paths:
       tags:
       - Administration
       summary: Update a category assignment
-      description: Change department, officers, priority, SLA window, or flags. The service category cannot
-        be changed.
+      description: Change department, officers, priority, SLA window, or flags. service_category is accepted
+        only when it matches the stored category.
       operationId: patch_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -3020,14 +3020,18 @@ components:
     UpdateCategoryAssignmentRequest:
       type: object
       properties:
+        service_category:
+          type: string
+          minLength: 1
+          description: Accepted only when it matches the stored category. A different value is rejected.
         department:
           type: string
-          nullable: true
-          description: Department name or short name
+          minLength: 1
+          description: Department name or short name. Null or blank is rejected.
         l1_officer:
           type: string
-          nullable: true
-          description: L1 nodal officer user id
+          minLength: 1
+          description: L1 nodal officer user id. Null or blank is rejected.
         l2_officer:
           type: string
           nullable: true
@@ -3053,7 +3057,8 @@ components:
           type: boolean
           nullable: true
           description: Set false to deactivate without DELETE
-      description: Partial update. Only sent fields change. Service category is fixed.
+      description: Partial update. Omit a field to leave it unchanged. department and l1_officer cannot
+        be null.
     HealthResponse:
       type: object
       properties:

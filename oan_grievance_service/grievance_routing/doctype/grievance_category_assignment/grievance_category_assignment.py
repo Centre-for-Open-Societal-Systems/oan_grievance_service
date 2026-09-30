@@ -94,8 +94,7 @@ class GrievanceCategoryAssignment(Document):
 		desk.category_scope = self.service_category
 		desk.active = 1 if self.active else 0
 		desk.routing_strategy = desk.routing_strategy or "Primary First"
-		for row in list(desk.officers):
-			desk.remove(row)
+		desk.set("officers", [])
 		desk.append(
 			"officers",
 			{
@@ -118,6 +117,7 @@ class GrievanceCategoryAssignment(Document):
 			)
 		desk.save()
 		if self.rbac_assignment != desk.name:
+			self.rbac_assignment = desk.name
 			self.db_set("rbac_assignment", desk.name, update_modified=False)
 
 

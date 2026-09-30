@@ -835,8 +835,12 @@ REQ["CreateCategoryAssignmentRequest"] = OBJ(
 
 REQ["UpdateCategoryAssignmentRequest"] = OBJ(
 	{
-		"department": S(nullable=True, description="Department name or short name"),
-		"l1_officer": S(nullable=True, description="L1 nodal officer user id"),
+		"service_category": S(
+			minLength=1,
+			description="Accepted only when it matches the stored category. A different value is rejected.",
+		),
+		"department": S(minLength=1, description="Department name or short name. Null or blank is rejected."),
+		"l1_officer": S(minLength=1, description="L1 nodal officer user id. Null or blank is rejected."),
 		"l2_officer": S(nullable=True, description="L2 senior nodal officer. Null clears it."),
 		"priority": S(nullable=True, enum=["Low", "Normal", "High"]),
 		"sla_days": I(nullable=True, minimum=1),
@@ -844,7 +848,7 @@ REQ["UpdateCategoryAssignmentRequest"] = OBJ(
 		"notify_on_submit": B(nullable=True),
 		"active": B(nullable=True, description="Set false to deactivate without DELETE"),
 	},
-	description="Partial update. Only sent fields change. Service category is fixed.",
+	description="Partial update. Omit a field to leave it unchanged. department and l1_officer cannot be null.",
 )
 
 
@@ -1627,7 +1631,7 @@ ROUTES = [
 		legacy="oan_grievance_service.api.v1.category_assignment.update_assignment",
 		description=(
 			"Change department, officers, priority, SLA window, or flags. "
-			+ "The service category cannot be changed."
+			+ "service_category is accepted only when it matches the stored category."
 		),
 	),
 	R(

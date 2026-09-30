@@ -68,6 +68,13 @@ def _optional_user(value):
 	return text
 
 
+def _required_text(value):
+	"""Reject null and blank. Omitted fields never reach this validator."""
+	if value is None or not str(value).strip() or str(value).strip().lower() == "none":
+		raise ValueError("must not be null or empty")
+	return str(value).strip()
+
+
 class CategoryAssignmentRecord(BaseModel):
 	model_config = ConfigDict(extra="ignore")
 
@@ -160,9 +167,14 @@ class UpdateCategoryAssignment(BaseModel):
 	def _flags(cls, value):
 		return _bool_field(value)
 
-	@field_validator("l2_officer", "l1_officer", "service_category", "department", mode="before")
+	@field_validator("l1_officer", "service_category", "department", mode="before")
 	@classmethod
-	def _blank(cls, value):
+	def _required_when_sent(cls, value):
+		return _required_text(value)
+
+	@field_validator("l2_officer", mode="before")
+	@classmethod
+	def _l2(cls, value):
 		return _optional_user(value)
 
 
@@ -243,12 +255,14 @@ def _record(source, names: dict[str, str] | None = None) -> dict:
 
 
 def _apply(doc, changes: dict):
-	if changes.get("service_category"):
-		doc.service_category = resolve_service_category(changes["service_category"])
-	if changes.get("department"):
-		doc.department = resolve_department(changes["department"])
-	if changes.get("l1_officer"):
-		doc.l1_officer = resolve_officer(changes["l1_officer"])
+	if "service_category" in changes:
+		doc.service_category = resolve_service_category(
+			_present(changes, "service_category", "Service category")
+		)
+	if "department" in changes:
+		doc.department = resolve_department(_present(changes, "department", "Department"))
+	if "l1_officer" in changes:
+		doc.l1_officer = resolve_officer(_present(changes, "l1_officer", "L1 officer"))
 	if "l2_officer" in changes:
 		doc.l2_officer = resolve_officer(changes["l2_officer"])
 	if changes.get("priority"):
@@ -258,6 +272,13 @@ def _apply(doc, changes: dict):
 	for flag in ("auto_escalate", "notify_on_submit", "active"):
 		if changes.get(flag) is not None:
 			setattr(doc, flag, 1 if changes[flag] else 0)
+
+
+def _present(changes: dict, key: str, label: str):
+	value = changes.get(key)
+	if value is None or (isinstance(value, str) and not value.strip()):
+		frappe.throw(_("{0} is required.").format(label), frappe.ValidationError)
+	return value
 
 
 def _reject_duplicate(service_category: str):
@@ -274,9 +295,13 @@ def _reject_duplicate(service_category: str):
 
 
 def _page(page, page_size) -> tuple[int, int]:
+	if page in (None, ""):
+		page = 1
+	if page_size in (None, ""):
+		page_size = 20
 	try:
-		page_no = int(page or 1)
-		size = int(page_size or 20)
+		page_no = int(page)
+		size = int(page_size)
 	except (TypeError, ValueError):
 		frappe.throw(_("page and page_size must be integers."), frappe.ValidationError)
 	if page_no < 1 or size < 1 or size > 100:
@@ -306,8 +331,8 @@ def list_assignments(
 	department: str | None = None,
 	priority: str | None = None,
 	active: str | None = None,
-	page: int = 1,
-	page_size: int = 20,
+	page: str | int | None = 1,
+	page_size: str | int | None = 20,
 ):
 	"""List category assignments for the admin tab."""
 	page_no, size = _page(page, page_size)
@@ -344,8 +369,8 @@ def list_assignments(
 			"active",
 			"rbac_assignment",
 		],
-		order_by="modified desc",
-		limit_start=(page_no - 1) * size,
+		order_by="modified desc, name desc",
+		offset=(page_no - 1) * size,
 		limit=size,
 	)
 	names = _user_names({row.l1_officer for row in rows} | {row.l2_officer for row in rows if row.l2_officer})
@@ -424,8 +449,8 @@ def update_assignment(assignment: str, **kwargs):
 	changes = UpdateCategoryAssignment.model_validate(_body(kwargs)).model_dump(exclude_unset=True)
 	if not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	if changes.get("service_category"):
-		resolved = resolve_service_category(changes["service_category"])
+	if "service_category" in changes:
+		resolved = resolve_service_category(_present(changes, "service_category", "Service category"))
 		if resolved != doc.service_category:
 			frappe.throw(
 				_("Service category cannot be changed. Deactivate this assignment and create another."),
