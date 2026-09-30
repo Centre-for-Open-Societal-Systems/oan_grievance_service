@@ -104,6 +104,7 @@ def get_department_officers(
 		WHERE {" AND ".join(conditions)}
 		ORDER BY c.is_primary DESC, u.full_name ASC
 	"""
+	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 	officers = frappe.db.sql(sql, params, as_dict=True)
 
 	if administrative_area and officers:

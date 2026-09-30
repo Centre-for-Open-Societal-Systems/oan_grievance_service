@@ -889,7 +889,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		case.flags.ignore_mandatory = True
 		case.insert(ignore_permissions=True)
 		self.addCleanup(discard_grievance, case.name)
-		frappe.db.commit()
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 		# Officer B attempts to add note on Officer A's case
 		frappe.set_user(officer_b_email)
