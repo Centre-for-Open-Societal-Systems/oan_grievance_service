@@ -11,10 +11,6 @@ rather than reviewing it anyway.
 
 ## Paths — do not review
 
-- `src/app/(dashboard)/loans/update-loan-application-status/page.tsx` — the
-  update-loan-application-status page. Excluded in full; no findings from this
-  file should appear in any report.
-
 ## Methods — do not use
 
 - **Do not refine or derive findings by analysing old commits / git history.**
