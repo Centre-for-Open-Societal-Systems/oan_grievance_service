@@ -361,15 +361,15 @@ def _update(desk, changes: dict):
 def list_assignments(
 	service_category: str | None = None,
 	department: str | None = None,
-	active=None,
-	page=1,
-	page_size=20,
+	active: bool | str | None = None,
+	page: int | str = 1,
+	page_size: int | str = 20,
 	**kwargs,
 ):
 	"""List category-only RBAC desks for the admin tab.
 
-	Numeric and boolean parameters are left unannotated: frappe checks annotations
-	before validate_request runs and would answer with its own type error.
+	Numeric and boolean parameters also accept str: frappe checks annotations before
+	validate_request runs, and a bare int would turn a bad value into its own type error.
 	"""
 	params = PageParams(page=page, page_size=page_size)
 	filters = _desk_filters()
@@ -427,10 +427,10 @@ def create_assignment(
 	service_category: str,
 	department: str,
 	l1_officer: str,
-	sla_days,
+	sla_days: int | str,
 	l2_officer: str | None = None,
-	auto_escalate=True,
-	active=True,
+	auto_escalate: bool | str = True,
+	active: bool | str = True,
 	**kwargs,
 ):
 	"""Create a category-only RBAC desk and set the category's SLA."""
