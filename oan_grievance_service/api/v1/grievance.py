@@ -502,27 +502,31 @@ def list_grievances(
 			if not raw_items:
 				continue
 			tier_area_names = set()
+			canonical_names = set()
 			for item in raw_items:
-				canonical_names = _resolve_area_filter_identifiers(item, lvl)
-				for canonical in canonical_names:
-					bounds = frappe.db.get_value(
-						"Grievance Administrative Area",
-						canonical,
-						["lft", "rgt", "is_group"],
-						as_dict=True,
-					)
-					if bounds and bounds.lft is not None and bounds.rgt is not None:
-						if bounds.get("is_group") or (bounds.rgt - bounds.lft > 1):
-							descendants = frappe.get_all(
-								"Grievance Administrative Area",
-								filters=[["lft", ">=", int(bounds.lft)], ["lft", "<=", int(bounds.rgt)]],
-								pluck="name",
-							)
-							tier_area_names.update(descendants)
-						else:
-							tier_area_names.add(canonical)
+				canonical_names.update(_resolve_area_filter_identifiers(item, lvl))
+
+			if canonical_names:
+				bounds_rows = frappe.get_all(
+					"Grievance Administrative Area",
+					filters={"name": ["in", list(canonical_names)]},
+					fields=["name", "lft", "rgt", "is_group"],
+				)
+				range_filters = []
+				for b in bounds_rows:
+					if b.lft is not None and b.rgt is not None and (b.get("is_group") or (b.rgt - b.lft > 1)):
+						range_filters.append([["lft", ">=", int(b.lft)], ["lft", "<=", int(b.rgt)]])
 					else:
-						tier_area_names.add(canonical)
+						tier_area_names.add(b.name)
+
+				for rf in range_filters:
+					descendants = frappe.get_all(
+						"Grievance Administrative Area",
+						filters=rf,
+						pluck="name",
+					)
+					tier_area_names.update(descendants)
+
 			if tier_area_names:
 				active_tier_area_sets.append(tier_area_names)
 

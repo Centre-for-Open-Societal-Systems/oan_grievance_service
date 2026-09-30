@@ -170,3 +170,78 @@ def area_bounds(scopes):
 		)
 		if a.lft is not None and a.rgt is not None
 	}
+
+
+def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[dict]:
+	"""Search and filter active administrative areas."""
+	limit = min(int(limit or 100), 500)
+	parents = [p for p in (parents if isinstance(parents, list) else [parents]) if p]
+
+	subtree_parents = []
+	direct_parents = []
+
+	if parents:
+		parent_docs = frappe.get_all(
+			"Grievance Administrative Area",
+			or_filters=[
+				{"name": ["in", parents]},
+				{"path_code": ["in", parents]},
+				{"code": ["in", parents]},
+				{"area_name": ["in", parents]},
+			],
+			fields=["name", "path_code", "code", "area_name", "level_name", "lft", "rgt"],
+		)
+		resolved_map = {}
+		for doc in parent_docs:
+			for key in (doc.name, doc.path_code, doc.code, doc.area_name):
+				if key and key in parents:
+					resolved_map[key] = doc
+
+		for p in parents:
+			doc = resolved_map.get(p)
+			if doc:
+				if level_name and doc.level_name != level_name:
+					subtree_parents.append(doc)
+				else:
+					direct_parents.append(doc.name)
+			else:
+				direct_parents.append(p)
+
+	Area = frappe.qb.DocType("Grievance Administrative Area")
+	query = (
+		frappe.qb.from_(Area)
+		.select(
+			Area.name.as_("area_id"),
+			Area.area_name,
+			Area.code,
+			Area.path_code,
+			Area.level_name,
+			Area.parent_administrative_area,
+			Area.is_group,
+			Area.depth,
+		)
+		.where(Area.is_active == 1)
+		.orderby(Area.area_name)
+		.limit(limit)
+	)
+
+	if parents:
+		parent_conditions = []
+		if direct_parents:
+			parent_conditions.append(Area.parent_administrative_area.isin(direct_parents))
+		for sp in subtree_parents:
+			parent_conditions.append((Area.lft > sp.lft) & (Area.rgt < sp.rgt))
+		if parent_conditions:
+			from pypika import Criterion
+
+			query = query.where(Criterion.any(parent_conditions))
+	elif not search and not level_name:
+		query = query.where(Area.level_name == "Region")
+
+	if level_name:
+		query = query.where(Area.level_name == level_name)
+
+	if search:
+		query = query.where(Area.area_name.like(f"%{search.strip()}%"))
+
+	return query.run(as_dict=True)

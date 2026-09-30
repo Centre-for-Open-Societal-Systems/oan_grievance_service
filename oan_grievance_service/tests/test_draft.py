@@ -19,11 +19,11 @@ class TestDraftModuleLoads(FrappeTestCase):
 		self.assertTrue(callable(draft.submit_draft))
 
 	def test_draft_endpoints_require_authentication(self):
-		for name in ("save", "load", "submit_draft", "discard", "delete_draft"):
+		for name in ("save", "load", "submit_draft", "discard"):
 			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
 			self.assertNotIn(path, middleware.EXEMPT_PATHS)
 
-		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard, draft.delete_draft):
+		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard):
 			self.assertIn(fn, frappe.whitelisted)
 			self.assertNotIn(fn, frappe.guest_methods)
 

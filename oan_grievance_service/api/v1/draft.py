@@ -248,13 +248,6 @@ def save(
 	return success_response(data=_draft_state(doc), message=_("Draft saved"))
 
 
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def save_draft(**kwargs):
-	return save(**kwargs)
-
-
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
 @frappe.whitelist()
 @handle_api_errors
@@ -273,13 +266,6 @@ def load():
 	_assert_owner(doc, user)
 
 	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
-
-
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def get_draft():
-	return load()
 
 
 class SubmitDraftRequest(BaseModel):
@@ -575,13 +561,6 @@ def discard(client_submission_uuid: str):
 	_purge_draft_uploads(doc.name)
 	frappe.delete_doc("Grievance", doc.name, force=True, ignore_permissions=True)
 	return success_response(data={"discarded": True}, message=_("Draft discarded"))
-
-
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def delete_draft(client_submission_uuid: str):
-	return discard(client_submission_uuid=client_submission_uuid)
 
 
 def purge_expired_drafts():

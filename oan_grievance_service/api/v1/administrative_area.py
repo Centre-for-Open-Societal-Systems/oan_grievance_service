@@ -57,88 +57,16 @@ def get_areas(
 	if level_name:
 		level_name = str(level_name).strip()
 
-	subtree_parents = []
-	direct_parents = []
+	from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+		search_areas,
+	)
 
-	for p in parents:
-		parent_doc = None
-		if frappe.db.exists("Grievance Administrative Area", p):
-			parent_doc = frappe.get_doc("Grievance Administrative Area", p)
-		else:
-			name = (
-				frappe.db.get_value("Grievance Administrative Area", {"path_code": p}, "name")
-				or frappe.db.get_value("Grievance Administrative Area", {"code": p}, "name")
-				or frappe.db.get_value("Grievance Administrative Area", {"area_name": p}, "name")
-			)
-			if name:
-				parent_doc = frappe.get_doc("Grievance Administrative Area", name)
-
-		if parent_doc:
-			if level_name and parent_doc.level_name != level_name:
-				subtree_parents.append(parent_doc)
-			else:
-				direct_parents.append(parent_doc.name)
-		else:
-			direct_parents.append(p)
-
-	where_clauses = ["is_active = 1"]
-	params = {}
-
-	if parents:
-		parent_or_clauses = []
-		if direct_parents:
-			if len(direct_parents) == 1:
-				parent_or_clauses.append("parent_administrative_area = %(direct_parent_0)s")
-				params["direct_parent_0"] = direct_parents[0]
-			else:
-				parent_or_clauses.append("parent_administrative_area IN %(direct_parents)s")
-				params["direct_parents"] = tuple(direct_parents)
-
-		for i, sp in enumerate(subtree_parents):
-			lft_key = f"lft_{i}"
-			rgt_key = f"rgt_{i}"
-			parent_or_clauses.append(f"(lft > %({lft_key})s AND rgt < %({rgt_key})s)")
-			params[lft_key] = sp.lft
-			params[rgt_key] = sp.rgt
-
-		if parent_or_clauses:
-			where_clauses.append(f"({' OR '.join(parent_or_clauses)})")
-	elif not search and not level_name:
-		# Default root view: Top-level Regions
-		where_clauses.append("level_name = %(default_level)s")
-		params["default_level"] = "Region"
-
-	if level_name:
-		where_clauses.append("level_name = %(level_name)s")
-		params["level_name"] = level_name
-
-	if search:
-		search_term = f"%{search.strip()}%"
-		where_clauses.append("area_name LIKE %(search_term)s")
-		params["search_term"] = search_term
-
-	where_sql = " AND ".join(where_clauses)
-	params["limit"] = limit
-
-	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
-	query = f"""
-		SELECT
-			name AS area_id,
-			area_name,
-			code,
-			path_code,
-			level_name,
-			parent_administrative_area,
-			is_group,
-			depth
-		FROM `tabGrievance Administrative Area`
-		WHERE {where_sql}
-		ORDER BY area_name ASC
-		LIMIT %(limit)s
-	"""
-
-	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection, tmp.frappe-semgrep-rules.rules.security.frappe-sql-format-injection
-	areas = frappe.db.sql(query, params, as_dict=True)
+	areas = search_areas(
+		parents=parents,
+		level_name=level_name,
+		search=search,
+		limit=limit,
+	)
 
 	return success_response(
 		data={
