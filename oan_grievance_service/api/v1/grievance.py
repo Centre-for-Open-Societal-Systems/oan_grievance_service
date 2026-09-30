@@ -5,8 +5,6 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
-import math
-
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, validate_phone_number_with_country_code
@@ -31,6 +29,7 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
+from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
@@ -69,11 +68,9 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	client_uuid: str | None = None
 
 
-class ListGrievancesRequest(BaseModel):
+class ListGrievancesRequest(PageParams):
 	model_config = {"extra": "allow"}
 
-	page: int = Field(1, ge=1)
-	page_size: int = Field(20, ge=1, le=100)
 	limit: int | None = Field(None, ge=1, le=100)
 	status: str | list | None = None
 	service_category: str | list | None = None
@@ -693,18 +690,10 @@ def list_grievances(
 
 def _grievance_page(items, page, page_size, total_count):
 	"""The list endpoint's envelope, shared by the normal and the short-circuit path."""
-	total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
 	return success_response(
 		data={
 			"items": items,
-			"pagination": {
-				"page": page,
-				"page_size": page_size,
-				"total_count": total_count,
-				"total_pages": total_pages,
-				"has_next": page < total_pages,
-				"has_prev": page > 1,
-			},
+			"pagination": page_meta(PageParams(page=page, page_size=page_size), total_count),
 		},
 		message=_("Grievances retrieved successfully"),
 	)

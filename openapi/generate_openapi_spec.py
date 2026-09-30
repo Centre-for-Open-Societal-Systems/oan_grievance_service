@@ -126,8 +126,10 @@ data(
 			"page_size": I(example=20, description="Items per page"),
 			"total_count": I(example=142, description="Total matching records"),
 			"total_pages": I(example=8, description="Total pages available"),
+			"has_next": B(description="True when a later page exists"),
+			"has_prev": B(description="True when an earlier page exists"),
 		},
-		required=["page", "page_size", "total_count", "total_pages"],
+		required=["page", "page_size", "total_count", "total_pages", "has_next", "has_prev"],
 		description="Pagination metadata block",
 	),
 )
@@ -639,18 +641,22 @@ data(
 	"CategoryAssignment",
 	OBJ(
 		{
-			"name": S(example="GR-RBAC-00001", description="Grievance RBAC Assignment id for this category"),
+			"name": S(example="GR-RBAC-00001", description="Grievance RBAC Assignment id for this department and category"),
 			"service_category": S(example="Inputs", description="Grievance service category"),
 			"department": S(description="Owning department the category routes to"),
-			"l1_officer": S(description="L1 nodal officer user id"),
+			"l1_officer": S(nullable=True, description="L1 nodal officer user id"),
 			"l1_officer_name": S(nullable=True, description="L1 officer display name"),
 			"l2_officer": S(nullable=True, description="L2 senior nodal officer user id"),
 			"l2_officer_name": S(nullable=True, description="L2 officer display name"),
-			"priority": S(enum=["Low", "Normal", "High"], example="High"),
-			"sla_days": I(minimum=1, example=14, description="SLA window in days"),
-			"auto_escalate": B(description="Escalate automatically when the SLA is breached"),
-			"notify_on_submit": B(
-				description="Notify the department when a case in this category is submitted"
+			"sla_days": I(
+				nullable=True,
+				minimum=1,
+				example=14,
+				description="SLA window in days. Shared by every department serving the category.",
+			),
+			"auto_escalate": B(
+				nullable=True,
+				description="Escalate automatically when the SLA is breached. Shared by every department serving the category.",
 			),
 			"active": B(description="False once the rule has been deactivated"),
 			"l1_role_level": S(
@@ -666,17 +672,11 @@ data(
 				enum=["Primary First", "Round Robin", "Least Loaded"],
 				description="Routing strategy copied from the department. Null when the department has not chosen one.",
 			),
-			"rbac_assignment": S(nullable=True, description="Desk this rule projects onto for auto-routing"),
 		},
 		required=[
 			"name",
 			"service_category",
 			"department",
-			"l1_officer",
-			"priority",
-			"sla_days",
-			"auto_escalate",
-			"notify_on_submit",
 			"active",
 		],
 		description="Category-to-department routing rule",
@@ -693,29 +693,12 @@ data(
 )
 
 data(
-	"CategoryAssignmentPagination",
-	OBJ(
-		{
-			"page": I(example=1),
-			"page_size": I(example=20),
-			"total_count": I(example=5),
-			"total_pages": I(example=1),
-			"has_next": B(),
-			"has_prev": B(),
-		},
-		required=["page", "page_size", "total_count", "total_pages", "has_next", "has_prev"],
-		description="Page window for a category assignment list",
-	),
-)
-
-data(
 	"CategoryAssignmentListData",
 	OBJ(
 		{
 			"assignments": ARR(REF("CategoryAssignment")),
-			"pagination": REF("CategoryAssignmentPagination"),
 		},
-		required=["assignments", "pagination"],
+		required=["assignments"],
 		description="One page of category assignments",
 	),
 )
@@ -836,49 +819,47 @@ REQ["CreateCategoryAssignmentRequest"] = OBJ(
 		"department": S(minLength=1, description="Department name or short name"),
 		"l1_officer": S(minLength=1, description="L1 nodal officer user id"),
 		"l2_officer": S(nullable=True, description="L2 senior nodal officer user id. Omit or null for none."),
-		"priority": S(enum=["Low", "Normal", "High"], default="Normal"),
 		"sla_days": I(minimum=1, description="SLA window in days"),
 		"auto_escalate": B(default=True),
-		"notify_on_submit": B(default=True),
 		"active": B(default=True),
 	},
 	required=["service_category", "department", "l1_officer", "sla_days"],
-	description="Create the routing rule for one service category",
+	description="Create the routing rule for one department and service category",
 )
 
 REQ["UpdateCategoryAssignmentRequest"] = OBJ(
 	{
-		"service_category": S(
-			minLength=1,
-			description="Accepted only when it matches the stored category. A different value is rejected.",
-		),
 		"department": S(minLength=1, description="Department name or short name. Null or blank is rejected."),
 		"l1_officer": S(minLength=1, description="L1 nodal officer user id. Null or blank is rejected."),
 		"l2_officer": S(nullable=True, description="L2 senior nodal officer. Null clears it."),
-		"priority": S(nullable=True, enum=["Low", "Normal", "High"]),
-		"sla_days": I(nullable=True, minimum=1),
-		"auto_escalate": B(nullable=True),
-		"notify_on_submit": B(nullable=True),
-		"active": B(nullable=True, description="Set false to deactivate without DELETE"),
+		"sla_days": I(minimum=1),
+		"auto_escalate": B(),
+		"active": B(description="Set false to deactivate. Same as DELETE."),
 	},
-	description="Partial update. Omit a field to leave it unchanged. department and l1_officer cannot be null.",
+	description=(
+		"Partial update. Omit a field to leave it unchanged. Unknown fields, including "
+		+ "service_category, are rejected."
+	),
 )
 
 
 # ---------------------------------------------------------------------------
 # Envelope Builder Helper
 # ---------------------------------------------------------------------------
-def make_envelope(data_ref, is_list=False, description="Successful response"):
+def make_envelope(data_ref, is_list=False, description="Successful response", paginated=False):
 	data_prop = ARR(REF(data_ref)) if is_list else REF(data_ref)
+	props = {
+		"status": S(example="success", enum=["success"]),
+		"message": S(nullable=True, description="Optional response message"),
+		"data": data_prop,
+		"meta": REF("ApiMeta"),
+		"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
+	}
+	if paginated:
+		props["pagination"] = REF("PaginationMeta")
 	return OBJ(
-		{
-			"status": S(example="success", enum=["success"]),
-			"message": S(nullable=True, description="Optional response message"),
-			"data": data_prop,
-			"meta": REF("ApiMeta"),
-			"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
-		},
-		required=["status", "data"],
+		props,
+		required=["status", "data"] + (["pagination"] if paginated else []),
 		description=description,
 	)
 
@@ -936,7 +917,9 @@ ENVELOPES = {
 		"CategoryAssignmentData", description="Category assignment response"
 	),
 	"CategoryAssignmentListResponse": make_envelope(
-		"CategoryAssignmentListData", description="Category assignment list response"
+		"CategoryAssignmentListData",
+		description="Category assignment list response",
+		paginated=True,
 	),
 }
 
@@ -1122,13 +1105,6 @@ QP = {
 			"required": False,
 			"schema": S(),
 			"description": "Filter by department name or short name",
-		},
-		{
-			"name": "priority",
-			"in": "query",
-			"required": False,
-			"schema": S(enum=["Low", "Normal", "High"]),
-			"description": "Filter by priority",
 		},
 		{
 			"name": "active",
@@ -1586,8 +1562,8 @@ ROUTES = [
 		response="CategoryAssignmentListResponse",
 		legacy="oan_grievance_service.api.v1.category_assignment.list_assignments",
 		description=(
-			"Admin list of category-to-department routing rules. One record per service category, "
-			+ "with the L1 and L2 officers, priority, SLA window, and escalation flags."
+			"Admin list of category-to-department routing rules. One record per department and service category, "
+			+ "with the L1 and L2 officers, SLA window, and escalation flag."
 		),
 	),
 	R(
@@ -1601,8 +1577,8 @@ ROUTES = [
 		status=200,
 		legacy="oan_grievance_service.api.v1.category_assignment.create_assignment",
 		description=(
-			"Create the routing rule for one service category. Projects a routing desk and the "
-			+ "category SLA configuration. A second rule for the same category is rejected."
+			"Create the routing rule for one department and service category. Creates the routing desk "
+			+ "and sets the category SLA configuration. A second rule for the same pair is rejected."
 		),
 	),
 	R(
@@ -1643,8 +1619,8 @@ ROUTES = [
 		response="CategoryAssignmentResponse",
 		legacy="oan_grievance_service.api.v1.category_assignment.update_assignment",
 		description=(
-			"Change department, officers, priority, SLA window, or flags. "
-			+ "service_category is accepted only when it matches the stored category."
+			"Change department, officers, SLA window, or flags. "
+			+ "service_category cannot be changed and is rejected."
 		),
 	),
 	R(
@@ -1665,8 +1641,8 @@ ROUTES = [
 		response="CategoryAssignmentResponse",
 		legacy="oan_grievance_service.api.v1.category_assignment.deactivate_assignment",
 		description=(
-			"Retire the routing rule. The record is kept, and the projected desk and SLA row "
-			+ "are marked inactive. Repeating the call leaves the rule inactive."
+			"Retire the routing rule. The record is kept and marked inactive. The category's SLA row "
+			+ "is not changed. Same as PATCH with active false. Repeating the call leaves the rule inactive."
 		),
 	),
 ]

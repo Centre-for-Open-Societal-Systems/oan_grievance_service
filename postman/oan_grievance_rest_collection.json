@@ -1915,13 +1915,12 @@
                   "query": [
                     {"key": "service_category", "value": "", "disabled": true},
                     {"key": "department", "value": "", "disabled": true},
-                    {"key": "priority", "value": "High", "disabled": true},
                     {"key": "active", "value": "1", "disabled": true},
                     {"key": "page", "value": "1", "disabled": true},
                     {"key": "page_size", "value": "20", "disabled": true}
                   ]
                 },
-                "description": "List rules. Optional query: service_category, department, priority, active, page, page_size."
+                "description": "List rules. Optional query: service_category, department, active, page, page_size. Pagination is in the top-level pagination block."
               },
               "response": []
             },
@@ -1951,14 +1950,14 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"l2_officer\": \"l2.officer@example.com\",\n  \"priority\": \"High\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true,\n  \"notify_on_submit\": true\n}"
+                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"l2_officer\": \"l2.officer@example.com\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/v1/category-assignments",
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments"]
                 },
-                "description": "Create the rule for one service category. Projects a routing desk and the category SLA row."
+                "description": "Create the rule for one department and service category. Creates the routing desk and sets the category SLA row."
               },
               "response": []
             },
@@ -1985,7 +1984,7 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"sla_days\": 10,\n  \"priority\": \"Normal\",\n  \"notify_on_submit\": false\n}"
+                  "raw": "{\n  \"sla_days\": 10\n}"
                 },
                 "url": {
                   "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",

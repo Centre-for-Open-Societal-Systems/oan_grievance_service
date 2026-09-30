@@ -1387,8 +1387,8 @@ paths:
       tags:
       - Administration
       summary: List category assignments
-      description: Admin list of category-to-department routing rules. One record per service category,
-        with the L1 and L2 officers, priority, SLA window, and escalation flags.
+      description: Admin list of category-to-department routing rules. One record per department and service
+        category, with the L1 and L2 officers, SLA window, and escalation flag.
       operationId: get_api_v1_category_assignments
       responses:
         '200':
@@ -1440,16 +1440,6 @@ paths:
         schema:
           type: string
         description: Filter by department name or short name
-      - name: priority
-        in: query
-        required: false
-        schema:
-          type: string
-          enum:
-          - Low
-          - Normal
-          - High
-        description: Filter by priority
       - name: active
         in: query
         required: false
@@ -1479,8 +1469,8 @@ paths:
       tags:
       - Administration
       summary: Create a category assignment
-      description: Create the routing rule for one service category. Projects a routing desk and the category
-        SLA configuration. A second rule for the same category is rejected.
+      description: Create the routing rule for one department and service category. Creates the routing
+        desk and sets the category SLA configuration. A second rule for the same pair is rejected.
       operationId: post_api_v1_category_assignments
       responses:
         '200':
@@ -1584,8 +1574,8 @@ paths:
       tags:
       - Administration
       summary: Update a category assignment
-      description: Change department, officers, priority, SLA window, or flags. service_category is accepted
-        only when it matches the stored category.
+      description: Change department, officers, SLA window, or flags. service_category cannot be changed
+        and is rejected.
       operationId: patch_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -1643,8 +1633,8 @@ paths:
       tags:
       - Administration
       summary: Deactivate a category assignment
-      description: Retire the routing rule. The record is kept, and the projected desk and SLA row are
-        marked inactive. Repeating the call leaves the rule inactive.
+      description: Retire the routing rule. The record is kept and marked inactive. The category's SLA
+        row is not changed. Same as PATCH with active false. Repeating the call leaves the rule inactive.
       operationId: delete_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -1772,11 +1762,19 @@ components:
           type: integer
           example: 8
           description: Total pages available
+        has_next:
+          type: boolean
+          description: True when a later page exists
+        has_prev:
+          type: boolean
+          description: True when an earlier page exists
       required:
       - page
       - page_size
       - total_count
       - total_pages
+      - has_next
+      - has_prev
       description: Pagination metadata block
     HealthData:
       type: object
@@ -2630,7 +2628,7 @@ components:
         name:
           type: string
           example: GR-RBAC-00001
-          description: Grievance RBAC Assignment id for this category
+          description: Grievance RBAC Assignment id for this department and category
         service_category:
           type: string
           example: Inputs
@@ -2640,6 +2638,7 @@ components:
           description: Owning department the category routes to
         l1_officer:
           type: string
+          nullable: true
           description: L1 nodal officer user id
         l1_officer_name:
           type: string
@@ -2653,24 +2652,17 @@ components:
           type: string
           nullable: true
           description: L2 officer display name
-        priority:
-          type: string
-          enum:
-          - Low
-          - Normal
-          - High
-          example: High
         sla_days:
           type: integer
+          nullable: true
           minimum: 1
           example: 14
-          description: SLA window in days
+          description: SLA window in days. Shared by every department serving the category.
         auto_escalate:
           type: boolean
-          description: Escalate automatically when the SLA is breached
-        notify_on_submit:
-          type: boolean
-          description: Notify the department when a case in this category is submitted
+          nullable: true
+          description: Escalate automatically when the SLA is breached. Shared by every department serving
+            the category.
         active:
           type: boolean
           description: False once the rule has been deactivated
@@ -2691,19 +2683,10 @@ components:
           - Least Loaded
           description: Routing strategy copied from the department. Null when the department has not chosen
             one.
-        rbac_assignment:
-          type: string
-          nullable: true
-          description: Desk this rule projects onto for auto-routing
       required:
       - name
       - service_category
       - department
-      - l1_officer
-      - priority
-      - sla_days
-      - auto_escalate
-      - notify_on_submit
       - active
       description: Category-to-department routing rule
     CategoryAssignmentData:
@@ -2714,33 +2697,6 @@ components:
       required:
       - assignment
       description: One category assignment
-    CategoryAssignmentPagination:
-      type: object
-      properties:
-        page:
-          type: integer
-          example: 1
-        page_size:
-          type: integer
-          example: 20
-        total_count:
-          type: integer
-          example: 5
-        total_pages:
-          type: integer
-          example: 1
-        has_next:
-          type: boolean
-        has_prev:
-          type: boolean
-      required:
-      - page
-      - page_size
-      - total_count
-      - total_pages
-      - has_next
-      - has_prev
-      description: Page window for a category assignment list
     CategoryAssignmentListData:
       type: object
       properties:
@@ -2748,11 +2704,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CategoryAssignment'
-        pagination:
-          $ref: '#/components/schemas/CategoryAssignmentPagination'
       required:
       - assignments
-      - pagination
       description: One page of category assignments
     SaveDraftRequest:
       type: object
@@ -3008,21 +2961,11 @@ components:
           type: string
           nullable: true
           description: L2 senior nodal officer user id. Omit or null for none.
-        priority:
-          type: string
-          enum:
-          - Low
-          - Normal
-          - High
-          default: Normal
         sla_days:
           type: integer
           minimum: 1
           description: SLA window in days
         auto_escalate:
-          type: boolean
-          default: true
-        notify_on_submit:
           type: boolean
           default: true
         active:
@@ -3033,14 +2976,10 @@ components:
       - department
       - l1_officer
       - sla_days
-      description: Create the routing rule for one service category
+      description: Create the routing rule for one department and service category
     UpdateCategoryAssignmentRequest:
       type: object
       properties:
-        service_category:
-          type: string
-          minLength: 1
-          description: Accepted only when it matches the stored category. A different value is rejected.
         department:
           type: string
           minLength: 1
@@ -3053,29 +2992,16 @@ components:
           type: string
           nullable: true
           description: L2 senior nodal officer. Null clears it.
-        priority:
-          type: string
-          nullable: true
-          enum:
-          - Low
-          - Normal
-          - High
         sla_days:
           type: integer
-          nullable: true
           minimum: 1
         auto_escalate:
           type: boolean
-          nullable: true
-        notify_on_submit:
-          type: boolean
-          nullable: true
         active:
           type: boolean
-          nullable: true
-          description: Set false to deactivate without DELETE
-      description: Partial update. Omit a field to leave it unchanged. department and l1_officer cannot
-        be null.
+          description: Set false to deactivate. Same as DELETE.
+      description: Partial update. Omit a field to leave it unchanged. Unknown fields, including service_category,
+        are rejected.
     HealthResponse:
       type: object
       properties:
@@ -3626,7 +3552,10 @@ components:
           format: uuid
           nullable: true
           description: Tracing correlation ID
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
       required:
       - status
       - data
+      - pagination
       description: Category assignment list response

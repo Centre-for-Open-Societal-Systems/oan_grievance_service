@@ -3,109 +3,64 @@
 
 """Category assignment CRUD for the Administration Category Assignments tab.
 
-The record is a category-only Grievance RBAC Assignment: one desk per service
-category, with no area, type, or provider scope. SLA days, auto-escalate,
-priority, and notify-on-submit are stored on the category's Grievance SLA
-Configuration. Area-aware desks are left alone and still win when they are
-the nearer match. Role levels and routing strategy are read from the department.
+A category assignment is a category-only Grievance RBAC Assignment: one desk per
+(department, service category), with no area, type, or provider scope. Several
+departments can serve the same category. SLA days and auto-escalate are stored on
+the category's Grievance SLA Configuration, which is shared by every department
+serving that category. The desk's own `active` flag is the only on/off switch, so
+deactivating a desk never touches the SLA row. Area-aware desks are left alone and
+still win when they are the nearer match. Role levels and routing strategy are
+read from the department.
 """
 
-import math
-from typing import Literal
+from collections import defaultdict
+from typing import Annotated
 
 import frappe
 from frappe import _
 from frappe.utils import today
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import api_doc, handle_api_errors, require_role, success_response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from oan_auth_service.api.utils import (
+	api_doc,
+	handle_api_errors,
+	require_role,
+	success_response,
+	validate_request,
+)
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+
+from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 
 route = prefixed("/api/v1/category-assignments")
 
+DOCTYPE = "Grievance RBAC Assignment"
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
-PRIORITIES = ("Low", "Normal", "High")
 OFFICER_ROLES = {"Grievance Officer", "Grievance Admin"}
-ROUTING_STRATEGIES = ("Primary First", "Round Robin", "Least Loaded")
-_PRIORITY_ALIASES = {
-	"low": "Low",
-	"normal": "Normal",
-	"high": "High",
-	"high priority": "High",
-}
+DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy", "active"]
+
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
-def coerce_bool(value):
-	if isinstance(value, bool):
-		return value
-	if isinstance(value, int) and value in (0, 1):
-		return bool(value)
-	if isinstance(value, str):
-		token = value.strip().lower()
-		if token in {"1", "true", "yes", "on"}:
-			return True
-		if token in {"0", "false", "no", "off"}:
-			return False
-	raise ValueError("expected a boolean")
-
-
-def normalize_priority(value: str) -> str:
-	key = " ".join(str(value).strip().split()).lower()
-	mapped = _PRIORITY_ALIASES.get(key)
-	if not mapped:
-		raise ValueError("priority must be Low, Normal, or High")
-	return mapped
-
-
-def _bool_field(value):
-	if value is None or value == "":
-		return value
-	return coerce_bool(value)
-
-
-def _optional_user(value):
-	if value is None:
+def _blank_to_none(value):
+	if isinstance(value, str) and not value.strip():
 		return None
-	text = str(value).strip()
-	if text == "" or text.lower() == "none":
-		return None
-	return text
-
-
-def _required_text(value):
-	"""Reject null and blank. Omitted fields never reach this validator."""
-	if value is None or not str(value).strip() or str(value).strip().lower() == "none":
-		raise ValueError("must not be null or empty")
-	return str(value).strip()
+	return value
 
 
 class CategoryAssignmentRecord(BaseModel):
-	model_config = ConfigDict(extra="ignore")
-
 	name: str
 	service_category: str
 	department: str
-	l1_officer: str
+	l1_officer: str | None = None
 	l1_officer_name: str | None = None
 	l2_officer: str | None = None
 	l2_officer_name: str | None = None
-	priority: str
-	sla_days: int
-	auto_escalate: bool
-	notify_on_submit: bool
+	sla_days: int | None = None
+	auto_escalate: bool | None = None
 	active: bool
 	l1_role_level: str | None = None
 	l2_role_level: str | None = None
 	routing_strategy: str | None = None
-	rbac_assignment: str | None = None
-
-
-class Pagination(BaseModel):
-	page: int
-	page_size: int
-	total_count: int
-	total_pages: int
-	has_next: bool
-	has_prev: bool
 
 
 class CategoryAssignmentData(BaseModel):
@@ -114,74 +69,58 @@ class CategoryAssignmentData(BaseModel):
 
 class CategoryAssignmentListData(BaseModel):
 	assignments: list[CategoryAssignmentRecord]
-	pagination: Pagination
 
 
-class CreateCategoryAssignment(BaseModel):
+class _Body(BaseModel):
+	"""Rejects unknown fields. `cmd` is added by the request layer, not the client."""
+
 	model_config = ConfigDict(extra="forbid")
 
-	service_category: str = Field(min_length=1)
-	department: str = Field(min_length=1)
-	l1_officer: str = Field(min_length=1)
-	l2_officer: str | None = None
-	priority: str = "Normal"
+	@model_validator(mode="before")
+	@classmethod
+	def _drop_cmd(cls, data):
+		if isinstance(data, dict):
+			return {key: value for key, value in data.items() if key != "cmd"}
+		return data
+
+
+class CreateCategoryAssignment(_Body):
+	service_category: NonBlank
+	department: NonBlank
+	l1_officer: NonBlank
+	l2_officer: NonBlank | None = None
 	sla_days: int = Field(ge=1)
 	auto_escalate: bool = True
-	notify_on_submit: bool = True
 	active: bool = True
 
-	@field_validator("priority", mode="before")
-	@classmethod
-	def _priority(cls, value):
-		if value is None or value == "":
-			return "Normal"
-		return normalize_priority(value)
-
-	@field_validator("auto_escalate", "notify_on_submit", "active", mode="before")
-	@classmethod
-	def _flags(cls, value):
-		return _bool_field(value)
-
-	@field_validator("l2_officer", mode="before")
-	@classmethod
-	def _l2(cls, value):
-		return _optional_user(value)
+	_l2_blank = field_validator("l2_officer", mode="before")(_blank_to_none)
 
 
-class UpdateCategoryAssignment(BaseModel):
-	model_config = ConfigDict(extra="forbid")
+class UpdateCategoryAssignment(_Body):
+	"""Partial update. Omitted fields stay as they are, so only l2_officer accepts null."""
+
+	assignment: str
+	department: NonBlank = None
+	l1_officer: NonBlank = None
+	l2_officer: NonBlank | None = None
+	sla_days: int = Field(default=None, ge=1)
+	auto_escalate: bool = None
+	active: bool = None
+
+	_l2_blank = field_validator("l2_officer", mode="before")(_blank_to_none)
+
+	def model_dump(self, **kwargs):
+		return super().model_dump(**{"exclude_unset": True, **kwargs})
+
+
+class ListCategoryAssignments(PageParams):
+	model_config = ConfigDict(extra="ignore")
 
 	service_category: str | None = None
 	department: str | None = None
-	l1_officer: str | None = None
-	l2_officer: str | None = None
-	priority: str | None = None
-	sla_days: int | None = Field(default=None, ge=1)
-	auto_escalate: bool | None = None
-	notify_on_submit: bool | None = None
 	active: bool | None = None
 
-	@field_validator("priority", mode="before")
-	@classmethod
-	def _priority(cls, value):
-		if value is None or value == "":
-			return None
-		return normalize_priority(value)
-
-	@field_validator("auto_escalate", "notify_on_submit", "active", mode="before")
-	@classmethod
-	def _flags(cls, value):
-		return _bool_field(value)
-
-	@field_validator("l1_officer", "service_category", "department", mode="before")
-	@classmethod
-	def _required_when_sent(cls, value):
-		return _required_text(value)
-
-	@field_validator("l2_officer", mode="before")
-	@classmethod
-	def _l2(cls, value):
-		return _optional_user(value)
+	_active_blank = field_validator("active", mode="before")(_blank_to_none)
 
 
 def resolve_service_category(value: str) -> str:
@@ -191,10 +130,7 @@ def resolve_service_category(value: str) -> str:
 		"Grievance Service Category", {"category_name": value}, "name"
 	) or frappe.db.get_value("Grievance Service Category", {"code": value}, "name")
 	if not name:
-		frappe.throw(
-			_("Service category '{0}' does not exist.").format(value),
-			frappe.ValidationError,
-		)
+		frappe.throw(_("Service category '{0}' does not exist.").format(value), frappe.ValidationError)
 	return name
 
 
@@ -209,248 +145,42 @@ def resolve_department(value: str) -> str:
 	return name
 
 
-def resolve_officer(value: str | None) -> str | None:
-	if not value:
-		return None
-	if frappe.db.exists("User", value):
-		return value
-	frappe.throw(_("Officer '{0}' does not exist.").format(value), frappe.ValidationError)
+def _desk_filters(**extra) -> dict:
+	"""Filters that select category-only desks. Extra keys narrow or override them."""
+	return {
+		"category_scope": ["is", "set"],
+		"administrative_area_scope": ["is", "not set"],
+		"grievance_type_scope": ["is", "not set"],
+		"service_provider_scope": ["is", "not set"],
+		**extra,
+	}
 
 
 def _get_or_404(name: str):
-	if not name or not frappe.db.exists("Grievance RBAC Assignment", name):
+	if not name or not frappe.db.exists(DOCTYPE, _desk_filters(name=name)):
 		frappe.throw(
 			_("Category assignment '{0}' was not found.").format(name),
 			frappe.DoesNotExistError,
 		)
-	doc = frappe.get_doc("Grievance RBAC Assignment", name)
-	if not _is_category_desk(doc):
-		frappe.throw(
-			_("Category assignment '{0}' was not found.").format(name),
-			frappe.DoesNotExistError,
-		)
-	return doc
+	return frappe.get_doc(DOCTYPE, name)
 
 
-def _user_names(users: set[str]) -> dict[str, str]:
-	users = {user for user in users if user}
-	if not users:
-		return {}
-	rows = frappe.get_all(
-		"User",
-		filters={"name": ["in", list(users)]},
-		fields=["name", "full_name"],
-	)
-	return {row.name: row.full_name for row in rows}
-
-
-def _record(source, names: dict[str, str] | None = None) -> dict:
-	l1 = source.get("l1_officer")
-	l2 = source.get("l2_officer") or None
-	if names is None:
-		names = _user_names({l1, l2} if l2 else {l1})
-	return {
-		"name": source.get("name"),
-		"service_category": source.get("service_category"),
-		"department": source.get("department"),
-		"l1_officer": l1,
-		"l1_officer_name": names.get(l1),
-		"l2_officer": l2,
-		"l2_officer_name": names.get(l2) if l2 else None,
-		"priority": source.get("priority") or "Normal",
-		"sla_days": int(source.get("sla_days") or 0),
-		"auto_escalate": bool(source.get("auto_escalate")),
-		"notify_on_submit": bool(source.get("notify_on_submit")),
-		"active": bool(source.get("active")),
-		"l1_role_level": source.get("l1_role_level") or None,
-		"l2_role_level": source.get("l2_role_level") or None,
-		"routing_strategy": source.get("routing_strategy") or None,
-		"rbac_assignment": source.get("rbac_assignment") or None,
-	}
-
-
-def _apply(current: dict, changes: dict) -> dict:
-	merged = {
-		"service_category": current.get("service_category"),
-		"department": current.get("department"),
-		"l1_officer": current.get("l1_officer"),
-		"l2_officer": current.get("l2_officer"),
-		"priority": current.get("priority") or "Normal",
-		"sla_days": current.get("sla_days"),
-		"auto_escalate": current.get("auto_escalate", 1),
-		"notify_on_submit": current.get("notify_on_submit", 1),
-		"active": current.get("active", 1),
-	}
-	if "service_category" in changes:
-		merged["service_category"] = resolve_service_category(
-			_present(changes, "service_category", "Service category")
-		)
-	if "department" in changes:
-		merged["department"] = resolve_department(_present(changes, "department", "Department"))
-	if "l1_officer" in changes:
-		merged["l1_officer"] = resolve_officer(_present(changes, "l1_officer", "L1 officer"))
-	if "l2_officer" in changes:
-		merged["l2_officer"] = resolve_officer(changes["l2_officer"])
-	if changes.get("priority"):
-		merged["priority"] = changes["priority"]
-	if changes.get("sla_days") is not None:
-		merged["sla_days"] = changes["sla_days"]
-	for flag in ("auto_escalate", "notify_on_submit", "active"):
-		if changes.get(flag) is not None:
-			merged[flag] = 1 if changes[flag] else 0
-	return merged
-
-
-def _present(changes: dict, key: str, label: str):
-	value = changes.get(key)
-	if value is None or (isinstance(value, str) and not value.strip()):
-		frappe.throw(_("{0} is required.").format(label), frappe.ValidationError)
-	return value
-
-
-def _reject_duplicate(service_category: str):
-	existing = _category_desk_name(service_category)
+def _reject_duplicate(state: dict, exclude: str | None = None):
+	filters = _desk_filters(category_scope=state["service_category"], department_scope=state["department"])
+	if exclude:
+		filters["name"] = ["!=", exclude]
+	existing = frappe.db.get_value(DOCTYPE, filters, "name")
 	if existing:
 		frappe.throw(
-			_("A category assignment already exists for {0} ({1}).").format(service_category, existing),
+			_("A category assignment already exists for {0} in {1} ({2}).").format(
+				state["service_category"], state["department"], existing
+			),
 			frappe.DuplicateEntryError,
 		)
 
 
-def _page(page, page_size) -> tuple[int, int]:
-	if page in (None, ""):
-		page = 1
-	if page_size in (None, ""):
-		page_size = 20
-	try:
-		page_no = int(page)
-		size = int(page_size)
-	except (TypeError, ValueError):
-		frappe.throw(_("page and page_size must be integers."), frappe.ValidationError)
-	if page_no < 1 or size < 1 or size > 100:
-		frappe.throw(
-			_("page must be at least 1 and page_size must be between 1 and 100."),
-			frappe.ValidationError,
-		)
-	return page_no, size
-
-
-def _body(kwargs: dict) -> dict:
-	return {key: value for key, value in kwargs.items() if key not in {"cmd", "assignment"}}
-
-
-def _is_category_desk(doc) -> bool:
-	if not doc.get("category_scope"):
-		return False
-	if doc.get("administrative_area_scope") or doc.get("grievance_type_scope"):
-		return False
-	return not (doc.get("service_provider_scope") or "").strip()
-
-
-def _category_desk_filters(service_category=None, department=None, active=None) -> dict:
-	filters = {
-		"category_scope": service_category or ["is", "set"],
-		"administrative_area_scope": ["is", "not set"],
-		"grievance_type_scope": ["is", "not set"],
-	}
-	if department:
-		filters["department_scope"] = department
-	if active is not None:
-		filters["active"] = active
-	return filters
-
-
-def _category_desk_name(service_category: str) -> str | None:
-	for name in frappe.get_all(
-		"Grievance RBAC Assignment",
-		filters=_category_desk_filters(service_category),
-		pluck="name",
-	):
-		if _is_category_desk(frappe.get_doc("Grievance RBAC Assignment", name)):
-			return name
-	return None
-
-
-def _department_prefs(department: str) -> dict:
-	return (
-		frappe.db.get_value(
-			"Grievance Department",
-			department,
-			["l1_role_level", "l2_role_level", "routing_strategy"],
-			as_dict=True,
-		)
-		or {}
-	)
-
-
-class CategoryAssignmentRules(BaseModel):
-	"""Desk-save checks for one category-only RBAC assignment."""
-
-	model_config = ConfigDict(extra="ignore")
-
-	service_category: str = Field(min_length=1)
-	department: str = Field(min_length=1)
-	l1_officer: str = Field(min_length=1)
-	l2_officer: str | None = None
-	priority: Literal["Low", "Normal", "High"]
-	sla_days: int = Field(ge=1)
-	l1_role_level: str | None = None
-	l2_role_level: str | None = None
-	routing_strategy: str | None = None
-
-	@model_validator(mode="after")
-	def _check_links(self):
-		if self.l2_officer and self.l1_officer == self.l2_officer:
-			raise ValueError("L1 and L2 officers must be different users.")
-		_assert_officer(self.l1_officer, "L1 officer")
-		if self.l2_officer:
-			_assert_officer(self.l2_officer, "L2 officer")
-		_assert_active_link(
-			"Grievance Service Category", self.service_category, "is_active", "Service category"
-		)
-		_assert_active_link("Grievance Department", self.department, "active", "Department")
-		if not self.l1_role_level:
-			raise ValueError("Department must set an L1 role level.")
-		_assert_role_level(self.l1_role_level, "L1 role level")
-		if self.l2_officer:
-			if not self.l2_role_level:
-				raise ValueError("Department must set an L2 role level.")
-			_assert_role_level(self.l2_role_level, "L2 role level")
-		if self.routing_strategy and self.routing_strategy not in ROUTING_STRATEGIES:
-			raise ValueError("Routing strategy must be Primary First, Round Robin, or Least Loaded.")
-		return self
-
-
-def _rules(state: dict) -> CategoryAssignmentRules:
-	prefs = _department_prefs(state["department"])
-	try:
-		return CategoryAssignmentRules.model_validate(
-			{
-				**state,
-				"l1_role_level": prefs.get("l1_role_level") or None,
-				"l2_role_level": prefs.get("l2_role_level") or None,
-				"routing_strategy": prefs.get("routing_strategy") or None,
-			}
-		)
-	except ValidationError as exc:
-		frappe.throw(_(_pydantic_message(exc)), frappe.ValidationError)
-
-
-def _pydantic_message(exc: ValidationError) -> str:
-	message = exc.errors()[0].get("msg") or "Validation failed"
-	prefix = "Value error, "
-	if message.startswith(prefix):
-		return message[len(prefix) :]
-	return message
-
-
-def _assert_role_level(level, label):
-	if not frappe.db.exists("Grievance Role Level", level):
-		frappe.throw(_("{0} '{1}' does not exist.").format(label, level), frappe.ValidationError)
-
-
-def _assert_officer(user, label):
-	if not user or not frappe.db.exists("User", user):
+def _assert_officer(user: str, label: str):
+	if not frappe.db.exists("User", user):
 		frappe.throw(_("{0} '{1}' does not exist.").format(label, user), frappe.ValidationError)
 	if not frappe.db.get_value("User", user, "enabled"):
 		frappe.throw(_("{0} '{1}' is disabled.").format(label, user), frappe.ValidationError)
@@ -461,174 +191,204 @@ def _assert_officer(user, label):
 		)
 
 
-def _assert_active_link(doctype, name, flag_field, label):
-	if not name or not frappe.db.exists(doctype, name):
-		frappe.throw(_("{0} '{1}' does not exist.").format(label, name), frappe.ValidationError)
+def _assert_active(doctype: str, name: str, flag_field: str, label: str):
 	if not frappe.db.get_value(doctype, name, flag_field):
 		frappe.throw(_("{0} '{1}' is inactive.").format(label, name), frappe.ValidationError)
 
 
-def _sla_row(service_category: str) -> dict:
-	row = frappe.db.get_value(
-		"Grievance SLA Configuration",
-		{"service_category": service_category},
-		["name", "sla_days", "auto_escalate", "priority", "notify_on_submit", "active"],
+def _validate_links(state: dict):
+	"""Check every link a save depends on. Returns the department's routing preferences."""
+	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	if l2 and l1 == l2:
+		frappe.throw(_("L1 and L2 officers must be different users."), frappe.ValidationError)
+	_assert_officer(l1, _("L1 officer"))
+	if l2:
+		_assert_officer(l2, _("L2 officer"))
+	_assert_active("Grievance Service Category", state["service_category"], "is_active", _("Service category"))
+	_assert_active("Grievance Department", state["department"], "active", _("Department"))
+	prefs = frappe.db.get_value(
+		"Grievance Department",
+		state["department"],
+		["l1_role_level", "l2_role_level", "routing_strategy"],
 		as_dict=True,
 	)
-	return row or {}
+	if not prefs.l1_role_level:
+		frappe.throw(_("Department must set an L1 role level."), frappe.ValidationError)
+	if l2 and not prefs.l2_role_level:
+		frappe.throw(_("Department must set an L2 role level."), frappe.ValidationError)
+	return prefs
 
 
-def _state(desk) -> dict:
-	officers = list(desk.officers or [])
-	primary = next((row for row in officers if row.is_primary), officers[0] if officers else None)
-	secondary = next((row for row in officers if not primary or row.user != primary.user), None)
-	sla = _sla_row(desk.category_scope)
-	return {
-		"service_category": desk.category_scope,
-		"department": desk.department_scope,
-		"l1_officer": primary.user if primary else None,
-		"l2_officer": secondary.user if secondary else None,
-		"priority": sla.get("priority") or "Normal",
-		"sla_days": sla.get("sla_days"),
-		"auto_escalate": sla.get("auto_escalate", 1),
-		"notify_on_submit": sla.get("notify_on_submit", 1),
-		"active": desk.active,
-	}
-
-
-def _write_officers(desk, state: dict, rules: CategoryAssignmentRules):
+def _write_desk(desk, state: dict, prefs):
+	"""Copy state onto the desk. Existing officer rows are updated in place."""
 	desk.department_scope = state["department"]
 	desk.active = 1 if state["active"] else 0
-	if rules.routing_strategy:
-		desk.routing_strategy = rules.routing_strategy
-	desk.set("officers", [])
-	desk.append(
-		"officers",
-		{
-			"user": state["l1_officer"],
-			"role_level": rules.l1_role_level,
-			"is_primary": 1,
-			"active": 1,
-		},
-	)
+	if prefs.routing_strategy:
+		desk.routing_strategy = prefs.routing_strategy
+	wanted = {state["l1_officer"]: {"role_level": prefs.l1_role_level, "is_primary": 1, "reports_to": None}}
 	if state.get("l2_officer"):
-		desk.append(
-			"officers",
-			{
-				"user": state["l2_officer"],
-				"role_level": rules.l2_role_level,
-				"reports_to": state["l1_officer"],
-				"is_primary": 0,
-				"active": 1,
-			},
-		)
+		wanted[state["l2_officer"]] = {
+			"role_level": prefs.l2_role_level,
+			"is_primary": 0,
+			"reports_to": state["l1_officer"],
+		}
+	for row in list(desk.officers):
+		if row.user not in wanted:
+			desk.remove(row)
+	rows = {row.user: row for row in desk.officers}
+	for user, values in wanted.items():
+		row = rows.get(user) or desk.append("officers", {"user": user})
+		row.update({**values, "active": 1})
 
 
-def _save_sla(state: dict):
-	values = {
-		"sla_days": int(state["sla_days"]),
-		"auto_escalate": 1 if state["auto_escalate"] else 0,
-		"priority": state["priority"] or "Normal",
-		"notify_on_submit": 1 if state["notify_on_submit"] else 0,
-		"active": 1 if state["active"] else 0,
-	}
-	name = frappe.db.get_value(
-		"Grievance SLA Configuration", {"service_category": state["service_category"]}, "name"
+def _save_sla(service_category: str, sla_days: int, auto_escalate: bool):
+	name = frappe.db.get_value("Grievance SLA Configuration", {"service_category": service_category})
+	sla = (
+		frappe.get_doc("Grievance SLA Configuration", name)
+		if name
+		else frappe.new_doc("Grievance SLA Configuration")
 	)
-	if name:
-		frappe.db.set_value("Grievance SLA Configuration", name, values)
-		return
-	frappe.get_doc(
-		{"doctype": "Grievance SLA Configuration", "service_category": state["service_category"], **values}
-	).insert()
+	sla.service_category = service_category
+	sla.sla_days = sla_days
+	sla.auto_escalate = 1 if auto_escalate else 0
+	sla.save()
 
 
-def _view(desk) -> dict:
-	state = _state(desk)
-	officers = list(desk.officers or [])
-	primary = next((row for row in officers if row.is_primary), officers[0] if officers else None)
-	secondary = next((row for row in officers if primary and row.user != primary.user), None)
-	return {
-		**state,
-		"name": desk.name,
-		"l1_role_level": primary.role_level if primary else None,
-		"l2_role_level": secondary.role_level if secondary else None,
-		"routing_strategy": desk.routing_strategy or None,
-		"rbac_assignment": desk.name,
+def _split_officers(rows: list):
+	"""Primary is the active is_primary row, else the first active row. Secondary is the next non-primary."""
+	active = [row for row in rows if row.active]
+	primary = next((row for row in active if row.is_primary), active[0] if active else None)
+	secondary = next((row for row in active if row is not primary and not row.is_primary), None)
+	return primary, secondary
+
+
+def _records(desks: list) -> list[dict]:
+	"""Project desk rows to API records with one query each for officers, SLA rows, and names."""
+	if not desks:
+		return []
+	officers = defaultdict(list)
+	for row in frappe.get_all(
+		"Grievance RBAC Assignment Officer",
+		filters={"parent": ["in", [desk.name for desk in desks]], "parenttype": DOCTYPE},
+		fields=["parent", "user", "role_level", "is_primary", "active"],
+		order_by="parent, idx",
+	):
+		officers[row.parent].append(row)
+	sla_rows = {
+		row.service_category: row
+		for row in frappe.get_all(
+			"Grievance SLA Configuration",
+			filters={"service_category": ["in", list({desk.category_scope for desk in desks})]},
+			fields=["service_category", "sla_days", "auto_escalate"],
+		)
 	}
+	splits = [_split_officers(officers[desk.name]) for desk in desks]
+	full_names = {
+		row.name: row.full_name
+		for row in frappe.get_all(
+			"User",
+			filters={"name": ["in", list({row.user for pair in splits for row in pair if row})]},
+			fields=["name", "full_name"],
+		)
+	}
+	records = []
+	for desk, (primary, secondary) in zip(desks, splits, strict=True):
+		sla = sla_rows.get(desk.category_scope)
+		records.append(
+			CategoryAssignmentRecord(
+				name=desk.name,
+				service_category=desk.category_scope,
+				department=desk.department_scope,
+				l1_officer=primary.user if primary else None,
+				l1_officer_name=full_names.get(primary.user) if primary else None,
+				l2_officer=secondary.user if secondary else None,
+				l2_officer_name=full_names.get(secondary.user) if secondary else None,
+				sla_days=sla.sla_days if sla else None,
+				auto_escalate=bool(sla.auto_escalate) if sla else None,
+				active=bool(desk.active),
+				l1_role_level=primary.role_level if primary else None,
+				l2_role_level=secondary.role_level if secondary else None,
+				routing_strategy=desk.routing_strategy or None,
+			).model_dump()
+		)
+	return records
+
+
+def _record(name: str) -> dict:
+	return _records(frappe.get_all(DOCTYPE, filters={"name": name}, fields=DESK_FIELDS))[0]
+
+
+def _update(desk, changes: dict):
+	"""Apply a partial update. Deactivation skips link checks so a broken desk can always be retired."""
+	if changes == {"active": False}:
+		desk.active = 0
+		desk.save()
+		return
+	current = _record(desk.name)
+	state = {
+		"service_category": desk.category_scope,
+		"department": current["department"],
+		"l1_officer": current["l1_officer"],
+		"l2_officer": current["l2_officer"],
+		"sla_days": current["sla_days"],
+		"auto_escalate": current["auto_escalate"],
+		"active": current["active"],
+		**changes,
+	}
+	if "department" in changes:
+		state["department"] = resolve_department(changes["department"])
+		_reject_duplicate(state, exclude=desk.name)
+	prefs = _validate_links(state)
+	_write_desk(desk, state, prefs)
+	desk.save()
+	if {"sla_days", "auto_escalate"} & changes.keys():
+		_save_sla(desk.category_scope, state["sla_days"], state["auto_escalate"])
 
 
 @route("", methods=("GET",), summary="List category assignments")
 @frappe.whitelist()
+@validate_request(ListCategoryAssignments)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @api_doc(
 	summary="List category assignments",
-	description="Admin list of category-to-department routing rules, filterable by category, department, priority, and active flag.",
+	description="Admin list of category-to-department routing rules, filterable by category, department, and active flag.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentListData,
 )
 def list_assignments(
 	service_category: str | None = None,
 	department: str | None = None,
-	priority: str | None = None,
-	active: str | None = None,
-	page: str | int | None = 1,
-	page_size: str | int | None = 20,
+	active=None,
+	page=1,
+	page_size=20,
+	**kwargs,
 ):
-	"""List category-only RBAC desks for the admin tab."""
-	page_no, size = _page(page, page_size)
-	service_category_name = resolve_service_category(service_category) if service_category else None
-	department_name = resolve_department(department) if department else None
-	priority_name = None
-	if priority:
-		try:
-			priority_name = normalize_priority(priority)
-		except ValueError as exc:
-			frappe.throw(str(exc), frappe.ValidationError)
-	active_flag = None
-	if active not in (None, ""):
-		try:
-			active_flag = 1 if coerce_bool(active) else 0
-		except ValueError as exc:
-			frappe.throw(str(exc), frappe.ValidationError)
+	"""List category-only RBAC desks for the admin tab.
 
-	rows = frappe.get_all(
-		"Grievance RBAC Assignment",
-		filters=_category_desk_filters(service_category_name, department_name, active_flag),
-		fields=["name"],
+	Numeric and boolean parameters are left unannotated: frappe checks annotations
+	before validate_request runs and would answer with its own type error.
+	"""
+	params = PageParams(page=page, page_size=page_size)
+	filters = _desk_filters()
+	if service_category:
+		filters["category_scope"] = resolve_service_category(service_category)
+	if department:
+		filters["department_scope"] = resolve_department(department)
+	if active is not None:
+		filters["active"] = 1 if active else 0
+	desks = frappe.get_all(
+		DOCTYPE,
+		filters=filters,
+		fields=DESK_FIELDS,
 		order_by="modified desc, name desc",
+		offset=params.start,
+		limit_page_length=params.page_size,
 	)
-	views = []
-	for row in rows:
-		desk = frappe.get_doc("Grievance RBAC Assignment", row.name)
-		if not _is_category_desk(desk):
-			continue
-		if priority_name and (_sla_row(desk.category_scope).get("priority") or "Normal") != priority_name:
-			continue
-		views.append(_view(desk))
-	total = len(views)
-	window = views[(page_no - 1) * size : page_no * size]
-	users = set()
-	for view in window:
-		users.add(view["l1_officer"])
-		if view["l2_officer"]:
-			users.add(view["l2_officer"])
-	names = _user_names(users)
-	total_pages = math.ceil(total / size) if total else 1
 	return success_response(
-		data={
-			"assignments": [_record(view, names) for view in window],
-			"pagination": {
-				"page": page_no,
-				"page_size": size,
-				"total_count": total,
-				"total_pages": total_pages,
-				"has_next": page_no < total_pages,
-				"has_prev": page_no > 1,
-			},
-		},
+		data={"assignments": _records(desks)},
 		message=_("Category assignments retrieved"),
+		pagination=page_meta(params, frappe.db.count(DOCTYPE, filters)),
 	)
 
 
@@ -645,73 +405,76 @@ def list_assignments(
 def get_assignment(assignment: str):
 	"""Return one category-only RBAC assignment."""
 	return success_response(
-		data={"assignment": _record(_view(_get_or_404(assignment)))},
+		data={"assignment": _record(_get_or_404(assignment).name)},
 		message=_("Category assignment retrieved"),
 	)
 
 
 @route("", methods=("POST",), summary="Create a category assignment")
 @frappe.whitelist()
+@validate_request(CreateCategoryAssignment)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @api_doc(
 	summary="Create a category assignment",
-	description="Create the category-only Grievance RBAC Assignment for one service category. One rule per category, including inactive rules.",
+	description="Create the category-only Grievance RBAC Assignment for one department and service category. One rule per department and category, including inactive rules.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,
 )
-def create_assignment(**kwargs):
-	"""Create a category-only RBAC desk and the category SLA row."""
-	state = _apply({}, CreateCategoryAssignment.model_validate(_body(kwargs)).model_dump())
-	rules = _rules(state)
-	_reject_duplicate(state["service_category"])
-	desk = frappe.new_doc("Grievance RBAC Assignment")
+def create_assignment(
+	service_category: str,
+	department: str,
+	l1_officer: str,
+	sla_days,
+	l2_officer: str | None = None,
+	auto_escalate=True,
+	active=True,
+	**kwargs,
+):
+	"""Create a category-only RBAC desk and set the category's SLA."""
+	state = {
+		"service_category": resolve_service_category(service_category),
+		"department": resolve_department(department),
+		"l1_officer": l1_officer,
+		"l2_officer": l2_officer,
+		"sla_days": sla_days,
+		"auto_escalate": auto_escalate,
+		"active": active,
+	}
+	_reject_duplicate(state)
+	prefs = _validate_links(state)
+	desk = frappe.new_doc(DOCTYPE)
 	desk.effective_from = today()
 	desk.category_scope = state["service_category"]
-	desk.service_provider_scope = ""
-	desk.assigned_by = frappe.session.user if frappe.session.user not in (None, "Guest") else "Administrator"
-	_write_officers(desk, state, rules)
+	desk.assigned_by = frappe.session.user
+	_write_desk(desk, state, prefs)
 	desk.insert()
-	_save_sla(state)
-	desk.reload()
+	_save_sla(state["service_category"], sla_days, auto_escalate)
 	return success_response(
-		data={"assignment": _record(_view(desk))},
+		data={"assignment": _record(desk.name)},
 		message=_("Category assignment created"),
 	)
 
 
 @route("/<assignment>", methods=("PATCH",), summary="Update a category assignment")
 @frappe.whitelist()
+@validate_request(UpdateCategoryAssignment)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @api_doc(
 	summary="Update a category assignment",
-	description="Change department, officers, priority, SLA window, or the auto-escalate, notify-on-submit, and active flags.",
+	description="Change department, officers, SLA window, or the auto-escalate and active flags. The service category is fixed once created.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,
 )
 def update_assignment(assignment: str, **kwargs):
-	"""Update a category-only RBAC desk. The service category is fixed once created."""
+	"""Update a category-only RBAC desk. `kwargs` holds only the fields the client sent."""
 	desk = _get_or_404(assignment)
-	changes = UpdateCategoryAssignment.model_validate(_body(kwargs)).model_dump(exclude_unset=True)
-	if not changes:
+	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	if "service_category" in changes:
-		resolved = resolve_service_category(_present(changes, "service_category", "Service category"))
-		if resolved != desk.category_scope:
-			frappe.throw(
-				_("Service category cannot be changed. Deactivate this assignment and create another."),
-				frappe.ValidationError,
-			)
-		changes.pop("service_category")
-	state = _apply(_state(desk), changes)
-	rules = _rules(state)
-	_write_officers(desk, state, rules)
-	desk.save()
-	_save_sla(state)
-	desk.reload()
+	_update(desk, kwargs)
 	return success_response(
-		data={"assignment": _record(_view(desk))},
+		data={"assignment": _record(desk.name)},
 		message=_("Category assignment updated"),
 	)
 
@@ -722,21 +485,15 @@ def update_assignment(assignment: str, **kwargs):
 @require_role(ADMIN_ROLES)
 @api_doc(
 	summary="Deactivate a category assignment",
-	description="Retire a category routing rule. The RBAC desk and its SLA row stay for audit and are marked inactive.",
+	description="Retire a category routing rule. The RBAC desk stays for audit and is marked inactive. The category's SLA row is not changed. Same as PATCH with active false.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,
 )
 def deactivate_assignment(assignment: str):
-	"""Deactivate a category-only RBAC desk and its SLA row. Repeating the call is a no-op."""
+	"""Deactivate a category-only RBAC desk. Repeating the call is a no-op."""
 	desk = _get_or_404(assignment)
-	if desk.active:
-		desk.active = 0
-		desk.save()
-		state = _state(desk)
-		state["active"] = 0
-		_save_sla(state)
-		desk.reload()
+	_update(desk, {"active": False})
 	return success_response(
-		data={"assignment": _record(_view(desk))},
+		data={"assignment": _record(desk.name)},
 		message=_("Category assignment deactivated"),
 	)

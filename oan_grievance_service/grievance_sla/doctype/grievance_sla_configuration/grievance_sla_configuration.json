@@ -9,8 +9,6 @@
  "field_order": [
   "service_category",
   "sla_days",
-  "priority",
-  "notify_on_submit",
   "active",
   "col_sla_esc",
   "auto_escalate",
@@ -39,21 +37,6 @@
    "in_list_view": 1,
    "label": "SLA Days",
    "reqd": 1
-  },
-  {
-   "default": "Normal",
-   "description": "Priority stored for the category assignment tab.",
-   "fieldname": "priority",
-   "fieldtype": "Select",
-   "label": "Priority",
-   "options": "Low\nNormal\nHigh"
-  },
-  {
-   "default": "1",
-   "description": "Stored for the category assignment tab. Submit notifications still follow notification configuration.",
-   "fieldname": "notify_on_submit",
-   "fieldtype": "Check",
-   "label": "Notify on Submit"
   },
   {
    "default": "1",
