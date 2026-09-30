@@ -10,9 +10,7 @@ from oan_grievance_service.tests.fixtures import a_leaf_area, discard_grievance
 
 
 class TestListGrievanceAPI(FrappeTestCase):
-	@classmethod
-	def setUpClass(cls):
-		super().setUpClass()
+	def _ensure_fixtures(self):
 		frappe.set_user("Administrator")
 		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
@@ -41,7 +39,7 @@ class TestListGrievanceAPI(FrappeTestCase):
 
 		gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 		if not gtype_name:
-			cls.gtype = frappe.get_doc(
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -49,12 +47,12 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
-			gtype_name = cls.gtype.name
-		cls.gtype_name = gtype_name
+			gtype_name = self.gtype.name
+		self.gtype_name = gtype_name
 
 		gtype_credit_name = frappe.db.get_value("Grievance Type", {"type_name": "Credit Dispute"}, "name")
 		if not gtype_credit_name:
-			cls.gtype_credit = frappe.get_doc(
+			self.gtype_credit = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Credit Dispute",
@@ -62,8 +60,8 @@ class TestListGrievanceAPI(FrappeTestCase):
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
-			gtype_credit_name = cls.gtype_credit.name
-		cls.gtype_credit_name = gtype_credit_name
+			gtype_credit_name = self.gtype_credit.name
+		self.gtype_credit_name = gtype_credit_name
 
 		if not frappe.db.exists("Grievance Department", "Dept of Agriculture"):
 			frappe.get_doc(
@@ -75,12 +73,12 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		cls.area_name = a_leaf_area()
-		cls.area = frappe.get_doc("Grievance Administrative Area", cls.area_name)
+		self.area_name = a_leaf_area()
+		self.area = frappe.get_doc("Grievance Administrative Area", self.area_name)
 
 		# Setup users
 		if not frappe.db.exists("User", "list_officer@example.com"):
-			cls.officer = frappe.get_doc(
+			self.officer = frappe.get_doc(
 				{
 					"doctype": "User",
 					"email": "list_officer@example.com",
@@ -90,10 +88,10 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			cls.officer = frappe.get_doc("User", "list_officer@example.com")
+			self.officer = frappe.get_doc("User", "list_officer@example.com")
 
 		if not frappe.db.exists("User", "list_farmer@example.com"):
-			cls.farmer = frappe.get_doc(
+			self.farmer = frappe.get_doc(
 				{
 					"doctype": "User",
 					"email": "list_farmer@example.com",
@@ -103,32 +101,27 @@ class TestListGrievanceAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			cls.farmer = frappe.get_doc("User", "list_farmer@example.com")
+			self.farmer = frappe.get_doc("User", "list_farmer@example.com")
 
 		profile_name = frappe.db.get_value(
 			"Grievance Submitter Profile", {"contact_mobile": "+251911998877"}, "name"
 		)
 		if profile_name:
-			cls.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
 		else:
-			cls.farmer_profile = frappe.get_doc(
+			self.farmer_profile = frappe.get_doc(
 				{
 					"doctype": "Grievance Submitter Profile",
 					"submitter_type": "Individual Farmer",
 					"submitter_name": "List Farmer Submitter",
 					"contact_mobile": "+251911998877",
-					"user": cls.farmer.name,
+					"user": self.farmer.name,
 				}
 			).insert(ignore_permissions=True)
 
-		# Clean up any leftover test grievances from previous runs
-		for name in frappe.get_all(
-			"Grievance", filters={"submitter_name": ["like", "%Farmer Submitter%"]}, pluck="name"
-		):
-			discard_grievance(name)
-
 	def setUp(self):
 		super().setUp()
+		self._ensure_fixtures()
 		frappe.set_user("Administrator")
 		self.created_docs = []
 		for i in range(5):

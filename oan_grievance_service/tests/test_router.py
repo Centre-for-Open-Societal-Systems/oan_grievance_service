@@ -60,6 +60,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		ensure_routes_registered()
+
+	def _ensure_fixtures(self):
 		frappe.set_user("Administrator")
 
 		# Ensure required roles exist
@@ -85,7 +87,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			frappe.db.set_value("Grievance Service Category", "Inputs", "code", "001")
 
 		if not frappe.db.exists("Grievance Type", {"type_name": "Fertilizer Shortage"}):
-			cls.gtype = frappe.get_doc(
+			self.gtype = frappe.get_doc(
 				{
 					"doctype": "Grievance Type",
 					"type_name": "Fertilizer Shortage",
@@ -95,7 +97,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			).insert(ignore_permissions=True)
 		else:
 			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
-			cls.gtype = frappe.get_doc("Grievance Type", gtype_name)
+			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
 		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
 			frappe.get_doc(
@@ -107,12 +109,12 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		cls.area = a_leaf_area()
+		self.area = a_leaf_area()
 
 		# Create a test farmer user and profile
-		cls.farmer_user = frappe.db.get_value("User", {"email": "rest_farmer@test.org"}, "*")
-		if not cls.farmer_user:
-			cls.farmer_user = frappe.get_doc(
+		self.farmer_user = frappe.db.get_value("User", {"email": "rest_farmer@test.org"}, "*")
+		if not self.farmer_user:
+			self.farmer_user = frappe.get_doc(
 				{
 					"doctype": "User",
 					"email": "rest_farmer@test.org",
@@ -121,11 +123,11 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 		else:
-			cls.farmer_user = frappe.get_doc("User", cls.farmer_user.name)
+			self.farmer_user = frappe.get_doc("User", self.farmer_user.name)
 
 		profile_name = frappe.db.get_value(
 			"Grievance Submitter Profile",
-			{"user": cls.farmer_user.name},
+			{"user": self.farmer_user.name},
 			"name",
 		) or frappe.db.get_value(
 			"Grievance Submitter Profile",
@@ -133,23 +135,24 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			"name",
 		)
 		if not profile_name:
-			cls.farmer_profile = frappe.get_doc(
+			self.farmer_profile = frappe.get_doc(
 				{
 					"doctype": "Grievance Submitter Profile",
 					"submitter_type": "Individual Farmer",
 					"submitter_name": "REST Test Submitter",
 					"contact_mobile": "+251911998877",
-					"user": cls.farmer_user.name,
+					"user": self.farmer_user.name,
 				}
 			).insert(ignore_permissions=True)
 		else:
-			cls.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
-			if cls.farmer_profile.user != cls.farmer_user.name:
-				cls.farmer_profile.user = cls.farmer_user.name
-				cls.farmer_profile.save(ignore_permissions=True)
+			self.farmer_profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
+			if self.farmer_profile.user != self.farmer_user.name:
+				self.farmer_profile.user = self.farmer_user.name
+				self.farmer_profile.save(ignore_permissions=True)
 
 	def setUp(self):
 		super().setUp()
+		self._ensure_fixtures()
 		frappe.set_user("Administrator")
 
 	def tearDown(self):
