@@ -1,0 +1,70 @@
+name: Generated files
+
+# Every push and PR: the OpenAPI spec and kong.yml must match what the
+# generators produce from the current code.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: generated-files-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    name: OpenAPI and Kong in sync
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          check-latest: true
+
+      # The OpenAPI generator imports the app's endpoint modules to discover
+      # routes, so it needs frappe and oan_auth_service installed. No site or
+      # database is required.
+      - name: Setup bench
+        run: |
+          pip install frappe-bench
+          bench init --frappe-branch version-16 --skip-redis-config-generation --skip-assets --python "$(which python)" ~/frappe-bench
+
+      - name: Install apps
+        working-directory: /home/runner/frappe-bench
+        run: |
+          bench get-app oan_auth_service https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service.git --branch develop || bench get-app oan_auth_service https://github.com/arnavam/oan_auth_service.git --branch develop
+          bench get-app oan_grievance_service $GITHUB_WORKSPACE
+          # Pinned so line wrapping in the generated YAML matches what was committed.
+          ./env/bin/pip install PyYAML==6.0.3
+
+      # Kong is generated from the public spec, so the spec runs first. The spec
+      # generator only warns when an endpoint module fails to import, which would
+      # silently drop its routes, so treat that warning as a failure.
+      - name: Regenerate
+        working-directory: /home/runner/frappe-bench/apps/oan_grievance_service
+        run: |
+          ../../env/bin/python openapi/generate_openapi_spec.py 2> openapi.log || { cat openapi.log; exit 1; }
+          cat openapi.log
+          if grep -q "Failed to import" openapi.log; then
+            echo "::error::An endpoint module failed to import; the spec would be missing its routes."
+            exit 1
+          fi
+          rm openapi.log
+          ../../env/bin/python kong/generate_kong_config_from_spec.py
+
+      - name: Fail on drift
+        working-directory: /home/runner/frappe-bench/apps/oan_grievance_service
+        run: |
+          if ! git diff --exit-code -- openapi/ kong/; then
+            echo "::error::openapi/ or kong/ is out of date. Run both generators and commit the result."
+            exit 1
+          fi

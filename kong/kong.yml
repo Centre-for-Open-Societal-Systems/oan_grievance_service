@@ -4,6 +4,10 @@
 # change the OpenAPI spec or TIER_OVERRIDES and re-run.
 _format_version: '3.0'
 _transform: true
+_info:
+  select_tags:
+  - oan
+  - grievance
 services:
 - name: oan-grievance-service-v1
   url: http://oan-grievance.internal.svc:8000
@@ -23,6 +27,7 @@ services:
       methods:
       - GET
       - POST
+      - PATCH
       - DELETE
       - OPTIONS
       headers:
@@ -1061,11 +1066,6 @@ services:
         header_names:
         - Authorization
 consumers:
-- username: oan-auth-jwt-issuer
-  tags:
-  - oan
-  - auth
-  - issuer
 - username: oan-citizen-mobile-client
   tags:
   - oan

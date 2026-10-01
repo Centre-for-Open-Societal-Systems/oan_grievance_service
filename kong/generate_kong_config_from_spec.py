@@ -22,6 +22,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "kong.yml"
 GRIEVANCE_UPSTREAM_URL = "http://oan-grievance.internal.svc:8000"
+SELECT_TAGS = ["oan", "grievance"]
 
 # ---------------------------------------------------------------------------
 # Throttling tiers
@@ -177,7 +178,7 @@ def build_config(routes):
 				"name": "cors",
 				"config": {
 					"origins": ["*"],
-					"methods": ["GET", "POST", "DELETE", "OPTIONS"],
+					"methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 					"headers": ["Authorization", "Content-Type", "X-Request-Id"],
 					"credentials": False,
 					"max_age": 3600,
@@ -242,11 +243,9 @@ def build_config(routes):
 
 		service["routes"].append(route)
 
+	# oan-auth-jwt-issuer is owned by oan_auth_service's kong.yml, which also holds
+	# its jwt_secrets. Declaring it here too would clash with that repo's slice.
 	consumers = [
-		{
-			"username": "oan-auth-jwt-issuer",
-			"tags": ["oan", "auth", "issuer"],
-		},
 		{
 			"username": "oan-citizen-mobile-client",
 			"tags": ["oan", "grievance", "mobile"],
@@ -260,6 +259,10 @@ def build_config(routes):
 	doc = {
 		"_format_version": "3.0",
 		"_transform": True,
+		# decK reads, diffs and deletes only entities carrying every tag listed
+		# here, so syncing this file never touches another service's routes or
+		# consumers on a shared Kong.
+		"_info": {"select_tags": SELECT_TAGS},
 		"services": [service],
 		"consumers": consumers,
 	}
