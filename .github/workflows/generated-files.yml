@@ -49,17 +49,20 @@ jobs:
       # Kong is generated from the public spec, so the spec runs first. The spec
       # generator only warns when an endpoint module fails to import, which would
       # silently drop its routes, so treat that warning as a failure.
+      # Run from sites/, as bench does: frappe's logger writes to ../logs relative
+      # to the working directory, and that only exists from there.
       - name: Regenerate
-        working-directory: /home/runner/frappe-bench/apps/oan_grievance_service
+        working-directory: /home/runner/frappe-bench/sites
         run: |
-          ../../env/bin/python openapi/generate_openapi_spec.py 2> openapi.log || { cat openapi.log; exit 1; }
-          cat openapi.log
-          if grep -q "Failed to import" openapi.log; then
+          APP=../apps/oan_grievance_service
+          PY=/home/runner/frappe-bench/env/bin/python
+          $PY $APP/openapi/generate_openapi_spec.py 2> /tmp/openapi.log || { cat /tmp/openapi.log; exit 1; }
+          cat /tmp/openapi.log
+          if grep -q "Failed to import" /tmp/openapi.log; then
             echo "::error::An endpoint module failed to import; the spec would be missing its routes."
             exit 1
           fi
-          rm openapi.log
-          ../../env/bin/python kong/generate_kong_config_from_spec.py
+          $PY $APP/kong/generate_kong_config_from_spec.py
 
       - name: Fail on drift
         working-directory: /home/runner/frappe-bench/apps/oan_grievance_service
