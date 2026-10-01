@@ -56,6 +56,13 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		# Tests in this class share one transaction, and a category desk is unique per
+		# department, so each test starts without the previous test's desks.
+		for name in frappe.get_all(
+			"Grievance RBAC Assignment", filters={"department_scope": "Unified Agri Dept"}, pluck="name"
+		):
+			frappe.delete_doc("Grievance RBAC Assignment", name, force=True, ignore_permissions=True)
+
 		# Ensure role level
 		if not frappe.db.exists("Grievance Role Level", "nodal_officer"):
 			frappe.get_doc(
