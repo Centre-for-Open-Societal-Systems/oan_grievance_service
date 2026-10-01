@@ -1878,7 +1878,8 @@ paths:
       tags:
       - Response Templates
       summary: Get a response template with its history
-      description: One template and every earlier version of its wording, newest first.
+      description: One template and what each edit changed, newest first. old is the wording the edit
+        replaced.
       operationId: get_api_v1_response_templates_template
       responses:
         '200':
@@ -1933,9 +1934,8 @@ paths:
       - Response Templates
       summary: Update a response template
       description: Edit a template. A change to the title, response type, category, subcategory, or either
-        body text copies the old wording to history and raises the version by one. A request that changes
-        nothing, or only is_active, creates no version. Send expected_version to refuse overwriting an
-        edit you have not seen.
+        body text raises the version by one and is kept in the edit history. A request that changes nothing,
+        or only is_active, does not raise the version.
       operationId: patch_api_v1_response_templates_template
       responses:
         '200':
@@ -1989,8 +1989,8 @@ paths:
       tags:
       - Response Templates
       summary: Delete or deactivate a response template
-      description: A template never used in a response is deleted with its history (deleted true). A used
-        template is kept as evidence and deactivated instead (deleted false).
+      description: A template never used in a response is deleted (deleted true). A used template is kept
+        as evidence and deactivated instead (deleted false).
       operationId: delete_api_v1_response_templates_template
       responses:
         '200':
@@ -3062,51 +3062,45 @@ components:
       - assignments
       - pagination
       description: One page of category assignments
+    ResponseTemplateFieldChange:
+      type: object
+      properties:
+        field:
+          type: string
+          example: action_taken
+        old:
+          nullable: true
+          description: The value the edit replaced
+        new:
+          nullable: true
+          description: The value the edit saved
+      required:
+      - field
+      description: One field changed by an edit
     ResponseTemplateVersion:
       type: object
       properties:
         version:
           type: integer
           minimum: 1
-          example: 1
-          description: Version number this wording had
-        title:
+          example: 2
+          description: The template's version once this edit was saved
+        edited_by:
           type: string
-          nullable: true
-        response_type:
-          type: string
-          nullable: true
-          description: Response type this version was filed under
-        service_category:
-          type: string
-          nullable: true
-          description: Service category name, kept as text
-        grievance_type:
-          type: string
-          nullable: true
-          description: Grievance type name, kept as text
-        action_taken:
-          type: string
-          nullable: true
-        resolution_summary:
-          type: string
-          nullable: true
-        replaced_on:
+          description: User who made the edit
+        edited_on:
           type: string
           format: date-time
-          nullable: true
-          description: When an edit replaced this version
-        replaced_by:
-          type: string
-          nullable: true
-          description: User who made that edit
-        change_note:
-          type: string
-          nullable: true
-          description: Why the edit was made, when the editor said
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponseTemplateFieldChange'
       required:
       - version
-      description: One superseded wording of a response template
+      - edited_by
+      - edited_on
+      - changes
+      description: One edit to a response template, with the wording it replaced
     ResponseTemplate:
       type: object
       properties:
@@ -3153,7 +3147,7 @@ components:
         use_count:
           type: integer
           minimum: 0
-          description: Responses filed from this template, counted from the response record
+          description: Responses filed from this template
         last_used_on:
           type: string
           format: date-time
@@ -3193,7 +3187,7 @@ components:
             description: Earlier versions, newest first
         required:
         - versions
-      description: A response template with its version history
+      description: A response template with its edit history
     ResponseTemplateData:
       type: object
       properties:
@@ -3589,15 +3583,6 @@ components:
         is_active:
           type: boolean
           description: Switching this alone does not create a version.
-        expected_version:
-          type: integer
-          minimum: 1
-          description: Reject the edit when the template is no longer at this version
-        change_note:
-          type: string
-          nullable: true
-          maxLength: 500
-          description: Stored with the replaced version
       description: Partial update. Omit a field to leave it unchanged. A change to any wording or scope
         field saves the old wording to history and raises the version by one. Unknown fields are rejected.
     HealthResponse:

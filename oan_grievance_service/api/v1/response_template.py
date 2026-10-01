@@ -7,15 +7,13 @@ A response template is the pre-written action-taken and resolution-summary wordi
 officer starts from when filing a formal response, scoped by service category, an optional
 subcategory (grievance type), and response type. Wording may carry `{{ name }}` placeholders.
 
-Editing is versioned: PATCH never overwrites the old wording. It is copied to the template's
-history first and `version` goes up by one. GET one template returns that history, newest
-first. DELETE removes a template that was never used and only deactivates one that was.
-
-Handlers stay thin. Field and link checks live in the doctype's `validate()` and the
-versioning in `services/response_template.py`.
+Validation and the version number live on the doctype. Editing wording or scope raises
+`version` by one, and Frappe's change log keeps what each edit replaced, which GET returns
+as `versions`. DELETE removes a template that was never used and only deactivates one that was.
 """
 
-from typing import Annotated, Literal
+import json
+from typing import Annotated, Any, Literal
 
 import frappe
 from frappe import _
@@ -34,10 +32,15 @@ from oan_grievance_service.api.v1._schemas import Body, NonBlank, PartialBody, b
 from oan_grievance_service.grievance_management.doctype.grievance_response.grievance_response import (
 	ACTION_TAKEN_LIMIT,
 )
-from oan_grievance_service.services import response_template as service
+from oan_grievance_service.grievance_notification.doctype.grievance_response_template.grievance_response_template import (
+	VERSIONED_FIELDS,
+	extract_placeholders,
+)
+from oan_grievance_service.services.resolvers import resolve_grievance_type, resolve_service_category
 
 route = prefixed("/api/v1/response-templates")
 
+DOCTYPE = "Grievance Response Template"
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
 TEMPLATE_FIELDS = [
@@ -50,6 +53,8 @@ TEMPLATE_FIELDS = [
 	"resolution_summary",
 	"version",
 	"is_active",
+	"use_count",
+	"last_used_on",
 	"creation",
 	"modified",
 	"modified_by",
@@ -60,29 +65,21 @@ ActionTaken = Annotated[
 	str, StringConstraints(strip_whitespace=True, min_length=1, max_length=ACTION_TAKEN_LIMIT)
 ]
 ResolutionSummary = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=10000)]
-ChangeNote = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
-# Spelled out so the OpenAPI schema and pydantic see the same literal. A test pins it to
-# `service.RESPONSE_TYPES`.
+# The same values as the doctype's `response_type` Select; a test keeps the two in step.
 ResponseType = Literal["Resolved", "Partially Resolved", "Referred to another dept", "Requires further info"]
 
 
-def _iso(value) -> str | None:
-	if not value:
-		return None
-	return value.isoformat() if hasattr(value, "isoformat") else str(value)
+class FieldChange(BaseModel):
+	field: str
+	old: Any = None
+	new: Any = None
 
 
 class TemplateVersionRecord(BaseModel):
-	version: int
-	title: str | None = None
-	response_type: str | None = None
-	service_category: str | None = None
-	grievance_type: str | None = None
-	action_taken: str | None = None
-	resolution_summary: str | None = None
-	replaced_on: str | None = None
-	replaced_by: str | None = None
-	change_note: str | None = None
+	version: int = Field(description="The template's version once this edit was saved")
+	edited_by: str
+	edited_on: str
+	changes: list[FieldChange]
 
 
 class TemplateRecord(BaseModel):
@@ -150,8 +147,6 @@ class UpdateTemplate(PartialBody):
 	action_taken: ActionTaken = None
 	resolution_summary: ResolutionSummary = None
 	is_active: bool = None
-	expected_version: int = Field(default=None, ge=1)
-	change_note: ChangeNote | None = None
 
 	_type_blank = field_validator("grievance_type", mode="before")(blank_to_none)
 
@@ -170,72 +165,112 @@ class ListTemplates(PageParams, Body):
 	)(blank_to_none)
 
 
-def _record(row, categories: dict, types: dict, used: dict) -> dict:
-	"""Project a template row to the API record."""
-	return {
-		"id": row.name,
-		"title": row.title,
-		"service_category": row.service_category,
-		"service_category_name": categories.get(row.service_category),
-		"grievance_type": row.grievance_type or None,
-		"grievance_type_name": types.get(row.grievance_type),
-		"response_type": row.response_type,
-		"action_taken": row.action_taken or "",
-		"resolution_summary": row.resolution_summary or "",
-		"placeholders": service.extract_placeholders(row.action_taken, row.resolution_summary),
-		"version": row.version or 1,
-		"is_active": bool(row.is_active),
-		"use_count": used[row.name].use_count if row.name in used else 0,
-		"last_used_on": _iso(used[row.name].last_used_on) if row.name in used else None,
-		"created_on": _iso(row.creation),
-		"modified_on": _iso(row.modified),
-		"modified_by": row.modified_by,
-	}
+def _iso(value) -> str | None:
+	if not value:
+		return None
+	return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
+def _get(name: str):
+	"""The template document, or a 404."""
+	if not frappe.db.exists(DOCTYPE, name):
+		frappe.throw(
+			_("Response template '{0}' was not found.").format(name),
+			frappe.DoesNotExistError,
+			title=_("Not Found"),
+		)
+	return frappe.get_doc(DOCTYPE, name)
+
+
+def _grievance_type(value: str, category: str | None) -> str:
+	name = resolve_grievance_type(value, category)
+	if not name:
+		frappe.throw(_("Grievance type '{0}' does not exist.").format(value), frappe.ValidationError)
+	return name
 
 
 def _records(rows: list) -> list[dict]:
-	"""Project rows with one query each for category names, type names, and usage."""
+	"""Project template rows with one query each for category and type display names."""
 	if not rows:
 		return []
-	categories = {
-		row.name: row.category_name
-		for row in frappe.get_all(
-			"Grievance Service Category",
-			filters={"name": ["in", list({row.service_category for row in rows if row.service_category})]},
-			fields=["name", "category_name"],
+	categories = frappe.get_all(
+		"Grievance Service Category",
+		filters={"name": ["in", list({row.service_category for row in rows})]},
+		fields=["name", "category_name"],
+	)
+	categories = {row.name: row.category_name for row in categories}
+	types = frappe.get_all(
+		"Grievance Type",
+		filters={"name": ["in", list({row.grievance_type for row in rows if row.grievance_type})]},
+		fields=["name", "type_name"],
+	)
+	types = {row.name: row.type_name for row in types}
+	return [
+		{
+			"id": row.name,
+			"title": row.title,
+			"service_category": row.service_category,
+			"service_category_name": categories.get(row.service_category),
+			"grievance_type": row.grievance_type or None,
+			"grievance_type_name": types.get(row.grievance_type),
+			"response_type": row.response_type,
+			"action_taken": row.action_taken,
+			"resolution_summary": row.resolution_summary,
+			"placeholders": extract_placeholders(row.action_taken, row.resolution_summary),
+			"version": row.version,
+			"is_active": bool(row.is_active),
+			"use_count": row.use_count or 0,
+			"last_used_on": _iso(row.last_used_on),
+			"created_on": _iso(row.creation),
+			"modified_on": _iso(row.modified),
+			"modified_by": row.modified_by,
+		}
+		for row in rows
+	]
+
+
+def _versions(doc) -> list[dict]:
+	"""What each edit changed, newest first, from Frappe's change log.
+
+	`old` is the wording the edit replaced. Frappe stores every value as text, so a
+	number or flag comes back as a string. Edits that touched nothing but bookkeeping
+	fields are left out.
+	"""
+	shown = {*VERSIONED_FIELDS, "is_active", "version"}
+	logs = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": DOCTYPE, "docname": doc.name},
+		fields=["owner", "creation", "data"],
+		order_by="creation desc, name desc",
+	)
+	versions = []
+	version_after = doc.version
+	for log in logs:
+		changed = [
+			{"field": field, "old": old, "new": new}
+			for field, old, new in json.loads(log.data).get("changed", [])
+			if field in shown
+		]
+		if not changed:
+			continue
+		versions.append(
+			{
+				"version": version_after,
+				"edited_by": log.owner,
+				"edited_on": _iso(log.creation),
+				"changes": changed,
+			}
 		)
-	}
-	types = {
-		row.name: row.type_name
-		for row in frappe.get_all(
-			"Grievance Type",
-			filters={"name": ["in", list({row.grievance_type for row in rows if row.grievance_type})]},
-			fields=["name", "type_name"],
-		)
-	}
-	used = service.usage([row.name for row in rows])
-	return [_record(row, categories, types, used) for row in rows]
+		for change in changed:
+			if change["field"] == "version":
+				version_after = int(change["old"])
+	return versions
 
 
 def _detail(doc) -> dict:
-	"""One template with its history, newest version first."""
-	record = _records([doc])[0]
-	record["versions"] = [
-		{
-			"version": row.version,
-			"title": row.title,
-			"response_type": row.response_type,
-			"service_category": row.service_category,
-			"grievance_type": row.grievance_type,
-			"action_taken": row.action_taken,
-			"resolution_summary": row.resolution_summary,
-			"replaced_on": _iso(row.retired_on),
-			"replaced_by": row.retired_by,
-			"change_note": row.change_note,
-		}
-		for row in sorted(doc.versions, key=lambda row: row.version, reverse=True)
-	]
-	return record
+	"""One template with what each edit changed."""
+	row = frappe.get_all(DOCTYPE, filters={"name": doc.name}, fields=TEMPLATE_FIELDS)[0]
+	return {**_records([row])[0], "versions": _versions(doc)}
 
 
 @route("", methods=("GET",), summary="List response templates")
@@ -248,7 +283,7 @@ def _detail(doc) -> dict:
 	description="Admin list of response templates, newest edit first. Filter by service category, "
 	+ "subcategory (grievance type), response type, active flag, or a title search. "
 	+ "Each row carries its current version, use count, and last-used time. "
-	+ "History is on the single-template route.",
+	+ "Edit history is on the single-template route.",
 	tags=["Response Templates"],
 	response_model=TemplateListData,
 )
@@ -270,9 +305,9 @@ def list_templates(
 	params = PageParams(page=page, page_size=page_size)
 	filters: dict = {}
 	if service_category:
-		filters["service_category"] = service.resolve_service_category(service_category)
+		filters["service_category"] = resolve_service_category(service_category)
 	if grievance_type:
-		filters["grievance_type"] = service.resolve_type(grievance_type, filters.get("service_category"))
+		filters["grievance_type"] = _grievance_type(grievance_type, filters.get("service_category"))
 	if response_type:
 		filters["response_type"] = response_type
 	if is_active is not None:
@@ -281,7 +316,7 @@ def list_templates(
 		escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 		filters["title"] = ["like", f"%{escaped}%"]
 	rows = frappe.get_all(
-		service.DOCTYPE,
+		DOCTYPE,
 		filters=filters,
 		fields=TEMPLATE_FIELDS,
 		order_by="modified desc, name desc",
@@ -291,7 +326,7 @@ def list_templates(
 	return success_response(
 		data={
 			"templates": _records(rows),
-			"pagination": page_meta(params, frappe.db.count(service.DOCTYPE, filters)),
+			"pagination": page_meta(params, frappe.db.count(DOCTYPE, filters)),
 		},
 		message=_("Response templates retrieved"),
 	)
@@ -304,15 +339,15 @@ def list_templates(
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Get a response template with its history",
-	description="One template and every earlier version of its wording, newest first. "
-	+ "The current wording is on the template itself.",
+	description="One template and what each edit changed, newest first. `old` is the wording "
+	+ "the edit replaced. The current wording is on the template itself.",
 	tags=["Response Templates"],
 	response_model=TemplateData,
 )
 def get_template(template: str, **kwargs):
-	"""Return one template with its version history."""
+	"""Return one template with its edit history."""
 	return success_response(
-		data={"template": _detail(service.get(template))},
+		data={"template": _detail(_get(template))},
 		message=_("Response template retrieved"),
 	)
 
@@ -341,15 +376,19 @@ def create_template(
 	**kwargs,
 ):
 	"""Create a template."""
-	doc = service.create(
-		title=title,
-		service_category=service_category,
-		grievance_type=grievance_type,
-		response_type=response_type,
-		action_taken=action_taken,
-		resolution_summary=resolution_summary,
-		is_active=is_active,
-	)
+	category = resolve_service_category(service_category)
+	doc = frappe.get_doc(
+		{
+			"doctype": DOCTYPE,
+			"title": title,
+			"service_category": category,
+			"grievance_type": _grievance_type(grievance_type, category) if grievance_type else None,
+			"response_type": response_type,
+			"action_taken": action_taken,
+			"resolution_summary": resolution_summary,
+			"is_active": 1 if is_active else 0,
+		}
+	).insert(ignore_permissions=True)
 	return success_response(
 		data={"template": _detail(doc)},
 		message=_("Response template created"),
@@ -364,20 +403,23 @@ def create_template(
 @api_doc(
 	summary="Update a response template",
 	description="Partial update. A change to the title, response type, category, subcategory, or "
-	+ "either body text saves the old wording to history and raises the version by one. Switching "
-	+ "is_active alone does not. Send expected_version to refuse overwriting an edit you have not "
-	+ "seen. change_note is stored with the replaced version.",
+	+ "either body text raises the version by one and is kept in the edit history. Switching "
+	+ "is_active alone does not raise it.",
 	tags=["Response Templates"],
 	response_model=TemplateData,
 )
 def update_template(template: str, **kwargs):
 	"""Update a template. `kwargs` holds only the fields the client sent."""
-	doc = service.get(template)
-	expected_version = kwargs.pop("expected_version", None)
-	change_note = kwargs.pop("change_note", None)
+	doc = _get(template)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	service.update(doc, kwargs, expected_version=expected_version, change_note=change_note)
+	if "service_category" in kwargs:
+		kwargs["service_category"] = resolve_service_category(kwargs["service_category"])
+	if kwargs.get("grievance_type"):
+		category = kwargs.get("service_category", doc.service_category)
+		kwargs["grievance_type"] = _grievance_type(kwargs["grievance_type"], category)
+	doc.update(kwargs)
+	doc.save(ignore_permissions=True)
 	return success_response(
 		data={"template": _detail(doc)},
 		message=_("Response template updated"),
@@ -391,17 +433,25 @@ def update_template(template: str, **kwargs):
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Delete or deactivate a response template",
-	description="A template never used in a response is deleted with its history, and deleted is "
-	+ "true. A template that has been used is kept as evidence and deactivated instead, and deleted "
-	+ "is false. Repeating the call on a deactivated template changes nothing.",
+	description="A template that has not been used in a response is deleted, and deleted is true. "
+	+ "A used template is kept as a record of what officers sent and deactivated instead, and "
+	+ "deleted is false. Repeating the call on a deactivated template changes nothing.",
 	tags=["Response Templates"],
 	response_model=TemplateDeleteData,
 )
 def delete_template(template: str, **kwargs):
 	"""Delete an unused template, or deactivate a used one."""
-	doc = service.get(template)
-	deleted = service.remove(doc)
+	doc = _get(template)
+	deleted = not doc.use_count
+	if deleted:
+		record = _detail(doc)
+		frappe.delete_doc(DOCTYPE, doc.name, ignore_permissions=True)
+	else:
+		if doc.is_active:
+			doc.is_active = 0
+			doc.save(ignore_permissions=True)
+		record = _detail(doc)
 	return success_response(
-		data={"template": _detail(doc), "deleted": deleted},
+		data={"template": record, "deleted": deleted},
 		message=_("Response template deleted") if deleted else _("Response template deactivated"),
 	)

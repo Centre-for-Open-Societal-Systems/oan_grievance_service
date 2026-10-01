@@ -1323,7 +1323,7 @@
     },
     {
       "name": "Response Templates",
-      "description": "STG-405 admin CRUD for versioned officer response templates. Requires a Grievance Admin bearer token. Editing never overwrites wording: the old text goes to version history and version goes up by one.",
+      "description": "STG-405 admin CRUD for versioned officer response templates. Requires a Grievance Admin bearer token. Editing raises version by one and the change log keeps the wording each edit replaced.",
       "item": [
         {
           "name": "List response templates",
@@ -1464,7 +1464,7 @@
                 "{{template_id}}"
               ]
             },
-            "description": "One template and data.template.versions, every earlier wording newest first. The current wording is on the template itself."
+            "description": "One template and data.template.versions, what each edit changed newest first (old is the wording the edit replaced). The current wording is on the template itself."
           },
           "response": []
         },
@@ -1480,7 +1480,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"action_taken\": \"We replaced the faulty {{ item }}.\",\n  \"change_note\": \"Clearer wording\",\n  \"expected_version\": 1\n}"
+              "raw": "{\n  \"action_taken\": \"We replaced the faulty {{ item }}.\",\n  \"title\": \"Fertilizer refund (revised)\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/response-templates/{{template_id}}",
@@ -1494,7 +1494,7 @@
                 "{{template_id}}"
               ]
             },
-            "description": "Partial update. A change to the title, response type, category, subcategory, or either body saves the old wording to history and raises version by one. Sending the same values, or only is_active, creates no version. expected_version is optional and rejects the edit if someone else edited first. grievance_type null clears the subcategory."
+            "description": "Partial update. A change to the title, response type, category, subcategory, or either body raises version by one and is kept in the edit history. Sending the same values, or only is_active, does not raise it. grievance_type null clears the subcategory."
           },
           "response": []
         },
@@ -1515,7 +1515,7 @@
                 "{{template_id}}"
               ]
             },
-            "description": "A template never used in a response is deleted with its history (data.deleted true). A used template is kept as evidence and deactivated (data.deleted false)."
+            "description": "A template never used in a response is deleted (data.deleted true). A used template is kept as evidence and deactivated (data.deleted false)."
           },
           "response": []
         }

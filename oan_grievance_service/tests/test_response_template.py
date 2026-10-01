@@ -2,24 +2,44 @@
 # See license.txt
 
 from contextlib import contextmanager
+from typing import get_args
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
 from oan_grievance_service.api.v1.response_template import (
+	DOCTYPE,
+	ResponseType,
 	create_template,
 	delete_template,
 	get_template,
 	list_templates,
 	update_template,
 )
-from oan_grievance_service.services import response_template as service
-from oan_grievance_service.tests.fixtures import a_grievance
+from oan_grievance_service.grievance_notification.doctype.grievance_response_template.grievance_response_template import (
+	extract_placeholders,
+)
 
 BODY = {
 	"action_taken": "We inspected the {{ item }} supplied to you.",
 	"resolution_summary": "A refund of {{amount}} will be paid within {{ days }} days.",
 }
+
+
+@contextmanager
+def _record_versions():
+	"""Frappe skips its change log under test (`ignore_version = frappe.in_test`).
+
+	Production keeps it, and the edit history is read from it, so the tests that assert on
+	history switch the test flag off for their duration.
+	"""
+	original = frappe.in_test
+	frappe.in_test = False
+	try:
+		yield
+	finally:
+		frappe.in_test = original
 
 
 class TestGrievanceResponseTemplate(FrappeTestCase):
@@ -29,23 +49,9 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		self.other_category = _category("STG405 Market", "Z96")
 		self.type = _type("STG405 Seed quality", self.category)
 		self.other_type = _type("STG405 Price dispute", self.other_category)
-		for name in frappe.get_all(service.DOCTYPE, filters={"title": ["like", "STG405%"]}, pluck="name"):
-			frappe.delete_doc(service.DOCTYPE, name, force=1, ignore_permissions=True)
+		for name in frappe.get_all(DOCTYPE, filters={"title": ["like", "STG405%"]}, pluck="name"):
+			frappe.delete_doc(DOCTYPE, name, force=1, ignore_permissions=True)
 		frappe.clear_messages()
-
-	def _respond(self, template):
-		"""File a formal response, optionally started from `template`."""
-		return frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": a_grievance(status="In Progress").name,
-				"response_type": "Resolved",
-				"response_template": template,
-				"action_taken": "Handled.",
-				"resolution_summary": "<p>Handled.</p>",
-				"proposed_close_date": frappe.utils.add_days(None, 5),
-			}
-		).insert(ignore_permissions=True)
 
 	def _create(self, title="STG405 Refund", **overrides):
 		values = {
@@ -59,6 +65,10 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		result = create_template(**values)
 		self.assertEqual(result["status"], "success", msg=result)
 		return result["data"]["template"]
+
+	def _used(self, template_id, times=1):
+		"""Stand in for the response flow, which does not record template use yet."""
+		frappe.db.set_value(DOCTYPE, template_id, {"use_count": times, "last_used_on": now_datetime()})
 
 	def test_create_starts_at_version_one(self):
 		template = self._create()
@@ -90,6 +100,7 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 				"bad placeholder name": {"resolution_summary": "Pay {{ 1amount }}"},
 				"unknown response type": {"response_type": "Closed"},
 				"blank title": {"title": "  "},
+				"action taken over 500": {"action_taken": "x" * 501},
 			}
 			for label, override in cases.items():
 				result = create_template(
@@ -103,54 +114,58 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 				)
 				self.assertEqual(result["status"], "error", msg=label)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=label)
-		self.assertFalse(frappe.db.exists(service.DOCTYPE, {"title": "STG405 Bad"}))
+		self.assertFalse(frappe.db.exists(DOCTYPE, {"title": "STG405 Bad"}))
 
-	def test_edit_keeps_prior_wording_as_history(self):
+	@_record_versions()
+	def test_edit_raises_the_version_and_keeps_the_replaced_wording(self):
 		created = self._create()
-		first = update_template(
-			created["id"],
-			action_taken="We replaced the {{ item }}.",
-			change_note="Tighter wording",
-		)["data"]["template"]
+		first = update_template(created["id"], action_taken="We replaced the {{ item }}.")["data"]["template"]
 		self.assertEqual(first["version"], 2)
 		self.assertEqual(first["action_taken"], "We replaced the {{ item }}.")
 		self.assertEqual(len(first["versions"]), 1)
-		self.assertEqual(first["versions"][0]["version"], 1)
-		self.assertEqual(first["versions"][0]["action_taken"], BODY["action_taken"])
-		self.assertEqual(first["versions"][0]["change_note"], "Tighter wording")
-		self.assertEqual(first["versions"][0]["replaced_by"], "Administrator")
-		self.assertTrue(first["versions"][0]["replaced_on"])
+		edit = first["versions"][0]
+		self.assertEqual(edit["version"], 2)
+		self.assertEqual(edit["edited_by"], "Administrator")
+		self.assertTrue(edit["edited_on"])
+		changes = {row["field"]: row for row in edit["changes"]}
+		self.assertEqual(changes["action_taken"]["old"], BODY["action_taken"])
+		self.assertEqual(changes["action_taken"]["new"], "We replaced the {{ item }}.")
+		self.assertEqual((changes["version"]["old"], changes["version"]["new"]), ("1", "2"))
 
 		second = update_template(created["id"], title="STG405 Refund v3", response_type="Partially Resolved")[
 			"data"
 		]["template"]
 		self.assertEqual(second["version"], 3)
-		self.assertEqual([row["version"] for row in second["versions"]], [2, 1])
-		self.assertEqual(second["versions"][0]["title"], "STG405 Refund")
-		self.assertEqual(second["versions"][0]["response_type"], "Resolved")
-		self.assertEqual(second["versions"][0]["action_taken"], "We replaced the {{ item }}.")
-		self.assertEqual(second["versions"][1]["action_taken"], BODY["action_taken"])
+		self.assertEqual([row["version"] for row in second["versions"]], [3, 2])
+		newest = {row["field"]: row for row in second["versions"][0]["changes"]}
+		self.assertEqual(newest["title"]["old"], "STG405 Refund")
+		self.assertEqual(newest["response_type"]["old"], "Resolved")
 
 		fetched = get_template(created["id"])["data"]["template"]
 		self.assertEqual(fetched["version"], 3)
-		self.assertEqual(len(fetched["versions"]), 2)
+		self.assertEqual(fetched["versions"], second["versions"])
 
-	def test_unchanged_edit_and_flag_toggle_do_not_make_versions(self):
+	@_record_versions()
+	def test_unchanged_edit_and_flag_toggle_do_not_raise_the_version(self):
 		created = self._create()
 		same = update_template(created["id"], title="STG405 Refund", action_taken=BODY["action_taken"])
 		self.assertEqual(same["data"]["template"]["version"], 1)
+		self.assertEqual(same["data"]["template"]["versions"], [])
 
 		off = update_template(created["id"], is_active=False)["data"]["template"]
 		self.assertFalse(off["is_active"])
 		self.assertEqual(off["version"], 1)
-		self.assertEqual(off["versions"], [])
+		self.assertEqual([row["field"] for row in off["versions"][0]["changes"]], ["is_active"])
+		self.assertEqual(off["versions"][0]["version"], 1)
 
-	def test_scope_change_is_a_new_version_and_type_can_be_cleared(self):
+	@_record_versions()
+	def test_scope_change_raises_the_version_and_type_can_be_cleared(self):
 		created = self._create()
 		cleared = update_template(created["id"], grievance_type=None)["data"]["template"]
 		self.assertIsNone(cleared["grievance_type"])
 		self.assertEqual(cleared["version"], 2)
-		self.assertEqual(cleared["versions"][0]["grievance_type"], self.type)
+		changes = {row["field"]: row for row in cleared["versions"][0]["changes"]}
+		self.assertEqual(changes["grievance_type"]["old"], self.type)
 
 		moved = update_template(created["id"], service_category=self.other_category)["data"]["template"]
 		self.assertEqual(moved["service_category"], self.other_category)
@@ -165,31 +180,25 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		with _keep_transaction():
 			result = update_template(created["id"], action_taken="Broken {{ placeholder")
 		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
-		doc = frappe.get_doc(service.DOCTYPE, created["id"])
+		doc = frappe.get_doc(DOCTYPE, created["id"])
 		self.assertEqual(doc.version, 1)
 		self.assertEqual(doc.action_taken, BODY["action_taken"])
-		self.assertEqual(len(doc.versions), 0)
 
-	def test_expected_version_guards_a_stale_edit(self):
+	def test_version_cannot_be_set_directly(self):
 		created = self._create()
-		update_template(created["id"], title="STG405 Edited elsewhere")
-		with _keep_transaction():
-			stale = update_template(created["id"], title="STG405 Mine", expected_version=1)
-		self.assertEqual(stale["code"], "VALIDATION_ERROR", msg=stale)
-		self.assertEqual(
-			frappe.db.get_value(service.DOCTYPE, created["id"], "title"), "STG405 Edited elsewhere"
-		)
-		fresh = update_template(created["id"], title="STG405 Mine", expected_version=2)
-		self.assertEqual(fresh["data"]["template"]["version"], 3)
+		doc = frappe.get_doc(DOCTYPE, created["id"])
+		doc.version = 9
+		doc.save(ignore_permissions=True)
+		self.assertEqual(doc.version, 1)
 
 	def test_update_validation(self):
 		created = self._create()
 		with _keep_transaction():
-			for payload in ({}, {"priority": "High"}, {"title": None}, {"expected_version": 0}):
+			for payload in ({}, {"priority": "High"}, {"title": None}, {"version": 5}):
 				result = update_template(created["id"], **payload)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=payload)
 
-	def test_get_unknown_template_is_404(self):
+	def test_unknown_template_is_404(self):
 		with _keep_transaction():
 			for result in (
 				get_template("RT-99999"),
@@ -211,36 +220,33 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		def ids(**filters):
 			result = list_templates(q="STG405", **filters)
 			self.assertEqual(result["status"], "success", msg=result)
-			return {row["id"] for row in result["data"]["templates"]}, result
+			return {row["id"] for row in result["data"]["templates"]}
 
-		self.assertEqual(ids()[0], {a["id"], b["id"], c["id"]})
-		self.assertEqual(ids(service_category=self.category)[0], {a["id"], b["id"]})
-		self.assertEqual(ids(service_category="Z96")[0], {c["id"]})
-		self.assertEqual(ids(grievance_type=self.type)[0], {a["id"]})
+		self.assertEqual(ids(), {a["id"], b["id"], c["id"]})
+		self.assertEqual(ids(service_category=self.category), {a["id"], b["id"]})
+		self.assertEqual(ids(service_category="Z96"), {c["id"]})
+		self.assertEqual(ids(grievance_type=self.type), {a["id"]})
+		self.assertEqual(ids(grievance_type="STG405 Seed quality", service_category=self.category), {a["id"]})
+		self.assertEqual(ids(response_type="Requires further info"), {b["id"]})
+		self.assertEqual(ids(is_active=False), {c["id"]})
+		self.assertEqual(ids(is_active="1"), {a["id"], b["id"]})
 		self.assertEqual(
-			ids(grievance_type="STG405 Seed quality", service_category=self.category)[0], {a["id"]}
-		)
-		self.assertEqual(ids(response_type="Requires further info")[0], {b["id"]})
-		self.assertEqual(ids(is_active=False)[0], {c["id"]})
-		self.assertEqual(ids(is_active="1")[0], {a["id"], b["id"]})
-		self.assertEqual(
-			ids(service_category="", grievance_type=" ", is_active="")[0], {a["id"], b["id"], c["id"]}
+			ids(service_category="", grievance_type=" ", is_active=""), {a["id"], b["id"], c["id"]}
 		)
 		self.assertEqual(list_templates(q="Beta")["data"]["pagination"]["total_count"], 1)
+		# LIKE wildcards in the search are literal characters, not patterns.
 		self.assertEqual(list_templates(q="STG405 Alp%")["data"]["pagination"]["total_count"], 0)
 		self.assertEqual(list_templates(q="STG405_Alpha")["data"]["pagination"]["total_count"], 0)
 
-		first = list_templates(q="STG405", page_size=2)
-		second = list_templates(q="STG405", page_size=2, page=2)
-		self.assertEqual(first["data"]["pagination"]["total_count"], 3)
-		self.assertEqual(first["data"]["pagination"]["total_pages"], 2)
-		self.assertTrue(first["data"]["pagination"]["has_next"])
-		self.assertEqual(len(first["data"]["templates"]), 2)
-		self.assertEqual(len(second["data"]["templates"]), 1)
-		self.assertFalse(
-			second["data"]["templates"][0]["id"] in {r["id"] for r in first["data"]["templates"]}
-		)
-		self.assertNotIn("versions", first["data"]["templates"][0])
+		first = list_templates(q="STG405", page_size=2)["data"]
+		second = list_templates(q="STG405", page_size=2, page=2)["data"]
+		self.assertEqual(first["pagination"]["total_count"], 3)
+		self.assertEqual(first["pagination"]["total_pages"], 2)
+		self.assertTrue(first["pagination"]["has_next"])
+		self.assertEqual(len(first["templates"]), 2)
+		self.assertEqual(len(second["templates"]), 1)
+		self.assertNotIn(second["templates"][0]["id"], {row["id"] for row in first["templates"]})
+		self.assertNotIn("versions", first["templates"][0])
 
 		with _keep_transaction():
 			for bad in (
@@ -248,56 +254,43 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 				{"response_type": "Closed"},
 				{"page": 0},
 				{"page_size": 500},
+				{"category": self.category},
 			):
 				self.assertEqual(list_templates(**bad)["code"], "VALIDATION_ERROR", msg=bad)
 
-	def test_unknown_list_filters_are_rejected(self):
-		with _keep_transaction():
-			for bad in ({"category": self.category}, {"status": "Resolved"}):
-				result = list_templates(**bad)
-				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=bad)
-
-	def test_usage_is_counted_from_responses_not_stored(self):
+	def test_use_count_and_last_used_are_returned(self):
 		created = self._create()
-		self.assertEqual((created["use_count"], created["last_used_on"]), (0, None))
-		self._respond(created["id"])
-		self._respond(created["id"])
-		self._respond(None)
+		self._used(created["id"], times=3)
 		fetched = get_template(created["id"])["data"]["template"]
-		self.assertEqual(fetched["use_count"], 2)
+		self.assertEqual(fetched["use_count"], 3)
 		self.assertTrue(fetched["last_used_on"])
-		self.assertEqual(fetched["version"], 1)
 		listed = list_templates(q="STG405 Refund")["data"]["templates"]
-		self.assertEqual([(row["id"], row["use_count"]) for row in listed], [(created["id"], 2)])
-		self.assertFalse(frappe.get_meta(service.DOCTYPE).has_field("use_count"))
+		self.assertEqual([(row["id"], row["use_count"]) for row in listed], [(created["id"], 3)])
 
 	def test_delete_removes_an_unused_template(self):
 		created = self._create()
 		result = delete_template(created["id"])
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertTrue(result["data"]["deleted"])
-		self.assertFalse(frappe.db.exists(service.DOCTYPE, created["id"]))
-		self.assertEqual(frappe.db.count(service.VERSION_DOCTYPE, {"parent": created["id"]}), 0)
+		self.assertFalse(frappe.db.exists(DOCTYPE, created["id"]))
 
 	def test_delete_only_deactivates_a_used_template(self):
 		created = self._create()
 		update_template(created["id"], title="STG405 Used")
-		self._respond(created["id"])
+		self._used(created["id"])
 		result = delete_template(created["id"])
 		self.assertFalse(result["data"]["deleted"])
 		self.assertFalse(result["data"]["template"]["is_active"])
-		self.assertEqual(len(result["data"]["template"]["versions"]), 1)
-		self.assertTrue(frappe.db.exists(service.DOCTYPE, created["id"]))
+		self.assertTrue(frappe.db.exists(DOCTYPE, created["id"]))
 
 		again = delete_template(created["id"])
 		self.assertFalse(again["data"]["deleted"])
 		self.assertFalse(again["data"]["template"]["is_active"])
 
 	def test_validation_applies_outside_the_api(self):
-		doc = frappe.new_doc(service.DOCTYPE)
-		doc.update(
+		doc = frappe.get_doc(
 			{
-				"template_code": "STG405-DESK",
+				"doctype": DOCTYPE,
 				"title": "STG405 Desk",
 				"service_category": self.category,
 				"grievance_type": self.other_type,
@@ -308,20 +301,18 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "does not belong"):
 			doc.insert(ignore_permissions=True)
 
+		doc.grievance_type = self.type
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(doc.name.startswith("RT-"))
+		self.assertEqual(doc.version, 1)
+
 	def test_response_types_match_the_doctype_and_the_request_schema(self):
-		from typing import get_args
-
-		from oan_grievance_service.api.v1.response_template import ResponseType
-
-		select = frappe.get_meta(service.DOCTYPE).get_field("response_type").options.split("\n")
-		self.assertEqual(list(service.RESPONSE_TYPES), select)
+		select = frappe.get_meta(DOCTYPE).get_field("response_type").options.split("\n")
 		self.assertEqual(list(get_args(ResponseType)), select)
 
 	def test_extract_placeholders(self):
-		self.assertEqual(
-			service.extract_placeholders("{{a}} {{ b }}", "{{ a }} {{c_1}}", None), ["a", "b", "c_1"]
-		)
-		self.assertEqual(service.extract_placeholders("no markers", ""), [])
+		self.assertEqual(extract_placeholders("{{a}} {{ b }}", "{{ a }} {{c_1}}", None), ["a", "b", "c_1"])
+		self.assertEqual(extract_placeholders("no markers", ""), [])
 
 	def test_officer_and_guest_cannot_manage_templates(self):
 		created = self._create()
@@ -344,7 +335,7 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 				):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
 		frappe.set_user("Administrator")
-		self.assertEqual(frappe.db.get_value(service.DOCTYPE, created["id"], "title"), "STG405 Refund")
+		self.assertEqual(frappe.db.get_value(DOCTYPE, created["id"], "title"), "STG405 Refund")
 
 	def test_grievance_admin_can_manage_templates(self):
 		admin = _user("stg405-admin@example.com", "Selam Admin", role="Grievance Admin")

@@ -711,24 +711,29 @@ data(
 
 
 data(
+	"ResponseTemplateFieldChange",
+	OBJ(
+		{
+			"field": S(example="action_taken"),
+			"old": {"nullable": True, "description": "The value the edit replaced"},
+			"new": {"nullable": True, "description": "The value the edit saved"},
+		},
+		required=["field"],
+		description="One field changed by an edit",
+	),
+)
+
+data(
 	"ResponseTemplateVersion",
 	OBJ(
 		{
-			"version": I(minimum=1, example=1, description="Version number this wording had"),
-			"title": S(nullable=True),
-			"response_type": S(nullable=True, description="Response type this version was filed under"),
-			"service_category": S(nullable=True, description="Service category name, kept as text"),
-			"grievance_type": S(nullable=True, description="Grievance type name, kept as text"),
-			"action_taken": S(nullable=True),
-			"resolution_summary": S(nullable=True),
-			"replaced_on": S(
-				format="date-time", nullable=True, description="When an edit replaced this version"
-			),
-			"replaced_by": S(nullable=True, description="User who made that edit"),
-			"change_note": S(nullable=True, description="Why the edit was made, when the editor said"),
+			"version": I(minimum=1, example=2, description="The template's version once this edit was saved"),
+			"edited_by": S(description="User who made the edit"),
+			"edited_on": S(format="date-time"),
+			"changes": ARR(REF("ResponseTemplateFieldChange")),
 		},
-		required=["version"],
-		description="One superseded wording of a response template",
+		required=["version", "edited_by", "edited_on", "changes"],
+		description="One edit to a response template, with the wording it replaced",
 	),
 )
 
@@ -756,9 +761,7 @@ data(
 				minimum=1, example=1, description="Current version. Raised by one on every content edit."
 			),
 			"is_active": B(),
-			"use_count": I(
-				minimum=0, description="Responses filed from this template, counted from the response record"
-			),
+			"use_count": I(minimum=0, description="Responses filed from this template"),
 			"last_used_on": S(format="date-time", nullable=True),
 			"created_on": S(format="date-time", nullable=True),
 			"modified_on": S(format="date-time", nullable=True),
@@ -794,7 +797,7 @@ data(
 				required=["versions"],
 			),
 		],
-		"description": "A response template with its version history",
+		"description": "A response template with its edit history",
 	},
 )
 
@@ -997,10 +1000,6 @@ REQ["UpdateResponseTemplateRequest"] = OBJ(
 		"action_taken": S(minLength=1, maxLength=500),
 		"resolution_summary": S(minLength=1, maxLength=10000),
 		"is_active": B(description="Switching this alone does not create a version."),
-		"expected_version": I(
-			minimum=1, description="Reject the edit when the template is no longer at this version"
-		),
-		"change_note": S(nullable=True, maxLength=500, description="Stored with the replaced version"),
 	},
 	description=(
 		"Partial update. Omit a field to leave it unchanged. A change to any wording or scope field "
@@ -1926,7 +1925,7 @@ ROUTES = [
 		path_params=TEMPLATE_PATH_PARAMS,
 		response="ResponseTemplateResponse",
 		legacy="oan_grievance_service.api.v1.response_template.get_template",
-		description="One template and every earlier version of its wording, newest first.",
+		description="One template and what each edit changed, newest first. old is the wording the edit replaced.",
 	),
 	R(
 		"patch",
@@ -1940,9 +1939,8 @@ ROUTES = [
 		legacy="oan_grievance_service.api.v1.response_template.update_template",
 		description=(
 			"Edit a template. A change to the title, response type, category, subcategory, or either "
-			+ "body text copies the old wording to history and raises the version by one. A request that "
-			+ "changes nothing, or only is_active, creates no version. Send expected_version to refuse "
-			+ "overwriting an edit you have not seen."
+			+ "body text raises the version by one and is kept in the edit history. A request that "
+			+ "changes nothing, or only is_active, does not raise the version."
 		),
 	),
 	R(
@@ -1955,7 +1953,7 @@ ROUTES = [
 		response="ResponseTemplateDeleteResponse",
 		legacy="oan_grievance_service.api.v1.response_template.delete_template",
 		description=(
-			"A template never used in a response is deleted with its history (deleted true). A used "
+			"A template never used in a response is deleted (deleted true). A used "
 			+ "template is kept as evidence and deactivated instead (deleted false)."
 		),
 	),
