@@ -200,7 +200,6 @@ docker compose -p oan_grievance exec backend bench --site $SITE set-config griev
 docker compose -p oan_grievance exec backend bench --site $SITE set-config grievance_confirmation_window_days 7 --parse
 docker compose -p oan_grievance exec backend bench --site $SITE set-config grievance_max_deferral_days 30 --parse
 docker compose -p oan_grievance exec backend bench --site $SITE set-config grievance_auto_escalation_enabled true --parse
-docker compose -p oan_grievance exec backend bench --site $SITE set-config grievance_sla_paused_statuses '["Pending Submitter", "Draft", "Withdrawn"]' --parse
 ```
 
 ---

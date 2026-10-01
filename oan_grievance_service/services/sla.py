@@ -1,34 +1,53 @@
-"""FR-07 SLA and Escalation Management.
+"""SLA and escalation management.
 
-Reminders at 50% and 80% of the window, escalation on breach, second-level escalation
-at 2x, and submitter-triggered manual escalation once the window has elapsed.
+Reminders at 50% and 80% of the window, and escalation up the role-level chain on
+breach.
 
-CLOCK START — a resolved specification conflict, recorded here rather than buried.
-FSD 4.2 step 1 says "an SLA timer starts from the moment of assignment". FSD UC-04
-step 1 computes the breach from "creation_date + sla_days". They differ for every
-grievance that waits in the nodal officer's manual routing queue, which is exactly the
-population most at risk of breaching.
+The clock starts from the creation date/time of the grievance.
 
-This implementation follows FSD 4.2 (assignment), because the SLA is defined in 1.3 as
-"the expected timeframe within which an assigned agency must act" — a department cannot
-be held to a clock that ran before the case reached it. The behaviour is switchable via
-the `grievance_sla_clock_start` site config key ("assignment" or "creation") so the
-decision can be reversed without a code change.
+What each workflow state does to the clock is its SLA category, set per state in
+setup/install.py (WORKFLOW_STATES): Running, Paused or Stopped. A state can also carry
+a timer - how long a case may sit there - configured per service category on the SLA
+Configuration's State Timers.
+
+What belongs here: the SLA clock (start, pause, resume, stop, consumed percentage, working days calculation),
+state timers, and walking a case up the escalation chain.
+
+What does not belong here: looking up who holds which rung or who reports to whom.
+Those are RBAC assignment queries and live in the Grievance RBAC Assignment module.
+Scheduling lives in tasks.py; this module only answers what a run should do.
 """
 
+import math
 from dataclasses import dataclass
+from datetime import timedelta
 
 import frappe
-from frappe import _
-from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
+from frappe.model.workflow import get_workflow
+from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
 
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+	current_level_of,
+	find_officer_by_role_level,
+	get_officer_supervisor,
+)
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
 )
 from oan_grievance_service.services import constants as C
 
 CLOCK_START_ASSIGNMENT = "assignment"
 CLOCK_START_CREATION = "creation"
+
+RUNNING = "Running"
+PAUSED = "Paused"
+STOPPED = "Stopped"
+
+CACHE_KEY_DEFAULT_HOLIDAY_LIST = "grievance_default_holiday_list"
+CACHE_KEY_HOLIDAYS_PREFIX = "grievance_holidays_"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,15 +58,79 @@ class SLAPolicy:
 	sla_days: int
 	auto_escalate: bool
 	auto_escalation_threshold: int
-	top_level_authority: str | None = None
 	first_response_hours: int | None = None
 	update_cadence_hours: int | None = None
 	remand_execution_hours: int | None = None
-	appeal_window_days: int | None = None
+	holiday_list: str | None = None
 
 
-def clock_start_mode():
-	return frappe.conf.get("grievance_sla_clock_start") or CLOCK_START_ASSIGNMENT
+def get_default_holiday_list() -> str | None:
+	"""Returns the default Grievance Holiday List name if one is marked default."""
+	cached = frappe.cache.get_value(CACHE_KEY_DEFAULT_HOLIDAY_LIST)
+	if cached is not None:
+		return cached or None
+	default_list = frappe.db.get_value("Grievance Holiday List", {"is_default": 1}, "name")
+	frappe.cache.set_value(CACHE_KEY_DEFAULT_HOLIDAY_LIST, default_list or "")
+	return default_list
+
+
+def get_holiday_dates(holiday_list_name: str | None) -> set:
+	"""Return set of datetime.date objects for all holidays in the given holiday list."""
+	if not holiday_list_name:
+		return set()
+	cache_key = f"{CACHE_KEY_HOLIDAYS_PREFIX}{holiday_list_name}"
+	cached = frappe.cache.get_value(cache_key)
+	if cached is not None:
+		return {getdate(d) for d in cached}
+
+	if not frappe.db.exists("Grievance Holiday List", holiday_list_name):
+		return set()
+
+	rows = frappe.get_all(
+		"Grievance Holiday",
+		filters={"parent": holiday_list_name, "is_half_day": 0},
+		pluck="holiday_date",
+	)
+	holidays_set = {getdate(d) for d in rows}
+	frappe.cache.set_value(cache_key, [str(d) for d in holidays_set])
+	return holidays_set
+
+
+def is_holiday(date, holiday_list_name: str | None = None) -> bool:
+	"""Check if a date is a holiday or weekly off."""
+	h_list = holiday_list_name or get_default_holiday_list()
+	if not h_list:
+		return False
+	holidays = get_holiday_dates(h_list)
+	return getdate(date) in holidays
+
+
+def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name: str | None = None):
+	"""Calculate target due date adding working days, skipping holidays and weekly offs.
+
+	Days allocated count from start_datetime (which defaults to creation date/time).
+	Preserves the time component of start_datetime.
+	"""
+	if not start_datetime:
+		start_datetime = now_datetime()
+	start_dt = get_datetime(start_datetime)
+	if not sla_days or sla_days <= 0:
+		return start_dt
+
+	h_list = holiday_list_name or get_default_holiday_list()
+	holidays = get_holiday_dates(h_list) if h_list else set()
+
+	if not holidays:
+		return add_days(start_dt, sla_days)
+
+	cur_dt = start_dt
+	days_added = 0
+	while days_added < sla_days:
+		cur_dt = add_to_date(cur_dt, days=1)
+		if cur_dt.date() not in holidays:
+			days_added += 1
+
+	return cur_dt
 
 
 def resolve_policy(service_category) -> SLAPolicy | None:
@@ -63,11 +146,10 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 			"sla_days",
 			"auto_escalate",
 			"auto_escalation_threshold",
-			"top_level_authority",
 			"first_response_hours",
 			"update_cadence_hours",
 			"remand_execution_hours",
-			"appeal_window_days",
+			"holiday_list",
 		],
 		order_by="modified desc, name desc",
 		limit=1,
@@ -80,11 +162,10 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 		sla_days=r.sla_days or 0,
 		auto_escalate=bool(r.auto_escalate),
 		auto_escalation_threshold=r.auto_escalation_threshold or 100,
-		top_level_authority=r.top_level_authority,
 		first_response_hours=r.first_response_hours,
 		update_cadence_hours=r.update_cadence_hours,
 		remand_execution_hours=r.remand_execution_hours,
-		appeal_window_days=r.appeal_window_days,
+		holiday_list=r.holiday_list or get_default_holiday_list(),
 	)
 
 
@@ -97,12 +178,8 @@ def start_clock(grievance):
 	if not policy or not policy.sla_days:
 		return
 
-	if clock_start_mode() == CLOCK_START_CREATION:
-		started = get_datetime(grievance.creation)
-	else:
-		started = now_datetime()
-
-	due = add_days(started, policy.sla_days)
+	started = get_datetime(grievance.sla_start_at or grievance.creation or now_datetime())
+	due = calculate_working_deadline(started, policy.sla_days, holiday_list_name=policy.holiday_list)
 	grievance.db_set(
 		{
 			"sla_days": policy.sla_days,
@@ -114,11 +191,66 @@ def start_clock(grievance):
 	arm_escalation(grievance, policy=policy)
 
 
+def recalculate_sla_on_category_change(grievance, old_category=None, new_category=None):
+	"""Recalculate SLA due date and escalation timestamps when category changes.
+
+	Recalculates target resolution time based on the new category's policy starting from
+	the creation / start date, taking into account any banked hold time and holidays.
+	"""
+	cat = new_category or grievance.service_category
+	policy = resolve_policy(cat)
+	if not policy or not policy.sla_days:
+		return
+
+	started = get_datetime(grievance.sla_start_at or grievance.creation or now_datetime())
+	new_due = calculate_working_deadline(started, policy.sla_days, holiday_list_name=policy.holiday_list)
+
+	banked = grievance.get("total_hold_time") or 0
+	if banked:
+		new_due = add_to_date(new_due, seconds=banked)
+
+	updates = {
+		"sla_days": policy.sla_days,
+		"sla_start_at": started,
+		"sla_due_date": new_due,
+		"reminder_50_sent": 0,
+		"reminder_80_sent": 0,
+	}
+
+	grievance.db_set(updates, update_modified=False)
+	arm_escalation(grievance, policy=policy)
+
+
+def reset_clock(grievance):
+	"""Restart the SLA window from now when category changes on reassignment."""
+	policy = resolve_policy(grievance.service_category)
+	now = now_datetime()
+	updates = {
+		"sla_start_at": now,
+		"total_hold_time": 0,
+		"reminder_50_sent": 0,
+		"reminder_80_sent": 0,
+		"escalated": 0,
+	}
+	if policy and policy.sla_days:
+		due = calculate_working_deadline(now, policy.sla_days, holiday_list_name=policy.holiday_list)
+		updates["sla_days"] = policy.sla_days
+		updates["sla_due_date"] = due
+	else:
+		updates["sla_days"] = 0
+		updates["sla_due_date"] = None
+
+	grievance.db_set(updates, update_modified=False)
+	for k, v in updates.items():
+		setattr(grievance, k, v)
+	arm_escalation(grievance, policy=policy)
+
+
 def arm_escalation(grievance, policy=None):
 	"""Point the escalation clock at the first bump.
 
 	Until a case has escalated once the next bump is a fraction of its window, so this
-	is re-run whenever the deadline moves (resume from hold, approved deferral). Once
+	is re-run whenever the deadline moves (resume from hold, approved deferral, category change). Once
 	the case starts climbing, the rung's own hours own the schedule and the deadline is
 	no longer the thing being waited on.
 
@@ -126,13 +258,18 @@ def arm_escalation(grievance, policy=None):
 	switch: the batch selects on `next_escalation_at`, so a null is invisible to it,
 	and no per-case policy lookup is needed at escalation time. The SLA window, the
 	reminders and the compliance reporting all carry on untouched.
+
+	A case that has already escalated is left alone: its rung owns the schedule, and
+	re-arming it from the start of the window would put the bump in the past. A case
+	with no deadline (sla_days 0) has nothing to escalate against.
 	"""
 	if grievance.escalated or not grievance.sla_due_date:
 		return
 
 	policy = policy or resolve_policy(grievance.service_category)
 	if not policy or not policy.auto_escalate:
-		return disarm_escalation(grievance)
+		grievance.db_set("next_escalation_at", None, update_modified=False)
+		return
 
 	start = get_datetime(grievance.sla_start_at) if grievance.sla_start_at else None
 	due = get_datetime(grievance.sla_due_date)
@@ -148,34 +285,122 @@ def arm_escalation(grievance, policy=None):
 	grievance.db_set("next_escalation_at", at, update_modified=False)
 
 
-def paused_statuses():
-	configured = frappe.conf.get("grievance_sla_paused_statuses")
-	return frozenset(configured) if configured else C.SLA_PAUSED_STATUSES
-
-
 def open_hold_seconds(grievance):
 	"""Seconds in the hold that is still running. Zero when the clock is not paused."""
-	on_hold = (
-		grievance.get("on_hold_since")
-		if isinstance(grievance, dict) or hasattr(grievance, "get")
-		else getattr(grievance, "on_hold_since", None)
-	)
+	on_hold = grievance.get("on_hold_since")
 	if not on_hold:
 		return 0
 	return max(0, int((now_datetime() - get_datetime(on_hold)).total_seconds()))
 
 
-def pause_clock(grievance):
-	"""Stamp the start of a hold. Idempotent — pausing an already-held case is a no-op."""
-	if not grievance.sla_due_date or grievance.on_hold_since:
+def sla_category_of(state):
+	"""What the Grievance Workflow says a state does to the clock. Unset means Running."""
+	for row in get_workflow("Grievance").states:
+		if row.state == state:
+			return row.get("sla_category") or RUNNING
+	return RUNNING
+
+
+def states_in_category(category):
+	return {
+		row.state
+		for row in get_workflow("Grievance").states
+		if (row.get("sla_category") or RUNNING) == category
+	}
+
+
+def on_status_change(grievance, to_state, from_state=None):
+	"""Start, pause, resume or stop the clock for the state the case just entered.
+
+	The clock starts when the case reaches a department. A Paused state holds it, and
+	the deadline is pushed out by the hold when the case leaves. A Stopped state ends
+	it: any hold is banked first, so the deadline the outcome is judged against stays
+	fair, and escalation is disarmed for good.
+	"""
+	if to_state == C.STATE_ASSIGNED:
+		start_clock(grievance)
+
+	category = sla_category_of(to_state)
+	if category == PAUSED:
+		if grievance.sla_due_date and not grievance.on_hold_since:
+			grievance.db_set("on_hold_since", now_datetime(), update_modified=False)
 		return
-	grievance.db_set("on_hold_since", now_datetime(), update_modified=False)
+
+	resume_clock(grievance)
+	if category == STOPPED and grievance.next_escalation_at:
+		grievance.db_set("next_escalation_at", None, update_modified=False)
+		grievance.next_escalation_at = None
+	elif from_state and sla_category_of(from_state) == STOPPED:
+		rearm_after_reopen(grievance)
+
+
+def rearm_after_reopen(grievance):
+	"""Restart escalation for a case coming back out of a Stopped state (Reopen).
+
+	Entering the Stopped state disarmed it. A case that had not escalated is re-armed
+	against its deadline as usual, so an overdue reopened case is bumped on the next
+	run. One that had already escalated gives the rung it sits on that rung's own hours
+	again; on a terminal rung (no hours) the ladder stays stopped.
+	"""
+	if grievance.next_escalation_at or not grievance.sla_due_date:
+		return
+
+	policy = resolve_policy(grievance.service_category)
+	if not grievance.escalated:
+		arm_escalation(grievance, policy=policy)
+		return
+	if not policy or not policy.auto_escalate:
+		return
+
+	level = current_level_of(grievance.assigned_to)
+	hours = frappe.db.get_value("Grievance Role Level", level, "escalation_hours") if level else None
+	if hours:
+		at = add_to_date(now_datetime(), hours=hours)
+		grievance.db_set("next_escalation_at", at, update_modified=False)
+		grievance.next_escalation_at = at
+
+
+def state_timer(service_category, state):
+	"""(hours, on_expiry) for a state, or None when it has no timer.
+
+	Read from the category's SLA Configuration. Resolved always has one: with
+	no row configured, the confirmation window falls back to the site's
+	`grievance_confirmation_window_days`, then to seven days.
+	"""
+	config = (
+		frappe.db.get_value(
+			"Grievance SLA Configuration", {"service_category": service_category, "active": 1}
+		)
+		if service_category
+		else None
+	)
+	if config:
+		row = frappe.db.get_value(
+			"Grievance State Timer",
+			{"parenttype": "Grievance SLA Configuration", "parent": config, "workflow_state": state},
+			["hours", "on_expiry"],
+			as_dict=True,
+		)
+		if row:
+			return row.hours, row.on_expiry
+	if state == C.STATE_RESOLVED:
+		days = int(frappe.conf.get("grievance_confirmation_window_days") or C.DEFAULT_CONFIRMATION_DAYS)
+		return days * 24, "Auto Close"
+	return None
+
+
+def arm_state_timer(grievance, state):
+	"""Stamp when the case's new state runs out, or clear the previous state's deadline."""
+	timer = state_timer(grievance.service_category, state)
+	deadline = add_to_date(now_datetime(), hours=timer[0]) if timer else None
+	if deadline or grievance.get("state_deadline"):
+		grievance.db_set("state_deadline", deadline, update_modified=False)
 
 
 def resume_clock(grievance):
 	"""Bank the hold and push the deadline out by the same amount.
 
-	Spec section 2: two writes total per hold — one on pause, one here. The reminder flags
+	Two writes total per hold: one on pause, one here. The reminder flags
 	are deliberately left alone, because consumed percentage is unchanged across a resume:
 	the window and the elapsed time both move by the hold duration.
 	"""
@@ -197,187 +422,84 @@ def resume_clock(grievance):
 			updates["next_escalation_at"] = add_to_date(
 				get_datetime(grievance.next_escalation_at), seconds=held
 			)
+
 	grievance.db_set(updates, update_modified=False)
 	return held
 
 
 def consumed_percent(grievance):
-	"""FSD 3.11.4: the SLA tracker's consumed percentage, excluding hold time.
-
-	`sla_due_date` has already been pushed out by every banked hold, so subtracting the
-	bank from both sides recovers the original window and the time actually spent with the
-	department. An open hold is subtracted from the elapsed side only, because the due date
-	does not move until the case resumes.
-	"""
-	start_val = (
-		grievance.get("sla_start_at")
-		if isinstance(grievance, dict) or hasattr(grievance, "get")
-		else getattr(grievance, "sla_start_at", None)
-	)
-	due_val = (
-		grievance.get("sla_due_date")
-		if isinstance(grievance, dict) or hasattr(grievance, "get")
-		else getattr(grievance, "sla_due_date", None)
-	)
+	"""The SLA tracker's consumed percentage, calculated hourly with upper limit (ceiling), excluding hold time."""
+	start_val = grievance.get("sla_start_at")
+	due_val = grievance.get("sla_due_date")
 	if not (start_val and due_val):
 		return 0
 	start = get_datetime(start_val)
 	due = get_datetime(due_val)
-	banked = (
-		grievance.get("total_hold_time")
-		if isinstance(grievance, dict) or hasattr(grievance, "get")
-		else getattr(grievance, "total_hold_time", 0)
-	) or 0
+	banked = grievance.get("total_hold_time") or 0
 
-	window = (due - start).total_seconds() - banked
-	if window <= 0:
+	window_seconds = (due - start).total_seconds() - banked
+	if window_seconds <= 0:
 		return 100
 
-	elapsed = (now_datetime() - start).total_seconds() - banked - open_hold_seconds(grievance)
-	return max(0, min(round(elapsed / window * 100), 999))
+	elapsed_seconds = (now_datetime() - start).total_seconds() - banked - open_hold_seconds(grievance)
+	if elapsed_seconds <= 0:
+		return 0
+
+	# Hourly calculation taking upper limit (ceil)
+	window_hours = max(1, math.ceil(window_seconds / 3600))
+	elapsed_hours = math.ceil(elapsed_seconds / 3600)
+	percent = math.ceil((elapsed_hours / window_hours) * 100)
+	return max(0, min(percent, 999))
 
 
-def extend_for_deferral(grievance, additional_days):
-	"""FSD 3.11.7: an approved deferral pushes the due date out."""
-	if not grievance.sla_due_date:
-		return
-	updates = {
-		"sla_due_date": add_days(get_datetime(grievance.sla_due_date), additional_days),
-		"reminder_50_sent": 0,
-		"reminder_80_sent": 0,
-	}
+def higher_authority_of(user, department=None, administrative_area=None, log_unstaffed_for=None):
+	"""The person one step above `user` for a department and area, and their rung.
 
-	# A case already climbing keeps its rung's remaining hours, shifted by the granted
-	# days; one that has not escalated yet is re-armed against the new deadline.
-	if grievance.escalated and grievance.next_escalation_at:
-		updates["next_escalation_at"] = add_days(get_datetime(grievance.next_escalation_at), additional_days)
-		grievance.db_set(updates, update_modified=False)
-	else:
-		grievance.db_set(updates, update_modified=False)
-		arm_escalation(grievance)
+	1. The user's direct supervisor (reports_to), when they sit higher up the chain or
+	   hold no rung at all.
+	2. Otherwise whoever holds the next rung for the department and area.
 
-
-def escalation_chain():
-	"""The active rungs, most junior first. The ordering is data, not an enum."""
-	return frappe.get_all(
-		"Grievance Role Level",
-		filters={"is_active": 1},
-		fields=["name", "level_order", "escalation_hours"],
-		order_by="level_order asc",
-	)
-
-
-def current_level_of(user):
-	"""The rung a user sits on, read from their RBAC assignment.
-
-	The rung is deliberately not stored on the grievance. A case sits at whatever level
-	its current assignee occupies, so escalating *is* the reassignment and the two can
-	never disagree. This follows DIGIT PGR, which keys escalation off the assignee's
-	designation rather than a counter on the complaint.
+	A user with no rung (a submitter, or nobody) enters at the most junior rung.
+	Returns (None, None) at the top of the chain; `log_unstaffed_for` names the
+	grievance to report when a rung has nobody on it.
 	"""
-	if not user:
-		return None
-
-	from oan_grievance_service.permissions import query_active_officer_assignments
-
-	rows = query_active_officer_assignments(
-		user=user,
-		fields=["c.role_level"],
-		limit=1,
-	)
-	rows = [r for r in rows if r.role_level]
-	return rows[0].role_level if rows else None
-
-
-def next_level_above(level_code):
-	"""The next active rung up, or None at the top of the chain.
-
-	An unknown or absent level enters at the most junior rung, so a case held by
-	someone outside the chain still has somewhere to go.
-	"""
-	chain = escalation_chain()
+	chain = GrievanceRoleLevel.get_chain()
 	if not chain:
-		return None
-	for index, rung in enumerate(chain):
-		if rung.name == level_code:
-			return chain[index + 1] if index + 1 < len(chain) else None
-	return chain[0]
+		return None, None
 
+	rank = {rung.name: index for index, rung in enumerate(chain)}
+	current_level = current_level_of(user)
+	current_rank = rank.get(current_level, -1)
+	if current_level and current_level not in rank:
+		# Sits on a rung that has since been deactivated: nowhere defined to climb to.
+		return None, None
+	if current_rank + 1 >= len(chain):
+		return None, None
+	supervisor = get_officer_supervisor(user, department=department, administrative_area=administrative_area)
+	if supervisor and supervisor != user:
+		sup_level = current_level_of(supervisor)
+		if not sup_level:
+			return supervisor, chain[current_rank + 1]
+		if rank.get(sup_level, -1) > current_rank:
+			return supervisor, chain[rank[sup_level]]
 
-def resolve_officer_for_level(grievance, level):
-	"""Who holds `level` for this case's department and area.
-
-	A named `reports_to` wins, because a supervisor the officer actually reports to
-	beats a role lookup that only knows the rung. Failing that, the RBAC assignments
-	scoped to the case's department and area.
-
-	Grievance RBAC Assignment is now the only source of officers, so an unanswered
-	rung is a configuration gap rather than a routine miss: it stalls the escalation
-	chain for every case in that department, and it is logged for that reason.
-	"""
-	supervisor = get_officer_supervisor(
-		grievance.assigned_to,
-		department=grievance.assigned_dept,
-		administrative_area=grievance.administrative_area,
-	)
-	if supervisor and current_level_of(supervisor) == level.name:
-		return supervisor
-
-	from oan_grievance_service.permissions import find_officer_by_role_level
-
-	officer = find_officer_by_role_level(
-		level.name,
-		department=grievance.assigned_dept,
-		administrative_area=grievance.administrative_area,
-	)
-	if not officer:
-		frappe.log_error(
-			title=f"Grievance escalation rung unstaffed: {level.name}",
-			message=(
-				f"No active Grievance RBAC Assignment holds role level '{level.name}' for "
-				f"department '{grievance.assigned_dept}' and administrative area "
-				f"'{grievance.administrative_area}'. Grievance {grievance.name} cannot "
-				f"escalate past this rung until an assignment covers it."
-			),
+	for next_level in chain[current_rank + 1 :]:
+		officer = find_officer_by_role_level(
+			next_level.name, department=department, administrative_area=administrative_area
 		)
-	return officer
+		if officer and officer != user:
+			return officer, next_level
+		if not officer and log_unstaffed_for:
+			frappe.log_error(
+				title=f"Grievance escalation rung unstaffed: {next_level.name}",
+				message=(
+					f"No active Grievance RBAC Assignment holds role level '{next_level.name}' for "
+					f"department '{department}' and administrative area '{administrative_area}'. "
+					f"Grievance {log_unstaffed_for} skipped this rung."
+				),
+			)
 
-
-def get_officer_supervisor(user, department=None, administrative_area=None):
-	"""Find direct supervisor (reports_to) configured on the officer's RBAC assignment."""
-	if not user:
-		return None
-
-	from oan_grievance_service.permissions import is_in_area_subtree, query_active_officer_assignments
-
-	rows = query_active_officer_assignments(
-		user=user,
-		fields=["c.reports_to", "p.department_scope", "p.administrative_area_scope"],
-	)
-	rows = [r for r in rows if r.reports_to]
-	if not rows:
-		return None
-
-	target_lft = None
-	if administrative_area:
-		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
-
-	for r in rows:
-		if department and r.department_scope and r.department_scope != department:
-			continue
-		if target_lft is not None and r.administrative_area_scope:
-			if not is_in_area_subtree(target_lft, r.administrative_area_scope):
-				continue
-		return r.reports_to
-
-	return rows[0].reports_to
-
-
-def disarm_escalation(grievance):
-	"""Stop the ladder. The case has nowhere left to climb."""
-	if grievance.next_escalation_at:
-		grievance.db_set("next_escalation_at", None, update_modified=False)
-	return None
+	return None, None
 
 
 def _first_escalation(grievance):
@@ -386,88 +508,66 @@ def _first_escalation(grievance):
 	return {} if grievance.get("escalated_at") else {"escalated_at": now_datetime()}
 
 
-def escalate(grievance, trigger, reason=None, reassign=True):
-	"""FSD 3.7: move the case one rung up the chain and re-arm the clock.
-
-	Escalating is the reassignment: there is no level stored on the grievance, so the
-	rung is read from whoever holds it and written back by handing it to someone else.
-	The chain terminates on its own - no rung above, or the walk returning the person
-	already holding the case, which is DIGIT PGR's `isNewAssigneeSameAsPreviousAssignee`
-	check and means we have run out of hierarchy.
+def escalate(grievance, reason=None, reassign=True):
+	"""Move the case one rung up the chain and re-arm the clock.
 
 	`escalated` stays a flag, never a status, so the lifecycle stage is untouched.
 	Returns the user the case was handed to, or None when it could not move.
 	"""
 	from oan_grievance_service.services import notifications
 
-	level = next_level_above(current_level_of(grievance.assigned_to))
-	if not level:
-		return disarm_escalation(grievance)
+	target, level = higher_authority_of(
+		grievance.assigned_to,
+		department=grievance.assigned_dept,
+		administrative_area=grievance.administrative_area,
+		log_unstaffed_for=grievance.name,
+	)
+	if not target:
+		updates = {
+			"escalated": 1,
+			"next_escalation_at": None,
+			**_first_escalation(grievance),
+		}
+		grievance.db_set(updates, update_modified=False)
 
-	target = resolve_officer_for_level(grievance, level)
-	if not target or target == grievance.assigned_to:
-		return disarm_escalation(grievance)
+		body = "Case escalated (no higher authority configured for reassignment)"
+		if reason:
+			body += f": {reason}"
+		GrievanceTimeline.record(
+			grievance=grievance.name,
+			entry_type="escalation",
+			is_internal=False,
+			body=body,
+			author_user=frappe.session.user if frappe.session.user != "Guest" else None,
+		)
 
-	# First bump reads as the breach itself; every later one is the chain climbing.
-	event = C.EVENT_SLA_BREACH_L1 if not grievance.escalated else C.EVENT_SLA_BREACH_L2
-
-	if reassign:
-		grievance.db_set("assigned_to", target, update_modified=False)
-	grievance.db_set({"escalated": 1, **_first_escalation(grievance)}, update_modified=False)
+		if grievance.assigned_to:
+			notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=grievance.assigned_to)
+		return grievance.assigned_to or True
 
 	# The rung the case just landed on owns the next deadline. No hours means this is a
 	# terminal rung and the ladder stops here.
 	hours = level.escalation_hours or 0
-	grievance.db_set(
-		"next_escalation_at",
-		add_to_date(now_datetime(), hours=hours) if hours else None,
-		update_modified=False,
-	)
+	updates = {
+		"escalated": 1,
+		"next_escalation_at": add_to_date(now_datetime(), hours=hours) if hours else None,
+		**_first_escalation(grievance),
+	}
+	if reassign:
+		updates["assigned_to"] = target
+	grievance.db_set(updates, update_modified=False)
 
-	# Record escalation in unified timeline spine
-	timeline_body = f"Case escalated to {target} ({level.level_name or level.name})"
+	level_role = level.level_name or level.name
+	body = f"Case escalated to {level_role}"
 	if reason:
-		timeline_body += f": {reason}"
-	user = frappe.session.user if frappe.session.user != "Guest" else None
+		body += f": {reason}"
 	GrievanceTimeline.record(
 		grievance=grievance.name,
 		entry_type="escalation",
 		is_internal=False,
-		body=timeline_body,
-		author_user=user,
+		body=body,
+		author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 	)
 
-	notifications.queue(grievance, event, recipient_override=target)
-	return target
-
-
-def clear_escalation(grievance):
-	"""FSD 4.3: once a structured response is submitted the flag is cleared.
-
-	Only the flag. `next_escalation_at` is left running on purpose: a response resets
-	the badge, not the obligation, and an officer who answers and then sits on the case
-	again must still be overtaken. Clearing it here is what used to make a second breach
-	permanently silent.
-	"""
-	if not grievance.escalated:
-		return
-	grievance.db_set("escalated", 0, update_modified=False)
-
-
-def manual_escalate(grievance, reason, by_submitter=True):
-	"""FSD 3.7: the submitter may escalate once the SLA window has elapsed."""
-	if not grievance.sla_due_date:
-		frappe.throw(_("This grievance has no SLA window yet, so it cannot be escalated."))
-	if get_datetime(grievance.sla_due_date) > now_datetime():
-		frappe.throw(_("The SLA window has not elapsed yet, so escalation is not available."))
-
-	target = escalate(
-		grievance,
-		trigger="Submitter" if by_submitter else "Officer",
-		reason=reason,
-	)
-	if not target:
-		frappe.throw(
-			_("This grievance is already with the highest authority, so it cannot be escalated further.")
-		)
+	notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=target)
 	return target

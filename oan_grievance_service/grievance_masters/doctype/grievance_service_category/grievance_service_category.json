@@ -15,7 +15,7 @@
  ],
  "fields": [
   {
-   "description": "FSD 3.2.2: Inputs, Schemes, Payments, Credit, Markets",
+   "description": "e.g. Inputs, Schemes, Payments, Credit, Markets",
    "fieldname": "category_name",
    "fieldtype": "Data",
    "in_list_view": 1,

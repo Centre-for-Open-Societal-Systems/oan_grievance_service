@@ -22,7 +22,7 @@ THREE CHECKS, IN ORDER
    checked only for agreement with what the bytes say.
 
 2. **Location metadata, stripped.** A phone photo carries GPS coordinates in its
-   EXIF block. FSD 9.2 lets a submitter ask for anonymity -- and a geotagged
+   EXIF block. A submitter may ask for anonymity -- and a geotagged
    photograph of their own plot defeats that completely, whatever the database
    says about their name. Coordinates are removed before the file is stored.
 
@@ -277,6 +277,7 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 		content = content.encode("utf-8")
 
 	host, port = target
+
 	try:
 		with socket.create_connection((host, port), timeout=CLAMAV_TIMEOUT_SECONDS) as sock:
 			sock.sendall(b"zINSTREAM\0")

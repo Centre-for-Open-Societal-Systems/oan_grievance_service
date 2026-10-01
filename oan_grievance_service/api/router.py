@@ -86,6 +86,7 @@ def _register() -> None:
 		administrative_area,
 		attachment,
 		category_assignment,
+		change_request,
 		charts,
 		draft,
 		grievance,

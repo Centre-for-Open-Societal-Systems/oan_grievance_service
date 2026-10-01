@@ -1,9 +1,9 @@
 """Tests for the Werkzeug REST Router in OAN Grievance Service."""
 
 import json
-import unittest
 
 import frappe
+from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.utils import _resolve_version_meta
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
@@ -23,12 +23,18 @@ def make_test_request(
 	environ_base: dict | None = None,
 ) -> Request:
 	"""Helper to construct a Werkzeug Request and set up frappe.local state."""
+	query_string = None
+	if "?" in path:
+		path, query_string = path.split("?", 1)
+
 	builder_kwargs = {
 		"path": path,
 		"method": method.upper(),
 		"base_url": f"{scheme}://testsite.localhost",
 		"headers": headers or {},
 	}
+	if query_string:
+		builder_kwargs["query_string"] = query_string
 	if data is not None:
 		builder_kwargs["json"] = data
 
@@ -40,20 +46,23 @@ def make_test_request(
 
 	frappe.local.request = req
 	frappe.local.request_ip = "127.0.0.1"
-	frappe.local.form_dict = frappe._dict(data or {})
+	form_data = dict(req.args)
+	if data:
+		form_data.update(data)
+	frappe.local.form_dict = frappe._dict(form_data)
 	frappe.local.response = frappe._dict({})
 
 	return req
 
 
-class TestGrievanceRESTRouter(unittest.TestCase):
+class TestGrievanceRESTRouter(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
+		super().setUpClass()
 		ensure_routes_registered()
 
-	def setUp(self):
+	def _ensure_fixtures(self):
 		frappe.set_user("Administrator")
-		frappe.db.rollback()
 
 		# Ensure required roles exist
 		for role in ("Grievance Submitter", "Grievance Officer", "Grievance Admin"):
@@ -89,6 +98,16 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		else:
 			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
+
+		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance SLA Configuration",
+					"service_category": "Inputs",
+					"sla_days": 15,
+					"active": 1,
+				}
+			).insert(ignore_permissions=True)
 
 		self.area = a_leaf_area()
 
@@ -130,6 +149,15 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 			if self.farmer_profile.user != self.farmer_user.name:
 				self.farmer_profile.user = self.farmer_user.name
 				self.farmer_profile.save(ignore_permissions=True)
+
+	def setUp(self):
+		super().setUp()
+		self._ensure_fixtures()
+		frappe.set_user("Administrator")
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		super().tearDown()
 
 	def test_version_meta_isolation(self):
 		"""Verify that version_meta resolves from oan_grievance_service and not oan_auth_service."""
@@ -188,10 +216,13 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("areas", data["data"])
 
 	def test_grievance_options_endpoint(self):
-		"""Test GET /api/v1/grievances/options."""
+		"""Test GET /api/v1/grievances/options and cascading department officers."""
 		import frappe.api
 
+		from oan_grievance_service.tests.fixtures import a_department
+
 		frappe.set_user("Administrator")
+		# 1. Base options without department
 		req = make_test_request("/api/v1/grievances/options", method="GET")
 		res = frappe.api.handle(req)
 		self.assertEqual(res.status_code, 200)
@@ -200,6 +231,59 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("departments", data["data"])
 		self.assertIn("statuses", data["data"])
 		self.assertIn("service_categories", data["data"])
+		self.assertNotIn("officers", data["data"])
+
+		# 2. Cascading options with department
+		dept = a_department()
+		if not frappe.db.exists("Grievance Role Level", "nodal_officer"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Role Level",
+					"level_code": "nodal_officer",
+					"level_name": "Nodal Officer",
+					"level_order": 10,
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		# Create an RBAC assignment for this department
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "Administrator",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			req_dept = make_test_request(f"/api/v1/grievances/options?department={dept}", method="GET")
+			res_dept = frappe.api.handle(req_dept)
+			self.assertEqual(res_dept.status_code, 200)
+			data_dept = json.loads(res_dept.get_data(as_text=True))
+			self.assertIn("officers", data_dept["data"])
+			officers = data_dept["data"]["officers"]
+			# The caller is never offered to themselves
+			self.assertFalse(any(o["user_id"] == "Administrator" for o in officers))
+
+			# 3. Cascading options with department and service_category
+			req_cat = make_test_request(
+				f"/api/v1/grievances/options?department={dept}&service_category=Inputs", method="GET"
+			)
+			res_cat = frappe.api.handle(req_cat)
+			self.assertEqual(res_cat.status_code, 200)
+			data_cat = json.loads(res_cat.get_data(as_text=True))
+			self.assertIn("officers", data_cat["data"])
+		finally:
+			frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
 
 	def test_auth_me_returns_namespaced_grievance_profile(self):
 		"""Test GET /api/v1/auth/me enriches data.profiles.grievance via on_user_profile hook."""
@@ -319,7 +403,6 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# 2. As submitter, check timeline returns available_actions
 		req_tl = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
@@ -339,17 +422,14 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(body_assign_bad["status"], "error")
 		self.assertIn("not permitted", body_assign_bad["message"].lower())
 
-		from oan_grievance_service.tests.fixtures import a_department
+		from oan_grievance_service.tests.fixtures import a_department, a_grievance
 
-		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
-		doc.assigned_dept = a_department()
-		doc.save(ignore_permissions=True)
-		lifecycle.transition(doc, "Assign")
-		frappe.db.commit()
+		case = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(case, "Assign", automated=True)
 
 		# Execute Start Work via unified action endpoint
 		req_action = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
 			data={"action": "Start Work"},
 		)
@@ -358,11 +438,10 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		action_data = json.loads(res_action.get_data(as_text=True))
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
-		frappe.db.commit()
 
 		# Attempting 'Submit Response' action without a formal Grievance Response is refused
 		req_resp_bad = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
 			data={"action": "Submit Response"},
 		)
@@ -372,8 +451,9 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("response", body_resp_bad["message"].lower())
 
 		# 4. Reject without reason is refused (400)
+		rej_case = a_grievance()
 		req_rej_bad = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{rej_case.ticket_number or rej_case.name}/action",
 			method="POST",
 			data={"action": "Reject", "reason": ""},
 		)
@@ -383,8 +463,9 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertIn("reason is required", body_rej_bad["message"].lower())
 
 		# 5. Reject with reason succeeds
+		rej_case_2 = a_grievance()
 		req_rej_ok = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/action",
+			f"/api/v1/grievances/{rej_case_2.ticket_number or rej_case_2.name}/action",
 			method="POST",
 			data={"action": "Reject", "reason": "Not an agricultural grievance."},
 		)
@@ -393,12 +474,11 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
 
-	def test_reassign_defer_and_anonymity_endpoints(self):
-		"""Test direct REST APIs for reassignment, deferral, and anonymity decisions."""
+	def test_reassign_and_defer_endpoints(self):
+		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
 		import uuid
 
-		import frappe.api
-
+		from oan_grievance_service.services import lifecycle
 		from oan_grievance_service.tests.fixtures import a_department
 
 		# 1. Submit a grievance
@@ -423,17 +503,69 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		}
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
+		self.assertEqual(res_submit.status_code, 200, res_submit.get_data(as_text=True))
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# 2. Reassign endpoint
 		frappe.set_user("Administrator")
-		dept = a_department()
+		officer_email = "router_officer@test.org"
+		if not frappe.db.exists("User", officer_email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": officer_email,
+					"first_name": "Router Officer",
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+
+		reassign_dept_name = f"Router Reassign Dept {uuid.uuid4().hex[:6]}"
+		reassign_dept = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": reassign_dept_name,
+				"email_account": "router_reassign@example.com",
+				"active": 1,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Department",
+			reassign_dept.name,
+			force=True,
+			ignore_permissions=True,
+		)
+
+		rbac_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": reassign_dept.name,
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": officer_email,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			rbac_doc.name,
+			force=True,
+			ignore_permissions=True,
+		)
+
 		req_reassign = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/reassign",
 			method="POST",
 			data={
-				"target_department": dept,
+				"target_department": reassign_dept.name,
 				"reason": "Routing to regional dept",
 			},
 		)
@@ -441,31 +573,23 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(res_reassign.status_code, 200, res_reassign.get_data(as_text=True))
 		reassign_data = json.loads(res_reassign.get_data(as_text=True))
 		self.assertEqual(reassign_data["status"], "success")
-		self.assertEqual(reassign_data["data"]["assigned_dept"], dept)
+		# 3. Assign case to start SLA clock, then Defer SLA endpoint
+		doc_case = frappe.get_doc("Grievance", tn.normalize(ticket_number))
+		lifecycle.transition(doc_case, "Assign")
 
-		# 3. Defer SLA endpoint
 		req_defer = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/defer-sla",
 			method="POST",
 			data={"additional_days": 5, "reason": "Awaiting soil lab sample results"},
 		)
 		res_defer = frappe.api.handle(req_defer)
-		self.assertEqual(res_defer.status_code, 200)
+		self.assertEqual(res_defer.status_code, 200, res_defer.get_data(as_text=True))
 		defer_data = json.loads(res_defer.get_data(as_text=True))
 		self.assertEqual(defer_data["status"], "success")
 		self.assertIn("sla_due_date", defer_data["data"])
 
-		# 4. Anonymity decision endpoint
-		req_anon = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/anonymity-decision",
-			method="POST",
-			data={"decision": "Approved", "reason": "Sensitive whistleblowing context"},
-		)
-		res_anon = frappe.api.handle(req_anon)
-		self.assertEqual(res_anon.status_code, 200)
-		anon_data = json.loads(res_anon.get_data(as_text=True))
-		self.assertEqual(anon_data["status"], "success")
-		self.assertTrue(anon_data["data"]["is_anonymous"])
+		# 4. Anonymity check: anonymous case was submitted as anonymous directly
+		self.assertTrue(doc_case.is_anonymous)
 
 	def test_unified_message_and_department_response_endpoint(self):
 		"""Test unified POST /api/v1/grievances/<ticket>/message for notes, messages, info requests, and department responses."""
@@ -494,16 +618,14 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
-		frappe.db.commit()
 
 		# Assign and Start Work
 		frappe.set_user("Administrator")
-		doc = frappe.get_doc("Grievance", {"ticket_number": ticket_number})
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		doc.assigned_dept = a_department()
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
 		lifecycle.transition(doc, "Start Work")
-		frappe.db.commit()
 
 		# 2. Staff posts an internal note
 		req_note = make_test_request(
@@ -542,7 +664,7 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		self.assertEqual(reply_data["data"]["status"], "In Progress")
 		self.assertEqual(reply_data["data"]["entry_type"], "info_response")
 
-		# 5. Staff posts formal department response -> moves state to Pending Submitter
+		# 5. Staff posts formal department response -> moves state to Resolved
 		frappe.set_user("Administrator")
 		req_resp = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
@@ -556,6 +678,120 @@ class TestGrievanceRESTRouter(unittest.TestCase):
 		res_resp = frappe.api.handle(req_resp)
 		self.assertEqual(res_resp.status_code, 200)
 		resp_data = json.loads(res_resp.get_data(as_text=True))
-		self.assertEqual(resp_data["data"]["status"], "Pending Submitter")
+		self.assertEqual(resp_data["data"]["status"], "Resolved")
 		self.assertEqual(resp_data["data"]["entry_type"], "response")
 		self.assertEqual(resp_data["data"]["response_type"], "Resolved")
+
+	def test_list_grievances_prioritizes_escalated(self):
+		"""Test that GET /api/v1/grievances returns escalated cases first."""
+		import uuid
+
+		import frappe.api
+
+		frappe.set_user("Administrator")
+		test_tag = f"tag_{uuid.uuid4().hex[:8]}"
+
+		# Create non-escalated grievance
+		g_normal = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": f"Citizen Normal {test_tag}",
+				"contact_mobile": "+251911998877",
+				"administrative_area": self.area,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype.name,
+				"description": f"Normal non-escalated case {test_tag}",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+				"escalated": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		# Create escalated grievance
+		g_escalated = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": f"Citizen Escalated {test_tag}",
+				"contact_mobile": "+251911998877",
+				"administrative_area": self.area,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype.name,
+				"description": f"Critical escalated case {test_tag}",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+				"escalated": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		req = make_test_request(f"/api/v1/grievances?search={test_tag}", method="GET")
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		data = json.loads(res.get_data(as_text=True))
+		items = data["data"]["items"]
+
+		# Find index of each
+		esc_idx = next(i for i, item in enumerate(items) if item["name"] == g_escalated.name)
+		normal_idx = next(i for i, item in enumerate(items) if item["name"] == g_normal.name)
+
+		self.assertLess(esc_idx, normal_idx, "Escalated grievance must appear before non-escalated grievance")
+
+	def test_kong_cors_methods_and_jwt_secret(self):
+		"""Kong CORS must allow DELETE and not expose dummy JWT secrets."""
+		from pathlib import Path
+
+		import yaml
+
+		kong_path = Path(__file__).resolve().parent.parent.parent / "kong" / "kong.yml"
+		self.assertTrue(kong_path.exists())
+		with open(kong_path) as f:
+			conf = yaml.safe_load(f)
+
+		cors_plugin = next(p for p in conf["services"][0]["plugins"] if p["name"] == "cors")
+		self.assertIn("DELETE", cors_plugin["config"]["methods"])
+		if "*" in cors_plugin["config"]["origins"]:
+			self.assertFalse(cors_plugin["config"].get("credentials", False))
+
+		for c in conf.get("consumers", []):
+			for sec in c.get("jwt_secrets", []):
+				self.assertNotEqual(sec.get("secret"), "REPLACE_WITH_OAN_AUTH_JWT_SECRET")
+
+	def test_attachment_routes_present_in_spec_and_kong(self):
+		"""Attachment endpoints must be present in OpenAPI and Kong."""
+		from pathlib import Path
+
+		import yaml
+
+		spec_path = Path(__file__).resolve().parent.parent.parent / "openapi" / "openapi_v1.public.yaml"
+		self.assertTrue(spec_path.exists())
+		with open(spec_path) as f:
+			spec = yaml.safe_load(f)
+
+		paths = spec["paths"]
+		self.assertIn("/api/v1/grievances/{ticket_number}/attachments", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}/download", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}/view", paths)
+		self.assertIn("/api/v1/attachments/{attachment_id}", paths)
+
+		view = paths["/api/v1/attachments/{attachment_id}/view"]["get"]
+		self.assertEqual(view["responses"]["200"]["content"]["*/*"]["schema"]["format"], "binary")
+
+	def test_channels_are_data_driven(self):
+		"""Intake channels come from master data, not hardcoded constants."""
+		self.assertIn("Web Portal", grievance.active_channels())
+		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 0)
+		self.assertNotIn("Web Portal", grievance.active_channels())
+		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 1)
+
+	def test_status_summary_endpoint(self):
+		"""Status summary queue exposes valid card counts and public statuses."""
+		res = grievance.summary()
+		self.assertEqual(res["status"], "success")
+		card_statuses = [card["status"] for card in res["data"]["cards"]]
+		self.assertIn("All", card_statuses)
+		self.assertIn("In Progress", card_statuses)

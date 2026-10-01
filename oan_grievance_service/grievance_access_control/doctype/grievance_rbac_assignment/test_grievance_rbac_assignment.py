@@ -4,13 +4,18 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.permissions import (
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
+	current_level_of,
 	find_officer_by_role_level,
+	get_officer_supervisor,
+)
+from oan_grievance_service.permissions import (
 	grievance_query_conditions,
 	has_grievance_permission,
 )
 from oan_grievance_service.services import routing
+from oan_grievance_service.tests.fixtures import a_leaf_area, discard_grievance
 
 
 class TestGrievanceRBACAssignment(FrappeTestCase):
@@ -154,6 +159,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"service_category": "Inputs",
 				"assigned_to": "other_officer@example.com",
 				"status": "In Progress",
+				"docstatus": 1,
 			}
 		)
 		self.assertTrue(
@@ -231,7 +237,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-		supervisor = sla.get_officer_supervisor("prim_officer@example.com", department="Unified Agri Dept")
+		supervisor = get_officer_supervisor("prim_officer@example.com", department="Unified Agri Dept")
 		self.assertEqual(supervisor, "sec_officer@example.com")
 
 		# Create fake grievance and escalate. The ticket number is not passed in:
@@ -255,12 +261,12 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 
 		# One rung up: the case is handed to the nodal officer's own reports_to, and the
 		# level it now sits at is that person's, not a counter on the grievance.
-		res = sla.escalate(fake_g, trigger="System", reassign=True)
+		res = sla.escalate(fake_g, reassign=True)
 		self.assertEqual(res, "sec_officer@example.com")
 		fake_g.reload()
 		self.assertEqual(fake_g.escalated, 1)
 		self.assertEqual(fake_g.assigned_to, "sec_officer@example.com")
-		self.assertEqual(sla.current_level_of(fake_g.assigned_to), "senior_nodal_officer")
+		self.assertEqual(current_level_of(fake_g.assigned_to), "senior_nodal_officer")
 
 	def test_routing_with_grievance_type_and_provider_scope(self):
 		"""Verify routing prioritizes specific type and provider scopes over broad category rules."""
@@ -271,6 +277,14 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"category_scope": "Inputs",
 				"active": 1,
 				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "prim_officer@example.com",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
 			}
 		).insert(ignore_permissions=True)
 
@@ -283,6 +297,14 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"service_provider_scope": "EthioSeed Corp",
 				"active": 1,
 				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "sec_officer@example.com",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
 			}
 		).insert(ignore_permissions=True)
 
@@ -305,3 +327,196 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				frappe.delete_doc(
 					"Grievance RBAC Assignment", specific_doc.name, force=True, ignore_permissions=True
 				)
+
+	def test_route_grievance_job_worker(self):
+		"""Test background worker route_grievance_job processes unassigned submitted cases."""
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Unified Agri Dept",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "prim_officer@example.com",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		fake_g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Queue Submitter",
+				"contact_mobile": "+251911998877",
+				"administrative_area": "TLR.TLW",
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_name,
+				"description": "Fertilizer delivery delayed in the region for multiple weeks.",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			routing.route_grievance_job(fake_g.name)
+			fake_g.reload()
+			self.assertEqual(fake_g.workflow_state, "Assigned")
+			self.assertEqual(fake_g.assigned_dept, "Unified Agri Dept")
+			self.assertEqual(fake_g.assigned_to, "prim_officer@example.com")
+			self.assertEqual(fake_g.routed_automatically, 1)
+			self.assertEqual(fake_g.routing_rule, desk.name)
+		finally:
+			if frappe.db.exists("Grievance", fake_g.name):
+				discard_grievance(fake_g.name)
+			if frappe.db.exists("Grievance RBAC Assignment", desk.name):
+				frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
+
+	def test_drain_routing_queue_preserves_unrouted_submitted_cases(self):
+		"""Test drain_routing_queue routes matching cases and leaves non-matching cases in manual queue without deletion."""
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Unified Agri Dept",
+				"category_scope": "Inputs",
+				"service_provider_scope": "EthioSeed Corp",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": "prim_officer@example.com",
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		# Case 1: Matches Inputs rule with EthioSeed Corp provider
+		matching_g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Matching Submitter",
+				"contact_mobile": "+251911998877",
+				"administrative_area": "TLR.TLW",
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_name,
+				"associated_service_provider": "EthioSeed Corp",
+				"description": "Seeds quality issue affecting the harvest yield significantly.",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		# Case 2: No rule matches (Credit category has no desk rules configured)
+		gtype_credit = frappe.db.get_value("Grievance Type", {"service_category": "Credit"}, "name")
+		unmatched_g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Mobile App",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Unmatched Submitter",
+				"contact_mobile": "+251911998877",
+				"administrative_area": "TLR.TLW",
+				"service_category": "Credit",
+				"grievance_type": gtype_credit,
+				"description": "Credit loan subsidy query with no active rule configured in system.",
+				"workflow_state": "Submitted",
+				"status": "Submitted",
+				"docstatus": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			from oan_grievance_service.tasks import drain_routing_queue
+
+			routed_count = drain_routing_queue()
+			self.assertGreaterEqual(routed_count, 1)
+
+			matching_g.reload()
+			self.assertEqual(matching_g.workflow_state, "Assigned")
+			self.assertEqual(matching_g.assigned_to, "prim_officer@example.com")
+
+			unmatched_g.reload()
+			# Case must NOT be deleted, and must stay in Submitted state for manual nodal triage
+			self.assertTrue(frappe.db.exists("Grievance", unmatched_g.name))
+			self.assertEqual(unmatched_g.workflow_state, "Submitted")
+			self.assertIsNone(unmatched_g.assigned_to)
+			self.assertEqual(unmatched_g.routed_automatically, 0)
+		finally:
+			if frappe.db.exists("Grievance RBAC Assignment", desk.name):
+				frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
+
+	def test_empty_officer_scope_matches_no_cases(self):
+		"""An officer with empty scope assignment must not match all grievances."""
+		officer_email = f"empty.scope.{frappe.generate_hash(length=8)}@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": officer_email,
+				"first_name": "EmptyScope",
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+
+		parent_assignment = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"assignment_name": f"Empty Scope {frappe.generate_hash(length=6)}",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"administrative_area_scope": None,
+				"department_scope": None,
+				"category_scope": None,
+				"officers": [
+					{
+						"user": user.name,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		)
+		parent_assignment.flags.ignore_mandatory = True
+		parent_assignment.insert(ignore_permissions=True)
+
+		cond = grievance_query_conditions(user.name)
+		self.assertNotIn(
+			"docstatus != 0)",
+			cond.replace(
+				f"`tabGrievance`.assigned_to in ('{user.name}') and `tabGrievance`.docstatus != 0",
+				"",
+			),
+		)
+
+		other_case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": a_leaf_area(),
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_name,
+				"description": "Unassigned case for permission test",
+				"assigned_to": "Administrator",
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+				"docstatus": 1,
+			}
+		)
+		other_case.flags.ignore_mandatory = True
+		other_case.insert(ignore_permissions=True)
+		self.assertFalse(has_grievance_permission(other_case, ptype="read", user=user.name))
+		discard_grievance(other_case.name)
