@@ -112,8 +112,13 @@ _FEEDBACK_SQL = _daily_sql(
 	"g.status IN %(resolved)s AND g.satisfaction_rating > 0",
 )
 
-_SNAPSHOT_SQL = f"""
-	SELECT g.status, {_DIMENSIONS}, g.escalated,
+# Joined from the constant fragments above, like _daily_sql; no value is ever
+# interpolated, every value is a %(name)s parameter.
+_SNAPSHOT_SQL = (
+	"""
+	SELECT g.status, """
+	+ _DIMENSIONS
+	+ """, g.escalated,
 		CASE
 			WHEN g.status NOT IN %(open)s THEN ''
 			WHEN g.status IN %(paused)s THEN 'paused'
@@ -125,12 +130,15 @@ _SNAPSHOT_SQL = f"""
 		COUNT(*) AS grievance_count,
 		SUM(d.grievance IS NOT NULL AND g.status IN %(open)s) AS dup_pending_count,
 		MIN(CASE WHEN g.status IN %(open)s AND g.escalated = 0 THEN g.creation END) AS oldest_open_creation
-	FROM `tabGrievance` g{_AREA_JOIN}
+	FROM `tabGrievance` g"""
+	+ _AREA_JOIN
+	+ """
 	LEFT JOIN (
 		SELECT DISTINCT grievance FROM `tabGrievance Duplicate` WHERE is_confirmed = 0
 	) d ON d.grievance = g.name
 	WHERE g.status != 'Draft'
 	GROUP BY 1, 2, 3, 4, 5, 6"""
+)
 
 
 def refresh(full=False):
@@ -189,7 +197,7 @@ def _rebuild_daily(start, end):
 	for sql in (_SUBMITTED_SQL, _RESOLVED_SQL, _REJECTED_SQL, _ESCALATED_SQL, _FEEDBACK_SQL):
 		for row in frappe.db.sql(
 			sql, params, as_dict=True
-		):  # nosemgrep: frappe-semgrep-rules.rules.frappe-sql-format-injection
+		):  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 			key = (row.stat_date, row.region, row.service_category, row.assigned_dept)
 			target = merged.setdefault(key, dict.fromkeys(DAILY_METRICS, 0))
 			for metric in DAILY_METRICS:
@@ -215,7 +223,7 @@ def _rebuild_snapshot(today, now):
 	}
 	rows = frappe.db.sql(
 		_SNAPSHOT_SQL, params, as_dict=True
-	)  # nosemgrep: frappe-semgrep-rules.rules.frappe-sql-format-injection
+	)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
 	frappe.db.delete(SNAPSHOT, {"snapshot_date": today})
 	_insert(
 		SNAPSHOT,
