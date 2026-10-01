@@ -138,8 +138,10 @@ data(
 			"page_size": I(example=20, description="Items per page"),
 			"total_count": I(example=142, description="Total matching records"),
 			"total_pages": I(example=8, description="Total pages available"),
+			"has_next": B(description="True when a later page exists"),
+			"has_prev": B(description="True when an earlier page exists"),
 		},
-		required=["page", "page_size", "total_count", "total_pages"],
+		required=["page", "page_size", "total_count", "total_pages", "has_next", "has_prev"],
 		description="Pagination metadata block",
 	),
 )
@@ -859,6 +861,76 @@ data(
 	),
 )
 
+data(
+	"CategoryAssignment",
+	OBJ(
+		{
+			"name": S(
+				example="GR-RBAC-00001",
+				description="Grievance RBAC Assignment id for this department and category",
+			),
+			"service_category": S(example="Inputs", description="Grievance service category"),
+			"department": S(description="Owning department the category routes to"),
+			"l1_officer": S(nullable=True, description="L1 nodal officer user id"),
+			"l1_officer_name": S(nullable=True, description="L1 officer display name"),
+			"l2_officer": S(nullable=True, description="L2 senior nodal officer user id"),
+			"l2_officer_name": S(nullable=True, description="L2 officer display name"),
+			"sla_days": I(
+				nullable=True,
+				minimum=1,
+				example=14,
+				description="SLA window in days. Shared by every department serving the category.",
+			),
+			"auto_escalate": B(
+				nullable=True,
+				description="Escalate automatically when the SLA is breached. Shared by every department serving the category.",
+			),
+			"active": B(description="False once the rule has been deactivated"),
+			"l1_role_level": S(
+				nullable=True,
+				description="L1 role level copied from the department",
+			),
+			"l2_role_level": S(
+				nullable=True,
+				description="L2 role level copied from the department",
+			),
+			"routing_strategy": S(
+				nullable=True,
+				enum=["Primary First", "Round Robin", "Least Loaded"],
+				description="Routing strategy copied from the department. Null when the department has not chosen one.",
+			),
+		},
+		required=[
+			"name",
+			"service_category",
+			"department",
+			"active",
+		],
+		description="Category-to-department routing rule",
+	),
+)
+
+data(
+	"CategoryAssignmentData",
+	OBJ(
+		{"assignment": REF("CategoryAssignment")},
+		required=["assignment"],
+		description="One category assignment",
+	),
+)
+
+data(
+	"CategoryAssignmentListData",
+	OBJ(
+		{
+			"assignments": ARR(REF("CategoryAssignment")),
+			"pagination": REF("PaginationMeta"),
+		},
+		required=["assignments", "pagination"],
+		description="One page of category assignments",
+	),
+)
+
 
 # ---------------------------------------------------------------------------
 # Request Body Schemas
@@ -1074,6 +1146,35 @@ REQ["BlockSubmitterRequest"] = OBJ(
 	description="Payload for blocking a submitter profile",
 )
 
+REQ["CreateCategoryAssignmentRequest"] = OBJ(
+	{
+		"service_category": S(minLength=1, description="Category name or code"),
+		"department": S(minLength=1, description="Department name or short name"),
+		"l1_officer": S(minLength=1, description="L1 nodal officer user id"),
+		"l2_officer": S(nullable=True, description="L2 senior nodal officer user id. Omit or null for none."),
+		"sla_days": I(minimum=1, description="SLA window in days"),
+		"auto_escalate": B(default=True),
+		"active": B(default=True),
+	},
+	required=["service_category", "department", "l1_officer", "sla_days"],
+	description="Create the routing rule for one department and service category",
+)
+
+REQ["UpdateCategoryAssignmentRequest"] = OBJ(
+	{
+		"department": S(minLength=1, description="Department name or short name. Null or blank is rejected."),
+		"l1_officer": S(minLength=1, description="L1 nodal officer user id. Null or blank is rejected."),
+		"l2_officer": S(nullable=True, description="L2 senior nodal officer. Null clears it."),
+		"sla_days": I(minimum=1),
+		"auto_escalate": B(),
+		"active": B(description="Set false to deactivate. Same as DELETE."),
+	},
+	description=(
+		"Partial update. Omit a field to leave it unchanged. Unknown fields, including "
+		+ "service_category, are rejected."
+	),
+)
+
 
 # ---------------------------------------------------------------------------
 # Envelope Builder Helper
@@ -1167,6 +1268,13 @@ ENVELOPES = {
 	),
 	"DeleteAttachmentResponse": make_envelope(
 		"DeleteAttachmentData", description="Attachment deletion response"
+	),
+	"CategoryAssignmentResponse": make_envelope(
+		"CategoryAssignmentData", description="Category assignment response"
+	),
+	"CategoryAssignmentListResponse": make_envelope(
+		"CategoryAssignmentListData",
+		description="Category assignment list response",
 	),
 }
 
@@ -1407,6 +1515,43 @@ QP: dict[str, list[dict[str, Any]]] = {
 			"description": "Send Content-Disposition: attachment (Save As) instead of inline",
 		}
 	],
+	"ListCategoryAssignments": [
+		{
+			"name": "service_category",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by service category name or code",
+		},
+		{
+			"name": "department",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by department name or short name",
+		},
+		{
+			"name": "active",
+			"in": "query",
+			"required": False,
+			"schema": B(),
+			"description": "Filter by active flag. Omit to return active and inactive rules.",
+		},
+		{
+			"name": "page",
+			"in": "query",
+			"required": False,
+			"schema": I(default=1, minimum=1),
+			"description": "Page number",
+		},
+		{
+			"name": "page_size",
+			"in": "query",
+			"required": False,
+			"schema": I(default=20, minimum=1, maximum=100),
+			"description": "Page size",
+		},
+	],
 }
 
 
@@ -1419,6 +1564,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.router",
 		"oan_grievance_service.api.v1.administrative_area",
 		"oan_grievance_service.api.v1.attachment",
+		"oan_grievance_service.api.v1.category_assignment",
 		"oan_grievance_service.api.v1.change_request",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
@@ -1441,6 +1587,8 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administrative Areas"
 	if path.startswith("/api/v1/drafts"):
 		return "Grievance Drafts"
+	if path.startswith("/api/v1/category-assignments"):
+		return "Administration"
 	if "/change-requests" in path or path.startswith("/api/v1/change-requests"):
 		return "Change Requests"
 	if "/attachments" in path or path.startswith("/api/v1/attachments"):
@@ -1671,6 +1819,10 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			{
 				"name": "Attachments",
 				"description": "Supporting document and evidence upload, listing, download, and deletion",
+			},
+			{
+				"name": "Administration",
+				"description": "Category-to-department routing rules for the Category Assignments admin tab",
 			},
 		],
 		"paths": paths,

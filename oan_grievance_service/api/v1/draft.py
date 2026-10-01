@@ -201,7 +201,7 @@ def save(
 		doc.submitter_type = "Individual Farmer"
 
 	if administrative_area is not None:
-		from oan_grievance_service.api.v1.grievance import resolve_administrative_area
+		from oan_grievance_service.services.resolvers import resolve_administrative_area
 
 		resolved_area = resolve_administrative_area(administrative_area) if administrative_area else None
 		doc.administrative_area = resolved_area or administrative_area
@@ -357,7 +357,7 @@ def submit_draft(
 	if contact_email:
 		doc.contact_email = contact_email
 	if administrative_area:
-		from oan_grievance_service.api.v1.grievance import resolve_administrative_area
+		from oan_grievance_service.services.resolvers import resolve_administrative_area
 
 		resolved_area = resolve_administrative_area(administrative_area)
 		doc.administrative_area = resolved_area or administrative_area

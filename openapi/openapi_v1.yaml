@@ -33,6 +33,8 @@ tags:
   description: Communication threads, notes, reopen, reject, escalate, and resolution confirmation
 - name: Attachments
   description: Supporting document and evidence upload, listing, download, and deletion
+- name: Administration
+  description: Category-to-department routing rules for the Category Assignments admin tab
 paths:
   /api/v1/grievances/health:
     get:
@@ -1311,7 +1313,7 @@ paths:
           description: Success
           content:
             '*/*':
-              schema:
+              schema: &id001
                 type: string
                 format: binary
         '400':
@@ -1543,6 +1545,278 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.delete
       security:
       - BearerAuth: []
+  /api/v1/category-assignments:
+    get:
+      tags:
+      - Administration
+      summary: List category assignments
+      description: 'List category-only RBAC desks for the admin tab.
+
+
+        Numeric and boolean parameters also accept str: frappe checks annotations before
+
+        validate_request runs, and a bare int would turn a bad value into its own type error.'
+      operationId: get_api_v1_category_assignments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.list_assignments
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create a category assignment
+      description: Create a category-only RBAC desk and set the category's SLA.
+      operationId: post_api_v1_category_assignments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.create_assignment
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryAssignment'
+  /api/v1/category-assignments/{assignment}:
+    get:
+      tags:
+      - Administration
+      summary: Get a category assignment
+      description: Return one category-only RBAC assignment.
+      operationId: get_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Assignment identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.get_assignment
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update a category assignment
+      description: Update a category-only RBAC desk. `kwargs` holds only the fields the client sent.
+      operationId: patch_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Assignment identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.update_assignment
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryAssignment'
+    delete:
+      tags:
+      - Administration
+      summary: Deactivate a category assignment
+      description: Deactivate a category-only RBAC desk. Repeating the call is a no-op.
+      operationId: delete_api_v1_category_assignments_assignment
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: assignment
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Assignment identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.deactivate_assignment
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignmentRef'
   /api/v1/change-requests:
     get:
       tags:
@@ -2349,11 +2623,19 @@ components:
           type: integer
           example: 8
           description: Total pages available
+        has_next:
+          type: boolean
+          description: True when a later page exists
+        has_prev:
+          type: boolean
+          description: True when an earlier page exists
       required:
       - page
       - page_size
       - total_count
       - total_pages
+      - has_next
+      - has_prev
       description: Pagination metadata block
     HealthData:
       type: object
@@ -3647,6 +3929,94 @@ components:
       - change_request
       - current_state
       description: Outcome of a change-request-backed modification on a grievance
+    CategoryAssignment:
+      type: object
+      properties:
+        name:
+          type: string
+          example: GR-RBAC-00001
+          description: Grievance RBAC Assignment id for this department and category
+        service_category:
+          type: string
+          example: Inputs
+          description: Grievance service category
+        department:
+          type: string
+          description: Owning department the category routes to
+        l1_officer:
+          type: string
+          nullable: true
+          description: L1 nodal officer user id
+        l1_officer_name:
+          type: string
+          nullable: true
+          description: L1 officer display name
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer user id
+        l2_officer_name:
+          type: string
+          nullable: true
+          description: L2 officer display name
+        sla_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          example: 14
+          description: SLA window in days. Shared by every department serving the category.
+        auto_escalate:
+          type: boolean
+          nullable: true
+          description: Escalate automatically when the SLA is breached. Shared by every department serving
+            the category.
+        active:
+          type: boolean
+          description: False once the rule has been deactivated
+        l1_role_level:
+          type: string
+          nullable: true
+          description: L1 role level copied from the department
+        l2_role_level:
+          type: string
+          nullable: true
+          description: L2 role level copied from the department
+        routing_strategy:
+          type: string
+          nullable: true
+          enum:
+          - Primary First
+          - Round Robin
+          - Least Loaded
+          description: Routing strategy copied from the department. Null when the department has not chosen
+            one.
+      required:
+      - name
+      - service_category
+      - department
+      - active
+      description: Category-to-department routing rule
+    CategoryAssignmentData:
+      type: object
+      properties:
+        assignment:
+          $ref: '#/components/schemas/CategoryAssignment'
+      required:
+      - assignment
+      description: One category assignment
+    CategoryAssignmentListData:
+      type: object
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryAssignment'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - assignments
+      - pagination
+      description: One page of category assignments
     SaveDraftRequest:
       type: object
       properties:
@@ -4155,6 +4525,66 @@ components:
       required:
       - reason
       description: Payload for blocking a submitter profile
+    CreateCategoryAssignmentRequest:
+      type: object
+      properties:
+        service_category:
+          type: string
+          minLength: 1
+          description: Category name or code
+        department:
+          type: string
+          minLength: 1
+          description: Department name or short name
+        l1_officer:
+          type: string
+          minLength: 1
+          description: L1 nodal officer user id
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer user id. Omit or null for none.
+        sla_days:
+          type: integer
+          minimum: 1
+          description: SLA window in days
+        auto_escalate:
+          type: boolean
+          default: true
+        active:
+          type: boolean
+          default: true
+      required:
+      - service_category
+      - department
+      - l1_officer
+      - sla_days
+      description: Create the routing rule for one department and service category
+    UpdateCategoryAssignmentRequest:
+      type: object
+      properties:
+        department:
+          type: string
+          minLength: 1
+          description: Department name or short name. Null or blank is rejected.
+        l1_officer:
+          type: string
+          minLength: 1
+          description: L1 nodal officer user id. Null or blank is rejected.
+        l2_officer:
+          type: string
+          nullable: true
+          description: L2 senior nodal officer. Null clears it.
+        sla_days:
+          type: integer
+          minimum: 1
+        auto_escalate:
+          type: boolean
+        active:
+          type: boolean
+          description: Set false to deactivate. Same as DELETE.
+      description: Partial update. Omit a field to leave it unchanged. Unknown fields, including service_category,
+        are rejected.
     HealthResponse:
       type: object
       properties:
@@ -4785,3 +5215,53 @@ components:
       - status
       - data
       description: Attachment deletion response
+    CategoryAssignmentResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/CategoryAssignmentData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Category assignment response
+    CategoryAssignmentListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/CategoryAssignmentListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Category assignment list response

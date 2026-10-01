@@ -90,6 +90,11 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/change-requests"): "officer-core",
 	("GET", "/api/v1/change-requests/{name}"): "officer-core",
 	("POST", "/api/v1/change-requests/{name}/decide"): "officer-core",
+	("GET", "/api/v1/category-assignments"): "officer-core",
+	("POST", "/api/v1/category-assignments"): "officer-core",
+	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("PATCH", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("DELETE", "/api/v1/category-assignments/{assignment}"): "officer-core",
 }
 
 

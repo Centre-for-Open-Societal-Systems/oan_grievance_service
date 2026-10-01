@@ -132,6 +132,7 @@ def find_matching_assignment(grievance):
 			"administrative_area_scope",
 			"routing_strategy",
 			"reassignment_requires_approval",
+			"creation",
 		],
 	)
 
@@ -164,7 +165,9 @@ def find_matching_assignment(grievance):
 
 	if not candidates:
 		return None
-	candidates.sort(key=lambda row: (row[0], row[1]))
+	# Several departments may serve one category, so desks can tie on area and specificity.
+	# Oldest desk wins, then name, so the same case always routes the same way.
+	candidates.sort(key=lambda row: (row[0], row[1], str(row[2].creation), row[2].name))
 	return candidates[0][2]
 
 
@@ -260,6 +263,11 @@ def pick_officer_by_strategy(assignment_doc):
 	active_officers = [o for o in assignment_doc.officers if getattr(o, "active", 1)]
 	if not active_officers:
 		return None
+
+	# An officer others on the desk report to is the escalation tier: cases reach them by
+	# escalation, not as first-line assignments. If that leaves nobody, fall back to the roster.
+	supervisors = {o.reports_to for o in active_officers if getattr(o, "reports_to", None)}
+	active_officers = [o for o in active_officers if o.user not in supervisors] or active_officers
 
 	strategy = getattr(assignment_doc, "routing_strategy", "Primary First") or "Primary First"
 

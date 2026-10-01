@@ -151,6 +151,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 			"remand_execution_hours",
 			"holiday_list",
 		],
+		order_by="modified desc, name desc",
 		limit=1,
 	)
 	if not rows:

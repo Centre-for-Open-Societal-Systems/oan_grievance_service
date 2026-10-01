@@ -5,15 +5,15 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
-import math
-
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, validate_phone_number_with_country_code
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
+	PageParams,
 	SafeEmail,
 	handle_api_errors,
+	page_meta,
 	parse_multi_value,
 	require_role,
 	success_response,
@@ -34,15 +34,11 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
-from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
-)
-from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
-	resolve_grievance_type,
 )
 from oan_grievance_service.services import audit, identity, lifecycle, routing, sla
 from oan_grievance_service.services import constants as C
@@ -50,6 +46,7 @@ from oan_grievance_service.services import constants as C
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
+from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_grievance_type
 
 route = prefixed("/api/v1/grievances")
 
@@ -80,11 +77,9 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	client_uuid: str | None = None
 
 
-class ListGrievancesRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class ListGrievancesRequest(PageParams):
+	model_config = ConfigDict(extra="allow")
 
-	page: int = Field(1, ge=1)
-	page_size: int = Field(20, ge=1, le=100)
 	limit: int | None = Field(None, ge=1, le=100)
 	status: str | list | None = None
 	service_category: str | list | None = None
@@ -270,26 +265,6 @@ def _resolve_submitter_identity(kwargs):
 		}
 	)
 	return identity
-
-
-def resolve_administrative_area(area_identifier):
-	"""Resolve an area identifier (ID, path_code, or unique code) to canonical doc name.
-
-	Note: area_name is intentionally excluded for lower-level tiers because display names
-	recur across regions/woredas (e.g. over 100 kebeles named '1' or '2'). For Region tier,
-	display names are unique across the country and safe to match.
-	"""
-	if not area_identifier:
-		return None
-	if frappe.db.exists("Grievance Administrative Area", area_identifier):
-		return area_identifier
-	return (
-		frappe.db.get_value("Grievance Administrative Area", {"path_code": area_identifier}, "name")
-		or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
-		or frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": area_identifier, "level_name": "Region"}, "name"
-		)
-	)
 
 
 def detect_duplicates(grievance, window_days=7):

@@ -105,7 +105,7 @@ class GrievanceSubmissionPayload(BaseModel):
 		cat = (self.service_category or "").strip()
 		g_type = (self.grievance_type or "").strip()
 		if cat and g_type:
-			from oan_grievance_service.api.v1.grievance import resolve_grievance_type
+			from oan_grievance_service.services.resolvers import resolve_grievance_type
 
 			resolved_type = resolve_grievance_type(g_type, cat)
 			if resolved_type and frappe.db.exists("Grievance Type", resolved_type):

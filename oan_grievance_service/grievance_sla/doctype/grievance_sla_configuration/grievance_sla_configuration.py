@@ -8,6 +8,7 @@ from frappe.model.document import Document
 
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
+		self.validate_one_active_row()
 		if self.sla_days is not None and self.sla_days <= 0:
 			frappe.throw(_("SLA Days must be greater than zero."))
 		if self.first_response_hours is not None and self.first_response_hours < 0:
@@ -60,3 +61,23 @@ class GrievanceSLAConfiguration(Document):
 						row.idx, row.workflow_state
 					)
 				)
+
+	def validate_one_active_row(self):
+		"""One active policy per category, so the row the API edits is the row routing enforces.
+
+		The category row is locked first so two concurrent saves cannot both pass the check.
+		"""
+		if not self.active or not self.service_category:
+			return
+		frappe.db.get_value("Grievance Service Category", self.service_category, "name", for_update=True)
+		filters = {"service_category": self.service_category, "active": 1}
+		if not self.is_new():
+			filters["name"] = ["!=", self.name]
+		existing = frappe.db.get_value("Grievance SLA Configuration", filters, "name", for_update=True)
+		if existing:
+			frappe.throw(
+				_("An active SLA configuration already exists for {0} ({1}).").format(
+					self.service_category, existing
+				),
+				frappe.DuplicateEntryError,
+			)

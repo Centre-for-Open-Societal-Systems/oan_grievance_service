@@ -10,13 +10,13 @@ from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	handle_api_errors,
+	page_meta,
 	success_response,
 	to_tz_aware_iso,
 	validate_request,
 )
 from pydantic import BaseModel, Field
 
-from oan_grievance_service.api.v1._pagination import page_meta
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 

@@ -85,6 +85,7 @@ def _register() -> None:
 	from oan_grievance_service.api.v1 import (
 		administrative_area,
 		attachment,
+		category_assignment,
 		change_request,
 		draft,
 		grievance,
