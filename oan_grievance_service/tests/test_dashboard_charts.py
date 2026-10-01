@@ -176,7 +176,7 @@ class TestDashboardCharts(FrappeTestCase):
 		self.assertEqual(self.delta("risk", "at_risk"), 1)
 		# The breached In Progress case counts; the More Info Needed one only if that
 		# state does not pause the clock.
-		paused = C.STATE_MORE_INFO_NEEDED in sla.paused_statuses()
+		paused = C.STATE_MORE_INFO_NEEDED in sla.states_in_category(sla.PAUSED)
 		self.assertEqual(self.delta("risk", "breached"), 1 if paused else 2)
 
 	def test_resolution_is_split_by_sla_outcome(self):

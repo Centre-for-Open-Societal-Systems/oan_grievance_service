@@ -217,7 +217,7 @@ def _rebuild_snapshot(today, now):
 	params = {
 		"open": C.OPEN_STATES,
 		# An empty IN () is a syntax error; no state is named "".
-		"paused": tuple(sla.paused_statuses()) or ("",),
+		"paused": tuple(sla.states_in_category(sla.PAUSED)) or ("",),
 		"now": now,
 		"at_risk": add_to_date(now, hours=AT_RISK_HOURS),
 	}
