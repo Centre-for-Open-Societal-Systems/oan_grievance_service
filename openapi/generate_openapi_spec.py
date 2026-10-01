@@ -721,7 +721,9 @@ data(
 			"grievance_type": S(nullable=True, description="Grievance type name, kept as text"),
 			"action_taken": S(nullable=True),
 			"resolution_summary": S(nullable=True),
-			"replaced_on": S(format="date-time", nullable=True, description="When an edit replaced this version"),
+			"replaced_on": S(
+				format="date-time", nullable=True, description="When an edit replaced this version"
+			),
 			"replaced_by": S(nullable=True, description="User who made that edit"),
 			"change_note": S(nullable=True, description="Why the edit was made, when the editor said"),
 		},
@@ -744,13 +746,19 @@ data(
 			"grievance_type_name": S(nullable=True),
 			"response_type": S(enum=RESPONSE_TYPES),
 			"action_taken": S(description="Action-taken wording. May carry {{ name }} placeholders."),
-			"resolution_summary": S(description="Resolution-summary wording. May carry {{ name }} placeholders."),
+			"resolution_summary": S(
+				description="Resolution-summary wording. May carry {{ name }} placeholders."
+			),
 			"placeholders": ARR(
 				S(), description="Distinct placeholder names across both texts, in order of appearance"
 			),
-			"version": I(minimum=1, example=1, description="Current version. Raised by one on every content edit."),
+			"version": I(
+				minimum=1, example=1, description="Current version. Raised by one on every content edit."
+			),
 			"is_active": B(),
-			"use_count": I(minimum=0, description="Responses filed from this template, counted from the response record"),
+			"use_count": I(
+				minimum=0, description="Responses filed from this template, counted from the response record"
+			),
 			"last_used_on": S(format="date-time", nullable=True),
 			"created_on": S(format="date-time", nullable=True),
 			"modified_on": S(format="date-time", nullable=True),
@@ -778,7 +786,11 @@ data(
 		"allOf": [
 			REF("ResponseTemplate"),
 			OBJ(
-				{"versions": ARR(REF("ResponseTemplateVersion"), description="Earlier versions, newest first")},
+				{
+					"versions": ARR(
+						REF("ResponseTemplateVersion"), description="Earlier versions, newest first"
+					)
+				},
 				required=["versions"],
 			),
 		],
@@ -805,7 +817,9 @@ data(
 	OBJ(
 		{
 			"template": REF("ResponseTemplateDetail"),
-			"deleted": B(description="True when the template was removed, false when it was only deactivated"),
+			"deleted": B(
+				description="True when the template was removed, false when it was only deactivated"
+			),
 		},
 		required=["template", "deleted"],
 		description="Outcome of a template delete",
@@ -956,7 +970,9 @@ REQ["CreateResponseTemplateRequest"] = OBJ(
 	{
 		"title": S(minLength=1, maxLength=140),
 		"service_category": S(minLength=1, description="Category name or code"),
-		"grievance_type": S(nullable=True, description="Subcategory id or name. Must belong to the category."),
+		"grievance_type": S(
+			nullable=True, description="Subcategory id or name. Must belong to the category."
+		),
 		"response_type": S(enum=RESPONSE_TYPES),
 		"action_taken": S(
 			minLength=1,
@@ -1391,14 +1407,14 @@ SLA_SHARED_NOTE = (
 )
 
 TEMPLATE_PATH_PARAMS = [
-		{
-			"name": "template",
-			"in": "path",
-			"required": True,
-			"schema": S(),
-			"description": "Response template id, for example RT-00001",
-		}
-	]
+	{
+		"name": "template",
+		"in": "path",
+		"required": True,
+		"schema": S(),
+		"description": "Response template id, for example RT-00001",
+	}
+]
 
 ROUTES = [
 	# Domain 1: Health & Monitoring
