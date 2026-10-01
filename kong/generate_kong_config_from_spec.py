@@ -43,11 +43,11 @@ TIERS = {
 		"note": "Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.",
 	},
 	"public-dashboards": {
-		"limit_by": "consumer",
+		"limit_by": "ip",
 		"minute": 120,
 		"hour": 3000,
 		"policy": "redis",
-		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their key (one consumer). Same as RATE_LIMIT in api/v1/charts.py.",
+		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; Kong has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
 	},
 	"officer-core": {
 		"limit_by": "consumer",
@@ -125,15 +125,11 @@ TIER_OVERRIDES = {
 }
 
 
-# The OAN dashboards are a server, not a user: they present one API key, held by
-# the `oan-dashboards` consumer, and the ACL admits only its group. Kong strips the
-# key before the request goes upstream; the platform treats the chart routes as
-# public, since the gateway is the only door once the backend host is private.
-# The key is a decK template reference, resolved from the environment at
-# `deck sync`, never a literal in this repo.
-DASHBOARD_CONSUMER = "oan-dashboards"
-DASHBOARD_ACL_GROUP = "dashboards"
-DASHBOARD_API_KEY = '${{ env "DECK_OAN_DASHBOARDS_API_KEY" }}'
+# Browser origins allowed to call the API, one regex per environment (Kong matches each
+# `origins` entry as a regex), e.g. `https://(portal|backoffice)\.openagrinet\.org`.
+# Not a secret, since browsers see it in Access-Control-Allow-Origin, but it differs
+# per environment, so it comes from the environment at `deck sync`.
+CORS_ORIGINS = '${{ env "DECK_CORS_ORIGINS_REGEX" }}'
 
 
 def load_spec(path):
@@ -150,8 +146,9 @@ def spec_routes(spec):
 			security = op.get("security", spec.get("security", []))
 			if not security or security == []:
 				auth = "public"
-			elif security == [{"DashboardKeyAuth": []}]:
-				auth = "dashboard-key"
+			elif security == [{"FrappeTokenAuth": []}]:
+				# Frappe checks the API key and secret itself; Kong passes the header on.
+				auth = "frappe-token"
 			elif any("BearerAuth" in s for s in security):
 				auth = "bearer"
 			else:
@@ -222,7 +219,7 @@ def build_config(routes):
 			{
 				"name": "cors",
 				"config": {
-					"origins": ["*"],
+					"origins": [CORS_ORIGINS],
 					"methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 					"headers": ["Authorization", "Content-Type", "X-Request-Id"],
 					"credentials": False,
@@ -285,13 +282,6 @@ def build_config(routes):
 					},
 				}
 			)
-		elif auth == "dashboard-key":
-			route["plugins"].append(
-				{"name": "key-auth", "config": {"key_names": ["apikey"], "hide_credentials": True}}
-			)
-			route["plugins"].append(
-				{"name": "acl", "config": {"allow": [DASHBOARD_ACL_GROUP], "hide_groups_header": True}}
-			)
 
 		service["routes"].append(route)
 
@@ -305,12 +295,6 @@ def build_config(routes):
 		{
 			"username": "oan-backoffice-portal",
 			"tags": ["oan", "grievance", "portal"],
-		},
-		{
-			"username": DASHBOARD_CONSUMER,
-			"tags": ["oan", "dashboards", "machine-client"],
-			"keyauth_credentials": [{"key": DASHBOARD_API_KEY}],
-			"acls": [{"group": DASHBOARD_ACL_GROUP}],
 		},
 	]
 

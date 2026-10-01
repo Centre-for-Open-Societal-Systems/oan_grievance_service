@@ -63,6 +63,9 @@ DEFAULT_MAX_DEFERRAL_DAYS = 30
 ROLE_SUBMITTER = "Grievance Submitter"
 ROLE_OFFICER = "Grievance Officer"
 ROLE_ADMIN = "Grievance Admin"
+# The OAN dashboards: a machine user that authenticates with its Frappe API key and
+# secret and may read the public charts only.
+ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
 ALLOWED_GRIEVANCE_ROLES = [

@@ -2205,7 +2205,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceKpis:
     get:
       tags:
@@ -2295,7 +2295,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvMonthlyTrend:
     get:
       tags:
@@ -2385,7 +2385,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvWeeklyTrend:
     get:
       tags:
@@ -2475,7 +2475,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvNetBacklogTrend:
     get:
       tags:
@@ -2565,7 +2565,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvStatusDistribution:
     get:
       tags:
@@ -2655,7 +2655,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvByCategory:
     get:
       tags:
@@ -2745,7 +2745,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvCategoryResolution:
     get:
       tags:
@@ -2835,7 +2835,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvResolutionRateByRegion:
     get:
       tags:
@@ -2925,7 +2925,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvSlaRisk:
     get:
       tags:
@@ -3015,7 +3015,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPendingDuplicates:
     get:
       tags:
@@ -3105,7 +3105,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvOldestOpen:
     get:
       tags:
@@ -3195,7 +3195,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterRegions:
     get:
       tags:
@@ -3285,7 +3285,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterCategories:
     get:
       tags:
@@ -3375,7 +3375,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/drafts:
     post:
       tags:
@@ -3895,13 +3895,13 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Provide JWT access token as `Bearer <token>` in the Authorization header.
-    DashboardKeyAuth:
+    FrappeTokenAuth:
       type: apiKey
       in: header
-      name: apikey
-      description: API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`).
-        Checked and stripped by the gateway; the platform itself treats the chart routes as public, so
-        before the gateway enforces keys the header is simply ignored.
+      name: Authorization
+      description: Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token
+        <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway
+        passes the header through.
   schemas:
     ApiMeta:
       type: object

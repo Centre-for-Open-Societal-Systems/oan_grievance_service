@@ -65,6 +65,22 @@ def _feedback():
 	return {key: int(value or 0) for key, value in row.items()}
 
 
+def _dashboard_reader():
+	"""The OAN dashboards' machine user: Grievance Dashboard Reader and nothing else."""
+	email = "dashboard-reader@test.local"
+	if not frappe.db.exists("User", email):
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "Dashboard Reader",
+				"send_welcome_email": 0,
+				"roles": [{"role": C.ROLE_DASHBOARD_READER}],
+			}
+		).insert(ignore_permissions=True)
+	return email
+
+
 def _category_resolution(category):
 	rows = _chart("grvCategoryResolution")
 	return next(
@@ -259,10 +275,10 @@ class TestDashboardCharts(FrappeTestCase):
 	# Endpoints
 	# ---------
 
-	def test_public_chart_as_guest(self):
-		frappe.set_user("Guest")
+	def test_public_chart_as_dashboard_reader(self):
+		frappe.set_user(_dashboard_reader())
 		try:
-			res = charts_api._public_chart("grvKpis", {"category": self.category})
+			res = charts_api._public_endpoint("grvKpis")(category=self.category)
 		finally:
 			frappe.set_user("Administrator")
 		self.assertEqual(res["message"], "Chart fetched successfully")
@@ -291,7 +307,7 @@ class TestDashboardCharts(FrappeTestCase):
 				self.assertIn(field, res["details"])
 				self.assertEqual(frappe.local.response.get("http_status_code"), 400)
 
-	def test_public_routes_are_exempt_and_admin_ones_are_not(self):
+	def test_no_chart_route_is_exempt_from_auth(self):
 		from oan_auth_service.api import middleware
 
 		from oan_grievance_service.api.router import ensure_routes_registered
@@ -299,7 +315,7 @@ class TestDashboardCharts(FrappeTestCase):
 		ensure_routes_registered()
 		exempt = middleware._NAMESPACES["/api/v1"]["exempt_paths"]
 		for chart_id in dashboard.PUBLIC_CHARTS:
-			self.assertIn(f"/api/v1/charts/{chart_id}", exempt)
+			self.assertNotIn(f"/api/v1/charts/{chart_id}", exempt)
 		self.assertNotIn("/api/v1/charts/grvRecent", exempt)
 		self.assertNotIn("/api/v1/charts", exempt)
 
@@ -334,14 +350,17 @@ class TestChartEndpointErrors(FrappeTestCase):
 	"""Error paths. handle_api_errors rolls the transaction back on an error, so these
 	live apart from the fixtures TestDashboardCharts builds in setUpClass."""
 
-	def test_admin_endpoint_refuses_guests(self):
+	def test_chart_endpoints_refuse_guests(self):
 		frappe.set_user("Guest")
 		try:
 			frappe.local.response = frappe._dict()
-			res = charts_api.get_charts(charts="grvKpis")
+			admin = charts_api.get_charts(charts="grvKpis")
+			frappe.local.response = frappe._dict()
+			public = charts_api._public_endpoint("grvKpis")()
 		finally:
 			frappe.set_user("Administrator")
-		self.assertEqual(res["code"], "PERMISSION_DENIED")
+		self.assertEqual(admin["code"], "PERMISSION_DENIED")
+		self.assertEqual(public["code"], "PERMISSION_DENIED")
 
 
 class TestResolutionAndEscalationStamps(FrappeTestCase):
@@ -401,7 +420,7 @@ class TestGatewayContract(FrappeTestCase):
 		spec.loader.exec_module(module)
 		return module
 
-	def test_public_charts_ask_the_gateway_for_the_dashboard_key(self):
+	def test_public_charts_ask_for_a_frappe_api_key(self):
 		import os
 
 		import yaml
@@ -410,25 +429,21 @@ class TestGatewayContract(FrappeTestCase):
 			spec = yaml.safe_load(f)
 		for chart_id in dashboard.PUBLIC_CHARTS:
 			operation = spec["paths"][f"/api/v1/charts/{chart_id}"]["get"]
-			self.assertEqual(operation["security"], [{"DashboardKeyAuth": []}], chart_id)
+			self.assertEqual(operation["security"], [{"FrappeTokenAuth": []}], chart_id)
 		self.assertEqual(spec["paths"]["/api/v1/charts"]["get"]["security"], [{"BearerAuth": []}])
-		self.assertEqual(spec["components"]["securitySchemes"]["DashboardKeyAuth"]["name"], "apikey")
+		self.assertEqual(spec["components"]["securitySchemes"]["FrappeTokenAuth"]["name"], "Authorization")
 
-	def test_kong_puts_key_auth_and_acl_on_the_charts(self):
+	def test_kong_passes_the_frappe_token_through_on_the_charts(self):
 		generator = self._generator()
 		routes = [
 			{**r, "tier": generator.TIER_OVERRIDES[(r["method"], r["path"])]}
 			for r in generator.spec_routes(generator.load_spec(generator.SPEC_PATH))
 			if r["path"].startswith("/api/v1/charts/")
 		]
-		self.assertEqual({r["auth"] for r in routes}, {"dashboard-key"})
+		self.assertEqual({r["auth"] for r in routes}, {"frappe-token"})
 		config = generator.build_config(routes)
 		for route in config["services"][0]["routes"]:
 			plugins = {p["name"]: p["config"] for p in route["plugins"]}
-			self.assertEqual(plugins["key-auth"]["key_names"], ["apikey"])
-			self.assertTrue(plugins["key-auth"]["hide_credentials"])
-			self.assertEqual(plugins["acl"]["allow"], ["dashboards"])
-			self.assertEqual(plugins["rate-limiting"]["limit_by"], "consumer")
-		consumer = next(c for c in config["consumers"] if c["username"] == "oan-dashboards")
-		self.assertEqual(consumer["acls"], [{"group": "dashboards"}])
-		self.assertIn("DECK_OAN_DASHBOARDS_API_KEY", consumer["keyauth_credentials"][0]["key"])
+			self.assertEqual(set(plugins), {"rate-limiting"})
+			self.assertEqual(plugins["rate-limiting"]["limit_by"], "ip")
+		self.assertNotIn("oan-dashboards", {c["username"] for c in config["consumers"]})

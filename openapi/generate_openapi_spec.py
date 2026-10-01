@@ -1649,9 +1649,9 @@ QP["DashboardCharts"] = [
 	},
 ]
 
-# Guest to the platform; the gateway asks the OAN dashboards for their key once it
-# enforces auth (DashboardKeyAuth below).
-PUBLIC_CHART_SECURITY = [{"DashboardKeyAuth": []}]
+# The OAN dashboards read the public charts as a Frappe user holding Grievance
+# Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
+PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
 
 
 # ---------------------------------------------------------------------------
@@ -1950,11 +1950,11 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					"bearerFormat": "JWT",
 					"description": "Provide JWT access token as `Bearer <token>` in the Authorization header.",
 				},
-				"DashboardKeyAuth": {
+				"FrappeTokenAuth": {
 					"type": "apiKey",
 					"in": "header",
-					"name": "apikey",
-					"description": "API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`). Checked and stripped by the gateway; the platform itself treats the chart routes as public, so before the gateway enforces keys the header is simply ignored.",
+					"name": "Authorization",
+					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
 				},
 			},
 			"schemas": components_schemas,

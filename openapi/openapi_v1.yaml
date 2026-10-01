@@ -2231,7 +2231,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvKpis
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceKpis:
     get:
       tags:
@@ -2322,7 +2322,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPerformanceKpis
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvMonthlyTrend:
     get:
       tags:
@@ -2413,7 +2413,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvMonthlyTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvWeeklyTrend:
     get:
       tags:
@@ -2504,7 +2504,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvWeeklyTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvNetBacklogTrend:
     get:
       tags:
@@ -2595,7 +2595,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvNetBacklogTrend
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvStatusDistribution:
     get:
       tags:
@@ -2686,7 +2686,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvStatusDistribution
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvByCategory:
     get:
       tags:
@@ -2777,7 +2777,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvByCategory
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvCategoryResolution:
     get:
       tags:
@@ -2868,7 +2868,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvCategoryResolution
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvResolutionRateByRegion:
     get:
       tags:
@@ -2959,7 +2959,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvResolutionRateByRegion
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvSlaRisk:
     get:
       tags:
@@ -3050,7 +3050,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvSlaRisk
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPendingDuplicates:
     get:
       tags:
@@ -3141,7 +3141,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPendingDuplicates
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvOldestOpen:
     get:
       tags:
@@ -3232,7 +3232,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvOldestOpen
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterRegions:
     get:
       tags:
@@ -3323,7 +3323,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterRegions
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterCategories:
     get:
       tags:
@@ -3414,7 +3414,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterCategories
       security:
-      - DashboardKeyAuth: []
+      - FrappeTokenAuth: []
   /api/v1/drafts:
     post:
       tags:
@@ -3943,13 +3943,13 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Provide JWT access token as `Bearer <token>` in the Authorization header.
-    DashboardKeyAuth:
+    FrappeTokenAuth:
       type: apiKey
       in: header
-      name: apikey
-      description: API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`).
-        Checked and stripped by the gateway; the platform itself treats the chart routes as public, so
-        before the gateway enforces keys the header is simply ignored.
+      name: Authorization
+      description: Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token
+        <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway
+        passes the header through.
   schemas:
     ApiMeta:
       type: object

@@ -1,7 +1,7 @@
 """Dashboard charts over the analytics rollups.
 
     GET /api/v1/charts?charts=<id,...>&<filters>     Grievance Admin; any chart, several per call
-    GET /api/v1/charts/<chart_id>?<filters>          no login; public charts only, one per call
+    GET /api/v1/charts/<chart_id>?<filters>          Grievance Dashboard Reader; public charts only
 
 Both are answered by services.dashboard from the rollups the scheduler refreshes
 every 15 minutes, never from Grievance on the request; see that module for what
@@ -9,9 +9,14 @@ each chart returns. The public form is the contract the OAN dashboards read
 (`GET <base>/api/v1/charts/<id>` returning `{data: [...]}`), and serves counts
 only.
 
-Each public chart is its own literal route rather than one `<chart_id>` route: the
-JWT middleware exempts guest routes by exact path, and an unknown or admin-only id
-then never reaches this code at all.
+The OAN dashboards call the public form as a Frappe user holding Grievance Dashboard
+Reader, with that user's API key and secret (`Authorization: token <key>:<secret>`).
+Frappe checks the key before the JWT middleware runs, so the middleware leaves the
+request alone, and a caller without one gets 401 from Frappe itself whichever way it
+reached the backend.
+
+Each public chart is its own literal route rather than one `<chart_id>` route, so an
+unknown or admin-only id never reaches this code at all.
 """
 
 import re
@@ -38,10 +43,11 @@ from oan_grievance_service.services import dashboard
 route = prefixed("/api/v1")
 
 ADMIN_ROLES = [C.ROLE_ADMIN, "System Manager", "Administrator"]
+PUBLIC_CHART_ROLES = [C.ROLE_DASHBOARD_READER, *ADMIN_ROLES]
 MAX_CHARTS = 20
 MAX_SPAN_DAYS = 731
 LIMITS = {"region": 100, "service_category": 50, "assigned_dept": 100}
-RATE_LIMIT = 120  # requests per minute, per user (admin) or per address (public)
+RATE_LIMIT = 120  # requests per minute, per user
 
 # Parameters only the admin view takes. The public view ignores them rather than
 # rejecting them, so a caller cannot tell an admin-only parameter from a typo.
@@ -213,9 +219,7 @@ def get_charts(charts: str | None = None, **kwargs):
 
 
 def _public_chart(chart_id, raw):
-	check_rate_limit(
-		f"grievance_charts:ip:{getattr(frappe.local, 'request_ip', None) or 'unknown'}", RATE_LIMIT, 60
-	)
+	check_rate_limit(f"grievance_charts:user:{frappe.session.user}", RATE_LIMIT, 60)
 	try:
 		params = parse_params(raw, admin=False)
 	except InvalidParam as e:
@@ -234,13 +238,12 @@ def _public_endpoint(chart_id):
 		return _public_chart(chart_id, kwargs)
 
 	get_public_chart.__name__ = get_public_chart.__qualname__ = f"get_public_chart_{chart_id}"
-	return handle_api_errors(get_public_chart)
+	return handle_api_errors(require_role(PUBLIC_CHART_ROLES)(get_public_chart))
 
 
 for _chart_id in dashboard.PUBLIC_CHARTS:
 	route(
 		f"/charts/{_chart_id}",
 		methods=("GET",),
-		allow_guest=True,
 		summary=f"Public dashboard chart {_chart_id} (counts only)",
 	)(_public_endpoint(_chart_id))
