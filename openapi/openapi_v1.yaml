@@ -1495,7 +1495,10 @@ paths:
       - Administration
       summary: Create a category assignment
       description: Create the routing rule for one department and service category. Creates the routing
-        desk and sets the category SLA configuration. A second rule for the same pair is rejected.
+        desk and sets the category SLA configuration. A second rule for the same pair is rejected. sla_days
+        and auto_escalate belong to the service category, not to the rule. Departments that serve the
+        same category share one SLA row, so changing them through one department's rule changes them for
+        every department's rule on that category.
       operationId: post_api_v1_category_assignments
       responses:
         '200':
@@ -1602,7 +1605,9 @@ paths:
       - Administration
       summary: Update a category assignment
       description: Change department, officers, SLA window, or flags. service_category cannot be changed
-        and is rejected.
+        and is rejected. sla_days and auto_escalate belong to the service category, not to the rule. Departments
+        that serve the same category share one SLA row, so changing them through one department's rule
+        changes them for every department's rule on that category.
       operationId: patch_api_v1_category_assignments_assignment
       responses:
         '200':

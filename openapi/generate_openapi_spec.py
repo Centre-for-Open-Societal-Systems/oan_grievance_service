@@ -1180,6 +1180,12 @@ VIEW_ATTACHMENT_DESCRIPTION = (
 	"private, no-store. Pending, Infected and Failed scans are withheld."
 )
 
+SLA_SHARED_NOTE = (
+	" sla_days and auto_escalate belong to the service category, not to the rule. Departments that serve "
+	+ "the same category share one SLA row, so changing them through one department's rule changes them "
+	+ "for every department's rule on that category."
+)
+
 ROUTES = [
 	# Domain 1: Health & Monitoring
 	R(
@@ -1582,6 +1588,7 @@ ROUTES = [
 		description=(
 			"Create the routing rule for one department and service category. Creates the routing desk "
 			+ "and sets the category SLA configuration. A second rule for the same pair is rejected."
+			+ SLA_SHARED_NOTE
 		),
 	),
 	R(
@@ -1624,6 +1631,7 @@ ROUTES = [
 		description=(
 			"Change department, officers, SLA window, or flags. "
 			+ "service_category cannot be changed and is rejected."
+			+ SLA_SHARED_NOTE
 		),
 	),
 	R(

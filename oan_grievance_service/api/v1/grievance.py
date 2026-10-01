@@ -42,6 +42,7 @@ from oan_grievance_service.services import constants as C
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
+from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_grievance_type
 
 route = prefixed("/api/v1/grievances")
 
@@ -259,46 +260,6 @@ def _resolve_submitter_identity(kwargs):
 		}
 	)
 	return identity
-
-
-def resolve_administrative_area(area_identifier):
-	"""Resolve an area identifier (ID, path_code, or unique code) to canonical doc name.
-
-	Note: area_name is intentionally excluded for lower-level tiers because display names
-	recur across regions/woredas (e.g. over 100 kebeles named '1' or '2'). For Region tier,
-	display names are unique across the country and safe to match.
-	"""
-	if not area_identifier:
-		return None
-	if frappe.db.exists("Grievance Administrative Area", area_identifier):
-		return area_identifier
-	return (
-		frappe.db.get_value("Grievance Administrative Area", {"path_code": area_identifier}, "name")
-		or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
-		or frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": area_identifier, "level_name": "Region"}, "name"
-		)
-	)
-
-
-def resolve_grievance_type(type_identifier: str | None, category: str | None = None) -> str | None:
-	"""Resolve a grievance type identifier (DocType name or display type_name) to canonical doc name.
-
-	None when nothing matches. The caller decides whether that is an error; handing
-	back the raw input instead would let an unknown string reach a Link field.
-	"""
-	if not type_identifier:
-		return None
-	type_identifier = str(type_identifier).strip()
-	if frappe.db.exists("Grievance Type", type_identifier):
-		return type_identifier
-	filters = {"type_name": type_identifier}
-	if category:
-		filters["service_category"] = category
-	resolved = frappe.db.get_value("Grievance Type", filters, "name")
-	if resolved:
-		return resolved
-	return frappe.db.get_value("Grievance Type", {"type_name": type_identifier}, "name")
 
 
 def _request_anonymity(doc, justification):

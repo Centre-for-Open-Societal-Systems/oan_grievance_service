@@ -425,6 +425,68 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 			):
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 
+	def test_non_admin_with_a_bad_body_gets_403_not_400(self):
+		name = self._assignment()
+		frappe.set_user(self.l1)
+		with _keep_transaction():
+			for result in (
+				create_assignment(service_category=self.category, priority="Low"),
+				update_assignment(name, priority="Low"),
+				get_assignment(" "),
+				deactivate_assignment(" "),
+			):
+				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+
+	def test_blank_assignment_id_is_a_validation_error(self):
+		with _keep_transaction():
+			for result in (get_assignment(" "), deactivate_assignment(" ")):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+				self.assertIn("assignment", result["details"])
+
+	def test_desk_validation_applies_outside_the_api(self):
+		def desk(category=None, officer=None, department=None):
+			doc = frappe.new_doc("Grievance RBAC Assignment")
+			doc.department_scope = department or self.department
+			doc.category_scope = category or self.category
+			doc.effective_from = frappe.utils.today()
+			doc.append(
+				"officers",
+				{"user": officer or self.l1, "role_level": "nodal_officer", "is_primary": 1, "active": 1},
+			)
+			return doc
+
+		disabled = _user("stg404-direct-disabled@example.com", "Direct Disabled", enabled=0)
+		with self.assertRaisesRegex(frappe.ValidationError, "disabled"):
+			desk(officer=disabled).insert()
+		plain = _user("stg404-direct-plain@example.com", "Direct Plain", role="Guest")
+		with self.assertRaisesRegex(frappe.ValidationError, "Grievance Officer"):
+			desk(officer=plain).insert()
+		inactive = _department("STG404 Direct Inactive", "S404X", active=0)
+		with self.assertRaisesRegex(frappe.ValidationError, "inactive"):
+			desk(department=inactive).insert()
+
+		desk().insert()
+		with self.assertRaises(frappe.DuplicateEntryError):
+			desk().insert()
+
+		repeated = desk(category=_category("STG404 Repeat", "Z9X"))
+		repeated.append(
+			"officers",
+			{"user": self.l1, "role_level": "senior_nodal_officer", "is_primary": 0, "active": 1},
+		)
+		with self.assertRaisesRegex(frappe.ValidationError, "more than once"):
+			repeated.insert()
+
+	def test_area_aware_desks_skip_category_only_checks(self):
+		area_desk = frappe.new_doc("Grievance RBAC Assignment")
+		area_desk.department_scope = self.department
+		area_desk.category_scope = self.category
+		area_desk.effective_from = frappe.utils.today()
+		area_desk.service_provider_scope = "Provider X"
+		self.assertFalse(area_desk.is_category_only())
+		area_desk.insert()
+		self._assignment()
+
 	def _assignment(self, category=None, department=None):
 		created = create_assignment(
 			service_category=category or self.category,
