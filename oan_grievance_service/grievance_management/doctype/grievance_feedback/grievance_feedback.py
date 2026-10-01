@@ -56,9 +56,7 @@ class GrievanceFeedback(Document):
 		# and never on a case they are handling: the rating is about their own work.
 		if self.feedback_channel not in ASSISTED_CHANNELS:
 			frappe.throw(
-				_("Officers can only record feedback given through {0}.").format(
-					_(" or ").join(ASSISTED_CHANNELS)
-				),
+				_("Officers can only record feedback given through Call Center or Walk-in."),
 				frappe.PermissionError,
 			)
 		if grievance.assigned_to == user:
