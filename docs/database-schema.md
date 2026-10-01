@@ -944,6 +944,16 @@ Bodies contain `{{placeholders}}`. Store as text and interpolate at render time;
 
 **`use_count` and `last_used_at` were removed.** They turned a low-write configuration row into a hot row updated on every single response submission, which serialises unrelated officers behind one lock for a number displayed in an admin list. Usage is a reporting question — `COUNT(*) GROUP BY template_id` over `grievance_responses`, answered from the analytics replica where it belongs, and answered better because it can be sliced by period, department and outcome.
 
+**Shipped record (STG-405).** The DocType is `Grievance Response Template`, named by `template_code` (`RT-#####`, set on insert). Differences from the table above:
+
+- **Scope.** `service_category` and an optional `grievance_type` (the subcategory, which must belong to the category). `response_type` replaces `outcome` and keeps the four values of the Grievance Response Type master.
+- **Versioning.** `version` starts at 1 and is raised by the doctype when an edit changes the title, response type, category, subcategory, or either body text. Switching `is_active` does not raise it, and the field is read-only. There is no history table: the DocType has `track_changes`, so Frappe's change log keeps the old and new value of every edit, and `GET /api/v1/response-templates/{template}` returns it as `versions`.
+- **Usage.** `use_count` and `last_used_on` are read-only fields on the template. Nothing writes them yet; the response flow has to set them when a response is filed from a template. This reverses the removal described above, as the ticket asks for both on the template.
+- **Delete.** A template with `use_count` 0 is deleted. One that has been used is deactivated instead, so the record of what officers sent stays.
+- **Limits.** `action_taken` is capped at 500 characters, the same cap as a response. Placeholders must be `{{ name }}` with letters, digits, and underscores; a stray or malformed brace pair is rejected on save, from the API and from the desk.
+
+Routes (admin only): `GET`/`POST /api/v1/response-templates`, `GET`/`PATCH`/`DELETE /api/v1/response-templates/{template}`. List responses carry pagination in `data.pagination`, and history is returned only by the single-template route.
+
 ---
 
 ## 9. Notifications & audit

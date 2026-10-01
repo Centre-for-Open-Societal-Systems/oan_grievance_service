@@ -13,7 +13,10 @@
   "col_tmpl_scope",
   "service_category",
   "response_type",
+  "grievance_type",
   "version",
+  "use_count",
+  "last_used_on",
   "sec_body",
   "action_taken",
   "resolution_summary"
@@ -49,20 +52,47 @@
    "fieldname": "service_category",
    "fieldtype": "Link",
    "label": "Grievance Service Category",
-   "options": "Grievance Service Category"
+   "options": "Grievance Service Category",
+   "reqd": 1
+  },
+  {
+   "description": "The subcategory. Optional; when set it must belong to the service category.",
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "label": "Grievance Type",
+   "options": "Grievance Type"
   },
   {
    "fieldname": "response_type",
    "fieldtype": "Select",
    "label": "Response Type",
-   "options": "Resolved\nPartially Resolved\nReferred to another dept\nRequires further info"
+   "options": "Resolved\nPartially Resolved\nReferred to another dept\nRequires further info",
+   "reqd": 1
   },
   {
    "default": "1",
-   "description": "FSD 3.11.7: response templates shall be versioned and access-controlled",
+   "description": "Raised by one when an edit changes the wording or scope. FSD 3.11.7: response templates shall be versioned and access-controlled",
    "fieldname": "version",
    "fieldtype": "Int",
-   "label": "Version"
+   "label": "Version",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "default": "0",
+   "description": "Responses filed from this template.",
+   "fieldname": "use_count",
+   "fieldtype": "Int",
+   "label": "Use Count",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_used_on",
+   "fieldtype": "Datetime",
+   "label": "Last Used On",
+   "no_copy": 1,
+   "read_only": 1
   },
   {
    "fieldname": "sec_body",
@@ -73,18 +103,20 @@
    "description": "Supports {{ variable }} placeholders",
    "fieldname": "action_taken",
    "fieldtype": "Small Text",
-   "label": "Action Taken"
+   "label": "Action Taken",
+   "reqd": 1
   },
   {
    "fieldname": "resolution_summary",
    "fieldtype": "Text Editor",
-   "label": "Resolution Summary"
+   "label": "Resolution Summary",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:18.774946",
+ "modified": "2026-10-02 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Notification",
  "name": "Grievance Response Template",
@@ -142,5 +174,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "title"
+ "title_field": "title",
+ "track_changes": 1
 }

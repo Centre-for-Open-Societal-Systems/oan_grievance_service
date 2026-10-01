@@ -89,6 +89,7 @@ def _register() -> None:
 		draft,
 		grievance,
 		profile,
+		response_template,
 		submitter,
 	)
 

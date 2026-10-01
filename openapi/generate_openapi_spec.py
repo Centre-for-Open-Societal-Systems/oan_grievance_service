@@ -70,6 +70,8 @@ def REF(name):
 	return {"$ref": f"#/components/schemas/{name}"}
 
 
+RESPONSE_TYPES = ["Resolved", "Partially Resolved", "Referred to another dept", "Requires further info"]
+
 # ---------------------------------------------------------------------------
 # Components: Data Schemas
 # ---------------------------------------------------------------------------
@@ -708,6 +710,126 @@ data(
 )
 
 
+data(
+	"ResponseTemplateFieldChange",
+	OBJ(
+		{
+			"field": S(example="action_taken"),
+			"old": {"nullable": True, "description": "The value the edit replaced"},
+			"new": {"nullable": True, "description": "The value the edit saved"},
+		},
+		required=["field"],
+		description="One field changed by an edit",
+	),
+)
+
+data(
+	"ResponseTemplateVersion",
+	OBJ(
+		{
+			"version": I(minimum=1, example=2, description="The template's version once this edit was saved"),
+			"edited_by": S(description="User who made the edit"),
+			"edited_on": S(format="date-time"),
+			"changes": ARR(REF("ResponseTemplateFieldChange")),
+		},
+		required=["version", "edited_by", "edited_on", "changes"],
+		description="One edit to a response template, with the wording it replaced",
+	),
+)
+
+data(
+	"ResponseTemplate",
+	OBJ(
+		{
+			"id": S(example="RT-00001", description="Template id"),
+			"title": S(),
+			"service_category": S(description="Service category id"),
+			"service_category_name": S(nullable=True),
+			"grievance_type": S(
+				nullable=True, description="Subcategory id. Null when the template covers the whole category."
+			),
+			"grievance_type_name": S(nullable=True),
+			"response_type": S(enum=RESPONSE_TYPES),
+			"action_taken": S(description="Action-taken wording. May carry {{ name }} placeholders."),
+			"resolution_summary": S(
+				description="Resolution-summary wording. May carry {{ name }} placeholders."
+			),
+			"placeholders": ARR(
+				S(), description="Distinct placeholder names across both texts, in order of appearance"
+			),
+			"version": I(
+				minimum=1, example=1, description="Current version. Raised by one on every content edit."
+			),
+			"is_active": B(),
+			"use_count": I(minimum=0, description="Responses filed from this template"),
+			"last_used_on": S(format="date-time", nullable=True),
+			"created_on": S(format="date-time", nullable=True),
+			"modified_on": S(format="date-time", nullable=True),
+			"modified_by": S(nullable=True),
+		},
+		required=[
+			"id",
+			"title",
+			"service_category",
+			"response_type",
+			"action_taken",
+			"resolution_summary",
+			"placeholders",
+			"version",
+			"is_active",
+			"use_count",
+		],
+		description="A response template",
+	),
+)
+
+data(
+	"ResponseTemplateDetail",
+	{
+		"allOf": [
+			REF("ResponseTemplate"),
+			OBJ(
+				{
+					"versions": ARR(
+						REF("ResponseTemplateVersion"), description="Earlier versions, newest first"
+					)
+				},
+				required=["versions"],
+			),
+		],
+		"description": "A response template with its edit history",
+	},
+)
+
+data(
+	"ResponseTemplateData",
+	OBJ({"template": REF("ResponseTemplateDetail")}, required=["template"], description="One template"),
+)
+
+data(
+	"ResponseTemplateListData",
+	OBJ(
+		{"templates": ARR(REF("ResponseTemplate")), "pagination": REF("PaginationMeta")},
+		required=["templates", "pagination"],
+		description="One page of templates",
+	),
+)
+
+data(
+	"ResponseTemplateDeleteData",
+	OBJ(
+		{
+			"template": REF("ResponseTemplateDetail"),
+			"deleted": B(
+				description="True when the template was removed, false when it was only deactivated"
+			),
+		},
+		required=["template", "deleted"],
+		description="Outcome of a template delete",
+	),
+)
+
+
 # ---------------------------------------------------------------------------
 # Request Body Schemas
 # ---------------------------------------------------------------------------
@@ -847,6 +969,45 @@ REQ["UpdateCategoryAssignmentRequest"] = OBJ(
 )
 
 
+REQ["CreateResponseTemplateRequest"] = OBJ(
+	{
+		"title": S(minLength=1, maxLength=140),
+		"service_category": S(minLength=1, description="Category name or code"),
+		"grievance_type": S(
+			nullable=True, description="Subcategory id or name. Must belong to the category."
+		),
+		"response_type": S(enum=RESPONSE_TYPES),
+		"action_taken": S(
+			minLength=1,
+			maxLength=500,
+			description="Wording, 500 characters at most like a response. Supports {{ name }} placeholders.",
+		),
+		"resolution_summary": S(
+			minLength=1, maxLength=10000, description="Wording. Supports {{ name }} placeholders."
+		),
+		"is_active": B(default=True),
+	},
+	required=["title", "service_category", "response_type", "action_taken", "resolution_summary"],
+	description="Create a response template at version 1",
+)
+
+REQ["UpdateResponseTemplateRequest"] = OBJ(
+	{
+		"title": S(minLength=1, maxLength=140),
+		"service_category": S(minLength=1, description="Category name or code"),
+		"grievance_type": S(nullable=True, description="Subcategory. Null clears it."),
+		"response_type": S(enum=RESPONSE_TYPES),
+		"action_taken": S(minLength=1, maxLength=500),
+		"resolution_summary": S(minLength=1, maxLength=10000),
+		"is_active": B(description="Switching this alone does not create a version."),
+	},
+	description=(
+		"Partial update. Omit a field to leave it unchanged. A change to any wording or scope field "
+		+ "saves the old wording to history and raises the version by one. Unknown fields are rejected."
+	),
+)
+
+
 # ---------------------------------------------------------------------------
 # Envelope Builder Helper
 # ---------------------------------------------------------------------------
@@ -923,6 +1084,13 @@ ENVELOPES = {
 	"CategoryAssignmentListResponse": make_envelope(
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
+	),
+	"ResponseTemplateResponse": make_envelope("ResponseTemplateData", description="Response template"),
+	"ResponseTemplateListResponse": make_envelope(
+		"ResponseTemplateListData", description="Response template list"
+	),
+	"ResponseTemplateDeleteResponse": make_envelope(
+		"ResponseTemplateDeleteData", description="Response template delete outcome"
 	),
 }
 
@@ -1131,6 +1299,57 @@ QP = {
 			"description": "Page size",
 		},
 	],
+	"ListResponseTemplates": [
+		{
+			"name": "service_category",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by service category name or code",
+		},
+		{
+			"name": "grievance_type",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by subcategory (grievance type) id or name",
+		},
+		{
+			"name": "response_type",
+			"in": "query",
+			"required": False,
+			"schema": S(enum=RESPONSE_TYPES),
+			"description": "Filter by response type",
+		},
+		{
+			"name": "is_active",
+			"in": "query",
+			"required": False,
+			"schema": B(),
+			"description": "Filter by active flag. Omit to return active and inactive templates.",
+		},
+		{
+			"name": "q",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Title contains this text",
+		},
+		{
+			"name": "page",
+			"in": "query",
+			"required": False,
+			"schema": I(default=1, minimum=1),
+			"description": "Page number",
+		},
+		{
+			"name": "page_size",
+			"in": "query",
+			"required": False,
+			"schema": I(default=20, minimum=1, maximum=100),
+			"description": "Page size",
+		},
+	],
 }
 
 
@@ -1185,6 +1404,16 @@ SLA_SHARED_NOTE = (
 	+ "the same category share one SLA row, so changing them through one department's rule changes them "
 	+ "for every department's rule on that category."
 )
+
+TEMPLATE_PATH_PARAMS = [
+	{
+		"name": "template",
+		"in": "path",
+		"required": True,
+		"schema": S(),
+		"description": "Response template id, for example RT-00001",
+	}
+]
 
 ROUTES = [
 	# Domain 1: Health & Monitoring
@@ -1656,6 +1885,78 @@ ROUTES = [
 			+ "is not changed. Same as PATCH with active false. Repeating the call leaves the rule inactive."
 		),
 	),
+	# Domain 9: Response templates (design 3.9)
+	R(
+		"get",
+		"/api/v1/response-templates",
+		summary="List response templates",
+		tag="Response Templates",
+		security=[{"BearerAuth": []}],
+		query=QP["ListResponseTemplates"],
+		response="ResponseTemplateListResponse",
+		legacy="oan_grievance_service.api.v1.response_template.list_templates",
+		description=(
+			"Admin list of response templates, newest edit first, filterable by category, subcategory, "
+			+ "response type, active flag, and title. Each row carries its version, use count, and "
+			+ "last-used time. History is on the single-template route."
+		),
+	),
+	R(
+		"post",
+		"/api/v1/response-templates",
+		summary="Create a response template",
+		tag="Response Templates",
+		security=[{"BearerAuth": []}],
+		request="CreateResponseTemplateRequest",
+		response="ResponseTemplateResponse",
+		status=200,
+		legacy="oan_grievance_service.api.v1.response_template.create_template",
+		description=(
+			"Create a template at version 1. The subcategory is optional and must belong to the "
+			+ "category. Wording may use {{ name }} placeholders; a malformed placeholder is rejected."
+		),
+	),
+	R(
+		"get",
+		"/api/v1/response-templates/{template}",
+		summary="Get a response template with its history",
+		tag="Response Templates",
+		security=[{"BearerAuth": []}],
+		path_params=TEMPLATE_PATH_PARAMS,
+		response="ResponseTemplateResponse",
+		legacy="oan_grievance_service.api.v1.response_template.get_template",
+		description="One template and what each edit changed, newest first. old is the wording the edit replaced.",
+	),
+	R(
+		"patch",
+		"/api/v1/response-templates/{template}",
+		summary="Update a response template",
+		tag="Response Templates",
+		security=[{"BearerAuth": []}],
+		path_params=TEMPLATE_PATH_PARAMS,
+		request="UpdateResponseTemplateRequest",
+		response="ResponseTemplateResponse",
+		legacy="oan_grievance_service.api.v1.response_template.update_template",
+		description=(
+			"Edit a template. A change to the title, response type, category, subcategory, or either "
+			+ "body text raises the version by one and is kept in the edit history. A request that "
+			+ "changes nothing, or only is_active, does not raise the version."
+		),
+	),
+	R(
+		"delete",
+		"/api/v1/response-templates/{template}",
+		summary="Delete or deactivate a response template",
+		tag="Response Templates",
+		security=[{"BearerAuth": []}],
+		path_params=TEMPLATE_PATH_PARAMS,
+		response="ResponseTemplateDeleteResponse",
+		legacy="oan_grievance_service.api.v1.response_template.delete_template",
+		description=(
+			"A template never used in a response is deleted (deleted true). A used "
+			+ "template is kept as evidence and deactivated instead (deleted false)."
+		),
+	),
 ]
 
 
@@ -1782,6 +2083,10 @@ def build_openapi():
 			{
 				"name": "Administration",
 				"description": "Category-to-department routing rules for the Category Assignments admin tab",
+			},
+			{
+				"name": "Response Templates",
+				"description": "Versioned officer response templates for the Administration console",
 			},
 		],
 		"paths": paths,
