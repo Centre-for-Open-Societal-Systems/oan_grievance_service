@@ -502,6 +502,12 @@ def higher_authority_of(user, department=None, administrative_area=None, log_uns
 	return None, None
 
 
+def _first_escalation(grievance):
+	"""`escalated_at` keeps the first escalation: a response clears the flag, and later
+	rungs must not move the day the case first escalated."""
+	return {} if grievance.get("escalated_at") else {"escalated_at": now_datetime()}
+
+
 def escalate(grievance, reason=None, reassign=True):
 	"""Move the case one rung up the chain and re-arm the clock.
 
@@ -520,6 +526,7 @@ def escalate(grievance, reason=None, reassign=True):
 		updates = {
 			"escalated": 1,
 			"next_escalation_at": None,
+			**_first_escalation(grievance),
 		}
 		grievance.db_set(updates, update_modified=False)
 
@@ -544,6 +551,7 @@ def escalate(grievance, reason=None, reassign=True):
 	updates = {
 		"escalated": 1,
 		"next_escalation_at": add_to_date(now_datetime(), hours=hours) if hours else None,
+		**_first_escalation(grievance),
 	}
 	if reassign:
 		updates["assigned_to"] = target

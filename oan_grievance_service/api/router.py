@@ -87,6 +87,7 @@ def _register() -> None:
 		attachment,
 		category_assignment,
 		change_request,
+		charts,
 		draft,
 		grievance,
 		profile,
