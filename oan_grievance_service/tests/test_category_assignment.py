@@ -82,7 +82,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual([row.user for row in desk.officers], [self.l1])
 
 		listed = list_assignments(service_category=self.category)
-		self.assertEqual(listed["pagination"]["total_count"], 1)
+		self.assertEqual(listed["data"]["pagination"]["total_count"], 1)
 		self.assertEqual(listed["data"]["assignments"][0]["name"], assignment["name"])
 
 		fetched = get_assignment(assignment["name"])
@@ -167,7 +167,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		second = self._assignment(department=other)
 		self.assertNotEqual(first, second)
 		listed = list_assignments(service_category=self.category)
-		self.assertEqual(listed["pagination"]["total_count"], 2)
+		self.assertEqual(listed["data"]["pagination"]["total_count"], 2)
 		self.assertEqual(
 			sorted(row["department"] for row in listed["data"]["assignments"]),
 			sorted([self.department, other]),
@@ -405,7 +405,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		frappe.set_user(admin)
 		result = list_assignments(service_category=self.category)
 		self.assertEqual(result["status"], "success")
-		self.assertEqual(result["pagination"]["total_count"], 1)
+		self.assertEqual(result["data"]["pagination"]["total_count"], 1)
 
 	def test_guest_cannot_manage_assignments(self):
 		name = self._assignment()
@@ -487,6 +487,93 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		area_desk.insert()
 		self._assignment()
 
+	def test_l1_reports_to_l2_and_l2_reports_to_nobody(self):
+		created = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=7,
+		)
+		name = created["data"]["assignment"]["name"]
+		reports_to = {
+			row.user: row.reports_to for row in frappe.get_doc("Grievance RBAC Assignment", name).officers
+		}
+		self.assertEqual(reports_to, {self.l1: self.l2, self.l2: None})
+		from oan_grievance_service.permissions import get_subordinate_officers
+		from oan_grievance_service.services import sla
+
+		self.assertEqual(sla.get_officer_supervisor(self.l1, department=self.department), self.l2)
+		self.assertIsNone(sla.get_officer_supervisor(self.l2, department=self.department))
+		self.assertIn(self.l1, get_subordinate_officers(self.l2))
+		self.assertNotIn(self.l2, get_subordinate_officers(self.l1))
+
+		update_assignment(name, l2_officer=None)
+		rows = frappe.get_doc("Grievance RBAC Assignment", name).officers
+		self.assertEqual([(row.user, row.reports_to) for row in rows], [(self.l1, None)])
+
+	def test_first_line_routing_skips_the_l2_officer(self):
+		from oan_grievance_service.services import routing
+
+		_department_strategy(self.department, "Round Robin")
+		name = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=7,
+		)["data"]["assignment"]["name"]
+		desk = frappe.get_doc("Grievance RBAC Assignment", name)
+		picked = {routing.pick_officer_by_strategy(desk) for _ in range(4)}
+		self.assertEqual(picked, {self.l1})
+
+	def test_tied_category_desks_route_to_the_oldest(self):
+		from oan_grievance_service.services import routing
+
+		other = _department("STG404 Tie Agency", "S404T")
+		first = self._assignment()
+		second = self._assignment(department=other)
+		frappe.db.set_value("Grievance RBAC Assignment", first, "creation", "2026-01-02 00:00:00")
+		frappe.db.set_value("Grievance RBAC Assignment", second, "creation", "2026-01-01 00:00:00")
+		matched = routing.find_matching_assignment({"service_category": self.category})
+		self.assertEqual(matched.name, second)
+		frappe.db.set_value("Grievance RBAC Assignment", first, "creation", "2026-01-01 00:00:00")
+		matched = routing.find_matching_assignment({"service_category": self.category})
+		self.assertEqual(matched.name, min(first, second))
+
+	def test_changes_are_tracked_and_attributed(self):
+		# Frappe skips Version rows while tests run, so check what produces them in production.
+		for doctype in ("Grievance RBAC Assignment", "Grievance SLA Configuration"):
+			self.assertTrue(frappe.get_meta(doctype).track_changes, msg=doctype)
+		name = self._assignment()
+		frappe.db.set_value("Grievance RBAC Assignment", name, "assigned_by", None)
+		frappe.set_user("Administrator")
+		update_assignment(name, sla_days=11)
+		self.assertEqual(
+			frappe.db.get_value("Grievance RBAC Assignment", name, "assigned_by"), "Administrator"
+		)
+
+	def test_one_active_sla_row_per_category(self):
+		self._assignment()
+		extra = frappe.new_doc("Grievance SLA Configuration")
+		extra.service_category = self.category
+		extra.sla_days = 3
+		with self.assertRaises(frappe.DuplicateEntryError):
+			extra.insert()
+		extra.active = 0
+		extra.insert()
+		from oan_grievance_service.services import sla
+
+		self.assertNotEqual(sla.resolve_policy(self.category).name, extra.name)
+		self.assertEqual(sla.resolve_policy(self.category).sla_days, 7)
+
+	def test_unknown_list_filters_are_rejected(self):
+		self._assignment()
+		with _keep_transaction():
+			result = list_assignments(departmnt=self.department)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertIn("departmnt", result["details"])
+
 	def _assignment(self, category=None, department=None):
 		created = create_assignment(
 			service_category=category or self.category,
@@ -496,6 +583,10 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		)
 		self.assertEqual(created["status"], "success", msg=created)
 		return created["data"]["assignment"]["name"]
+
+
+def _department_strategy(department, strategy):
+	frappe.db.set_value("Grievance Department", department, "routing_strategy", strategy)
 
 
 @contextmanager

@@ -700,8 +700,9 @@ data(
 	OBJ(
 		{
 			"assignments": ARR(REF("CategoryAssignment")),
+			"pagination": REF("PaginationMeta"),
 		},
-		required=["assignments"],
+		required=["assignments", "pagination"],
 		description="One page of category assignments",
 	),
 )
@@ -922,7 +923,6 @@ ENVELOPES = {
 	"CategoryAssignmentListResponse": make_envelope(
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
-		paginated=True,
 	),
 }
 

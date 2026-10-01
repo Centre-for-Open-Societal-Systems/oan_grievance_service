@@ -20,6 +20,7 @@ from oan_grievance_service.services.resolvers import resolve_department, resolve
 
 DOCTYPE = "Grievance RBAC Assignment"
 SLA_DOCTYPE = "Grievance SLA Configuration"
+SLA_ORDER = "modified desc, name desc"
 
 
 def desk_filters(**extra) -> dict:
@@ -51,6 +52,24 @@ def split_officers(rows: list):
 	return primary, secondary
 
 
+def active_sla_rows(categories) -> dict:
+	"""The SLA row runtime uses for each category: active, latest modified first.
+
+	`sla.resolve_policy` reads the same way, so what the API shows and edits is what routing
+	enforces even if legacy data holds more than one active row for a category.
+	"""
+	rows = frappe.get_all(
+		SLA_DOCTYPE,
+		filters={"service_category": ["in", list(categories)], "active": 1},
+		fields=["name", "service_category", "sla_days", "auto_escalate"],
+		order_by=SLA_ORDER,
+	)
+	by_category = {}
+	for row in rows:
+		by_category.setdefault(row.service_category, row)
+	return by_category
+
+
 def create(
 	*,
 	service_category: str,
@@ -75,7 +94,6 @@ def create(
 	desk = frappe.new_doc(DOCTYPE)
 	desk.effective_from = today()
 	desk.category_scope = state["service_category"]
-	desk.assigned_by = frappe.session.user
 	_write_desk(desk, state, prefs)
 	desk.insert()
 	_save_sla(state["service_category"], sla_days, auto_escalate)
@@ -86,6 +104,7 @@ def update(desk, changes: dict):
 	"""Apply a partial update. Deactivation alone skips the department checks so a broken desk can be retired."""
 	if changes == {"active": False}:
 		desk.active = 0
+		desk.assigned_by = frappe.session.user
 		desk.save()
 		return
 	state = {**_current_state(desk), **changes}
@@ -100,9 +119,7 @@ def update(desk, changes: dict):
 
 def _current_state(desk) -> dict:
 	primary, secondary = split_officers(desk.officers)
-	sla = frappe.db.get_value(
-		SLA_DOCTYPE, {"service_category": desk.category_scope}, ["sla_days", "auto_escalate"], as_dict=True
-	)
+	sla = active_sla_rows([desk.category_scope]).get(desk.category_scope)
 	return {
 		"service_category": desk.category_scope,
 		"department": desk.department_scope,
@@ -135,16 +152,17 @@ def _department_prefs(state: dict):
 def _write_desk(desk, state: dict, prefs):
 	"""Copy state onto the desk. Existing officer rows are updated in place."""
 	desk.department_scope = state["department"]
+	desk.assigned_by = frappe.session.user
 	desk.active = 1 if state["active"] else 0
 	if prefs.routing_strategy:
 		desk.routing_strategy = prefs.routing_strategy
-	wanted = {state["l1_officer"]: {"role_level": prefs.l1_role_level, "is_primary": 1, "reports_to": None}}
-	if state.get("l2_officer"):
-		wanted[state["l2_officer"]] = {
-			"role_level": prefs.l2_role_level,
-			"is_primary": 0,
-			"reports_to": state["l1_officer"],
-		}
+	# `reports_to` names an officer's supervisor: escalation hands a case up to it, and an
+	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
+	# reverse. L2 is the escalation tier and has no supervisor on this desk.
+	l2 = state.get("l2_officer")
+	wanted = {state["l1_officer"]: {"role_level": prefs.l1_role_level, "is_primary": 1, "reports_to": l2}}
+	if l2:
+		wanted[l2] = {"role_level": prefs.l2_role_level, "is_primary": 0, "reports_to": None}
 	for row in list(desk.officers):
 		if row.user not in wanted:
 			desk.remove(row)
@@ -155,9 +173,10 @@ def _write_desk(desk, state: dict, prefs):
 
 
 def _save_sla(service_category: str, sla_days: int, auto_escalate: bool):
-	name = frappe.db.get_value(SLA_DOCTYPE, {"service_category": service_category})
-	sla = frappe.get_doc(SLA_DOCTYPE, name) if name else frappe.new_doc(SLA_DOCTYPE)
+	row = active_sla_rows([service_category]).get(service_category)
+	sla = frappe.get_doc(SLA_DOCTYPE, row.name) if row else frappe.new_doc(SLA_DOCTYPE)
 	sla.service_category = service_category
 	sla.sla_days = sla_days
 	sla.auto_escalate = 1 if auto_escalate else 0
+	sla.active = 1
 	sla.save()

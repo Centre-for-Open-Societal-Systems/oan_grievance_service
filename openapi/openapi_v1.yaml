@@ -2738,8 +2738,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CategoryAssignment'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
       required:
       - assignments
+      - pagination
       description: One page of category assignments
     SaveDraftRequest:
       type: object
@@ -3586,10 +3589,7 @@ components:
           format: uuid
           nullable: true
           description: Tracing correlation ID
-        pagination:
-          $ref: '#/components/schemas/PaginationMeta'
       required:
       - status
       - data
-      - pagination
       description: Category assignment list response

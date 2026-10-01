@@ -17,7 +17,6 @@ workflow (officer projection, SLA row) lives in `services/category_assignment.py
 """
 
 from collections import defaultdict
-from typing import Annotated
 
 import frappe
 from frappe import _
@@ -29,9 +28,10 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._pagination import PageParams, page_meta
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, PartialBody, blank_to_none
 from oan_grievance_service.services import category_assignment as service
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
@@ -39,14 +39,6 @@ route = prefixed("/api/v1/category-assignments")
 
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy", "active"]
-
-NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-
-
-def _blank_to_none(value):
-	if isinstance(value, str) and not value.strip():
-		return None
-	return value
 
 
 class CategoryAssignmentRecord(BaseModel):
@@ -71,26 +63,14 @@ class CategoryAssignmentData(BaseModel):
 
 class CategoryAssignmentListData(BaseModel):
 	assignments: list[CategoryAssignmentRecord]
+	pagination: dict
 
 
-class _Body(BaseModel):
-	"""Rejects unknown fields. `cmd` is added by the request layer, not the client."""
-
-	model_config = ConfigDict(extra="forbid")
-
-	@model_validator(mode="before")
-	@classmethod
-	def _drop_cmd(cls, data):
-		if isinstance(data, dict):
-			return {key: value for key, value in data.items() if key != "cmd"}
-		return data
-
-
-class AssignmentRef(_Body):
+class AssignmentRef(Body):
 	assignment: NonBlank
 
 
-class CreateCategoryAssignment(_Body):
+class CreateCategoryAssignment(Body):
 	service_category: NonBlank
 	department: NonBlank
 	l1_officer: NonBlank
@@ -99,10 +79,10 @@ class CreateCategoryAssignment(_Body):
 	auto_escalate: bool = True
 	active: bool = True
 
-	_l2_blank = field_validator("l2_officer", mode="before")(_blank_to_none)
+	_l2_blank = field_validator("l2_officer", mode="before")(blank_to_none)
 
 
-class UpdateCategoryAssignment(_Body):
+class UpdateCategoryAssignment(PartialBody):
 	"""Partial update. Omitted fields stay as they are, so only l2_officer accepts null."""
 
 	assignment: NonBlank
@@ -113,27 +93,17 @@ class UpdateCategoryAssignment(_Body):
 	auto_escalate: bool = None
 	active: bool = None
 
-	_l2_blank = field_validator("l2_officer", mode="before")(_blank_to_none)
-
-	def model_dump(self, **kwargs):
-		"""Dump only the fields the client sent.
-
-		`validate_request` calls `model_dump()` itself and hands the result to the handler,
-		so the handler never sees the model. Without this, every omitted field would arrive
-		as None and be read as "set to null". Drop this once `validate_request` takes an
-		`exclude_unset` option.
-		"""
-		return super().model_dump(**{"exclude_unset": True, **kwargs})
+	_l2_blank = field_validator("l2_officer", mode="before")(blank_to_none)
 
 
-class ListCategoryAssignments(PageParams):
-	model_config = ConfigDict(extra="ignore")
+class ListCategoryAssignments(PageParams, Body):
+	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
 
 	service_category: str | None = None
 	department: str | None = None
 	active: bool | None = None
 
-	_active_blank = field_validator("active", mode="before")(_blank_to_none)
+	_active_blank = field_validator("active", mode="before")(blank_to_none)
 
 
 def _records(desks: list) -> list[dict]:
@@ -148,14 +118,7 @@ def _records(desks: list) -> list[dict]:
 		order_by="parent, idx",
 	):
 		officers[row.parent].append(row)
-	sla_rows = {
-		row.service_category: row
-		for row in frappe.get_all(
-			"Grievance SLA Configuration",
-			filters={"service_category": ["in", list({desk.category_scope for desk in desks})]},
-			fields=["service_category", "sla_days", "auto_escalate"],
-		)
-	}
+	sla_rows = service.active_sla_rows({desk.category_scope for desk in desks})
 	splits = [service.split_officers(officers[desk.name]) for desk in desks]
 	full_names = {
 		row.name: row.full_name
@@ -241,9 +204,11 @@ def list_assignments(
 		limit_page_length=params.page_size,
 	)
 	return success_response(
-		data={"assignments": _records(desks)},
+		data={
+			"assignments": _records(desks),
+			"pagination": page_meta(params, frappe.db.count(service.DOCTYPE, filters)),
+		},
 		message=_("Category assignments retrieved"),
-		pagination=page_meta(params, frappe.db.count(service.DOCTYPE, filters)),
 	)
 
 
