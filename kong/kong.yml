@@ -850,6 +850,498 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: get-api-v1-charts
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-charts-grvKpis
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvKpis$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvPerformanceKpis
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvPerformanceKpis$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvMonthlyTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvMonthlyTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvWeeklyTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvWeeklyTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvNetBacklogTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvNetBacklogTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvStatusDistribution
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvStatusDistribution$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvByCategory
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvByCategory$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvCategoryResolution
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvCategoryResolution$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvResolutionRateByRegion
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvResolutionRateByRegion$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvSlaRisk
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvSlaRisk$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvPendingDuplicates
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvPendingDuplicates$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvOldestOpen
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvOldestOpen$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvFilterRegions
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvFilterRegions$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
+  - name: get-api-v1-charts-grvFilterCategories
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvFilterCategories$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - public-dashboards
+    - dashboard-key
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: key-auth
+      config:
+        key_names:
+        - apikey
+        hide_credentials: true
+    - name: acl
+      config:
+        allow:
+        - dashboards
+        hide_groups_header: true
 consumers:
 - username: oan-auth-jwt-issuer
   tags:
@@ -866,3 +1358,12 @@ consumers:
   - oan
   - grievance
   - portal
+- username: oan-dashboards
+  tags:
+  - oan
+  - dashboards
+  - machine-client
+  keyauth_credentials:
+  - key: ${{ env "DECK_OAN_DASHBOARDS_API_KEY" }}
+  acls:
+  - group: dashboards

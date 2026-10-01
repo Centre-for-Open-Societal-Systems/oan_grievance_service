@@ -708,6 +708,21 @@ data(
 )
 
 
+# Dashboard charts. Rows differ per chart and are documented on each route; each is
+# a flat object of counts, codes and labels, never case detail on the public routes.
+data(
+	"DashboardChartRow",
+	OBJ({}, additionalProperties=True, description="One row of a chart; the keys depend on the chart"),
+)
+data(
+	"DashboardChartsData",
+	OBJ(
+		{},
+		additionalProperties={**ARR(REF("DashboardChartRow")), "nullable": True},
+		description="Rows per requested chart id; null for a chart that failed (see meta.errors)",
+	),
+)
+
 # ---------------------------------------------------------------------------
 # Request Body Schemas
 # ---------------------------------------------------------------------------
@@ -924,6 +939,14 @@ ENVELOPES = {
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
 	),
+	"DashboardChartResponse": make_envelope(
+		"DashboardChartRow",
+		is_list=True,
+		description="Rows of one public dashboard chart; meta.as_of is the rollup time",
+	),
+	"DashboardChartsResponse": make_envelope(
+		"DashboardChartsData", description="Rows per chart; meta.as_of and meta.errors per chart"
+	),
 }
 
 
@@ -1132,6 +1155,99 @@ QP = {
 		},
 	],
 }
+
+QP["DashboardChart"] = [
+	{
+		"name": "region",
+		"in": "query",
+		"required": False,
+		"schema": S(),
+		"description": "Comma-separated Region P-codes (e.g. ET04)",
+	},
+	{
+		"name": "service_category",
+		"in": "query",
+		"required": False,
+		"schema": S(),
+		"description": "Comma-separated service category names; `category` is accepted as an alias",
+	},
+	{
+		"name": "from",
+		"in": "query",
+		"required": False,
+		"schema": S(format="date"),
+		"description": "Period start (trend and category-resolution charts)",
+	},
+	{
+		"name": "to",
+		"in": "query",
+		"required": False,
+		"schema": S(format="date"),
+		"description": "Period end, default today",
+	},
+	{
+		"name": "month",
+		"in": "query",
+		"required": False,
+		"schema": S(pattern=r"^\d{4}-\d{2}$"),
+		"description": "YYYY-MM for grvPerformanceKpis, default the current month",
+	},
+	{
+		"name": "granularity",
+		"in": "query",
+		"required": False,
+		"schema": S(enum=["month", "week"], default="month"),
+		"description": "Period size for grvNetBacklogTrend",
+	},
+]
+
+# The admin form takes several charts at once and two filters the public one does not.
+QP["DashboardCharts"] = [
+	{
+		"name": "charts",
+		"in": "query",
+		"required": False,
+		"schema": S(),
+		"description": "Comma-separated chart ids (at most 20); all charts when omitted",
+	},
+	*QP["DashboardChart"],
+	{
+		"name": "assigned_dept",
+		"in": "query",
+		"required": False,
+		"schema": S(),
+		"description": "Comma-separated department names",
+	},
+	{
+		"name": "limit",
+		"in": "query",
+		"required": False,
+		"schema": I(minimum=1, maximum=50, default=10),
+		"description": "Rows for grvRecent",
+	},
+]
+
+# The public charts, one route each (services/dashboard.PUBLIC_CHARTS). Listed here
+# because this generator reads no Frappe code; the Kong generator lists the same ids.
+PUBLIC_CHART_IDS = (
+	"grvKpis",
+	"grvPerformanceKpis",
+	"grvMonthlyTrend",
+	"grvWeeklyTrend",
+	"grvNetBacklogTrend",
+	"grvStatusDistribution",
+	"grvByCategory",
+	"grvCategoryResolution",
+	"grvResolutionRateByRegion",
+	"grvSlaRisk",
+	"grvPendingDuplicates",
+	"grvOldestOpen",
+	"grvFilterRegions",
+	"grvFilterCategories",
+)
+# Guest to the platform; the gateway asks the OAN dashboards for their key once it
+# enforces auth (DashboardKeyAuth below).
+PUBLIC_CHART_SECURITY = [{"DashboardKeyAuth": []}]
 
 
 # ---------------------------------------------------------------------------
@@ -1656,6 +1772,39 @@ ROUTES = [
 			+ "is not changed. Same as PATCH with active false. Repeating the call leaves the rule inactive."
 		),
 	),
+	# Dashboard Charts
+	R(
+		"get",
+		"/api/v1/charts",
+		summary="Dashboard charts (Grievance Admin)",
+		tag="Dashboard Charts",
+		security=[{"BearerAuth": []}],
+		query=QP["DashboardCharts"],
+		response="DashboardChartsResponse",
+		legacy="oan_grievance_service.api.v1.charts.get_charts",
+		description=(
+			"Several charts in one call, including admin-only charts and live case detail. Built from "
+			+ "the 15-minute rollups and cached until the next refresh; meta.as_of gives the refresh time "
+			+ "per chart, and a chart that fails comes back null with its error in meta.errors."
+		),
+	),
+	*[
+		R(
+			"get",
+			f"/api/v1/charts/{chart_id}",
+			summary=f"Public dashboard chart {chart_id} (counts only)",
+			tag="Dashboard Charts",
+			security=PUBLIC_CHART_SECURITY,
+			query=QP["DashboardChart"],
+			response="DashboardChartResponse",
+			legacy=f"oan_grievance_service.api.v1.charts.get_public_chart_{chart_id}",
+			description=(
+				"Counts only, never a ticket, title or submitter: the contract the OAN programme "
+				+ "dashboards read. Built from the 15-minute rollups; meta.as_of is the refresh time."
+			),
+		)
+		for chart_id in PUBLIC_CHART_IDS
+	],
 ]
 
 
@@ -1783,6 +1932,10 @@ def build_openapi():
 				"name": "Administration",
 				"description": "Category-to-department routing rules for the Category Assignments admin tab",
 			},
+			{
+				"name": "Dashboard Charts",
+				"description": "Aggregate counts from the 15-minute rollups, for the OAN programme dashboards",
+			},
 		],
 		"paths": paths,
 		"components": {
@@ -1792,7 +1945,13 @@ def build_openapi():
 					"scheme": "bearer",
 					"bearerFormat": "JWT",
 					"description": "Provide JWT access token as `Bearer <token>` in the Authorization header.",
-				}
+				},
+				"DashboardKeyAuth": {
+					"type": "apiKey",
+					"in": "header",
+					"name": "apikey",
+					"description": "API key of the OAN dashboards (Kong consumer `oan-dashboards`, group `dashboards`). Checked and stripped by the gateway; the platform itself treats the chart routes as public, so before the gateway enforces keys the header is simply ignored.",
+				},
 			},
 			"schemas": components_schemas,
 		},
