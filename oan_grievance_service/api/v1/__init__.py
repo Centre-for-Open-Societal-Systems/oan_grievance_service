@@ -19,6 +19,8 @@ Endpoints
 
     v1.administrative_area.get_areas   FSD 3.2.2   the location cascade and search
 
+    v1.category_assignment             STG-404     category-to-department routing rules
+
     v1.attachment.submit_document   FSD 3.2.1  upload evidence (POST /api/v1/grievances/<g>/attachments)
     v1.attachment.get_attachments   FSD 3.2.1  list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)
     v1.attachment.download          FSD 3.2.1  a clean file's URL (GET /api/v1/attachments/<id>/download)

@@ -77,6 +77,11 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/attachments/{attachment_id}/download"): "citizen-intake",
 	("GET", "/api/v1/attachments/{attachment_id}/view"): "citizen-intake",
 	("DELETE", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
+	("GET", "/api/v1/category-assignments"): "officer-core",
+	("POST", "/api/v1/category-assignments"): "officer-core",
+	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("PATCH", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("DELETE", "/api/v1/category-assignments/{assignment}"): "officer-core",
 }
 
 

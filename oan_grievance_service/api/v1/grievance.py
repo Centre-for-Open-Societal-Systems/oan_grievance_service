@@ -5,8 +5,6 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
-import math
-
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, validate_phone_number_with_country_code
@@ -31,6 +29,7 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
+from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
@@ -43,6 +42,7 @@ from oan_grievance_service.services import constants as C
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
+from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_grievance_type
 
 route = prefixed("/api/v1/grievances")
 
@@ -69,11 +69,9 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	client_uuid: str | None = None
 
 
-class ListGrievancesRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class ListGrievancesRequest(PageParams):
+	model_config = ConfigDict(extra="allow")
 
-	page: int = Field(1, ge=1)
-	page_size: int = Field(20, ge=1, le=100)
 	limit: int | None = Field(None, ge=1, le=100)
 	status: str | list | None = None
 	service_category: str | list | None = None
@@ -262,46 +260,6 @@ def _resolve_submitter_identity(kwargs):
 		}
 	)
 	return identity
-
-
-def resolve_administrative_area(area_identifier):
-	"""Resolve an area identifier (ID, path_code, or unique code) to canonical doc name.
-
-	Note: area_name is intentionally excluded for lower-level tiers because display names
-	recur across regions/woredas (e.g. over 100 kebeles named '1' or '2'). For Region tier,
-	display names are unique across the country and safe to match.
-	"""
-	if not area_identifier:
-		return None
-	if frappe.db.exists("Grievance Administrative Area", area_identifier):
-		return area_identifier
-	return (
-		frappe.db.get_value("Grievance Administrative Area", {"path_code": area_identifier}, "name")
-		or frappe.db.get_value("Grievance Administrative Area", {"code": area_identifier}, "name")
-		or frappe.db.get_value(
-			"Grievance Administrative Area", {"area_name": area_identifier, "level_name": "Region"}, "name"
-		)
-	)
-
-
-def resolve_grievance_type(type_identifier: str | None, category: str | None = None) -> str | None:
-	"""Resolve a grievance type identifier (DocType name or display type_name) to canonical doc name.
-
-	None when nothing matches. The caller decides whether that is an error; handing
-	back the raw input instead would let an unknown string reach a Link field.
-	"""
-	if not type_identifier:
-		return None
-	type_identifier = str(type_identifier).strip()
-	if frappe.db.exists("Grievance Type", type_identifier):
-		return type_identifier
-	filters = {"type_name": type_identifier}
-	if category:
-		filters["service_category"] = category
-	resolved = frappe.db.get_value("Grievance Type", filters, "name")
-	if resolved:
-		return resolved
-	return frappe.db.get_value("Grievance Type", {"type_name": type_identifier}, "name")
 
 
 def _request_anonymity(doc, justification):
@@ -693,18 +651,10 @@ def list_grievances(
 
 def _grievance_page(items, page, page_size, total_count):
 	"""The list endpoint's envelope, shared by the normal and the short-circuit path."""
-	total_pages = math.ceil(total_count / page_size) if total_count > 0 else 1
 	return success_response(
 		data={
 			"items": items,
-			"pagination": {
-				"page": page,
-				"page_size": page_size,
-				"total_count": total_count,
-				"total_pages": total_pages,
-				"has_next": page < total_pages,
-				"has_prev": page > 1,
-			},
+			"pagination": page_meta(PageParams(page=page, page_size=page_size), total_count),
 		},
 		message=_("Grievances retrieved successfully"),
 	)
