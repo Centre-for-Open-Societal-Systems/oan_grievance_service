@@ -3,9 +3,6 @@
 
 from frappe.model.document import Document
 
-from oan_grievance_service.services.response_template import validate_template
 
-
-class GrievanceResponseTemplate(Document):
-	def validate(self):
-		validate_template(self)
+class GrievanceResponseTemplateVersion(Document):
+	"""One superseded wording of a Grievance Response Template. Written by the service only."""

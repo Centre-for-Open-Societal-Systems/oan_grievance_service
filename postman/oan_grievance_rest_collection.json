@@ -160,6 +160,11 @@
       "key": "search",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "template_id",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -1311,6 +1316,206 @@
               ]
             },
             "description": "List all uploaded attachments for a case."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Response Templates",
+      "description": "STG-405 admin CRUD for versioned officer response templates. Requires a Grievance Admin bearer token. Editing never overwrites wording: the old text goes to version history and version goes up by one.",
+      "item": [
+        {
+          "name": "List response templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a template page\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.templates).to.be.an(\"array\");",
+                  "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates?service_category={{service_category}}&grievance_type=&response_type=Resolved&is_active=1&q=&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates"
+              ],
+              "query": [
+                {
+                  "key": "service_category",
+                  "value": "{{service_category}}",
+                  "disabled": false
+                },
+                {
+                  "key": "grievance_type",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "response_type",
+                  "value": "Resolved",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Newest edit first. Filters: service_category (name or code), grievance_type (the subcategory), response_type (Resolved, Partially Resolved, Referred to another dept, Requires further info), is_active, q (title contains). Pagination is in data.pagination. History is not included; use Get."
+          },
+          "response": []
+        },
+        {
+          "name": "Create response template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.template) {",
+                  "    pm.collectionVariables.set(\"template_id\", body.data.template.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Fertilizer refund issued\",\n  \"service_category\": \"Inputs\",\n  \"grievance_type\": \"Fertilizer Shortage\",\n  \"response_type\": \"Resolved\",\n  \"action_taken\": \"We inspected the {{ item }} supplied to you and confirmed the fault.\",\n  \"resolution_summary\": \"A refund of {{ amount }} will be paid within {{ days }} days.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates"
+              ]
+            },
+            "description": "Create a template at version 1. grievance_type is optional and must belong to the category. Wording may use {{ name }} placeholders; a malformed placeholder is rejected with 400."
+          },
+          "response": []
+        },
+        {
+          "name": "Get response template with history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template_id}}"
+              ]
+            },
+            "description": "One template and data.template.versions, every earlier wording newest first. The current wording is on the template itself."
+          },
+          "response": []
+        },
+        {
+          "name": "Update response template (new version)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action_taken\": \"We replaced the faulty {{ item }}.\",\n  \"change_note\": \"Clearer wording\",\n  \"expected_version\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template_id}}"
+              ]
+            },
+            "description": "Partial update. A change to the title, response type, category, subcategory, or either body saves the old wording to history and raises version by one. Sending the same values, or only is_active, creates no version. expected_version is optional and rejects the edit if someone else edited first. grievance_type null clears the subcategory."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete or deactivate response template",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template_id}}"
+              ]
+            },
+            "description": "A template never used in a response is deleted with its history (data.deleted true). A used template is kept as evidence and deactivated (data.deleted false)."
           },
           "response": []
         }

@@ -944,6 +944,16 @@ Bodies contain `{{placeholders}}`. Store as text and interpolate at render time;
 
 **`use_count` and `last_used_at` were removed.** They turned a low-write configuration row into a hot row updated on every single response submission, which serialises unrelated officers behind one lock for a number displayed in an admin list. Usage is a reporting question — `COUNT(*) GROUP BY template_id` over `grievance_responses`, answered from the analytics replica where it belongs, and answered better because it can be sliced by period, department and outcome.
 
+**Shipped record (STG-405).** The DocType is `Grievance Response Template`, named by `template_code` (`RT-#####`). Differences from the table above:
+
+- **Scope.** `service_category` and an optional `grievance_type` (the subcategory, which must belong to the category). `response_type` replaces `outcome` and keeps the four values of the Grievance Response Type master, so it is a superset of the three statuses in the ticket.
+- **Versioning.** `version` starts at 1 and goes up by one when an edit changes the title, response type, category, subcategory, or either body text. Before the change, the old wording is copied to the `versions` child table (`Grievance Response Template Version`: `version`, the replaced title, response type, category, type, both bodies, `retired_on`, `retired_by`, `change_note`). Category and type are stored as plain text in history so it survives a rename. Switching `is_active` alone does not create a version. The current wording is always on the template row.
+- **Usage is derived, not stored.** `use_count` and `last_used_on` are not columns. The API computes them with one grouped query over `Grievance Response.response_template` (a new Link field, the `template_id` this section's `grievance_responses` table already shows), so a response never writes to a template row. Until the response endpoint sets `response_template`, both read as 0 and null.
+- **Delete.** A template with no responses is deleted along with its history. One that has been used is deactivated instead, so the record of what officers sent stays.
+- **Limits.** `action_taken` is capped at 500 characters, the same cap as a response. Placeholders must be `{{ name }}` with letters, digits, and underscores; a stray or malformed brace pair is rejected on save, from the API and from the desk.
+
+Routes (admin only): `GET`/`POST /api/v1/response-templates`, `GET`/`PATCH`/`DELETE /api/v1/response-templates/{template}`. List responses carry pagination in `data.pagination`, and history is returned only by the single-template route.
+
 ---
 
 ## 9. Notifications & audit

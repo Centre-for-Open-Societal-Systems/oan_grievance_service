@@ -32,6 +32,8 @@ tags:
   description: Supporting document and evidence upload, listing, download, and deletion
 - name: Administration
   description: Category-to-department routing rules for the Category Assignments admin tab
+- name: Response Templates
+  description: Versioned officer response templates for the Administration console
 paths:
   /api/v1/grievances/health:
     get:
@@ -1716,6 +1718,322 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.deactivate_assignment
       security:
       - BearerAuth: []
+  /api/v1/response-templates:
+    get:
+      tags:
+      - Response Templates
+      summary: List response templates
+      description: Admin list of response templates, newest edit first, filterable by category, subcategory,
+        response type, active flag, and title. Each row carries its version, use count, and last-used
+        time. History is on the single-template route.
+      operationId: get_api_v1_response_templates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by service category name or code
+      - name: grievance_type
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by subcategory (grievance type) id or name
+      - name: response_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: &id002
+          - Resolved
+          - Partially Resolved
+          - Referred to another dept
+          - Requires further info
+        description: Filter by response type
+      - name: is_active
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Filter by active flag. Omit to return active and inactive templates.
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Title contains this text
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          minimum: 1
+        description: Page number
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+        description: Page size
+      x-legacy-rpc-method: oan_grievance_service.api.v1.response_template.list_templates
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Response Templates
+      summary: Create a response template
+      description: Create a template at version 1. The subcategory is optional and must belong to the
+        category. Wording may use {{ name }} placeholders; a malformed placeholder is rejected.
+      operationId: post_api_v1_response_templates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.response_template.create_template
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResponseTemplateRequest'
+  /api/v1/response-templates/{template}:
+    get:
+      tags:
+      - Response Templates
+      summary: Get a response template with its history
+      description: One template and every earlier version of its wording, newest first.
+      operationId: get_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - &id001
+        name: template
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Response template id, for example RT-00001
+      x-legacy-rpc-method: oan_grievance_service.api.v1.response_template.get_template
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Response Templates
+      summary: Update a response template
+      description: Edit a template. A change to the title, response type, category, subcategory, or either
+        body text copies the old wording to history and raises the version by one. A request that changes
+        nothing, or only is_active, creates no version. Send expected_version to refuse overwriting an
+        edit you have not seen.
+      operationId: patch_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - *id001
+      x-legacy-rpc-method: oan_grievance_service.api.v1.response_template.update_template
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResponseTemplateRequest'
+    delete:
+      tags:
+      - Response Templates
+      summary: Delete or deactivate a response template
+      description: A template never used in a response is deleted with its history (deleted true). A used
+        template is kept as evidence and deactivated instead (deleted false).
+      operationId: delete_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplateDeleteResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - *id001
+      x-legacy-rpc-method: oan_grievance_service.api.v1.response_template.delete_template
+      security:
+      - BearerAuth: []
 components:
   securitySchemes:
     BearerAuth:
@@ -2744,6 +3062,171 @@ components:
       - assignments
       - pagination
       description: One page of category assignments
+    ResponseTemplateVersion:
+      type: object
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          example: 1
+          description: Version number this wording had
+        title:
+          type: string
+          nullable: true
+        response_type:
+          type: string
+          nullable: true
+          description: Response type this version was filed under
+        service_category:
+          type: string
+          nullable: true
+          description: Service category name, kept as text
+        grievance_type:
+          type: string
+          nullable: true
+          description: Grievance type name, kept as text
+        action_taken:
+          type: string
+          nullable: true
+        resolution_summary:
+          type: string
+          nullable: true
+        replaced_on:
+          type: string
+          format: date-time
+          nullable: true
+          description: When an edit replaced this version
+        replaced_by:
+          type: string
+          nullable: true
+          description: User who made that edit
+        change_note:
+          type: string
+          nullable: true
+          description: Why the edit was made, when the editor said
+      required:
+      - version
+      description: One superseded wording of a response template
+    ResponseTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          example: RT-00001
+          description: Template id
+        title:
+          type: string
+        service_category:
+          type: string
+          description: Service category id
+        service_category_name:
+          type: string
+          nullable: true
+        grievance_type:
+          type: string
+          nullable: true
+          description: Subcategory id. Null when the template covers the whole category.
+        grievance_type_name:
+          type: string
+          nullable: true
+        response_type:
+          type: string
+          enum: *id002
+        action_taken:
+          type: string
+          description: Action-taken wording. May carry {{ name }} placeholders.
+        resolution_summary:
+          type: string
+          description: Resolution-summary wording. May carry {{ name }} placeholders.
+        placeholders:
+          type: array
+          items:
+            type: string
+          description: Distinct placeholder names across both texts, in order of appearance
+        version:
+          type: integer
+          minimum: 1
+          example: 1
+          description: Current version. Raised by one on every content edit.
+        is_active:
+          type: boolean
+        use_count:
+          type: integer
+          minimum: 0
+          description: Responses filed from this template, counted from the response record
+        last_used_on:
+          type: string
+          format: date-time
+          nullable: true
+        created_on:
+          type: string
+          format: date-time
+          nullable: true
+        modified_on:
+          type: string
+          format: date-time
+          nullable: true
+        modified_by:
+          type: string
+          nullable: true
+      required:
+      - id
+      - title
+      - service_category
+      - response_type
+      - action_taken
+      - resolution_summary
+      - placeholders
+      - version
+      - is_active
+      - use_count
+      description: A response template
+    ResponseTemplateDetail:
+      allOf:
+      - $ref: '#/components/schemas/ResponseTemplate'
+      - type: object
+        properties:
+          versions:
+            type: array
+            items:
+              $ref: '#/components/schemas/ResponseTemplateVersion'
+            description: Earlier versions, newest first
+        required:
+        - versions
+      description: A response template with its version history
+    ResponseTemplateData:
+      type: object
+      properties:
+        template:
+          $ref: '#/components/schemas/ResponseTemplateDetail'
+      required:
+      - template
+      description: One template
+    ResponseTemplateListData:
+      type: object
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponseTemplate'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - templates
+      - pagination
+      description: One page of templates
+    ResponseTemplateDeleteData:
+      type: object
+      properties:
+        template:
+          $ref: '#/components/schemas/ResponseTemplateDetail'
+        deleted:
+          type: boolean
+          description: True when the template was removed, false when it was only deactivated
+      required:
+      - template
+      - deleted
+      description: Outcome of a template delete
     SaveDraftRequest:
       type: object
       properties:
@@ -3039,6 +3522,84 @@ components:
           description: Set false to deactivate. Same as DELETE.
       description: Partial update. Omit a field to leave it unchanged. Unknown fields, including service_category,
         are rejected.
+    CreateResponseTemplateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 140
+        service_category:
+          type: string
+          minLength: 1
+          description: Category name or code
+        grievance_type:
+          type: string
+          nullable: true
+          description: Subcategory id or name. Must belong to the category.
+        response_type:
+          type: string
+          enum: *id002
+        action_taken:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Wording, 500 characters at most like a response. Supports {{ name }} placeholders.
+        resolution_summary:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Wording. Supports {{ name }} placeholders.
+        is_active:
+          type: boolean
+          default: true
+      required:
+      - title
+      - service_category
+      - response_type
+      - action_taken
+      - resolution_summary
+      description: Create a response template at version 1
+    UpdateResponseTemplateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 140
+        service_category:
+          type: string
+          minLength: 1
+          description: Category name or code
+        grievance_type:
+          type: string
+          nullable: true
+          description: Subcategory. Null clears it.
+        response_type:
+          type: string
+          enum: *id002
+        action_taken:
+          type: string
+          minLength: 1
+          maxLength: 500
+        resolution_summary:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        is_active:
+          type: boolean
+          description: Switching this alone does not create a version.
+        expected_version:
+          type: integer
+          minimum: 1
+          description: Reject the edit when the template is no longer at this version
+        change_note:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Stored with the replaced version
+      description: Partial update. Omit a field to leave it unchanged. A change to any wording or scope
+        field saves the old wording to history and raises the version by one. Unknown fields are rejected.
     HealthResponse:
       type: object
       properties:
@@ -3593,3 +4154,78 @@ components:
       - status
       - data
       description: Category assignment list response
+    ResponseTemplateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ResponseTemplateData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Response template
+    ResponseTemplateListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ResponseTemplateListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Response template list
+    ResponseTemplateDeleteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ResponseTemplateDeleteData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Response template delete outcome

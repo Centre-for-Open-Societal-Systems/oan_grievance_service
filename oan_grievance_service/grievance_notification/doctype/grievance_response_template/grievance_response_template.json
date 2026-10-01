@@ -13,10 +13,13 @@
   "col_tmpl_scope",
   "service_category",
   "response_type",
+  "grievance_type",
   "version",
   "sec_body",
   "action_taken",
-  "resolution_summary"
+  "resolution_summary",
+  "sec_history",
+  "versions"
  ],
  "fields": [
   {
@@ -52,6 +55,13 @@
    "options": "Grievance Service Category"
   },
   {
+   "description": "The subcategory. Optional; when set it must belong to the service category.",
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "label": "Grievance Type",
+   "options": "Grievance Type"
+  },
+  {
    "fieldname": "response_type",
    "fieldtype": "Select",
    "label": "Response Type",
@@ -79,12 +89,26 @@
    "fieldname": "resolution_summary",
    "fieldtype": "Text Editor",
    "label": "Resolution Summary"
+  },
+  {
+   "fieldname": "sec_history",
+   "fieldtype": "Section Break",
+   "label": "Version History"
+  },
+  {
+   "description": "Prior wording. A row is added whenever an edit changes the template content; the current wording lives on the template itself.",
+   "fieldname": "versions",
+   "fieldtype": "Table",
+   "label": "Versions",
+   "no_copy": 1,
+   "options": "Grievance Response Template Version",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:18.774946",
+ "modified": "2026-10-01 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Notification",
  "name": "Grievance Response Template",
@@ -142,5 +166,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "title"
+ "title_field": "title",
+ "track_changes": 1
 }

@@ -12,6 +12,7 @@
   "response_date",
   "col_resp_meta",
   "response_type",
+  "response_template",
   "sla_behaviour",
   "responded_by",
   "proposed_close_date",
@@ -62,6 +63,14 @@
    "label": "Response Type",
    "options": "Grievance Response Type",
    "reqd": 1
+  },
+  {
+   "description": "The template this response started from, if any. Template usage is counted from this link.",
+   "fieldname": "response_template",
+   "fieldtype": "Link",
+   "label": "Response Template",
+   "options": "Grievance Response Template",
+   "search_index": 1
   },
   {
    "description": "FSD D-2: what the SLA clock does after this response. Set from the response type.",
@@ -154,7 +163,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 18:15:04.364179",
+ "modified": "2026-10-01 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Response",
