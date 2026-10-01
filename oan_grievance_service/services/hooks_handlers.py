@@ -60,7 +60,7 @@ def after_workflow_action(doc, from_state):
 	).insert(ignore_permissions=True)
 	context.history = history
 
-	sla.on_status_change(doc, to_state)
+	sla.on_status_change(doc, to_state, from_state=from_state)
 	sla.arm_state_timer(doc, to_state)
 
 	if context.get("notify", True):
@@ -78,7 +78,7 @@ def after_workflow_action(doc, from_state):
 				context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close"
 			):
 				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
-			elif context.get("closure_type") == "confirmed" or context.get("action") == "Confirm Resolution":
+			elif context.get("closure_type") == "confirmed":
 				notifications.queue(doc, C.EVENT_CONFIRMED)
 			else:
 				notifications.queue(doc, C.EVENT_CLOSED)

@@ -635,13 +635,11 @@ data(
 					{
 						"user_id": S(description="Officer user ID"),
 						"full_name": S(description="Officer display name"),
-						"email": S(description="Officer email address"),
 						"role_level": S(description="Grievance role level code"),
 						"is_primary": B(description="Whether officer is designated primary"),
-						"reports_to": S(description="Supervisor user email or ID", nullable=True),
 					}
 				),
-				description="Active officers under the specified department (present only when department is supplied)",
+				description="Active officers under the specified department. Staff only; present only when department is supplied.",
 			),
 		},
 		required=["statuses", "departments", "service_categories", "grievance_types", "submission_channels"],
@@ -988,7 +986,7 @@ REQ["GrievanceActionRequest"] = OBJ(
 	{
 		"action": S(
 			minLength=1,
-			description="Canonical workflow action name (e.g. 'Start Work', 'Confirm Resolution', 'Reopen', 'Reject')",
+			description="Canonical workflow action name (e.g. 'Start Work', 'Close Case', 'Reopen', 'Reject')",
 		),
 		"reason": S(nullable=True, description="Mandatory justification when required by the action"),
 		"note": S(nullable=True, description="Optional note text"),

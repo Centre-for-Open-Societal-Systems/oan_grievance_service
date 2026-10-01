@@ -190,15 +190,22 @@ def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[
 				{"area_name": ["in", parents]},
 			],
 			fields=["name", "path_code", "code", "area_name", "level_name", "lft", "rgt"],
+			order_by="lft asc",
 		)
-		resolved_map = {}
+		# One query for every parent, but each value still resolves in a fixed order:
+		# document name, then path_code, then code, then area_name. Display names recur
+		# across the tree (two areas can both be "Central"), so a name or code match must
+		# never lose to an area_name match. Within one field the first area in tree order
+		# wins, so the result does not depend on row order.
+		by_field = {field: {} for field in ("name", "path_code", "code", "area_name")}
 		for doc in parent_docs:
-			for key in (doc.name, doc.path_code, doc.code, doc.area_name):
+			for field, index in by_field.items():
+				key = doc.get(field)
 				if key and key in parents:
-					resolved_map[key] = doc
+					index.setdefault(key, doc)
 
 		for p in parents:
-			doc = resolved_map.get(p)
+			doc = next((by_field[field][p] for field in by_field if p in by_field[field]), None)
 			if doc:
 				if level_name and doc.level_name != level_name:
 					subtree_parents.append(doc)

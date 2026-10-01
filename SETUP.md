@@ -323,14 +323,13 @@ is unaffected.
 
 All optional. Each falls back to the documented default.
 
-| Key                                  | Default                                 | Effect                                             |
-| ------------------------------------ | --------------------------------------- | -------------------------------------------------- |
-| `grievance_clamav_host`              | unset                                   | ClamAV daemon host. **Unset disables scanning.**   |
-| `grievance_clamav_port`              | `3310`                                  | ClamAV daemon port                                 |
-| `grievance_sla_clock_start`          | `assignment`                            | Start the SLA clock at `assignment` or `creation`  |
-| `grievance_sla_paused_statuses`      | `More Info Needed`, `Pending Submitter` | Statuses that pause the SLA clock                  |
-| `grievance_confirmation_window_days` | `7`                                     | Days a submitter has to confirm a resolution       |
-| `grievance_auto_escalation_enabled`  | `true`                                  | Set `false` to stop automatic escalation site-wide |
+| Key                                  | Default      | Effect                                             |
+| ------------------------------------ | ------------ | -------------------------------------------------- |
+| `grievance_clamav_host`              | unset        | ClamAV daemon host. **Unset disables scanning.**   |
+| `grievance_clamav_port`              | `3310`       | ClamAV daemon port                                 |
+| `grievance_sla_clock_start`          | `assignment` | Start the SLA clock at `assignment` or `creation`  |
+| `grievance_confirmation_window_days` | `7`          | Days a submitter has to confirm a resolution       |
+| `grievance_auto_escalation_enabled`  | `true`       | Set `false` to stop automatic escalation site-wide |
 
 ### 4.4 Scheduled jobs
 

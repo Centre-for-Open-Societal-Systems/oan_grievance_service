@@ -106,7 +106,7 @@
    "fieldname": "sec_state_timers",
    "fieldtype": "Section Break",
    "label": "State Timers",
-   "description": "How long a case may sit in a state before something happens. With no row for Pending Submitter, the confirmation window defaults to grievance_confirmation_window_days (7 days)."
+   "description": "How long a case may sit in a state before something happens. With no row for Resolved, the confirmation window defaults to grievance_confirmation_window_days (7 days)."
   },
   {
    "fieldname": "state_timers",

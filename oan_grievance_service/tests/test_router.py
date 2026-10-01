@@ -271,7 +271,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			data_dept = json.loads(res_dept.get_data(as_text=True))
 			self.assertIn("officers", data_dept["data"])
 			officers = data_dept["data"]["officers"]
-			self.assertTrue(any(o["user_id"] == "Administrator" for o in officers))
+			# The caller is never offered to themselves
+			self.assertFalse(any(o["user_id"] == "Administrator" for o in officers))
 
 			# 3. Cascading options with department and service_category
 			req_cat = make_test_request(

@@ -68,8 +68,14 @@ def get_department_officers(
 	department: str | None = None,
 	service_category: str | None = None,
 	administrative_area: str | None = None,
+	exclude_user: str | None = None,
 ) -> list[dict]:
-	"""Retrieve active officers assigned to a department, optionally filtered by category/area."""
+	"""Retrieve active officers assigned to a department, optionally filtered by category/area.
+
+	Returns only what an officer picker needs: no email or reporting line. An officer
+	on several matching desks appears once, with their primary desk first.
+	`exclude_user` (the caller) is left out, so nobody is offered themselves.
+	"""
 	if not department:
 		return []
 
@@ -82,14 +88,25 @@ def get_department_officers(
 		category=service_category,
 		administrative_area=administrative_area,
 		include_user_details=True,
-		order_by="c.is_primary DESC, u.full_name ASC",
+		fields=[
+			"c.user AS user_id",
+			"COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name",
+			"c.role_level",
+			"c.is_primary",
+			"p.administrative_area_scope",
+		],
+		order_by="c.is_primary DESC, u.full_name ASC, c.user ASC",
 	)
 
+	unique = {}
 	for off in officers:
+		if off["user_id"] in unique or off["user_id"] == exclude_user:
+			continue
 		off.pop("administrative_area_scope", None)
 		off["is_primary"] = bool(off.get("is_primary"))
+		unique[off["user_id"]] = off
 
-	return officers
+	return list(unique.values())
 
 
 def get_identity_schemes() -> list[dict]:

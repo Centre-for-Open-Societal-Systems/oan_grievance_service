@@ -168,13 +168,19 @@ grievance_route = prefixed("/api/v1/grievances")
 class SubmitDocumentsRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
-	grievance: str = Field(..., min_length=1, description="Unique Grievance document identifier")
+	# The REST route passes the case as the `ticket_number` path parameter; the RPC
+	# path and older clients send `grievance` in the body. One of them is required.
+	ticket_number: str | None = Field(None, description="Grievance ticket number (REST path parameter)")
+	grievance: str | None = Field(None, description="Grievance name or ticket number (RPC body field)")
 	document_type: str | list[str] | None = None
 	response: str | None = None
 	timeline_entry: str | None = None
 
 	@model_validator(mode="after")
 	def validate_upload_limits(self):
+		case_id = (self.ticket_number or self.grievance or "").strip()
+		if not case_id:
+			raise ValueError(_("A grievance is required."))
 		try:
 			uploads = get_uploaded_files()
 		except Exception as exc:
@@ -186,7 +192,11 @@ class SubmitDocumentsRequest(BaseModel):
 			raise ValueError(
 				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
 			)
-		existing_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance})
+		# The identifier may be a ticket number, so count against the resolved case name.
+		case_name = case_id
+		if not frappe.db.exists("Grievance", case_name):
+			case_name = frappe.db.get_value("Grievance", {"ticket_number": case_id}, "name") or case_id
+		existing_count = frappe.db.count("Grievance Attachment", {"grievance": case_name})
 		if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_CASE:
 			raise ValueError(
 				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)

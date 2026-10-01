@@ -245,7 +245,7 @@ def reset_clock(grievance):
 	arm_escalation(grievance, policy=policy)
 
 
-def arm_escalation(grievance, policy):
+def arm_escalation(grievance, policy=None):
 	"""Point the escalation clock at the first bump.
 
 	Until a case has escalated once the next bump is a fraction of its window, so this
@@ -257,7 +257,15 @@ def arm_escalation(grievance, policy):
 	switch: the batch selects on `next_escalation_at`, so a null is invisible to it,
 	and no per-case policy lookup is needed at escalation time. The SLA window, the
 	reminders and the compliance reporting all carry on untouched.
+
+	A case that has already escalated is left alone: its rung owns the schedule, and
+	re-arming it from the start of the window would put the bump in the past. A case
+	with no deadline (sla_days 0) has nothing to escalate against.
 	"""
+	if grievance.escalated or not grievance.sla_due_date:
+		return
+
+	policy = policy or resolve_policy(grievance.service_category)
 	if not policy or not policy.auto_escalate:
 		grievance.db_set("next_escalation_at", None, update_modified=False)
 		return
@@ -300,7 +308,7 @@ def states_in_category(category):
 	}
 
 
-def on_status_change(grievance, to_state):
+def on_status_change(grievance, to_state, from_state=None):
 	"""Start, pause, resume or stop the clock for the state the case just entered.
 
 	The clock starts when the case reaches a department. A Paused state holds it, and
@@ -320,6 +328,35 @@ def on_status_change(grievance, to_state):
 	resume_clock(grievance)
 	if category == STOPPED and grievance.next_escalation_at:
 		grievance.db_set("next_escalation_at", None, update_modified=False)
+		grievance.next_escalation_at = None
+	elif from_state and sla_category_of(from_state) == STOPPED:
+		rearm_after_reopen(grievance)
+
+
+def rearm_after_reopen(grievance):
+	"""Restart escalation for a case coming back out of a Stopped state (Reopen).
+
+	Entering the Stopped state disarmed it. A case that had not escalated is re-armed
+	against its deadline as usual, so an overdue reopened case is bumped on the next
+	run. One that had already escalated gives the rung it sits on that rung's own hours
+	again; on a terminal rung (no hours) the ladder stays stopped.
+	"""
+	if grievance.next_escalation_at or not grievance.sla_due_date:
+		return
+
+	policy = resolve_policy(grievance.service_category)
+	if not grievance.escalated:
+		arm_escalation(grievance, policy=policy)
+		return
+	if not policy or not policy.auto_escalate:
+		return
+
+	level = current_level_of(grievance.assigned_to)
+	hours = frappe.db.get_value("Grievance Role Level", level, "escalation_hours") if level else None
+	if hours:
+		at = add_to_date(now_datetime(), hours=hours)
+		grievance.db_set("next_escalation_at", at, update_modified=False)
+		grievance.next_escalation_at = at
 
 
 def state_timer(service_category, state):

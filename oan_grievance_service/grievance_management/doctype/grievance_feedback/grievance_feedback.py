@@ -11,6 +11,9 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 )
 from oan_grievance_service.services import constants as C
 
+# Channels where the citizen gives a rating to a person, who keys it in for them.
+ASSISTED_CHANNELS = ("Call Center", "Walk-in")
+
 
 class GrievanceFeedback(Document):
 	def validate(self):
@@ -37,13 +40,32 @@ class GrievanceFeedback(Document):
 			profiles_of,
 		)
 
-		if not permissions.is_staff(user) and not permissions.is_unrestricted(user):
+		if permissions.is_unrestricted(user):
+			return
+
+		if not permissions.is_staff(user):
 			user_profiles = profiles_of(user)
 			if grievance.submitter not in user_profiles and grievance.owner != user:
 				frappe.throw(
 					_("You can only submit feedback for your own grievances."),
 					frappe.PermissionError,
 				)
+			return
+
+		# An officer may only key in a rating the citizen gave by phone or in person,
+		# and never on a case they are handling: the rating is about their own work.
+		if self.feedback_channel not in ASSISTED_CHANNELS:
+			frappe.throw(
+				_("Officers can only record feedback given through {0}.").format(
+					_(" or ").join(ASSISTED_CHANNELS)
+				),
+				frappe.PermissionError,
+			)
+		if grievance.assigned_to == user:
+			frappe.throw(
+				_("The officer handling a grievance cannot record feedback on it."),
+				frappe.PermissionError,
+			)
 
 	def after_insert(self):
 		# Sync latest rating to grievance for fast reporting and list view display

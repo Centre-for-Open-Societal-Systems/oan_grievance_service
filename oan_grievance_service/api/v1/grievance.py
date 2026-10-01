@@ -884,12 +884,25 @@ def action(
 		)
 
 	# 3. Action-specific dispatch and reason validation
-	if matching_action == "Confirm Resolution":
-		lifecycle.transition(
-			doc, "Confirm Resolution", note="Confirmed by submitter", closure_type="confirmed"
+	if matching_action == "Close Case":
+		# Resolved -> Closed. From the submitter this accepts the resolution; staff
+		# closing the case is not a confirmation, so it carries no closure type.
+		confirmed = not permissions.is_staff()
+		closure_reason = (reason or "").strip() or (
+			"Confirmed by submitter" if confirmed else "Closed by staff"
 		)
-		doc.db_set("closure_reason", "Confirmed by submitter", update_modified=False)
-		if rating is not None:
+		lifecycle.transition(
+			doc,
+			"Close Case",
+			note=closure_reason,
+			closure_type="confirmed" if confirmed else None,
+		)
+		doc.db_set("closure_reason", closure_reason, update_modified=False)
+		doc.closure_reason = closure_reason
+		# Ratings normally arrive later through /feedback, prompted by the closure
+		# notification. One the submitter sends with the close is recorded the same way;
+		# a rating sent by staff closing the case is not the citizen's and is ignored.
+		if rating is not None and confirmed:
 			frappe.get_doc(
 				{
 					"doctype": "Grievance Feedback",
@@ -908,8 +921,9 @@ def action(
 				grievance=doc.name,
 				entry_type="resolution",
 				is_internal=False,
-				body=comments or "Confirmed resolution",
-				author_submitter=doc.submitter,
+				body=comments or closure_reason,
+				author_submitter=doc.submitter if confirmed else None,
+				author_user=None if confirmed else frappe.session.user,
 			)
 
 	elif matching_action == "Reopen":
@@ -1725,8 +1739,9 @@ def options(
 
 	Returns reference lists for case filing, management, triage, and filtering,
 	including departments, lifecycle statuses, categories, and types.
-	When `department` is provided, cascades and includes active officers under that
-	department (optionally narrowed by `service_category` and `administrative_area`).
+	When `department` is provided and the caller is staff, cascades and includes
+	active officers under that department (optionally narrowed by `service_category`
+	and `administrative_area`). The caller is never listed. Submitters never receive officers.
 
 	Args:
 	    service_category (str, optional): Filter grievance types & officers by service category (e.g. 'Inputs').
@@ -1740,7 +1755,7 @@ def options(
 	    service_categories: Active service categories
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
-	    officers: Active officers under the specified department (present only if `department` is passed)
+	    officers: Active officers under the specified department (staff only, present only if `department` is passed)
 	"""
 	cat = service_category or category
 	service_categories = get_service_categories()
@@ -1754,11 +1769,12 @@ def options(
 		"submission_channels": active_channels(),
 	}
 
-	if department:
+	if department and permissions.is_staff():
 		data["officers"] = get_department_officers(
 			department=department,
 			service_category=cat,
 			administrative_area=administrative_area,
+			exclude_user=frappe.session.user,
 		)
 
 	return success_response(data=data, message=_("Grievance options fetched successfully"))
