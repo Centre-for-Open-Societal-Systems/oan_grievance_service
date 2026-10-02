@@ -2010,6 +2010,280 @@
               "response": []
             }
           ]
+        },
+        {
+          "name": "Officers",
+          "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officer profiles. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+          "item": [
+            {
+              "name": "List officers",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers?level=L1&department=MoA&status=Active&page=1&page_size=20",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers"
+                  ],
+                  "query": [
+                    {
+                      "key": "level",
+                      "value": "L1",
+                      "disabled": false
+                    },
+                    {
+                      "key": "department",
+                      "value": "MoA",
+                      "disabled": false
+                    },
+                    {
+                      "key": "status",
+                      "value": "Active",
+                      "disabled": false
+                    },
+                    {
+                      "key": "page",
+                      "value": "1",
+                      "disabled": false
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20",
+                      "disabled": false
+                    }
+                  ]
+                },
+                "description": "Filter by level (L1/L2), department, status, or search text q. Paginated with page and page_size."
+              },
+              "response": []
+            },
+            {
+              "name": "Create officer (L1)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "var body = pm.response.json();",
+                      "if (body.data && body.data.officer) {",
+                      "    pm.collectionVariables.set(\"officer\", body.data.officer.name);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers"
+                  ]
+                },
+                "description": "Create a Nodal (L1) officer. Level cannot be changed afterwards.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ]\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Create officer (L2)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers"
+                  ]
+                },
+                "description": "Create a Senior Nodal (L2) officer. reports_to must be an L1 officer id.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get officer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers",
+                    "{{officer}}"
+                  ]
+                },
+                "description": "Fetch one officer profile."
+              },
+              "response": []
+            },
+            {
+              "name": "Update officer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers",
+                    "{{officer}}"
+                  ]
+                },
+                "description": "Partial update. service_categories replaces the whole list. Send phone, region or reports_to as null to clear them. level is rejected.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"designation\": \"Chief Nodal Officer\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Credit\"\n  ]\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Deactivate officer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers",
+                    "{{officer}}"
+                  ]
+                },
+                "description": "Deactivation is a status update: Active, On Leave or Inactive.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"Inactive\"\n}"
+                }
+              },
+              "response": []
+            }
+          ]
         }
       ]
     }

@@ -708,6 +708,53 @@ data(
 )
 
 
+data(
+	"Officer",
+	OBJ(
+		{
+			"name": S(example="OFF-00001", description="Officer profile id"),
+			"full_name": S(example="Tigist Alemu"),
+			"designation": S(example="Nodal Officer", description="Title / designation"),
+			"level": S(enum=["L1", "L2"], description="L1 nodal officer or L2 senior nodal officer"),
+			"department": S(description="Department the officer belongs to"),
+			"email": S(format="email", description="Stored lowercase; unique per officer"),
+			"phone": S(nullable=True),
+			"region": S(nullable=True, description="Region-tier administrative area id"),
+			"region_name": S(nullable=True, description="Region display name"),
+			"status": S(enum=["Active", "On Leave", "Inactive"]),
+			"service_categories": ARR(S(), description="Assigned service categories"),
+			"reports_to": S(nullable=True, description="L1 officer id. Only an L2 has one."),
+			"reports_to_name": S(nullable=True, description="Supervisor display name"),
+			"user": S(nullable=True, description="Linked login, when the officer has one"),
+		},
+		required=[
+			"name",
+			"full_name",
+			"designation",
+			"level",
+			"department",
+			"email",
+			"status",
+			"service_categories",
+		],
+		description="L1 or L2 officer profile. Performance metrics are served by the statistics API.",
+	),
+)
+
+data(
+	"OfficerData",
+	OBJ({"officer": REF("Officer")}, required=["officer"], description="One officer"),
+)
+
+data(
+	"OfficerListData",
+	OBJ(
+		{"officers": ARR(REF("Officer")), "pagination": REF("PaginationMeta")},
+		required=["officers", "pagination"],
+		description="One page of officers",
+	),
+)
+
 # Dashboard charts. Rows differ per chart and are documented on each route; each is
 # a flat object of counts, codes and labels, never case detail on the public routes.
 data(
@@ -861,6 +908,40 @@ REQ["UpdateCategoryAssignmentRequest"] = OBJ(
 	),
 )
 
+REQ["CreateOfficerRequest"] = OBJ(
+	{
+		"full_name": S(minLength=1),
+		"designation": S(minLength=1, description="Title / designation"),
+		"level": S(enum=["L1", "L2"]),
+		"department": S(minLength=1, description="Department name or short name"),
+		"email": S(format="email"),
+		"phone": S(nullable=True),
+		"region": S(nullable=True, description="Region id, path code, code or name"),
+		"status": S(enum=["Active", "On Leave", "Inactive"], default="Active"),
+		"service_categories": ARR(S(minLength=1), description="Category names or codes"),
+		"reports_to": S(nullable=True, description="L1 officer id. Only valid for an L2."),
+		"user": S(nullable=True, description="Existing login to link"),
+	},
+	required=["full_name", "designation", "level", "department", "email"],
+	description="Create an L1 or L2 officer profile",
+)
+
+REQ["UpdateOfficerRequest"] = OBJ(
+	{
+		"full_name": S(minLength=1),
+		"designation": S(minLength=1),
+		"department": S(minLength=1),
+		"email": S(format="email"),
+		"phone": S(nullable=True, description="Null clears it"),
+		"region": S(nullable=True, description="Null clears it"),
+		"status": S(enum=["Active", "On Leave", "Inactive"], description="Set Inactive to deactivate"),
+		"service_categories": ARR(S(minLength=1), description="Replaces the whole list"),
+		"reports_to": S(nullable=True, description="L1 officer id. Null clears it."),
+		"user": S(nullable=True, description="Null unlinks the login"),
+	},
+	description="Partial update. Omit a field to leave it unchanged. level is fixed and is rejected.",
+)
+
 
 # ---------------------------------------------------------------------------
 # Envelope Builder Helper
@@ -939,6 +1020,8 @@ ENVELOPES = {
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
 	),
+	"OfficerResponse": make_envelope("OfficerData", description="Officer response"),
+	"OfficerListResponse": make_envelope("OfficerListData", description="Officer list response"),
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
@@ -1115,6 +1198,43 @@ QP = {
 			"required": False,
 			"schema": S(default="desc", enum=["asc", "desc"]),
 			"description": "Sort direction",
+		},
+	],
+	"ListOfficers": [
+		{
+			"name": "level",
+			"in": "query",
+			"required": False,
+			"schema": S(enum=["L1", "L2"]),
+			"description": "Filter by officer level",
+		},
+		{
+			"name": "department",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Filter by department name or short name",
+		},
+		{
+			"name": "status",
+			"in": "query",
+			"required": False,
+			"schema": S(enum=["Active", "On Leave", "Inactive"]),
+			"description": "Filter by status",
+		},
+		{
+			"name": "q",
+			"in": "query",
+			"required": False,
+			"schema": S(),
+			"description": "Search officer name, email or id",
+		},
+		{"name": "page", "in": "query", "required": False, "schema": I(default=1, minimum=1)},
+		{
+			"name": "page_size",
+			"in": "query",
+			"required": False,
+			"schema": I(default=20, minimum=1, maximum=100),
 		},
 	],
 	"ListCategoryAssignments": [
@@ -1772,7 +1892,72 @@ ROUTES = [
 			+ "is not changed. Same as PATCH with active false. Repeating the call leaves the rule inactive."
 		),
 	),
-	# Dashboard Charts
+	# Domain 8: Administration — officers (STG-430)
+	R(
+		"get",
+		"/api/v1/officers",
+		summary="List officers",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		query=QP["ListOfficers"],
+		response="OfficerListResponse",
+		legacy="oan_grievance_service.api.v1.officer.list_officers",
+		description="Admin list of L1 and L2 officers, filterable by level, department and status.",
+	),
+	R(
+		"post",
+		"/api/v1/officers",
+		summary="Create an officer",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		request="CreateOfficerRequest",
+		response="OfficerResponse",
+		status=200,
+		legacy="oan_grievance_service.api.v1.officer.create_officer",
+		description="Create an L1 or L2 officer profile. reports_to is only for an L2 and must name an L1.",
+	),
+	R(
+		"get",
+		"/api/v1/officers/{officer}",
+		summary="Get an officer",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "officer",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Officer profile id, for example OFF-00001",
+			}
+		],
+		response="OfficerResponse",
+		legacy="oan_grievance_service.api.v1.officer.get_officer",
+		description="Fetch one officer profile.",
+	),
+	R(
+		"patch",
+		"/api/v1/officers/{officer}",
+		summary="Update an officer",
+		tag="Administration",
+		security=[{"BearerAuth": []}],
+		path_params=[
+			{
+				"name": "officer",
+				"in": "path",
+				"required": True,
+				"schema": S(),
+				"description": "Officer profile id, for example OFF-00001",
+			}
+		],
+		request="UpdateOfficerRequest",
+		response="OfficerResponse",
+		legacy="oan_grievance_service.api.v1.officer.update_officer",
+		description=(
+			"Change contact details, department, region, status, service categories or supervisor. "
+			+ "Set status to Inactive to deactivate; officers are not deleted. level cannot be changed."
+		),
+	),  # Dashboard Charts
 	R(
 		"get",
 		"/api/v1/charts",

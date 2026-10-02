@@ -1718,6 +1718,266 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.deactivate_assignment
       security:
       - BearerAuth: []
+  /api/v1/officers:
+    get:
+      tags:
+      - Administration
+      summary: List officers
+      description: Admin list of L1 and L2 officers, filterable by level, department and status.
+      operationId: get_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: level
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - L1
+          - L2
+        description: Filter by officer level
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Filter by department name or short name
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+        description: Filter by status
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Search officer name, email or id
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          minimum: 1
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create an officer
+      description: Create an L1 or L2 officer profile. reports_to is only for an L2 and must name an L1.
+      operationId: post_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.create_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOfficerRequest'
+  /api/v1/officers/{officer}:
+    get:
+      tags:
+      - Administration
+      summary: Get an officer
+      description: Fetch one officer profile.
+      operationId: get_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer profile id, for example OFF-00001
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.get_officer
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update an officer
+      description: Change contact details, department, region, status, service categories or supervisor.
+        Set status to Inactive to deactivate; officers are not deleted. level cannot be changed.
+      operationId: patch_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer profile id, for example OFF-00001
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.update_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOfficerRequest'
   /api/v1/charts:
     get:
       tags:
@@ -3630,6 +3890,98 @@ components:
       - assignments
       - pagination
       description: One page of category assignments
+    Officer:
+      type: object
+      properties:
+        name:
+          type: string
+          example: OFF-00001
+          description: Officer profile id
+        full_name:
+          type: string
+          example: Tigist Alemu
+        designation:
+          type: string
+          example: Nodal Officer
+          description: Title / designation
+        level:
+          type: string
+          enum:
+          - L1
+          - L2
+          description: L1 nodal officer or L2 senior nodal officer
+        department:
+          type: string
+          description: Department the officer belongs to
+        email:
+          type: string
+          format: email
+          description: Stored lowercase; unique per officer
+        phone:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+          description: Region-tier administrative area id
+        region_name:
+          type: string
+          nullable: true
+          description: Region display name
+        status:
+          type: string
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+        service_categories:
+          type: array
+          items:
+            type: string
+          description: Assigned service categories
+        reports_to:
+          type: string
+          nullable: true
+          description: L1 officer id. Only an L2 has one.
+        reports_to_name:
+          type: string
+          nullable: true
+          description: Supervisor display name
+        user:
+          type: string
+          nullable: true
+          description: Linked login, when the officer has one
+      required:
+      - name
+      - full_name
+      - designation
+      - level
+      - department
+      - email
+      - status
+      - service_categories
+      description: L1 or L2 officer profile. Performance metrics are served by the statistics API.
+    OfficerData:
+      type: object
+      properties:
+        officer:
+          $ref: '#/components/schemas/Officer'
+      required:
+      - officer
+      description: One officer
+    OfficerListData:
+      type: object
+      properties:
+        officers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Officer'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - officers
+      - pagination
+      description: One page of officers
     DashboardChartRow:
       type: object
       properties: {}
@@ -3939,6 +4291,108 @@ components:
           description: Set false to deactivate. Same as DELETE.
       description: Partial update. Omit a field to leave it unchanged. Unknown fields, including service_category,
         are rejected.
+    CreateOfficerRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+        designation:
+          type: string
+          minLength: 1
+          description: Title / designation
+        level:
+          type: string
+          enum:
+          - L1
+          - L2
+        department:
+          type: string
+          minLength: 1
+          description: Department name or short name
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+          description: Region id, path code, code or name
+        status:
+          type: string
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          default: Active
+        service_categories:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Category names or codes
+        reports_to:
+          type: string
+          nullable: true
+          description: L1 officer id. Only valid for an L2.
+        user:
+          type: string
+          nullable: true
+          description: Existing login to link
+      required:
+      - full_name
+      - designation
+      - level
+      - department
+      - email
+      description: Create an L1 or L2 officer profile
+    UpdateOfficerRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+        designation:
+          type: string
+          minLength: 1
+        department:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+          description: Null clears it
+        region:
+          type: string
+          nullable: true
+          description: Null clears it
+        status:
+          type: string
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          description: Set Inactive to deactivate
+        service_categories:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          description: Replaces the whole list
+        reports_to:
+          type: string
+          nullable: true
+          description: L1 officer id. Null clears it.
+        user:
+          type: string
+          nullable: true
+          description: Null unlinks the login
+      description: Partial update. Omit a field to leave it unchanged. level is fixed and is rejected.
     HealthResponse:
       type: object
       properties:
@@ -4493,6 +4947,56 @@ components:
       - status
       - data
       description: Category assignment list response
+    OfficerResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/OfficerData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Officer response
+    OfficerListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/OfficerListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Officer list response
     DashboardChartResponse:
       type: object
       properties:
