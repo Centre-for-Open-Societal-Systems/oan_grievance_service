@@ -9,8 +9,7 @@ Nine characters, case-insensitive, Crockford Base32:
 	| +---------- category, 3 chars
 	+------------ region, 1 char
 
-Agreed in the standup of 16 September 2026 and superseding FSD 3.2.3, which
-specified REGION-WOREDA-CATEGORY-SEQUENCE. The woreda is deliberately absent:
+The woreda is deliberately absent:
 grievances are handled by regional offices, so the woreda earned no place in
 the identifier, and encoding it would have required hand-assigning short codes
 to 1,378 woredas.
@@ -246,10 +245,6 @@ def _validate(code: str, width: int, subject: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def _is_gregorian_leap(year: int) -> bool:
-	return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-
-
 def ethiopian_year(on: datetime.date) -> int:
 	"""The Ethiopian year containing a Gregorian date.
 
@@ -257,36 +252,24 @@ def ethiopian_year(on: datetime.date) -> int:
 	Gregorian year is a leap year, and runs seven to eight years behind. Only
 	the year is derived — the month and day are not needed here.
 	"""
-	new_year_day = 12 if _is_gregorian_leap(on.year + 1) else 11
+	next_year = on.year + 1
+	next_is_leap = next_year % 4 == 0 and (next_year % 100 != 0 or next_year % 400 == 0)
+	new_year_day = 12 if next_is_leap else 11
 	if (on.month, on.day) >= (9, new_year_day):
 		return on.year - 7
 	return on.year - 8
 
 
-def year_value(on: datetime.date | None = None) -> int:
+def year_segment(on: datetime.date | None = None) -> str:
 	"""Years elapsed since the epoch, wrapping at the width of the field."""
 	on = on or frappe.utils.getdate(frappe.utils.nowdate())
 	year = ethiopian_year(on) if CALENDAR == "ethiopian" else on.year
-	return (year - YEAR_EPOCH[CALENDAR]) % (BASE**YEAR_WIDTH)
-
-
-def year_segment(on: datetime.date | None = None) -> str:
-	return encode(year_value(on), YEAR_WIDTH)
+	return encode((year - YEAR_EPOCH[CALENDAR]) % (BASE**YEAR_WIDTH), YEAR_WIDTH)
 
 
 # --------------------------------------------------------------------------
 # Assembly
 # --------------------------------------------------------------------------
-
-
-def scope_key(region: str, category: str, year: str) -> str:
-	"""The counter this ticket draws from.
-
-	One counter per region, category and year. Many small counters rather than
-	one national one: concurrent submissions contend only with others in the
-	same region, category and year, and each year starts the count again.
-	"""
-	return f"GRV-{region}{category}{year}-"
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,7 +326,10 @@ def generate(
 	belongs in `autoname()` and nowhere else.
 	"""
 	parts = segments(administrative_area, service_category, on)
-	key = scope_key(parts.region, parts.category, parts.year)
+	# One counter per region, category and year. Many small counters rather than one
+	# national one: concurrent submissions contend only within their own scope, and
+	# each year starts the count again.
+	key = f"GRV-{parts.region}{parts.category}{parts.year}-"
 	sequence = encode(int(getseries(key, 1)), SEQUENCE_WIDTH)
 	return f"{parts.region}{parts.category}{sequence}{parts.year}"
 

@@ -4,6 +4,10 @@
 # change the OpenAPI spec or TIER_OVERRIDES and re-run.
 _format_version: '3.0'
 _transform: true
+_info:
+  select_tags:
+  - oan
+  - grievance
 services:
 - name: oan-grievance-service-v1
   url: http://oan-grievance.internal.svc:8000
@@ -19,10 +23,11 @@ services:
   - name: cors
     config:
       origins:
-      - '*'
+      - ${{ env "DECK_CORS_ORIGINS_REGEX" }}
       methods:
       - GET
       - POST
+      - PATCH
       - DELETE
       - OPTIONS
       headers:
@@ -91,59 +96,6 @@ services:
         policy: redis
         fault_tolerant: true
         hide_client_headers: false
-  - name: get-api-v1-submitters-options
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/submitters/options$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d02
-    - public-reference
-    - public
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: ip
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-  - name: get-api-v1-submitters-me
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/submitters/me$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d02
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
   - name: get-api-v1-administrative-areas
     methods:
     - GET
@@ -181,6 +133,1168 @@ services:
     - d03
     - public-reference
     - public
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-grievances
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-action
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/action$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-feedback
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/feedback$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-ticket_number-timeline
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/timeline$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-note
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/note$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-message
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/message$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-reassign
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/reassign$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-defer-sla
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/defer-sla$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-summary
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/summary$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-options
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/options$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d05
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-attachments
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/attachments$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-attachments
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/attachments$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-attachments
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-ticket_number-attachments
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-attachments-attachment_id-view
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)/view$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-attachments-attachment_id-download
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)/download$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: delete-api-v1-attachments-attachment_id
+    methods:
+    - DELETE
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-attachments-attachment_id
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/attachments/(?<attachment_id>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d08
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-category-assignments
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/category-assignments$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-category-assignments
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/category-assignments$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-category-assignments-assignment
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-category-assignments-assignment
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: delete-api-v1-category-assignments-assignment
+    methods:
+    - DELETE
+    paths:
+    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-change-requests
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/change-requests$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d06
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-change-requests-name
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/change-requests/(?<name>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d06
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-change-requests-name-decide
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/change-requests/(?<name>[^/]+)/decide$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d06
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-charts
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-charts-grvKpis
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvKpis$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvPerformanceKpis
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvPerformanceKpis$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvMonthlyTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvMonthlyTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvWeeklyTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvWeeklyTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvNetBacklogTrend
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvNetBacklogTrend$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvStatusDistribution
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvStatusDistribution$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvByCategory
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvByCategory$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvCategoryResolution
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvCategoryResolution$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvResolutionRateByRegion
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvResolutionRateByRegion$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvSlaRisk
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvSlaRisk$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvPendingDuplicates
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvPendingDuplicates$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvOldestOpen
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvOldestOpen$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvFilterRegions
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvFilterRegions$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: get-api-v1-charts-grvFilterCategories
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/charts/grvFilterCategories$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - public-dashboards
+    - frappe-token
     plugins:
     - name: rate-limiting
       config:
@@ -310,108 +1424,41 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: get-api-v1-grievances
+  - name: get-api-v1-submitters-options
     methods:
     - GET
     paths:
-    - ~/api/v1/grievances$
+    - ~/api/v1/submitters/options$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d02
+    - public-reference
+    - public
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 120
+        hour: 3000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+  - name: post-api-v1-submitters
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/submitters$
     strip_path: false
     regex_priority: 3
     tags:
     - oan
     - grievance
     - v1
-    - d05
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-grievances-summary
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/grievances/summary$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d05
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-grievances-options
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/grievances/options$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d05
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-grievances-ticket_number
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d05
+    - d02
     - citizen-intake
     - bearer
     plugins:
@@ -430,18 +1477,18 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: post-api-v1-grievances-ticket_number-action
+  - name: post-api-v1-submitters-register
     methods:
     - POST
     paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/action$
+    - ~/api/v1/submitters/register$
     strip_path: false
-    regex_priority: 5
+    regex_priority: 4
     tags:
     - oan
     - grievance
     - v1
-    - d06
+    - d02
     - citizen-intake
     - bearer
     plugins:
@@ -460,25 +1507,25 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: post-api-v1-grievances-ticket_number-message
+  - name: post-api-v1-submitters-profile_id-unblock
     methods:
     - POST
     paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/message$
+    - ~/api/v1/submitters/(?<profile_id>[^/]+)/unblock$
     strip_path: false
     regex_priority: 5
     tags:
     - oan
     - grievance
     - v1
-    - d06
-    - citizen-intake
+    - d02
+    - officer-core
     - bearer
     plugins:
     - name: rate-limiting
       config:
-        minute: 60
-        hour: 1000
+        minute: 300
+        hour: 10000
         limit_by: consumer
         policy: redis
         fault_tolerant: true
@@ -490,18 +1537,18 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: post-api-v1-grievances-ticket_number-note
+  - name: post-api-v1-submitters-profile_id-block
     methods:
     - POST
     paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/note$
+    - ~/api/v1/submitters/(?<profile_id>[^/]+)/block$
     strip_path: false
     regex_priority: 5
     tags:
     - oan
     - grievance
     - v1
-    - d06
+    - d02
     - officer-core
     - bearer
     plugins:
@@ -520,834 +1567,7 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: get-api-v1-grievances-ticket_number-timeline
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/timeline$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d06
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: post-api-v1-grievances-ticket_number-attachments
-    methods:
-    - POST
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-grievances-ticket_number-attachments
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/attachments$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-attachments-attachment_id-download
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/attachments/(?<attachment_id>[^/]+)/download$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-attachments-attachment_id-view
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/attachments/(?<attachment_id>[^/]+)/view$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: delete-api-v1-attachments-attachment_id
-    methods:
-    - DELETE
-    paths:
-    - ~/api/v1/attachments/(?<attachment_id>[^/]+)$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - citizen-intake
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 60
-        hour: 1000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-category-assignments
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/category-assignments$
-    strip_path: false
-    regex_priority: 3
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d08
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: post-api-v1-category-assignments
-    methods:
-    - POST
-    paths:
-    - ~/api/v1/category-assignments$
-    strip_path: false
-    regex_priority: 3
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d08
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-category-assignments-assignment
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d08
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: patch-api-v1-category-assignments-assignment
-    methods:
-    - PATCH
-    paths:
-    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d08
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: delete-api-v1-category-assignments-assignment
-    methods:
-    - DELETE
-    paths:
-    - ~/api/v1/category-assignments/(?<assignment>[^/]+)$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d08
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-charts
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts$
-    strip_path: false
-    regex_priority: 3
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: get-api-v1-charts-grvKpis
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvKpis$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvPerformanceKpis
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvPerformanceKpis$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvMonthlyTrend
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvMonthlyTrend$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvWeeklyTrend
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvWeeklyTrend$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvNetBacklogTrend
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvNetBacklogTrend$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvStatusDistribution
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvStatusDistribution$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvByCategory
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvByCategory$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvCategoryResolution
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvCategoryResolution$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvResolutionRateByRegion
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvResolutionRateByRegion$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvSlaRisk
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvSlaRisk$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvPendingDuplicates
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvPendingDuplicates$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvOldestOpen
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvOldestOpen$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvFilterRegions
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvFilterRegions$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
-  - name: get-api-v1-charts-grvFilterCategories
-    methods:
-    - GET
-    paths:
-    - ~/api/v1/charts/grvFilterCategories$
-    strip_path: false
-    regex_priority: 4
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d09
-    - public-dashboards
-    - dashboard-key
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 120
-        hour: 3000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: key-auth
-      config:
-        key_names:
-        - apikey
-        hide_credentials: true
-    - name: acl
-      config:
-        allow:
-        - dashboards
-        hide_groups_header: true
 consumers:
-- username: oan-auth-jwt-issuer
-  tags:
-  - oan
-  - auth
-  - issuer
 - username: oan-citizen-mobile-client
   tags:
   - oan
@@ -1358,12 +1578,3 @@ consumers:
   - oan
   - grievance
   - portal
-- username: oan-dashboards
-  tags:
-  - oan
-  - dashboards
-  - machine-client
-  keyauth_credentials:
-  - key: ${{ env "DECK_OAN_DASHBOARDS_API_KEY" }}
-  acls:
-  - group: dashboards

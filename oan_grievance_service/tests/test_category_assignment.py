@@ -483,6 +483,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		area_desk.category_scope = self.category
 		area_desk.effective_from = frappe.utils.today()
 		area_desk.service_provider_scope = "Provider X"
+		area_desk.append("officers", {"user": self.l1, "role_level": "nodal_officer", "is_primary": 1})
 		self.assertFalse(area_desk.is_category_only())
 		area_desk.insert()
 		self._assignment()

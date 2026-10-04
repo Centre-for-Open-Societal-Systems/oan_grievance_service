@@ -7,9 +7,21 @@ from frappe.model.document import Document
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import hooks_handlers, identity, ticket_number
 
 MIN_DESCRIPTION_LENGTH = 20
+
+# Fields a submitted grievance only changes through an approved Grievance Change
+# Request. System paths (routing, escalation) write them with db_set and are not
+# requests; every save that changes one of these must carry the request.
+REQUESTABLE_FIELDS = (
+	"assigned_dept",
+	"assigned_to",
+	"sla_due_date",
+	"service_category",
+	"grievance_type",
+)
 
 # Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
 # are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
@@ -61,6 +73,7 @@ class GrievanceSubmissionPayload(BaseModel):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	administrative_area: str | None = None
+	can_request_more_info: bool | int = True
 
 	@field_validator("contact_mobile")
 	@classmethod
@@ -122,7 +135,7 @@ class Grievance(Document):
 
 		Named at insert so the sequence is allocated in the same transaction as
 		the row it belongs to. See `services.ticket_number` for the encoding;
-		the number is mirrored onto its own field because the FSD treats it as
+		the number is mirrored onto its own field because it is
 		an attribute of the grievance, and reports and notifications read it by
 		name.
 		"""
@@ -140,6 +153,15 @@ class Grievance(Document):
 	def _validate_mandatory(self):
 		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
 			return
+		if not self.contact_mobile:
+			field = self.meta.get_field("contact_mobile")
+			if field and field.reqd:
+				field.reqd = 0
+				try:
+					super()._validate_mandatory()
+				finally:
+					field.reqd = 1
+				return
 		super()._validate_mandatory()
 
 	def validate(self):
@@ -178,7 +200,7 @@ class Grievance(Document):
 		"""`workflow_state` is what the engine drives; `status` mirrors it so every
 		reader -- the API, the list filters, the reports -- keeps its field."""
 		if not self.workflow_state:
-			self.workflow_state = self.status or "Draft"
+			self.workflow_state = self.status or C.STATE_DRAFT
 		self.status = self.workflow_state
 
 	def workflow_move_from(self):
@@ -197,7 +219,17 @@ class Grievance(Document):
 
 	def before_update_after_submit(self):
 		self.keep_status_in_step_with_the_workflow()
+		self.guard_requestable_fields()
 		self.record_the_workflow_move()
+
+	def on_update_after_submit(self):
+		if self.flags.change_request:
+			if getattr(self.flags, "reassignment", False):
+				from oan_grievance_service.services import reassignment
+
+				reassignment.on_applied(self, getattr(self.flags, "change_request_doc", None))
+			else:
+				self.react_to_approved_change()
 
 	def before_cancel(self):
 		self.keep_status_in_step_with_the_workflow()
@@ -218,6 +250,131 @@ class Grievance(Document):
 		if self.is_new():
 			return
 		super().validate_workflow()
+
+	# Change requests
+	# ---------------
+	# Grievance Change Request holds who asked and who approved; what a change means
+	# for the case - which values are allowed and what else moves with them - lives
+	# here, next to the fields themselves.
+
+	def guard_requestable_fields(self):
+		if self.flags.change_request:
+			return
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		changed = []
+		for f in REQUESTABLE_FIELDS:
+			if self.has_value_changed(f):
+				if (
+					f in ("assigned_dept", "assigned_to")
+					and not before.get(f)
+					and self.status == C.STATE_SUBMITTED
+				):
+					continue
+				changed.append(f)
+		if changed:
+			frappe.throw(
+				_("{0} can only be changed through an approved change request.").format(
+					", ".join(_(self.meta.get_label(f)) for f in changed)
+				),
+				title=_("Change Request Required"),
+			)
+
+	def validate_requested_change(self, fieldname, new_value):
+		"""The rules a requested value must meet before anyone is asked to approve it."""
+		if fieldname not in REQUESTABLE_FIELDS:
+			frappe.throw(
+				_("Field '{0}' cannot be changed through a change request.").format(fieldname),
+				title=_("Field Not Requestable"),
+			)
+
+		if fieldname == "assigned_dept" and not frappe.db.exists("Grievance Department", new_value):
+			frappe.throw(
+				_("Department '{0}' does not exist.").format(new_value), title=_("Invalid Department")
+			)
+
+		if fieldname == "assigned_to" and new_value and not frappe.db.exists("User", new_value):
+			frappe.throw(_("Officer '{0}' does not exist.").format(new_value), title=_("Invalid Officer"))
+
+		if fieldname == "service_category" and not frappe.db.exists("Grievance Service Category", new_value):
+			frappe.throw(
+				_("Service Category '{0}' does not exist.").format(new_value),
+				title=_("Invalid Service Category"),
+			)
+
+		if fieldname == "grievance_type" and new_value and not frappe.db.exists("Grievance Type", new_value):
+			frappe.throw(
+				_("Grievance Type '{0}' does not exist.").format(new_value), title=_("Invalid Grievance Type")
+			)
+
+		if fieldname == "sla_due_date":
+			self._validate_deferral(new_value)
+
+	def _validate_deferral(self, new_value):
+		"""A deferral only moves the deadline out, and by no more than policy allows."""
+		from frappe.utils import get_datetime
+
+		from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+			max_deferral_days,
+		)
+
+		if not self.sla_due_date:
+			frappe.throw(_("This grievance has no SLA deadline to defer."), title=_("No SLA Deadline"))
+		days = (get_datetime(new_value) - get_datetime(self.sla_due_date)).total_seconds() / 86400
+		if days <= 0:
+			frappe.throw(_("A deferral must move the deadline later."), title=_("Invalid Deferral"))
+		if days > max_deferral_days():
+			frappe.throw(
+				_("A deferral may not exceed {0} days.").format(max_deferral_days()),
+				title=_("Deferral Too Long"),
+			)
+
+	def apply_change_request(self, request):
+		"""Write an approved request's values through a normal save, so the Version log
+		records the change and the after-submit hooks run."""
+		for row in request.changes:
+			self.set(row.fieldname, row.new_value or None)
+		self.flags.change_request = request.name
+		self.flags.change_request_doc = request
+		from oan_grievance_service.services import reassignment
+
+		self.flags.reassignment = reassignment.is_reassignment(request)
+		self.save(ignore_permissions=True)
+
+	def reject_change_request(self, request):
+		"""A rejected change request records the decision note and timeline."""
+		pass
+
+	def on_update(self):
+		if not getattr(self.flags, "change_request", None) and self.has_value_changed("service_category"):
+			if self.docstatus != 0 and self.sla_due_date:
+				from oan_grievance_service.services import sla
+
+				sla.recalculate_sla_on_category_change(self)
+
+	def react_to_approved_change(self):
+		"""Fields that move with a requested change."""
+		from frappe.utils import get_datetime
+
+		from oan_grievance_service.services import sla
+
+		if self.has_value_changed("service_category"):
+			sla.recalculate_sla_on_category_change(self)
+
+		if self.has_value_changed("sla_due_date"):
+			# Reminders reopen against the new deadline. A case already climbing keeps its
+			# rung's remaining time, shifted by the same amount; one that has not escalated
+			# is re-armed against the new deadline.
+			before = self.get_doc_before_save()
+			if before and before.sla_due_date:
+				shift = get_datetime(self.sla_due_date) - get_datetime(before.sla_due_date)
+				updates = {"reminder_50_sent": 0, "reminder_80_sent": 0}
+				if self.escalated and self.next_escalation_at:
+					updates["next_escalation_at"] = get_datetime(self.next_escalation_at) + shift
+				self.db_set(updates, update_modified=False)
+				if "next_escalation_at" not in updates:
+					sla.arm_escalation(self, sla.resolve_policy(self.service_category))
 
 	def set_administrative_area_metadata(self):
 		"""Denormalise area_lft and capture immutable area_path_code snapshot."""

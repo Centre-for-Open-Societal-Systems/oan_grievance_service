@@ -30,11 +30,6 @@
   "grievance_confirmation_window_days": 7,
   "grievance_max_deferral_days": 30,
   "grievance_auto_escalation_enabled": true,
-  "grievance_sla_paused_statuses": [
-    "Pending Submitter",
-    "Draft",
-    "Withdrawn"
-  ],
 
   "installed_apps": [
     "frappe",

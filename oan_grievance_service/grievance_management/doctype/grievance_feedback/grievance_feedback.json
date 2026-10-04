@@ -1,0 +1,180 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:GR-FDBK-{#####}",
+ "creation": "2026-09-30 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "rating",
+  "feedback_type",
+  "col_meta",
+  "submitted_at",
+  "submitted_by",
+  "author_submitter",
+  "sec_feedback",
+  "comments",
+  "sec_audit",
+  "feedback_channel",
+  "ip_address"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Rating from 1 (very dissatisfied) to 5 (very satisfied)",
+   "fieldname": "rating",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Rating",
+   "reqd": 1
+  },
+  {
+   "default": "Resolution",
+   "fieldname": "feedback_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Feedback Type",
+   "options": "Resolution\nOfficer Conduct\nOverall Experience",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "submitted_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Submitted At",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "submitted_by",
+   "fieldtype": "Link",
+   "label": "Submitted By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "author_submitter",
+   "fieldtype": "Link",
+   "label": "Submitter Profile",
+   "options": "Grievance Submitter Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_feedback",
+   "fieldtype": "Section Break",
+   "label": "Feedback Content"
+  },
+  {
+   "fieldname": "comments",
+   "fieldtype": "Small Text",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "sec_audit",
+   "fieldtype": "Section Break",
+   "label": "Audit & Channel"
+  },
+  {
+   "default": "Web Portal",
+   "fieldname": "feedback_channel",
+   "fieldtype": "Select",
+   "label": "Feedback Channel",
+   "options": "Web Portal\nMobile App\nSMS\nCall Center\nWalk-in"
+  },
+  {
+   "fieldname": "ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Feedback",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Submitter",
+   "share": 1,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

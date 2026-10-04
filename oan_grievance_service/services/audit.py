@@ -1,7 +1,6 @@
-"""FR-10 Audit and Compliance.
+"""Access audit trail.
 
-The Grievance Access Audit Event doctype is FSD section 5's Access Audit Event: it
-records reads, which the change log cannot, because reading a grievance changes nothing.
+The Grievance Access Audit Event doctype records reads, which the change log cannot, because reading a grievance changes nothing.
 Every question about a breach — who opened this case, who exported a region — is a read.
 """
 
@@ -22,13 +21,16 @@ ACTION_DELETE_ATTACHMENT = "delete_attachment"
 
 def record_access(action, grievance=None, scope=None, decision="Allowed"):
 	"""Write an access audit row. Never raises: auditing must not break the request."""
+	from oan_grievance_service.permissions import GRIEVANCE_ROLES
+
 	try:
+		roles = set(frappe.get_roles())
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Access Audit Event",
 				"timestamp": now_datetime(),
 				"user": frappe.session.user,
-				"role": primary_role(),
+				"role": next((role for role in GRIEVANCE_ROLES if role in roles), None),
 				"grievance": grievance,
 				"action": action,
 				"decision": decision,
@@ -40,17 +42,6 @@ def record_access(action, grievance=None, scope=None, decision="Allowed"):
 		frappe.log_error(title="Access audit write failed", message=frappe.get_traceback())
 
 
-def primary_role():
-	"""The grievance role this user holds, for the audit row."""
-	from oan_grievance_service.permissions import GRIEVANCE_ROLES
-
-	roles = set(frappe.get_roles())
-	for role in GRIEVANCE_ROLES:
-		if role in roles:
-			return role
-	return None
-
-
 def on_grievance_view(doc, method=None):
 	"""Hooked to onload so opening a case leaves a trace."""
 	if frappe.session.user == "Administrator" and frappe.flags.in_install:
@@ -59,7 +50,7 @@ def on_grievance_view(doc, method=None):
 
 
 def log_denied(action, grievance=None, scope=None):
-	"""FSD UC-02 E1: an unauthorised attempt is denied and logged."""
+	"""An unauthorised attempt is denied and logged."""
 	record_access(action, grievance=grievance, scope=scope, decision="Denied")
 
 
@@ -72,7 +63,7 @@ class ImmutableRecord:
 	trail whose only defence is a permission flag is one `frappe.db.set_value` away
 	from being rewritten, with nothing recording that it happened.
 
-	FR-10 needs the trail to be evidence. Evidence that the application can silently
+	The trail has to be evidence. Evidence that the application can silently
 	revise is not evidence, so the refusal lives in the document lifecycle where the
 	service layer cannot step around it.
 	"""

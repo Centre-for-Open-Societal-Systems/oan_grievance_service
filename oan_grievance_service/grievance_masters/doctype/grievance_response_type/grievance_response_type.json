@@ -10,7 +10,6 @@
   "response_type_name",
   "workflow_action",
   "col_break_1",
-  "sla_behaviour",
   "requires_referred_dept",
   "is_active",
   "description"
@@ -36,16 +35,6 @@
   {
    "fieldname": "col_break_1",
    "fieldtype": "Column Break"
-  },
-  {
-   "default": "running",
-   "description": "What the SLA clock does upon recording this response (running, paused, stopped).",
-   "fieldname": "sla_behaviour",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "SLA Behaviour",
-   "options": "running\npaused\nstopped",
-   "reqd": 1
   },
   {
    "default": "0",

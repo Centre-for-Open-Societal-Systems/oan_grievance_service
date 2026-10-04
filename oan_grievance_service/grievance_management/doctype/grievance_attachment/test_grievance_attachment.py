@@ -86,7 +86,7 @@ class TestGrievanceAttachment(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Grievance Attachment", doc.name))
 
 	def test_a_response_from_another_case_is_refused(self):
-		# A response moves the case to Pending Submitter, which is only legal from In Progress.
+		# A response moves the case to Resolved, which is only legal from In Progress.
 		other = a_grievance(status="In Progress")
 		response = frappe.get_doc(
 			{
