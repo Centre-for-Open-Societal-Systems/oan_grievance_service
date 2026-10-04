@@ -13,7 +13,6 @@ from oan_auth_service.api.router import (
 	_exempt_paths,
 	_rules,
 	prefixed,
-	registered_routes,
 	rest,
 )
 from oan_auth_service.api.router import (

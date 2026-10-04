@@ -54,7 +54,6 @@ def version_meta(version=CURRENT_VERSION):
 from oan_grievance_service.api.router import (
 	ensure_routes_registered,
 	prefixed,
-	registered_routes,
 	rest,
 )
 
@@ -63,7 +62,6 @@ __all__ = [
 	"VERSIONS",
 	"ensure_routes_registered",
 	"prefixed",
-	"registered_routes",
 	"rest",
 	"version_meta",
 ]

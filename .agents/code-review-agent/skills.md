@@ -1,294 +1,317 @@
-# skills.md — Technical Expertise Matrix
-
-## The Stack — Libraries In Use
-
-Every review is conducted against these technologies at these versions. A dependency or pattern outside this set is, by default, suspect and must be justified (see `rules.md` §19 Dependency & Package Hygiene).
-
-| Layer              | Technology                     | Version          |
-| ------------------ | ------------------------------ | ---------------- |
-| Framework          | Next.js (App Router)           | ^16.2.9          |
-| UI Library         | React                          | ^19.2.7          |
-| Language           | TypeScript                     | ^6.0.3           |
-| State              | Redux Toolkit + React Redux    | ^2.12.0 / ^9.3.0 |
-| Styling            | Tailwind CSS v4                | ^4.3.0           |
-| Variant API        | Class Variance Authority (CVA) | ^0.7.1           |
-| Class Merging      | clsx + tailwind-merge          | ^2.1.1 / ^3.6.0  |
-| Icons              | Lucide React                   | ^1.17.0          |
-| CSS Pre-processing | Sass                           | ^1.100.0         |
-| API Mocking        | MSW v2                         | ^2.14.6          |
-| Build              | PostCSS + Autoprefixer         | ^8.5.x / ^10.5.x |
-
-The detection techniques below map one-to-one onto the 25 check domains (`agent.md`) and their rules (`rules.md`) — domains 1–20 are the stack-wide baseline, domains 21–25 are the supplementary high-stakes concerns.
-
----
-
-## 1. TypeScript Mastery
-
-- **Advanced Type Composition:** Conditional types, mapped types, `infer`, template literal types, variadic tuples. Can read complex type-level programs and identify where they widen or narrow types unintentionally.
-- **Discriminated Union Analysis:** Identifies state shapes using optional fields where discriminated unions should be used. Recognizes states that are technically representable by the type but semantically impossible — the type system should make those states unrepresentable.
-- **`tsconfig` Expertise:** Full knowledge of every `compilerOptions` flag relevant to strictness, module resolution, and output. Knows which missing flag enables which class of runtime bug.
-- **Assertion Safety Analysis:** Detects unsafe `as` casts and recognizes the double-assertion pattern (`as unknown as Target`) — a signal that the developer knew the assertion was unsound and forced it through anyway.
-- **Generic Constraint Analysis:** Detects overly permissive constraints (`T extends object`) and recognizes where constraints are missing entirely, allowing types to flow through that should have been rejected.
-
----
-
-## 2. React 19 & Next.js App Router
-
-- **Server vs. Client Boundary:** Knows what data, state, and behavior belongs in each layer. Can detect a Server Component importing a browser-only module, or a Client Component escalated unnecessarily — blocking streaming with no benefit.
-- **Streaming & Suspense Topology:** Understands `<Suspense>` placement, `loading.tsx` vs inline boundaries, and how boundary granularity affects perceived performance and streaming behavior.
-- **Hydration Mismatch Detection:** Recognizes patterns that cause server/client HTML divergence — conditional rendering on `typeof window !== 'undefined'`, non-deterministic IDs, dates formatted without locale stabilization.
-- **Hook Rules Compliance:** Detects conditional hook calls, hooks called in non-component functions, and hooks used inside Server Components — all silent failures or runtime errors.
-- **`useEffect` Abuse Taxonomy:** Can identify the full spectrum of misuse: derived state synchronization, missing cleanup, stale closure capture, over-specified or under-specified dependency arrays.
-- **Route Architecture Evaluation:** Can evaluate App Router directory structures for correctness — misplaced segment files, incorrect `layout.tsx` scope, overly broad middleware matchers, missing `error.tsx` and `loading.tsx` coverage.
-
----
-
-## 3. Redux Toolkit & State Architecture
-
-- **Slice Boundary Violations:** Identifies when two slices share state that belongs together (under-splitting) or when one slice aggregates unrelated domains (over-aggregation into a god slice).
-- **Selector Pathology:** Detects inline `useSelector` derivations that execute on every state update regardless of whether the derived value changed. Understands Redux's reference equality re-render model.
-- **Thunk Rejection Coverage:** Identifies `createAsyncThunk` definitions whose consuming `extraReducers` are missing the `rejected` case handler — errors silently discarded.
-- **RTK Query Tag Analysis:** Can evaluate cache tag topology — detects missing tag definitions, over-broad invalidation strategies, and endpoints bypassing the cache entirely when they should not.
-- **Normalization Gaps:** Identifies Redux state storing arrays of domain entities that should use `createEntityAdapter` for O(1) lookup and atomic updates.
-
----
-
-## 4. Styling Architecture (Tailwind v4 + CVA + Sass)
-
-- **Tailwind Conflict Detection:** Knows which Tailwind classes conflict when concatenated without `twMerge`. Can identify components accepting `className` without routing it through `cn()`.
-- **CVA Pattern Gap Detection:** Identifies components with multiple visual variants implemented through conditional class strings where `cva()` is the correct abstraction.
-- **Arbitrary Value Repetition Audit:** Can scan for repeated `[value]` patterns and identify which should be extracted to `tailwind.config` as named design tokens.
-- **Dark Mode Coverage Audit:** Can traverse a component's class list and identify color-bearing classes without corresponding `dark:` variants.
-- **Sass Scope Violations:** Identifies Sass files implementing styles that Tailwind handles idiomatically — detecting where a parallel styling system has been introduced.
-
----
-
-## 5. Performance Engineering
-
-- **Core Web Vitals Regression Detection:** Knows which patterns degrade LCP (unoptimized images, render-blocking resources), INP (long tasks, synchronous event handlers on scroll/resize), and CLS (images without explicit dimensions, content inserted above existing content).
-- **Unnecessary Re-render Detection:** Can read a component tree and predict which parent state changes cascade unnecessarily into deeply nested child re-renders in the absence of memoization.
-- **Bundle Risk Assessment:** Recognizes commonly large libraries and can identify imports that pull the entire library rather than a specific sub-path, defeating tree-shaking.
-- **Dynamic Import Candidate Identification:** Can evaluate a component tree and identify which components are included in the initial bundle but should be loaded lazily.
-- **`useEffect` Derived State Anti-Pattern:** Detects the full pattern: `useState` initialized from a prop, a `useEffect` synchronizing it when the prop changes — a synchronization bug that produces stale state on intermediate renders.
-
----
-
-## 6. Security Analysis
-
-### Input Sanitization
-
-- **Schema validation vs. content sanitization distinction:** Understands that Zod validates _shape and type_ — it does not strip XSS payloads from string values that conform to the expected type. Can identify fields where structural validation passes but content sanitization is absent.
-- **Prototype pollution vector detection:** Recognizes `JSON.parse(untrustedData)` spread directly into application objects and identifies where `__proto__` and `constructor` key injection could pollute the prototype chain.
-- **Null byte and overlong input detection:** Identifies Zod schemas on string fields missing `max()` constraints and `.regex()` guards against control characters on fields feeding into system calls, file paths, or shell commands.
-- **URL parameter trust boundary tracing:** Follows values from `useSearchParams`, `useParams`, `router.query`, and `window.location` to their first rendered or persisted use, identifying every point where user-controlled URL data enters the application without validation.
-
-### XSS Prevention
-
-- **Full XSS vector enumeration:** Identifies all DOM-write vectors beyond `dangerouslySetInnerHTML` — `href` injection via `javascript:` or `data:` URIs, dynamic `src` attributes on media and script elements, `innerHTML` writes via direct DOM API calls bypassing React's escaper, and `eval()`/`new Function()` usage.
-- **`target="_blank"` reverse tabnapping detection:** Identifies every external `<a>` element without `rel="noopener noreferrer"` and understands the `window.opener` redirection attack this enables.
-- **DOM-based XSS tracing:** Follows data from user-controlled sources (URL parameters, `postMessage` listeners, `localStorage` reads) through to sink operations that write to the DOM.
-- **Template injection awareness:** Recognizes patterns where user-controlled values are interpolated into strings that are subsequently evaluated — server-side template injection risks surfacing in isomorphic rendering contexts.
-
-### CSRF Protection
-
-- **Server Action origin validation audit:** Reads Next.js Server Action definitions and identifies those performing state mutations without `Origin` header validation against a known allowlist.
-- **API route method semantics:** Identifies `GET` handlers performing database mutations — a CSRF vulnerability and HTTP semantics violation simultaneously.
-- **Cookie `SameSite` verification:** Reads cookie configuration and identifies auth cookies missing `SameSite=Strict` or `SameSite=Lax` — the minimum CSRF mitigation for cookie-based sessions.
-- **CSRF token pattern detection:** Can identify whether a synchronizer token or double-submit cookie pattern is implemented, and whether it covers all mutating endpoints.
-
-### Secure Headers
-
-- **CSP completeness audit:** Can read a `Content-Security-Policy` definition and evaluate directive completeness — identifying missing `default-src`, absent `frame-ancestors`, and directives weakened by `unsafe-inline` or `unsafe-eval` to a point of ineffectiveness.
-- **Security header presence audit:** Reads `next.config` `headers()` configuration and identifies which of the six mandatory security headers are absent: CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security`.
-- **Header placement audit:** Distinguishes between headers set at the application layer (`next.config`) and headers set only at the CDN or load balancer layer, flagging the latter as infrastructure-dependent security that the application does not control.
-
-### Cookie Security
-
-- **Cookie attribute audit:** Reads cookie creation code and identifies auth cookies missing any of `HttpOnly`, `Secure`, or a valid `SameSite` value.
-- **Expiry policy analysis:** Evaluates session versus persistent cookie lifetime and flags unbounded expiry settings.
-
-### General Exposure Detection
-
-- **Secret exposure scanning:** Detects hardcoded credentials, API keys embedded in constants, and `NEXT_PUBLIC_` environment variables containing server-side secrets.
-- **PII in log output detection:** Identifies `console.*` calls printing user email addresses, names, tokens, session IDs, or other personally identifying fields.
-- **Runtime CVE cross-reference:** Recognizes commonly vulnerable package versions and flags them as security findings distinct from general package hygiene.
-
----
-
-## 7. Testing (MSW v2)
-
-- **Handler Coverage Audit:** Can read a component's data-fetching logic and enumerate every API endpoint requiring an MSW handler — then identify which are absent.
-- **State Coverage Verification:** Can read a test file and identify which of the four states (loading, error, empty, success) have assertions and which are untested.
-- **Behavior vs. Implementation Testing:** Detects tests asserting on internal state values, ref contents, or component method calls rather than observable, user-facing behavior.
-- **Timing Fragility Detection:** Identifies `setTimeout`-based test patterns, non-deterministic async assertions, and missing `waitFor` wrapping on async state updates.
-
----
-
-## 8. Code Hygiene & Static Analysis
-
-- **Dead Code Detection:** Identifies unreachable code paths (conditions that are always true or always false, code following a `return`, imports of unused symbols), commented-out blocks, and exported symbols never imported.
-- **Debug Artifact Detection:** Recognizes `console.*` calls, `debugger` statements, and verbose logging not guarded by a `NODE_ENV` check.
-- **Magic Value Detection:** Identifies repeated literal strings and numbers that should be named constants, centralized, and typed.
-
----
-
-## 9. File & Folder Structure Analysis
-
-- **Convention Consistency Audit:** Determines whether a project is following a feature-based or layer-based convention, then identifies every file violating the established pattern.
-- **Barrel File Topology:** Traces barrel re-exports to identify where circular dependencies are introduced and where tree-shaking is defeated by re-exporting side-effecting modules.
-- **Colocation Gap Detection:** Identifies test files, story files, and style modules disconnected from their source components.
-- **Module Boundary Violations:** Detects cross-domain imports where a feature module reaches into another feature module's internal implementation rather than its public API surface.
-- **Circular Dependency Tracing:** Follows import chains to detect cycles.
-
----
-
-## 10. Naming Convention Enforcement
-
-- **File Naming Audit:** Can scan a directory listing and identify files violating PascalCase (components), camelCase (hooks/utils), or UPPER_SNAKE (constants) conventions.
-- **Boolean Prop Naming:** Detects boolean-typed props missing the `is/has/can` prefix — where type signal is lost and prop intent is ambiguous.
-- **Redux Action Pattern Audit:** Identifies slice action names not following `domain/verb`, making the Redux DevTools log unreadable at scale.
-- **Handler vs. Prop Naming Discipline:** Detects `onClick` implementations named `onClick` (should be `handleClick`) and event prop interfaces missing the `on` prefix.
-
----
-
-## 11. Next.js App Router Expertise
-
-- **Metadata Coverage Audit:** Can traverse the App Router route tree and identify every `page.tsx` missing a `metadata` export or `generateMetadata` function.
-- **Cache Strategy Audit:** Reads Server Component data fetching and identifies `fetch` calls without an explicit cache directive, relying on unpredictable implicit defaults.
-- **Boundary Necessity Analysis:** Can determine whether a `'use client'` directive is required (interactivity, browser APIs, React state) or unnecessary — and identifies the specific trigger forcing the escalation.
-- **Error and Loading Boundary Coverage:** Traces the route tree to identify segments with async data fetching or potential throws that lack `error.tsx` or `loading.tsx`.
-- **Middleware Matcher Precision:** Evaluates middleware matchers and identifies overly broad patterns running on static asset routes or API health endpoints.
-
----
-
-## 12. React-Specific Pitfall Detection
-
-- **Falsy `&&` Rendering:** Detects `{value && <Component />}` patterns where `value` can be `0`, `''`, or `NaN` — all of which produce a visible DOM node on the page.
-- **Key Prop Stability:** Identifies `key={index}` in dynamic lists where items can be added, removed, or reordered — causing reconciliation failures and state retention across position changes.
-- **Controlled/Uncontrolled Mixing:** Detects inputs transitioning between having a `value` prop and not having one — a React warning producing undefined behavior.
-- **Ref vs. State Misuse:** Identifies `useRef` holding values whose change should schedule a re-render, silently breaking reactivity.
-- **Strict Mode Violation Detection:** Recognizes effects with initialization logic that would break when invoked twice — missing cleanup, non-idempotent setup, or assumptions about single execution.
-
----
-
-## 13. Accessibility (A11y)
-
-- **Semantic HTML Audit:** Traverses JSX and identifies `<div>` or `<span>` elements carrying `onClick`, `onKeyDown`, `role`, or interactive class names that should be native interactive elements.
-- **ARIA Correctness:** Knows the ARIA Authoring Practices well enough to identify incorrect role usage, redundant ARIA on semantic elements, and missing required ARIA attributes for composite widgets (e.g., `aria-expanded` on a disclosure button, `aria-selected` on a tab).
-- **Keyboard Navigation Analysis:** Traces the interactive element tree and identifies elements that cannot receive focus, lack keyboard event handlers, or fail to respond to Enter and Space.
-- **Focus Management Audit:** Identifies modals, drawers, and dialogs missing focus trapping on open and focus restoration to the trigger on close.
-- **Form Accessibility Audit:** Detects inputs without associated labels, error messages without `aria-describedby`, required fields without `aria-required`, and dynamic updates without `aria-live` regions.
-
----
-
-## 14. Form Handling Analysis
-
-- **State Coverage Check:** Can read a form component and identify which of the four form states (idle, submitting, error, success) have explicit handling in the render output.
-- **Zod Schema Coverage:** Identifies fields without corresponding validation rules and schemas missing edge case coverage (empty strings, whitespace-only input, boundary values).
-- **Submission Guard Check:** Detects submit buttons that are not disabled during in-flight request states.
-- **Schema Colocation:** Identifies Zod schemas defined inline inside component bodies that belong in dedicated domain files.
-
----
-
-## 15. SEO & Metadata Analysis
-
-- **Metadata Completeness:** Can traverse the App Router tree and identify routes missing `metadata` exports or `generateMetadata` functions.
-- **OG Tag Audit:** Verifies presence of `og:title`, `og:description`, `og:image`, and `og:url` in metadata output.
-- **Internal Navigation Audit:** Detects plain `<a>` elements used for internal routing instead of `next/link`.
-- **Canonical and noindex Coverage:** Identifies pages accessible through multiple paths without canonical tags, and identifies pages that should be noindexed but are not.
-
----
-
-## 16. CSS & Animation Integrity
-
-- **GPU-Unsafe Animation Detection:** Identifies CSS transitions and animations targeting layout-triggering properties (`top`, `left`, `width`, `height`, `margin`, `padding`).
-- **z-index Scale Audit:** Detects inline or arbitrary z-index values not part of a named scale.
-- **Responsive Coverage Gap:** Identifies components with desktop-only styling and no mobile or tablet breakpoint variants.
-- **Dark Mode Gap Detection:** Traverses component class lists and identifies color-bearing classes without corresponding `dark:` variants.
-- **Overflow Risk Detection:** Identifies containers receiving dynamic or user-generated content without explicit overflow rules.
-
----
-
-## 17. i18n Readiness Analysis
-
-- **Hardcoded String Detection:** Identifies string literals in JSX render output and prop values that are not i18n key references.
-- **Directional Property Audit:** Identifies Tailwind classes using physical direction properties (`ml-`, `mr-`, `left-`, `right-`) instead of logical properties (`ms-`, `me-`, `start-`, `end-`).
-- **Locale-Aware Formatting Check:** Detects hardcoded date, number, and currency format strings that will not adapt to non-default locales.
-- **Plural Hardcoding Detection:** Identifies ternary expressions handling singular/plural forms inline instead of through an i18n system.
-
----
-
-## 18. API & Data Boundary Analysis
-
-- **Zod Boundary Tracing:** Follows data from a `fetch` response through to its first use in Redux state or component render output, identifying every point it enters the application without validation.
-- **Race Condition Detection:** Identifies data-fetching patterns where sequential requests can resolve out of order without cancellation of superseded requests.
-- **PII Exposure Scan:** Identifies where user-identifying information (email, name, phone, tokens) appears in `console.log`, Redux state keys visible in DevTools, or `localStorage` values.
-- **RTK Query Over-Broad Invalidation:** Identifies cache tag configurations where a single mutation invalidates tags belonging to unrelated data domains.
-
----
-
-## 19. Dependency & Package Analysis
-
-- **Unused Dependency Detection:** Correlates `package.json` entries against actual import usage across the codebase to surface installed but unreferenced packages.
-- **Bundle Impact Assessment:** Recognizes common large libraries and can identify when a dependency is disproportionately large relative to its role in the codebase.
-- **Vulnerability Status:** Identifies packages with known CVEs and can assess their severity relative to how the package is used in production code.
-- **License Identification:** Can identify GPL, AGPL, and other copy-left licensed packages and flag their incompatibility with commercial proprietary products.
-- **DevDependency Leakage:** Identifies test and build tools incorrectly listed under `dependencies` rather than `devDependencies`.
-
----
-
-## 20. Environment & Configuration Safety
-
-- **`NEXT_PUBLIC_` Audit:** Scans environment variable usage and identifies variables with secret-sounding names carrying the client-bundle-embedding prefix.
-- **Build-Time Validation Gap:** Identifies codebases accessing `process.env` directly without a validated schema — apps that can silently start and fail only at the feature boundary where the missing variable is first used.
-- **Dev-Only Code Guard Detection:** Identifies logging, mock initialization, or tooling setup executing unconditionally across all environments.
-- **Hardcoded Endpoint Detection:** Identifies API base URLs, CDN paths, and service endpoints embedded as string literals rather than drawn from environment configuration.
-
----
-
-## 21. Monetary & Numeric Integrity
-
-- **Float-Money Detection:** Recognizes monetary values typed or computed as `number` and arithmetic performed in floating point, where integer minor units or a decimal library is required. Knows the classic `0.1 + 0.2` failure mode and where it surfaces in totals and interest math.
-- **Currency Pairing Audit:** Identifies amounts rendered or passed without an accompanying currency, and detects mixed-currency arithmetic with no conversion step.
-- **Rounding Consistency Analysis:** Detects ad-hoc `toFixed`/`Math.round` rounding scattered across the render layer instead of a single centralized rounding utility with an explicit mode.
-- **Client-Authority Detection:** Identifies places where a balance, fee, or interest figure is computed on the client and presented as authoritative rather than rendered from a server-provided value.
-- **Numeric Boundary Analysis:** Detects numeric inputs feeding mutations without precision, range, or sign constraints at the boundary.
-
----
-
-## 22. Sensitive Data Handling & Privacy
-
-- **Masking Gap Detection:** Identifies sensitive identifiers rendered in full by default where masking with an explicit reveal action is required.
-- **Storage & URL Leakage Tracing:** Follows PII and sensitive identifiers into URLs, query strings, `localStorage`/`sessionStorage`, and analytics event payloads — every persistence or transmission surface readable beyond the intended boundary.
-- **Log/Error PII Scan:** Extends the §6/§18 PII scan to UI-surfaced error messages and third-party error/analytics SDK payloads, not just `console.*`.
-- **Over-Exposure Detection:** Identifies components receiving entire domain records when they render a single field — a data-minimization violation at the prop boundary.
-- **Exfiltration-Surface Awareness:** Recognizes clipboard, autofill, and screenshot pathways that expose sensitive values without explicit user intent.
-
----
-
-## 23. Authorization & Access Control (UI Layer)
-
-- **Client-Gating-as-Security Detection:** Distinguishes UI affordance (hiding a control) from an enforced control, and flags any place where client-side gating is the _only_ thing standing between the user and a privileged action.
-- **Over-Rendered Control Detection:** Identifies controls rendered for actions the current role cannot perform — a least-privilege and UX defect.
-- **Route Guard Analysis:** Detects protected segments gated by deep conditional rendering (with a content-exposing loading flash) rather than guarded at the boundary.
-- **RBAC Centralization Audit:** Detects scattered, stringly-typed role comparisons (`role === 'admin'`) that should resolve through a single permission authority.
-- **Step-Up Bypass Detection:** Identifies verification/re-auth gates whose "passed" state lives only in client state and is never reconfirmed server-side.
-
----
-
-## 24. Auditability & Traceability
-
-- **Correlation Propagation Audit:** Identifies state-mutating flows that do not propagate a correlation or request identifier, making an action impossible to reconstruct end to end.
-- **Idempotency Gap Detection:** Detects irreversible or financial mutations submitted without an idempotency key, where a retry or double-submit can duplicate the effect — distinct from the §14 in-flight submission guard.
-- **Silent Mutation Detection:** Identifies fire-and-forget mutations whose failure produces no observable, attributable result.
-- **Log Structure Analysis:** Recognizes unstructured, unqueryable client logging and verifies it carries none of the sensitive payloads called out in domain 22.
-
----
-
-## 25. Consent, Compliance & High-Impact Confirmation
-
-- **Consent Capture Audit:** Identifies processing that proceeds without explicit, versioned, recorded consent — including pre-checked boxes and consent bundled with unrelated agreement.
-- **Irreversible-Action Confirmation Detection:** Detects single-click paths to unrecoverable financial or data actions lacking a consequence-stating confirmation step.
-- **Disclosure Association Audit:** Identifies required legal/regulatory disclosures that are present visually but not programmatically associated with the action they govern.
-- **Server-Time Reliance Check:** Detects expiry, cooling-off, and verification countdowns driven by the client clock (`Date.now()`) rather than server time.
-- **Timezone Correctness Analysis:** Identifies legally or financially significant timestamps and deadlines rendered without unambiguous, timezone-correct formatting.
+# Skills — Detection Techniques and Domain Knowledge
+
+Each domain lists **Signals** (Tier 2: cheap, mechanical), **Deep analysis** (Tier 3:
+reasoning applied to signal hits and blast-radius zones), and **Knowledge** the reviewer
+brings. Domain numbers match `agent.md` and `rules.md`.
+
+## Cross-domain techniques
+
+- **Source-to-sink tracing.** Follow each untrusted value from entry point to every
+  interpreter, store, response, log, and outbound call it reaches.
+- **Trust-boundary mapping.** Mark where data crosses between client, service, store,
+  broker, cache, third party, region, and tenant; every crossing needs a control.
+- **Failure-mode enumeration.** For every external interaction, walk refused, slow,
+  partial, erroring, duplicated, and malformed outcomes to their end state.
+- **Interleaving analysis.** Execute two copies of the same use case step by step against
+  the same record and look for lost updates, write skew, and phantoms.
+- **Scale projection.** Re-evaluate each access path at 10x and 100x rows, users, tenants,
+  and request rate; cost growing with data size on a request path is a finding.
+- **Change-radius measurement.** Count how many locations a single business-rule change
+  must touch; more than one indicates duplicated knowledge.
+- **Blast-radius tagging.** Mark paths touching money, personal data, access control, or
+  legal obligations for mandatory deep analysis and severity escalation.
+
+## 1. API Contract & HTTP Semantics
+
+- **Signals:** state mutation reachable from safe methods; success status set on error
+  branches; collection handlers without a maximum size; persistence entities returned
+  directly; handlers performing long work inline; missing or divergent contract definition.
+- **Deep analysis:** compare the declared contract to each handler's actual fields, types,
+  statuses, and error paths, including unhandled-failure paths; test pagination stability
+  under concurrent inserts and deletes.
+- **Knowledge:** method safety and idempotency semantics; status code classes; problem
+  details structure; cursor versus offset behavior; long-running operation resources.
+
+## 2. Request Boundary & Validation
+
+- **Signals:** raw request structures passed below the handler; bulk binding of input maps
+  to entities; absent size limits; file name or type taken from the client; external
+  service responses used without validation.
+- **Deep analysis:** trace every input source to first use; enumerate writable versus
+  server-controlled fields per entity; probe coercion of empty, null, duplicate, oversized,
+  and out-of-range values.
+- **Knowledge:** allow-listing; canonicalize-then-validate ordering; mass assignment;
+  parser differentials; content sniffing; boundary versus invariant validation.
+
+## 3. Authentication & Session
+
+- **Signals:** routes without an authentication declaration; token decoding without
+  verification; algorithm read from the token itself; general-purpose hashes near password
+  handling; credential endpoints without attempt counters; no session rotation at login.
+- **Deep analysis:** reconcile the public-endpoint declaration with the full route
+  inventory; walk logout, reset, and privilege-change paths for invalidation; check how
+  internal callers prove identity.
+- **Knowledge:** adaptive password hashing; token best practices (algorithm confusion,
+  audience and issuer binding); session fixation; credential stuffing; account enumeration
+  through messages and timing; zero-trust workload identity.
+
+## 4. Authorization & Object Access
+
+- **Signals:** fetch-by-identifier without an ownership or permission predicate; inline
+  role conditionals in handlers; principal or role values read from request data;
+  privileged routes guarded only by path; policy lookups with permissive fallback.
+- **Deep analysis:** for every object-addressing operation, trace identifier to data access
+  and confirm a principal-bound check precedes return or mutation; confirm list operations
+  filter by principal; verify asynchronous work re-establishes the principal; compare field
+  sensitivity against field-level enforcement.
+- **Knowledge:** object-, function-, and property-level authorization failures; role-,
+  attribute-, and relationship-based models; confused deputy; fail-safe defaults;
+  time-of-check to time-of-use gaps.
+
+## 5. Application Security Hardening
+
+- **Signals:** text construction feeding interpreters; secret-shaped literals; outbound
+  destinations built from input; type-resolving deserialization; weak primitives or fixed
+  nonces; disabled certificate checks; wildcard or reflected origins with credentials;
+  error handlers echoing internal messages; complex patterns applied to unbounded input.
+- **Deep analysis:** taint-trace to every sink; follow redirect and name-resolution handling
+  on outbound fetches; review key origin and rotation; confirm forgery protection wherever
+  ambient credentials authenticate state changes.
+- **Knowledge:** injection families (query, command, template, header, log, path,
+  expression); request forgery to internal and metadata endpoints, DNS rebinding;
+  authenticated encryption; catastrophic backtracking; timing side channels.
+
+## 6. Data Modeling & Integrity
+
+- **Signals:** uniqueness or existence checks in code without a matching constraint;
+  optional storage for required values; free-text status attributes; the same attribute
+  on several entities; mutable natural keys; references without declared delete behavior;
+  narrow integer keys; random keys defining index order; sequential identifiers in
+  responses; key type mismatches across references; association entities without pair
+  uniqueness; binary payload attributes; append-only stores with no retention or
+  partitioning declaration; timestamp or incrementing partition keys; unit-less quantity
+  names; schema objects breaking the declared naming convention or left to auto-naming.
+- **Deep analysis:** list invariants asserted in domain code and verify store-level
+  enforcement for each; identify every writer (jobs, admin paths, other services,
+  migrations); assign an owner to each denormalized fact; project key exhaustion and
+  partition skew at 100x volume; confirm every derived store has a rebuild path from its
+  system of record; compare every schema name against the declared convention.
+- **Knowledge:** normal forms and deliberate denormalization; constraint types; key
+  strategies and their trade-offs (sequence contention, random-key index locality,
+  time-ordered identifiers, enumeration); surrogate versus natural keys; partitioning and
+  hot-partition behavior; archival tiers; object storage versus row storage; naming
+  conventions as a contract with operators and migrations; explicit state machines.
+
+## 7. Query Efficiency & Data Access
+
+- **Signals:** data access inside iteration; unbounded queries on growable stores; whole
+  records loaded for one attribute; filters or sorts on unindexed attributes;
+  function-wrapped predicates; aggregations inside request handlers; post-write reads
+  routed to replicas; sorts on non-unique attributes without a tie-breaker; single-record
+  writes inside iteration.
+- **Deep analysis:** express query count and rows scanned per request as a function of
+  result size; cross-reference every access path with declared indexes, including
+  composite order and selectivity; project growth of each store.
+- **Knowledge:** index structures; composite prefix rule; covering indexes; predicate
+  sargability; eager versus lazy loading; keyset pagination; replication lag and
+  read-your-writes.
+
+## 8. Transactions & Concurrency
+
+- **Signals:** read then write of one record without version or lock; check then insert;
+  transactions enclosing outbound calls; module-level mutable state; locks without
+  timeouts; transaction demarcation in handlers or data-access code; mass updates or
+  deletes without a restricting predicate; bulk mutations in one unbounded transaction.
+- **Deep analysis:** interleave concurrent executions to expose anomalies; verify the
+  isolation level assumed matches the level configured; trace transaction propagation
+  through nested calls; compare lock lease against worst-case work duration.
+- **Knowledge:** isolation anomalies (dirty read, lost update, write skew, phantom);
+  optimistic versus pessimistic control; atomic conditional updates; compensation sequences;
+  fencing tokens; deadlock conditions.
+
+## 9. Idempotency & Retry Safety
+
+- **Signals:** creation or submission operations without an idempotency key; consumers
+  producing side effects without a deduplication record; automatic retry around
+  non-idempotent calls; jobs without checkpoints.
+- **Deep analysis:** simulate duplicate delivery, and failure after the effect but before
+  acknowledgement; verify key storage is atomic with the effect and scoped per caller;
+  check behavior of the same key with a different payload.
+- **Knowledge:** at-least-once delivery; exactly-once effect through deduplication;
+  natural versus synthetic idempotency; key retention windows.
+
+## 10. Resilience & Dependency Failure
+
+- **Signals:** outbound calls without timeouts; retries without cap, backoff, or jitter;
+  retry logic at several layers; failure handlers returning defaults or success; optional
+  dependencies whose failure fails the request; shared pools across unrelated dependencies.
+- **Deep analysis:** enumerate failure modes per dependency and follow each to the
+  response; sum worst-case latency against the inbound budget; compute retry amplification
+  across layers as the product of attempts.
+- **Knowledge:** cascading failure; retry storms; circuit breaker states; bulkheads;
+  deadline propagation; graceful degradation.
+
+## 11. Background Processing & Messaging
+
+- **Signals:** store write followed by publish outside one commit; acknowledgement before
+  processing; no dead-letter destination; consumers assuming order; messages without
+  identifier or version; schedules without a single-run guard; event types named as
+  commands or without an owning context.
+- **Deep analysis:** break execution between write and publish, and between effect and
+  acknowledgement; follow poison-message handling; analyze ordering keys against the
+  business order actually required; walk job interruption and restart.
+- **Knowledge:** outbox and inbox patterns; dead-letter handling; partitioned ordering;
+  competing consumers; visibility timeouts; leader election and leases.
+
+## 12. Caching
+
+- **Signals:** cache writes without expiry; keys missing user, tenant, locale, or permission
+  dimensions; shared-cacheable response metadata on personalized data; authorization or
+  financial reads served from cache; cache errors propagated to callers.
+- **Deep analysis:** map each cached value to every source write path and verify
+  invalidation; derive the full dependency set of each value and compare it with its key;
+  model concurrent expiry on hot keys.
+- **Knowledge:** cache-aside and write-through; expiry jitter; request coalescing; shared
+  versus private cache semantics and response variance; negative caching.
+
+## 13. Resource Governance & Performance
+
+- **Signals:** unbounded collection growth; whole-payload reads of unbounded inputs;
+  unbounded pools or worker creation; missing rate limits on reachable endpoints; blocking
+  calls in non-blocking contexts; invariant work repeated per request.
+- **Deep analysis:** project memory and CPU per request at maximum permitted input; derive
+  concurrency ceilings; evaluate admission behavior at 10x load; identify abusable business
+  flows and their velocity controls.
+- **Knowledge:** queueing theory and Little's law; backpressure; token and leaky buckets;
+  priority-based load shedding; streaming.
+
+## 14. Observability
+
+- **Signals:** free-text or concatenated log messages; missing correlation identifiers;
+  sensitive attributes in log statements or serialized logged objects; unbounded metric
+  label values; log-and-rethrow at every layer; application-managed log files.
+- **Deep analysis:** follow one request across every hop, including asynchronous ones, and
+  confirm continuous trace context; confirm golden signals per operation and per
+  dependency; check redaction coverage for every logged structure.
+- **Knowledge:** golden signals; request-rate/errors/duration and utilization/saturation
+  methods; service level indicators and objectives; trace context; cardinality cost; log
+  injection.
+
+## 15. Configuration & Runtime Lifecycle
+
+- **Signals:** branches on environment name; configuration read lazily without validation;
+  local disk or memory holding shared state; no termination handling; liveness checks that
+  call dependencies; diagnostic modes enabled by default; flags without defaults.
+- **Deep analysis:** walk startup with missing and malformed configuration; walk shutdown
+  under in-flight load; replace an instance mid-request and follow state loss.
+- **Knowledge:** twelve-factor principles; process disposability; readiness versus liveness;
+  feature-flag lifecycle and debt.
+
+## 16. Schema & Contract Evolution
+
+- **Signals:** drop, rename, or type-narrowing migrations shipped with the code change;
+  index builds or rewrites that lock large stores; backfills inside schema migrations;
+  removed or renamed response fields; new required inputs; removed enumeration values;
+  removed or repurposed event fields.
+- **Deep analysis:** run each migration mentally against the previous code version
+  executing concurrently; estimate lock duration as a function of data size; check every
+  consumer's tolerance of new fields and values.
+- **Knowledge:** expand and contract; online schema change; backward and forward
+  compatibility; tolerant reader; deprecation and sunset signalling.
+
+## 17. Service Architecture & Modularity
+
+- **Signals:** business modules referencing transport or persistence types; handlers with
+  business conditionals or storage calls; access to another module's stored data;
+  dependency cycles; references to other modules' internal types; shared libraries holding
+  one service's domain model.
+- **Deep analysis:** build the module dependency graph and check direction and cycles;
+  build the data ownership map; build the synchronous inter-service call graph for cycles
+  and depth; test whether separate read and write models have a declared justification.
+- **Knowledge:** ports and adapters; the dependency rule; bounded contexts; dependency
+  inversion and single responsibility at module level; criteria that justify separate
+  read and write models; distributed-monolith indicators.
+
+## 18. Code Economy & Maintainability
+
+- **Signals:** near-identical logic in several places; interfaces with one implementation;
+  pass-through layers; copied branches per country, tenant, or plan; cross-cutting code
+  repeated per handler; hand-built utilities duplicating platform capabilities; long
+  navigation chains across collaborators; one concept under several names.
+- **Deep analysis:** separate duplicated knowledge (same reason to change) from incidental
+  similarity; measure change radius of each business rule; test each abstraction for a
+  second implementation or an active seam.
+- **Knowledge:** DRY as knowledge, not text; avoid-hasty-abstraction heuristics; YAGNI;
+  Law of Demeter; ubiquitous language; the cost of indirection.
+
+## 19. Time, Locale & Internationalization
+
+- **Signals:** unzoned timestamps; fixed offsets; host clock, zone, or locale read in
+  business logic; day arithmetic by fixed hour counts; user-facing text assembled from
+  literals; single-country format validators; unnormalized identifier comparison;
+  one attribute type used for both instants and calendar dates.
+- **Deep analysis:** evaluate every deadline across daylight-saving transitions and date
+  boundaries; identify whose zone governs each calendar rule; check equality and
+  uniqueness of identifiers under normalization and case folding.
+- **Knowledge:** instant versus local versus zoned time; named zone database; transition
+  gaps and overlaps; Unicode normalization forms, case folding, and confusable characters;
+  locale-aware formatting; global variation in names and addresses.
+
+## 20. Testing
+
+- **Signals:** changed units without tests; authorization without negative tests; tests
+  using real clocks, sleeps, unseeded randomness, or networks; persistence tests on
+  substitute stores with different semantics; assertions on internal calls; realistic
+  personal data or secrets in fixtures.
+- **Deep analysis:** map every blast-radius path to tests for success and each failure;
+  identify concurrency and duplicate-execution tests for guarded operations; estimate
+  coverage as tested behavior units over changed behavior units.
+- **Knowledge:** test pyramid and its cost profile; contract testing; causes of
+  flakiness; mutation testing and property-based testing as concepts.
+
+## 21. Tenancy & Data Residency
+
+- **Signals:** tenant-owned queries without tenant scope; tenant identity from request data;
+  tenant-agnostic storage paths, index names, or topics; cross-tenant administrative paths
+  without audit; no per-tenant quotas; region-agnostic storage of regulated data.
+- **Deep analysis:** enumerate every access path to tenant-owned data (queries, reports,
+  exports, search, jobs, backups) and confirm a non-omittable scoping mechanism; trace
+  regulated data through replicas, backups, and processors against permitted regions.
+- **Knowledge:** silo, pool, and bridge tenancy models; store-enforced row scoping; noisy
+  neighbor effects; data residency and cross-border transfer regimes.
+
+## 22. Privacy & Personal Data Lifecycle
+
+- **Signals:** personal fields without classification; collected fields never read; no
+  retention mechanism; soft deletion as the only deletion; plaintext high-risk identifiers;
+  processing without a consent check; full records sent to third parties.
+- **Deep analysis:** trace each personal field through every copy (replicas, caches,
+  indexes, analytics, backups, processors) and verify erasure, export, and retention reach
+  all of them; bind each field to a declared purpose.
+- **Knowledge:** lawful bases; purpose, minimization, and storage limitation principles;
+  pseudonymization versus anonymization; special categories; processor obligations;
+  statutory response windows.
+
+## 23. Financial Correctness
+
+- **Signals:** floating-point amount types; amounts without currency; implicit rounding;
+  mutable balance attributes; updates or deletes on posted records; fixed two-place
+  precision; conversions without a rate record; provider interactions without stored
+  references.
+- **Deep analysis:** verify conservation of totals across splits and allocations; verify
+  ledger balance per transaction; walk provider lifecycles (pending, failed, reversed,
+  disputed) for reconciliation; combine with interleaving analysis on balances.
+- **Knowledge:** currency minor units; rounding modes including banker's rounding;
+  double-entry bookkeeping; reversal entries; authorization versus capture versus
+  settlement.
+
+## 24. Audit Trail & Regulatory Obligations
+
+- **Signals:** regulated actions without audit emission; audit stores writable by
+  application identities; audit records mixed into operational logs; deadlines computed on
+  read; deletion routines without legal-hold checks; sensitive values copied into audit.
+- **Deep analysis:** enumerate regulated actions and verify each record's completeness;
+  evaluate tamper evidence; verify deadline computation against governing time zone and
+  business calendar; follow the escalation path for missed deadlines.
+- **Knowledge:** tamper-evident logging (hash chaining, write-once storage); retention
+  schedules; legal hold; breach and response notification windows.
