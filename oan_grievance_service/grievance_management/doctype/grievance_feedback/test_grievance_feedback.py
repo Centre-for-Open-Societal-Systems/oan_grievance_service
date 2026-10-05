@@ -44,7 +44,6 @@ class TestGrievanceFeedback(FrappeTestCase):
 				"response_type": "Resolved",
 				"action_taken": "Replaced faulty seed bags.",
 				"resolution_summary": "Replaced seed bags at warehouse.",
-				"proposed_close_date": frappe.utils.today(),
 			}
 		).insert(ignore_permissions=True)
 
@@ -86,7 +85,6 @@ class TestGrievanceFeedback(FrappeTestCase):
 				"response_type": "Resolved",
 				"action_taken": "Replaced faulty seed bags.",
 				"resolution_summary": "Replaced seed bags at warehouse.",
-				"proposed_close_date": frappe.utils.today(),
 			}
 		).insert(ignore_permissions=True)
 
@@ -114,7 +112,6 @@ class TestGrievanceFeedback(FrappeTestCase):
 				"response_type": "Resolved",
 				"action_taken": "Resolved case issue.",
 				"resolution_summary": "Resolved.",
-				"proposed_close_date": frappe.utils.today(),
 			}
 		).insert(ignore_permissions=True)
 
@@ -153,7 +150,6 @@ class TestGrievanceFeedback(FrappeTestCase):
 				"response_type": "Resolved",
 				"action_taken": "Fixed issue.",
 				"resolution_summary": "Fixed issue.",
-				"proposed_close_date": frappe.utils.today(),
 			}
 		).insert(ignore_permissions=True)
 

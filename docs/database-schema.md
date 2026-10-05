@@ -931,7 +931,8 @@ Pre-written response bodies, managed under Administration. Templates are a produ
 | `id`                 | uuid        | PK                               |                                                                  |
 | `code`               | varchar(16) | UQ                               | `RT-001`                                                         |
 | `title`              | text        |                                  | "Seed Quality — Lab Testing Initiated"                           |
-| `category_id`        | uuid        | FK → `service_categories.id`, IX | The template's scope; templates are offered per category         |
+| `department_id`      | uuid        | FK → `departments.id`, IX        | Null offers the template to every department                     |
+| `category_id`        | uuid        | FK → `service_categories.id`, IX | Null offers the template to every category                       |
 | `outcome`            | enum        |                                  | Resolved / Partially Resolved / Referred / Requires further info |
 | `action_taken`       | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
 | `resolution_summary` | text        |                                  | Prefilled body, may contain `{{placeholders}}`                   |
@@ -941,6 +942,8 @@ Pre-written response bodies, managed under Administration. Templates are a produ
 | `updated_at`         | timestamptz |                                  |                                                                  |
 
 Bodies contain `{{placeholders}}`. Store as text and interpolate at render time; don't model the variables.
+
+Only administrators author templates. An officer is offered the active templates for the chosen outcome whose department and category fit the case, department-scoped before category-scoped before global. Edit history comes from the row's audit trail rather than a version column; the text actually sent is copied onto `grievance_responses`, so a later edit never changes a past response.
 
 **`use_count` and `last_used_at` were removed.** They turned a low-write configuration row into a hot row updated on every single response submission, which serialises unrelated officers behind one lock for a number displayed in an admin list. Usage is a reporting question — `COUNT(*) GROUP BY template_id` over `grievance_responses`, answered from the analytics replica where it belongs, and answered better because it can be sliced by period, department and outcome.
 

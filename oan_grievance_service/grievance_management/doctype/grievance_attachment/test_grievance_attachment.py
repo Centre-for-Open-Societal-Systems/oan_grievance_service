@@ -94,7 +94,6 @@ class TestGrievanceAttachment(FrappeTestCase):
 				"grievance": other.name,
 				"response_type": "Resolved",
 				"action_taken": "Handled on the other case.",
-				"proposed_close_date": frappe.utils.add_days(None, 5),
 				"resolution_summary": "<p>Closed on the other case.</p>",
 			}
 		).insert(ignore_permissions=True)

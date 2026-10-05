@@ -20,7 +20,7 @@ from oan_auth_service.api.utils import (
 	to_tz_aware_iso,
 	validate_request,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import (
@@ -34,6 +34,7 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
@@ -110,16 +111,19 @@ class ListGrievancesRequest(PageParams):
 	sort_order: str = "asc"
 
 
-class GrievanceActionRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
+class GrievanceActionRequest(Body):
 	ticket_number: str | None = None
-	action: str = Field(..., min_length=1)
-	reason: str | None = None
-	note: str | None = None
-	rating: int | None = Field(None, ge=1, le=5)
-	comments: str | None = None
-	body: str | None = None
+	action: NonBlank = Field(..., description="Workflow action, one of the case's available_actions")
+	reason: NonBlank = Field(
+		..., description="Shown to the submitter. For a department response, the response itself."
+	)
+	internal_notes: str | None = Field(
+		None, description="Staff only. Posted as a separate internal timeline entry."
+	)
+	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
+	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
+
+	_blank = field_validator("internal_notes", "template", mode="before")(blank_to_none)
 
 
 class GrievanceFeedbackRequest(BaseModel):
@@ -132,33 +136,21 @@ class GrievanceFeedbackRequest(BaseModel):
 	feedback_channel: str | None = "Web Portal"
 
 
-class AddNoteRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
-	ticket_number: str | None = None
-	body: str = Field(..., min_length=1)
-	is_internal: bool | str = True
-
-
 class PostMessageRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
 	body: str = Field(..., min_length=1)
-	type: str | None = Field(
-		None,
-		description="Message or Response Type: 'note', 'message', 'info_request', 'info_response', or a Response Type ('Resolved', 'Partially Resolved', 'Referred to another dept', 'Requires further info')",
-	)
-	action_taken: str | None = Field(
-		None, max_length=500, description="Short summary of action taken (for formal department responses)"
-	)
-	proposed_close_date: str | None = Field(
-		None, description="Target closure date (YYYY-MM-DD) for formal department responses"
-	)
-	referred_to_department: str | None = Field(None, description="Target department if type is a referral")
 	is_internal: bool | str | None = Field(
-		None, description="Whether this note is hidden from citizens (staff-only)"
+		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
+
+
+class ResponseTemplatesRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	action: str = Field(..., min_length=1, description="Workflow action the templates are written for")
 
 
 class ReassignGrievanceRequest(BaseModel):
@@ -659,27 +651,19 @@ def _get_available_actions_for_user(doc):
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
-	# Information requests and submitter replies are only possible when the
-	# submitter is reachable. If neither a mobile number nor an e-mail address
-	# is on file, those actions are suppressed because there is no channel to
-	# deliver the request through or collect the reply on.
-	submitter_reachable = identity.is_reachable(doc)
-
 	actions = lifecycle.actions_available(doc)
 	result = []
 	for act in actions:
 		if act == "Reject" and not is_staff:
 			continue
-		if act in ("Assign", "Submit Response"):
+		if act == "Assign":
 			continue
-		if not submitter_reachable and act in ("Request More Info", "Submitter Reply"):
-			continue
-		req_reason = act in ("Reject", "Reopen")
 		result.append(
 			{
 				"action": act,
 				"label": _(act),
-				"requires_reason": req_reason,
+				# Kept for clients that read it: every action now carries a reason.
+				"requires_reason": True,
 			}
 		)
 
@@ -769,6 +753,20 @@ def resolve_timeline_author(
 	return "system", "System"
 
 
+def _actions_for(history_names):
+	"""The workflow action each status history row was taken under, keyed by row name."""
+	if not history_names:
+		return {}
+	return dict(
+		frappe.get_all(
+			"Grievance Status History",
+			filters={"name": ["in", list(history_names)], "action": ["is", "set"]},
+			fields=["name", "action"],
+			as_list=True,
+		)
+	)
+
+
 def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 	if not entry:
 		return None
@@ -802,7 +800,22 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 		"from_status": from_status,
 		"to_status": to_status or doc.status,
 		"created_on": to_tz_aware_iso(created_val),
+		"action": _actions_for([entry.get("ref_docname")] if entry.get("ref_docname") else []).get(
+			entry.get("ref_docname")
+		),
 	}
+
+
+# The timeline entry an action writes, where it is not a plain status change.
+_ACTION_ENTRY_TYPES = {
+	"Close Case": "resolution",
+	"Reject": "rejection",
+	"Request More Info": "info_request",
+	"Submitter Reply": "info_response",
+	"Resolve": "response",
+	"Partially Resolve": "response",
+	"Refer Onward": "response",
+}
 
 
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
@@ -813,221 +826,96 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 def action(
 	ticket_number: str,
 	action: str,
-	reason: str | None = None,
-	note: str | None = None,
+	reason: str,
+	internal_notes: str | None = None,
+	template: str | None = None,
 	rating: int | None = None,
-	comments: str | None = None,
-	body: str | None = None,
 	**kwargs,
 ):
-	"""Execute a state-machine workflow action on a grievance.
+	"""Take a workflow action on a grievance.
 
-	Validates role permissions and the current workflow state dynamically.
+	Every action carries a `reason`, which the submitter sees. Which actions the caller
+	may take from the case's state is the Grievance Workflow's call. Files sent as
+	multipart attach to the action's timeline entry.
 	"""
-	action_name = (action or "").strip()
-	if not action_name:
-		frappe.throw(_("Action is required."), title=_("Missing Action"))
-
-	# All mutations, including workflow actions, require write permission
 	doc = _load(ticket_number, ptype="write")
 	from_status = doc.status
-	timeline_entry = None
+	user = frappe.session.user
+	is_staff = permissions.is_staff(user)
 
-	# Check legal workflow actions
-	allowed_actions = lifecycle.actions_available(doc)
-	matching_action = next((a for a in allowed_actions if a.lower() == action_name.lower()), None)
-
+	matching_action = next((a for a in lifecycle.actions_available(doc) if a.lower() == action.lower()), None)
 	if not matching_action:
 		frappe.throw(
-			_("Action '{0}' is not available for this grievance in status '{1}'.").format(
-				action_name, doc.status
-			),
+			_("Action '{0}' is not available for this grievance in status '{1}'.").format(action, doc.status),
 			frappe.ValidationError,
 			title=_("Action Not Permitted"),
 		)
-
-	# 3. Information requests and submitter replies require the submitter to be
-	#    reachable. If no contact details are on file, these actions are refused.
-	if matching_action in ("Request More Info", "Submitter Reply") and not identity.is_reachable(doc):
+	if not is_staff and (internal_notes or template):
 		frappe.throw(
-			_(
-				"Cannot request information or expect a reply because the submitter "
-				"has no contact details on file."
-			),
-			frappe.ValidationError,
-			title=_("Action Not Permitted"),
+			_("Only staff members can add internal notes or use a response template."),
+			frappe.PermissionError,
 		)
 
-	# 3. Action-specific dispatch and reason validation
+	# Files are checked before the move so a bad one refuses the whole request.
+	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
+
+	prepared = prepare_uploads(doc.name)
+
+	if matching_action == "Start Work":
+		_ensure_department(doc)
+
+	# A submitter closing the case accepts the resolution; staff closing it does not.
+	confirmed = matching_action == "Close Case" and not is_staff
+	history = lifecycle.transition(doc, matching_action, reason=reason, confirmed=confirmed)
 	if matching_action == "Close Case":
-		# Resolved -> Closed. From the submitter this accepts the resolution; staff
-		# closing the case is not a confirmation, so it carries no closure type.
-		confirmed = not permissions.is_staff()
-		closure_reason = (reason or "").strip() or (
-			"Confirmed by submitter" if confirmed else "Closed by staff"
-		)
-		lifecycle.transition(
-			doc,
-			"Close Case",
-			note=closure_reason,
-			closure_type="confirmed" if confirmed else None,
-		)
-		doc.db_set("closure_reason", closure_reason, update_modified=False)
-		doc.closure_reason = closure_reason
-		# Ratings normally arrive later through /feedback, prompted by the closure
-		# notification. One the submitter sends with the close is recorded the same way;
-		# a rating sent by staff closing the case is not the citizen's and is ignored.
-		if rating is not None and confirmed:
-			frappe.get_doc(
-				{
-					"doctype": "Grievance Feedback",
-					"grievance": doc.name,
-					"rating": int(rating),
-					"feedback_type": "Resolution",
-					"comments": comments.strip() if comments else None,
-					"submitted_by": frappe.session.user,
-					"author_submitter": doc.submitter,
-					"submitted_at": now_datetime(),
-				}
-			).insert(ignore_permissions=True)
-			timeline_entry = frappe.get_last_doc("Grievance Timeline", filters={"grievance": doc.name})
-		else:
-			timeline_entry = GrievanceTimeline.record(
-				grievance=doc.name,
-				entry_type="resolution",
-				is_internal=False,
-				body=comments or closure_reason,
-				author_submitter=doc.submitter if confirmed else None,
-				author_user=None if confirmed else frappe.session.user,
-			)
-
+		doc.db_set("closure_reason", reason, update_modified=False)
 	elif matching_action == "Reopen":
-		if not reason or not reason.strip():
-			frappe.throw(_("A reason is required to reopen a grievance."), title=_("Reason Required"))
-		lifecycle.transition(doc, "Reopen", reason=reason.strip())
 		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
-		is_staff = permissions.is_staff()
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="status_change",
-			is_internal=False,
-			body=f"Reopened: {reason.strip()}",
-			author_user=frappe.session.user if is_staff else None,
-			author_submitter=doc.submitter if not is_staff else None,
-		)
-
-	elif matching_action == "Reject":
-		if not permissions.is_staff():
-			frappe.throw(_("Only staff can reject grievances."), frappe.PermissionError)
-		if not reason or not reason.strip():
-			frappe.throw(_("A reason is required to reject a grievance."), title=_("Reason Required"))
-		lifecycle.transition(doc, "Reject", reason=reason.strip(), closure_type="rejected")
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="rejection",
-			is_internal=False,
-			body=reason.strip(),
-			author_user=frappe.session.user,
-		)
-
 	elif matching_action == "Submitter Reply":
-		reply_text = body or reason or note
-		if not reply_text or not reply_text.strip():
-			frappe.throw(
-				_("A response body is required to reply to an information request."),
-				title=_("Reply Required"),
-			)
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="info_response",
-			is_internal=False,
-			body=reply_text.strip(),
-			author_submitter=doc.submitter,
-		)
-		lifecycle.transition(doc, "Submitter Reply", note="Submitter provided the requested information")
 		from oan_grievance_service.services import notifications
 
 		notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
 
-	elif matching_action in ("Request More Info", C.STATE_MORE_INFO_NEEDED):
-		req_text = body or reason or note or "Additional information requested"
-		timeline_entry = GrievanceTimeline.record(
+	timeline_entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type=_ACTION_ENTRY_TYPES.get(matching_action, "status_change"),
+		is_internal=False,
+		body=reason,
+		author_user=user if is_staff else None,
+		author_submitter=None if is_staff else doc.submitter,
+		ref_doctype="Grievance Status History",
+		ref_docname=history.name if history else None,
+	)
+	if internal_notes:
+		GrievanceTimeline.record(
 			grievance=doc.name,
-			entry_type="info_request",
-			is_internal=False,
-			body=req_text,
-			author_user=frappe.session.user,
+			entry_type="note",
+			is_internal=True,
+			body=internal_notes.strip(),
+			author_user=user,
 		)
-		lifecycle.transition(doc, matching_action, reason=reason, note=note)
-
-	elif matching_action == "Assign":
-		frappe.throw(
-			_(
-				"Direct 'Assign' action is not permitted on this endpoint. Use the assignment/reassignment API to assign a department and officer."
-			),
-			frappe.ValidationError,
-			title=_("Action Not Permitted"),
+	if template and frappe.db.exists("Grievance Response Template", template):
+		from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
+			record_use,
 		)
 
-	elif matching_action == "Submit Response":
-		has_valid_response = frappe.db.exists(
-			"Grievance Response",
+		record_use(template)
+	# Ratings normally arrive later through /feedback. One the submitter sends with the
+	# close is recorded the same way; the reason is already on the close entry.
+	if rating is not None and confirmed:
+		frappe.get_doc(
 			{
+				"doctype": "Grievance Feedback",
 				"grievance": doc.name,
-				"response_type": ["in", ["Resolved", "Partially Resolved"]],
-			},
-		)
-		if not has_valid_response:
-			frappe.throw(
-				_(
-					"Submit Response requires a formal department response with a resolution summary. Please record your response using the message/department-response endpoint."
-				),
-				frappe.ValidationError,
-				title=_("Response Required"),
-			)
-		lifecycle.transition(doc, matching_action, reason=reason, note=note)
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="status_change",
-			is_internal=False,
-			body=reason or note or f"Status changed to {doc.status}",
-			author_user=frappe.session.user,
-		)
+				"rating": int(rating),
+				"feedback_type": "Resolution",
+				"submitted_by": user,
+				"author_submitter": doc.submitter,
+				"submitted_at": now_datetime(),
+			}
+		).insert(ignore_permissions=True)
 
-	elif matching_action == "Start Work":
-		if not doc.assigned_dept:
-			if doc.assigned_to:
-				from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
-					active_scopes,
-				)
-
-				scopes = active_scopes(doc.assigned_to)
-				if scopes and scopes[0].get("department_scope"):
-					doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
-			if not doc.assigned_dept:
-				frappe.throw(
-					_("Cannot start work on a grievance without an assigned department."),
-					frappe.ValidationError,
-					title=_("Department Required"),
-				)
-		lifecycle.transition(doc, matching_action, reason=reason, note=note)
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="status_change",
-			is_internal=False,
-			body=reason or note or f"Status changed to {doc.status}",
-			author_user=frappe.session.user,
-		)
-
-	else:
-		lifecycle.transition(doc, matching_action, reason=reason, note=note)
-		timeline_entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="status_change",
-			is_internal=False,
-			body=reason or note or f"Status changed to {doc.status}",
-			author_user=frappe.session.user,
-		)
+	attachments = store_uploads(doc, prepared, timeline_entry=timeline_entry.name) if prepared else []
 
 	doc.reload()
 	current_state = _current_state(doc)
@@ -1036,12 +924,33 @@ def action(
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"action": matching_action,
+			"attachments": attachments,
 			"current_state": current_state,
 			"timeline_event": _format_timeline_event(timeline_entry, doc, from_status, doc.status),
 			"available_actions": current_state["available_actions"],
 		},
 		message=_("Grievance updated successfully"),
 	)
+
+
+def _ensure_department(doc):
+	"""Work starts in a department: fall back to the assigned officer's, else refuse."""
+	if doc.assigned_dept:
+		return
+	if doc.assigned_to:
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			active_scopes,
+		)
+
+		scopes = active_scopes(doc.assigned_to)
+		if scopes and scopes[0].get("department_scope"):
+			doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
+	if not doc.assigned_dept:
+		frappe.throw(
+			_("Cannot start work on a grievance without an assigned department."),
+			frappe.ValidationError,
+			title=_("Department Required"),
+		)
 
 
 @route(
@@ -1165,7 +1074,11 @@ def timeline(
 	contact = identity.mask_contact(doc, show_identity=show_identity)
 	masked_name = doc.submitter_name if show_identity else _("Anonymous Submitter")
 
+	actions = _actions_for(
+		{e["ref_docname"] for e in entries if e.get("ref_doctype") == "Grievance Status History"}
+	)
 	for entry in entries:
+		entry["action"] = actions.get(entry.get("ref_docname"))
 		entry["is_internal"] = bool(entry.get("is_internal"))
 		author_type, author_role = resolve_timeline_author(
 			entry.get("author_submitter"), entry.get("author_user"), doc.submitter_type
@@ -1272,53 +1185,54 @@ def timeline(
 	)
 
 
-# Deprecated alias for backwards compatibility: timeline now handles detail and tracking
-track = timeline
-
-
-@route("/<ticket_number>/note", methods=("POST",), summary="Add internal or public note (staff only)")
-@frappe.whitelist()
-@validate_request(AddNoteRequest)
-@handle_api_errors
-@require_role(STAFF_ROLES)
-def add_note(ticket_number: str, body: str, is_internal: bool | str = True, **kwargs):
-	"""Staff-only endpoint to add an internal or public note to the case timeline."""
-	# The undecorated core, not the endpoint: calling `message` here would run its
-	# `@handle_api_errors` inside this one, and the inner envelope would become this
-	# one's `data` -- serving an error as a 200 success with the real status nested.
-	return _post_message(ticket_number=ticket_number, body=body, is_internal=is_internal, type="note")
-
-
 @route(
 	"/<ticket_number>/message",
 	methods=("POST",),
-	summary="Post a communication, note, reply, or department response",
+	summary="Post a message or an internal note, with optional files",
 )
 @frappe.whitelist()
 @validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def message(
-	ticket_number: str,
-	body: str,
-	type: str | None = None,
-	response_type: str | None = None,
-	action_taken: str | None = None,
-	proposed_close_date: str | None = None,
-	referred_to_department: str | None = None,
-	is_internal: bool | str | None = None,
-	**kwargs,
-):
-	"""Unified endpoint for posting public messages, citizen replies, internal notes, or department responses."""
-	return _post_message(
-		ticket_number=ticket_number,
+def message(ticket_number: str, body: str, is_internal: bool | str | None = None, **kwargs):
+	"""Post to the case thread: a public message, or an internal note when staff send
+	`is_internal`. Files sent as multipart attach to the new entry.
+
+	Never moves the case. A reply to an information request is the `Submitter Reply`
+	action and an information request is the `Request More Info` action, both on /action.
+	"""
+	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
+
+	internal = bool(_parse_flag(is_internal))
+	doc = _load(ticket_number, ptype="write")
+	user = frappe.session.user
+	is_staff = permissions.is_staff(user)
+	if internal and not is_staff:
+		frappe.throw(_("Only staff members can post internal notes."), frappe.PermissionError)
+
+	prepared = prepare_uploads(doc.name)
+	entry = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="note" if internal else "message",
+		is_internal=internal,
 		body=body,
-		type=type,
-		response_type=response_type,
-		action_taken=action_taken,
-		proposed_close_date=proposed_close_date,
-		referred_to_department=referred_to_department,
-		is_internal=is_internal,
+		author_user=user if is_staff else None,
+		author_submitter=doc.submitter if not is_staff else None,
+	)
+	attachments = store_uploads(doc, prepared, timeline_entry=entry.name) if prepared else []
+
+	return success_response(
+		data={
+			"name": entry.name,
+			"ticket_number": tn.display(doc.ticket_number),
+			"entry_type": entry.entry_type,
+			"is_internal": bool(entry.is_internal),
+			"author_type": "officer" if is_staff else "submitter",
+			"created_on": entry.created_on,
+			"status": doc.status,
+			"attachments": attachments,
+		},
+		message=_("Note added successfully") if internal else _("Message posted successfully"),
 	)
 
 
@@ -1330,217 +1244,6 @@ def _parse_flag(value):
 	if isinstance(value, str):
 		return value.strip().lower() not in ("", "0", "false", "no", "off")
 	return bool(value)
-
-
-def _post_message(
-	ticket_number,
-	body,
-	type=None,
-	response_type=None,
-	action_taken=None,
-	proposed_close_date=None,
-	referred_to_department=None,
-	is_internal=None,
-):
-	"""The body of `message` and `add_note`, deliberately undecorated.
-
-	Both endpoints carry `@handle_api_errors`; sharing this rather than one calling
-	the other keeps exactly one envelope per request.
-	"""
-	is_internal = _parse_flag(is_internal)
-	doc = _load(ticket_number, ptype="write")
-	user = frappe.session.user
-	is_staff = permissions.is_staff(user)
-
-	req_type = (type or "").strip()
-	resp_type_name = (response_type or "").strip()
-
-	# Match response_type if passed via type (e.g. "Resolved")
-	if not resp_type_name and req_type and frappe.db.exists("Grievance Response Type", req_type):
-		resp_type_name = req_type
-
-	# 1. Formal Department Response
-	if resp_type_name:
-		if not is_staff:
-			frappe.throw(
-				_("Only staff members can submit a formal department response."), frappe.PermissionError
-			)
-
-		if not frappe.db.exists("Grievance Response Type", resp_type_name):
-			frappe.throw(
-				_("Response Type '{0}' does not exist.").format(resp_type_name), frappe.ValidationError
-			)
-
-		resp_type_doc = frappe.get_cached_doc("Grievance Response Type", resp_type_name)
-		if resp_type_doc.requires_referred_dept and not referred_to_department:
-			frappe.throw(
-				_("Destination department is required for response type '{0}'.").format(resp_type_name),
-				frappe.ValidationError,
-			)
-
-		# A response type whose workflow action is 'Request More Info' cannot be
-		# used when the submitter has no contact details: there is no channel to
-		# deliver the request through.
-		if not identity.is_reachable(doc) and resp_type_doc.get("workflow_action") == "Request More Info":
-			frappe.throw(
-				_("Cannot request further information because the submitter has no contact details on file."),
-				frappe.ValidationError,
-				title=_("Action Not Permitted"),
-			)
-
-		from frappe.utils import add_days, today
-
-		close_date = proposed_close_date or add_days(today(), 7)
-
-		# Create formal Grievance Response (triggers response_after_insert hook)
-		resp_doc = frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": doc.name,
-				"response_type": resp_type_name,
-				"action_taken": (action_taken or body)[:500],
-				"resolution_summary": body,
-				"proposed_close_date": close_date,
-				"referred_to_department": referred_to_department,
-				"internal_notes": body if is_internal else None,
-			}
-		).insert(ignore_permissions=True)
-
-		doc.reload()
-		current_state = _current_state(doc)
-
-		latest_tl = frappe.get_all(
-			"Grievance Timeline",
-			filters={
-				"grievance": doc.name,
-				"ref_doctype": "Grievance Response",
-				"ref_docname": resp_doc.name,
-			},
-			order_by="creation desc",
-			limit=1,
-		)
-		tl_name = latest_tl[0].name if latest_tl else None
-
-		return success_response(
-			data={
-				"name": tl_name,
-				"ticket_number": tn.display(doc.ticket_number),
-				"entry_type": "response",
-				"response_type": resp_type_name,
-				"response_id": resp_doc.name,
-				"is_internal": False,
-				"author_type": "officer",
-				"status": doc.status,
-				"current_state": current_state,
-				"available_actions": current_state["available_actions"],
-			},
-			message=_("Department response recorded successfully"),
-		)
-
-	# 2. Information Request from Staff
-	if req_type.lower() in ("info_request", "request_more_info", "information request"):
-		if not is_staff:
-			frappe.throw(_("Only staff members can issue an information request."), frappe.PermissionError)
-
-		if not identity.is_reachable(doc):
-			frappe.throw(
-				_("Cannot request information because the submitter has no contact details on file."),
-				frappe.ValidationError,
-				title=_("Action Not Permitted"),
-			)
-
-		if "Request More Info" in lifecycle.actions_available(doc):
-			lifecycle.transition(doc, "Request More Info", reason=body)
-
-		entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="info_request",
-			is_internal=False,
-			body=body,
-			author_user=user,
-		)
-		doc.reload()
-		current_state = _current_state(doc)
-		return success_response(
-			data={
-				"name": entry.name,
-				"ticket_number": tn.display(doc.ticket_number),
-				"entry_type": "info_request",
-				"is_internal": False,
-				"author_type": "officer",
-				"created_on": entry.created_on,
-				"status": doc.status,
-				"current_state": current_state,
-				"available_actions": current_state["available_actions"],
-			},
-			message=_("Information request posted successfully"),
-		)
-
-	# 3. Citizen Reply to Information Request
-	if req_type.lower() in ("info_response", "submitter_reply", "reply") or (
-		not is_staff and doc.status == C.STATE_MORE_INFO_NEEDED
-	):
-		if "Submitter Reply" in lifecycle.actions_available(doc):
-			lifecycle.transition(doc, "Submitter Reply", note="Submitter replied to information request")
-			from oan_grievance_service.services import notifications
-
-			notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
-
-		entry = GrievanceTimeline.record(
-			grievance=doc.name,
-			entry_type="info_response",
-			is_internal=False,
-			body=body,
-			author_user=user if is_staff else None,
-			author_submitter=doc.submitter if not is_staff else None,
-		)
-		doc.reload()
-		current_state = _current_state(doc)
-		return success_response(
-			data={
-				"name": entry.name,
-				"ticket_number": tn.display(doc.ticket_number),
-				"entry_type": "info_response",
-				"is_internal": False,
-				"author_type": "officer" if is_staff else "submitter",
-				"created_on": entry.created_on,
-				"status": doc.status,
-				"current_state": current_state,
-				"available_actions": current_state["available_actions"],
-			},
-			message=_("Reply posted successfully"),
-		)
-
-	# 4. Internal Note or Public Message
-	internal = False
-	if is_staff:
-		if req_type.lower() in ("note", "internal_note", "internal"):
-			internal = True
-		elif is_internal is not None:
-			internal = is_internal
-
-	entry_type = "note" if internal else "message"
-	entry = GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type=entry_type,
-		is_internal=internal,
-		body=body,
-		author_user=user if is_staff else None,
-		author_submitter=doc.submitter if not is_staff else None,
-	)
-
-	return success_response(
-		data={
-			"name": entry.name,
-			"ticket_number": tn.display(doc.ticket_number),
-			"entry_type": entry.entry_type,
-			"is_internal": bool(entry.is_internal),
-			"author_type": "officer" if is_staff else "submitter",
-			"created_on": entry.created_on,
-			"status": doc.status,
-		},
-		message=_("Note added successfully" if internal else "Message posted successfully"),
-	)
 
 
 def _change_response(doc, req, applied_message, pending_message, **extra):
@@ -1652,6 +1355,38 @@ def defer_sla(
 		_("Deferral requested; awaiting approval"),
 		fields=("sla_due_date",),
 	)
+
+
+@route(
+	"/<ticket_number>/response-templates",
+	methods=("GET",),
+	summary="Response templates for a workflow action, filled in for this grievance",
+)
+@frappe.whitelist()
+@validate_request(ResponseTemplatesRequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def response_templates(ticket_number: str, action: str, **kwargs):
+	"""Active templates for workflow `action` that fit the case's department and category,
+	most specific first, rendered with the case's details for the officer to edit."""
+	from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
+		render,
+		templates_for,
+	)
+
+	doc = _load(ticket_number, ptype="write")
+
+	items = [
+		{
+			"template": row.name,
+			"title": row.title,
+			"department": row.department,
+			"service_category": row.service_category,
+			"reason": render(row, doc),
+		}
+		for row in templates_for(doc, action)
+	]
+	return success_response(data={"items": items}, message=_("Response templates fetched successfully"))
 
 
 def _load(ticket_number, ptype="read"):

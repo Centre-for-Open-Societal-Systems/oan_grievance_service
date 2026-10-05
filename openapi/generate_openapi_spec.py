@@ -24,63 +24,29 @@ from pathlib import Path
 from typing import Any
 
 import frappe
-import yaml
 from oan_auth_service.api.router import _exempt_paths, _rules
-from pydantic import BaseModel
+from oan_auth_service.openapi_spec import (
+	ARR,
+	BINARY,
+	OBJ,
+	REF,
+	B,
+	I,
+	N,
+	S,
+	dump_spec,
+	make_envelope,
+	query_parameters,
+	request_model,
+	request_schema,
+	strip_extensions,
+)
 from werkzeug.routing import Rule
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 INTERNAL_SPEC_OUTPUT = SCRIPT_DIR / "openapi_v1.yaml"
 PUBLIC_SPEC_OUTPUT = SCRIPT_DIR / "openapi_v1.public.yaml"
-
-
-# ---------------------------------------------------------------------------
-# Schema building helper functions
-# ---------------------------------------------------------------------------
-def S(**kw: Any) -> dict[str, Any]:
-	return {"type": "string", **kw}
-
-
-def I(**kw: Any) -> dict[str, Any]:  # noqa: E743
-	return {"type": "integer", **kw}
-
-
-def N(**kw: Any) -> dict[str, Any]:
-	return {"type": "number", **kw}
-
-
-def B(**kw: Any) -> dict[str, Any]:
-	return {"type": "boolean", **kw}
-
-
-def ARR(items: Any, **kw: Any) -> dict[str, Any]:
-	return {"type": "array", "items": items, **kw}
-
-
-def OBJ(
-	props: dict[str, Any],
-	required: list[str] | None = None,
-	description: str | None = None,
-	confidence: str | None = None,
-	**kw: Any,
-) -> dict[str, Any]:
-	d: dict[str, Any] = {"type": "object", "properties": props, **kw}
-	if required:
-		d["required"] = required
-	if description:
-		d["description"] = description
-	if confidence:
-		d["x-schema-confidence"] = confidence
-	return d
-
-
-# The body of a route that streams a file rather than a JSON envelope.
-BINARY = {"type": "string", "format": "binary"}
-
-
-def REF(name: str) -> dict[str, str]:
-	return {"$ref": f"#/components/schemas/{name}"}
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +518,8 @@ data(
 			"author_type": S(nullable=True, enum=["submitter", "officer", "system"]),
 			"body": S(nullable=True, description="Timeline message or description text"),
 			"is_internal": B(description="Whether visible only to staff"),
+			"action": S(nullable=True, description="Workflow action behind a status change entry"),
+			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
 			"created_on": S(format="date-time", nullable=True),
 			"creation": S(format="date-time", nullable=True),
 		},
@@ -600,13 +568,34 @@ data(
 	"GrievanceActionResultData",
 	OBJ(
 		{
-			"ticket_number": S(example="ET14IN000012026"),
-			"status": S(example="Under Investigation"),
-			"message": S(description="Result confirmation message"),
-			"action_timestamp": S(format="date-time", nullable=True),
+			"ticket_number": S(example="3-001-002A-0"),
+			"status": S(example="Resolved"),
+			"action": S(description="Workflow action taken"),
+			"attachments": ARR(REF("AttachmentItem"), description="Files stored with the action"),
+			"current_state": REF("GrievanceCurrentState"),
+			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
+			"available_actions": ARR(REF("AvailableActionItem")),
 		},
-		required=["ticket_number", "status", "message"],
-		description="Outcome of a state transition or action on a grievance",
+		required=["ticket_number", "status", "action", "current_state", "available_actions"],
+		description="Outcome of a workflow action on a grievance",
+	),
+)
+
+data(
+	"GrievanceMessageData",
+	OBJ(
+		{
+			"name": S(description="Timeline entry ID"),
+			"ticket_number": S(example="3-001-002A-0"),
+			"entry_type": S(enum=["message", "note"]),
+			"is_internal": B(),
+			"author_type": S(enum=["officer", "submitter"]),
+			"created_on": S(format="date-time", nullable=True),
+			"status": S(description="Grievance status, unchanged by a message"),
+			"attachments": ARR(REF("AttachmentItem"), description="Files stored with the message"),
+		},
+		required=["name", "ticket_number", "entry_type", "is_internal", "status"],
+		description="The timeline entry a message or internal note created",
 	),
 )
 
@@ -682,6 +671,32 @@ data(
 	),
 )
 
+# Department responses
+data(
+	"ResponseTemplateItem",
+	OBJ(
+		{
+			"template": S(description="Template ID, sent as `template` to /action"),
+			"title": S(),
+			"department": S(nullable=True, description="Department the template is scoped to; null for all"),
+			"service_category": S(
+				nullable=True, description="Service category the template is scoped to; null for all"
+			),
+			"reason": S(description="Template body rendered for the case, as plain text. Prefills `reason`."),
+		},
+		required=["template", "title", "reason"],
+		description="A response template filled in for the grievance",
+	),
+)
+
+data(
+	"ResponseTemplatesData",
+	OBJ(
+		{"items": ARR(REF("ResponseTemplateItem"), description="Most specific first")},
+		required=["items"],
+	),
+)
+
 # Attachments
 data(
 	"AttachmentItem",
@@ -696,6 +711,7 @@ data(
 			"checksum_sha256": S(description="SHA-256 checksum"),
 			"scan_status": S(description="Antivirus scan status (Pending, Clean, Infected)"),
 			"document_type": S(nullable=True, description="Classification of document"),
+			"timeline_entry": S(nullable=True, description="Timeline entry the file is attached to"),
 			"creation": S(format="date-time", nullable=True),
 		},
 		required=["file_name", "mime_type", "size_bytes"],
@@ -804,7 +820,7 @@ data(
 		{
 			"action": S(description="Action name"),
 			"label": S(description="Localized action label"),
-			"requires_reason": B(description="Whether a reason is mandatory"),
+			"requires_reason": B(description="Always true: every action carries a reason"),
 		},
 		required=["action", "label", "requires_reason"],
 	),
@@ -933,6 +949,41 @@ data(
 )
 
 
+# Response templates (Administration)
+data(
+	"AdminResponseTemplate",
+	OBJ(
+		{
+			"template": S(example="TPL-RESOLVED-INPUTS", description="Template code; fixed once created"),
+			"title": S(),
+			"workflow_action": S(
+				example="Resolve", description="Grievance workflow action the template is for"
+			),
+			"department": S(nullable=True, description="Null for every department"),
+			"service_category": S(nullable=True, description="Null for every category"),
+			"body": S(description="Jinja template for the reason, unrendered"),
+			"usage_count": I(description="Actions sent with this template"),
+			"is_active": B(),
+		},
+		required=["template", "title", "workflow_action", "body", "usage_count", "is_active"],
+		description="A response template as administrators manage it",
+	),
+)
+
+data(
+	"AdminResponseTemplateData",
+	OBJ({"response_template": REF("AdminResponseTemplate")}, required=["response_template"]),
+)
+
+data(
+	"AdminResponseTemplateListData",
+	OBJ(
+		{"response_templates": ARR(REF("AdminResponseTemplate")), "pagination": REF("PaginationMeta")},
+		required=["response_templates", "pagination"],
+	),
+)
+
+
 # Dashboard charts. Rows differ per chart and are documented on each route; each is
 # a flat object of counts, codes and labels, never case detail on the public routes.
 data(
@@ -949,278 +1000,16 @@ data(
 )
 
 # ---------------------------------------------------------------------------
-# Request Body Schemas
+# Request Schemas
 # ---------------------------------------------------------------------------
+# Derived from the Pydantic model each route names in @validate_request, so the
+# contract is the validation the code runs. Filled by build_openapi().
 REQ: dict[str, Any] = {}
 
-REQ["SaveDraftRequest"] = OBJ(
-	{
-		"client_submission_uuid": S(
-			minLength=1, nullable=True, description="Stable client-generated draft key"
-		),
-		"client_uuid": S(nullable=True, description="Alias for client_submission_uuid"),
-		"submission_channel": S(nullable=True, description="Submission channel"),
-		"submitter_type": S(nullable=True, description="Submitter type"),
-		"submitter_name": S(nullable=True, description="Submitter citizen name"),
-		"contact_mobile": S(nullable=True, description="Contact mobile phone"),
-		"country_code": S(nullable=True, description="Country phone code prefix (e.g. +251)"),
-		"phone_number": S(nullable=True, description="National phone number"),
-		"phone": S(nullable=True, description="Phone alias"),
-		"contact_email": S(format="email", nullable=True, description="Contact email address"),
-		"administrative_area": S(nullable=True, description="Administrative area ID or path_code"),
-		"administrative_unit": S(nullable=True, description="Specific local landmark or unit"),
-		"service_category": S(nullable=True, description="Service category name"),
-		"grievance_type": S(nullable=True, description="Grievance type name"),
-		"associated_service_provider": S(nullable=True, description="Associated service provider"),
-		"description": S(nullable=True, description="Draft narrative description"),
-		"desired_outcome": S(nullable=True, description="Desired resolution outcome"),
-		"is_anonymous": I(enum=[0, 1], default=0, nullable=True, description="1 if anonymous"),
-		"validate": B(default=False, description="If true, execute validation on the draft payload"),
-	},
-	required=[],
-	description="Payload for saving or updating a grievance draft",
-)
-
-REQ["SubmitDocumentsRequest"] = OBJ(
-	{
-		"grievance": S(description="Grievance ticket number or document identifier"),
-		"document_type": S(nullable=True, description="Document type or category"),
-		"response": S(nullable=True, description="Associated formal response ID if applicable"),
-	},
-	required=["grievance"],
-	description="Supporting document upload request",
-)
-
-REQ["SubmitDraftRequest"] = OBJ(
-	{
-		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key to submit"),
-		"consent_given": I(enum=[0, 1], default=1, description="1 to record citizen consent"),
-		"is_anonymous": I(enum=[0, 1], default=0, description="1 to request anonymity"),
-		"anonymity_justification": S(nullable=True, description="Justification for anonymity"),
-		"submission_channel": S(nullable=True, description="Submission channel"),
-		"submitter_type": S(nullable=True, description="Submitter type"),
-		"submitter_name": S(nullable=True, description="Submitter citizen name"),
-		"contact_mobile": S(nullable=True, description="Contact mobile phone"),
-		"country_code": S(nullable=True, description="Country phone code prefix (e.g. +251)"),
-		"phone_number": S(nullable=True, description="National phone number"),
-		"phone": S(nullable=True, description="Phone alias"),
-		"contact_email": S(format="email", nullable=True, description="Contact email"),
-		"administrative_area": S(nullable=True, description="Administrative area"),
-		"administrative_unit": S(nullable=True, description="Administrative unit"),
-		"service_category": S(nullable=True, description="Service category"),
-		"grievance_type": S(nullable=True, description="Grievance type"),
-		"associated_service_provider": S(nullable=True, description="Associated service provider"),
-		"description": S(nullable=True, description="Narrative description"),
-		"desired_outcome": S(nullable=True, description="Desired outcome"),
-	},
-	required=["client_submission_uuid"],
-	description="Payload for submitting a saved grievance draft",
-)
-
-REQ["SubmitGrievanceRequest"] = OBJ(
-	{
-		"client_submission_uuid": S(
-			minLength=1, nullable=True, description="Stable client-generated submission key"
-		),
-		"submitter_type": S(nullable=True, description="Submitter classification"),
-		"submitter_name": S(nullable=True, description="Submitter name or organization"),
-		"contact_mobile": S(nullable=True, description="Contact mobile phone"),
-		"country_code": S(nullable=True, description="Country dialing prefix e.g. +251"),
-		"phone_number": S(nullable=True, description="National phone number"),
-		"phone": S(nullable=True, description="Phone alias"),
-		"contact_email": S(format="email", nullable=True, description="Contact email address"),
-		"submission_channel": S(nullable=True, description="Intake channel"),
-		"administrative_area": S(nullable=True, description="Administrative area ID"),
-		"administrative_unit": S(nullable=True, description="Administrative unit / woreda / branch"),
-		"service_category": S(nullable=True, description="Service category name"),
-		"grievance_type": S(nullable=True, description="Grievance type name"),
-		"associated_service_provider": S(nullable=True, description="Associated service provider"),
-		"description": S(minLength=1, description="Narrative description of grievance"),
-		"desired_outcome": S(nullable=True, description="Desired resolution outcome"),
-		"is_anonymous": I(enum=[0, 1], default=0, nullable=True, description="1 if requesting anonymity"),
-		"anonymity_justification": S(nullable=True, description="Justification for anonymity request"),
-		"consent_given": I(enum=[0, 1], default=1, nullable=True, description="1 to record citizen consent"),
-	},
-	required=["description"],
-	description="Payload for lodging a grievance directly",
-)
-
-REQ["DiscardDraftRequest"] = OBJ(
-	{
-		"client_submission_uuid": S(minLength=1, description="Stable client-generated draft key to discard"),
-	},
-	required=["client_submission_uuid"],
-	description="Payload for discarding an unsubmitted grievance draft",
-)
-
-REQ["PostMessageRequest"] = OBJ(
-	{
-		"message": S(minLength=1, description="Message text posted to the conversation thread"),
-	},
-	required=["message"],
-	description="Message payload",
-)
-
-REQ["AddNoteRequest"] = OBJ(
-	{
-		"note": S(minLength=1, description="Internal or external note content"),
-		"is_internal": B(default=True, description="Whether this note is hidden from citizens (staff-only)"),
-	},
-	required=["note"],
-	description="Staff note payload",
-)
-
-REQ["GrievanceActionRequest"] = OBJ(
-	{
-		"action": S(
-			minLength=1,
-			description="Canonical workflow action name (e.g. 'Start Work', 'Close Case', 'Reopen', 'Reject')",
-		),
-		"reason": S(nullable=True, description="Mandatory justification when required by the action"),
-		"note": S(nullable=True, description="Optional note text"),
-		"rating": I(
-			minimum=1,
-			maximum=5,
-			nullable=True,
-			description="Citizen satisfaction rating (1-5) for resolution confirmation",
-		),
-		"comments": S(nullable=True, description="Optional citizen feedback remarks"),
-		"body": S(nullable=True, description="Response body text for submitter reply"),
-	},
-	required=["action"],
-	description="Workflow action and state transition payload",
-)
-
-REQ["DecideChangeRequest"] = OBJ(
-	{
-		"decision": S(minLength=1, enum=["Approved", "Rejected"], description="Approval decision"),
-		"note": S(nullable=True, description="Decision note or rejection explanation"),
-	},
-	required=["decision"],
-	description="Payload for approving or rejecting a change request",
-)
-
-REQ["ReassignGrievanceRequest"] = OBJ(
-	{
-		"target_department": S(minLength=1, description="Target department identifier"),
-		"target_officer": S(nullable=True, description="Target officer user email"),
-		"target_category": S(nullable=True, description="Target service category name"),
-		"target_grievance_type": S(nullable=True, description="Target grievance type name"),
-		"reason": S(nullable=True, description="Reassignment rationale"),
-	},
-	required=["target_department"],
-	description="Payload for reassigning department or officer on a grievance",
-)
-
-REQ["DeferSLARequest"] = OBJ(
-	{
-		"additional_days": I(minimum=1, description="Number of additional days requested"),
-		"reason": S(minLength=1, description="Justification for extending SLA deadline"),
-	},
-	required=["additional_days", "reason"],
-	description="Payload for requesting an SLA deadline deferral",
-)
-
-REQ["AnonymityDecisionRequest"] = OBJ(
-	{
-		"decision": S(minLength=1, enum=["Approved", "Rejected"], description="Approval decision"),
-		"reason": S(nullable=True, description="Mandatory reason when declining anonymity"),
-	},
-	required=["decision"],
-	description="Payload for ruling on submitter anonymity request",
-)
-
-REQ["RegisterSubmitterRequest"] = OBJ(
-	{
-		"user": S(nullable=True, description="Existing user ID to associate"),
-		"submitter_type": S(default="Individual Farmer", description="Submitter classification"),
-		"submitter_name": S(nullable=True, description="Submitter full name or organization name"),
-		"contact_mobile": S(nullable=True, description="Contact mobile number"),
-		"country_code": S(nullable=True, description="Country dialing prefix"),
-		"phone_number": S(nullable=True, description="National phone number"),
-		"phone": S(nullable=True, description="Phone alias"),
-		"contact_email": S(format="email", nullable=True, description="Contact email address"),
-		"administrative_area": S(nullable=True, description="Administrative area link"),
-		"administrative_unit": S(nullable=True, description="Administrative unit / woreda / branch"),
-		"preferred_language": S(nullable=True, description="Preferred language code"),
-		"fayda_id": S(nullable=True, description="National Fayda ID"),
-		"national_id": S(nullable=True, description="National ID alias"),
-		"registration_number": S(nullable=True, description="Organization registration number"),
-		"org_number": S(nullable=True, description="Organization number alias"),
-		"farmer_id": S(nullable=True, description="Farmer registry ID"),
-		"dedupe_key": S(nullable=True, description="Explicit deduplication key"),
-	},
-	required=[],
-	description="Payload for registering or updating a submitter profile",
-)
-
-REQ["BlockSubmitterRequest"] = OBJ(
-	{
-		"reason": S(minLength=1, description="Reason for blocking submitter"),
-	},
-	required=["reason"],
-	description="Payload for blocking a submitter profile",
-)
-
-REQ["CreateCategoryAssignmentRequest"] = OBJ(
-	{
-		"service_category": S(minLength=1, description="Category name or code"),
-		"department": S(minLength=1, description="Department name or short name"),
-		"l1_officer": S(minLength=1, description="L1 nodal officer user id"),
-		"l2_officer": S(nullable=True, description="L2 senior nodal officer user id. Omit or null for none."),
-		"sla_days": I(minimum=1, description="SLA window in days"),
-		"auto_escalate": B(default=True),
-		"active": B(default=True),
-	},
-	required=["service_category", "department", "l1_officer", "sla_days"],
-	description="Create the routing rule for one department and service category",
-)
-
-REQ["UpdateCategoryAssignmentRequest"] = OBJ(
-	{
-		"department": S(minLength=1, description="Department name or short name. Null or blank is rejected."),
-		"l1_officer": S(minLength=1, description="L1 nodal officer user id. Null or blank is rejected."),
-		"l2_officer": S(nullable=True, description="L2 senior nodal officer. Null clears it."),
-		"sla_days": I(minimum=1),
-		"auto_escalate": B(),
-		"active": B(description="Set false to deactivate. Same as DELETE."),
-	},
-	description=(
-		"Partial update. Omit a field to leave it unchanged. Unknown fields, including "
-		+ "service_category, are rejected."
-	),
-)
-
 
 # ---------------------------------------------------------------------------
-# Envelope Builder Helper
+# Response Envelopes
 # ---------------------------------------------------------------------------
-def make_envelope(
-	data_ref: str,
-	is_list: bool = False,
-	nullable_data: bool = False,
-	description: str = "Successful response",
-) -> dict[str, Any]:
-	if is_list:
-		data_prop: Any = ARR(REF(data_ref))
-	elif nullable_data:
-		data_prop = {**REF(data_ref), "nullable": True}
-	else:
-		data_prop = REF(data_ref)
-
-	return OBJ(
-		{
-			"status": S(example="success", enum=["success"]),
-			"message": S(nullable=True, description="Optional response message"),
-			"data": data_prop,
-			"meta": REF("ApiMeta"),
-			"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
-		},
-		required=["status", "data"],
-		description=description,
-	)
-
-
 ENVELOPES = {
 	"HealthResponse": make_envelope("HealthData", description="Health check response"),
 	"PingResponse": make_envelope("PingData", description="Ping response"),
@@ -1258,11 +1047,23 @@ ENVELOPES = {
 	"GrievanceStatusSummaryResponse": make_envelope(
 		"GrievanceStatusSummaryData", description="KPI status card counts"
 	),
+	"ResponseTemplatesResponse": make_envelope(
+		"ResponseTemplatesData", description="Rendered response templates"
+	),
 	"GrievanceTimelineResponse": make_envelope(
 		"GrievanceTimelineData", description="Grievance timeline response"
 	),
 	"GrievanceActionResultResponse": make_envelope(
 		"GrievanceActionResultData", description="Action result response"
+	),
+	"GrievanceMessageResponse": make_envelope(
+		"GrievanceMessageData", description="Message or internal note posted"
+	),
+	"AdminResponseTemplateResponse": make_envelope(
+		"AdminResponseTemplateData", description="One response template"
+	),
+	"AdminResponseTemplateListResponse": make_envelope(
+		"AdminResponseTemplateListData", description="One page of response templates"
 	),
 	"ChangeRequestResponse": make_envelope(
 		"ChangeRequestData", description="Grievance change request response"
@@ -1404,132 +1205,6 @@ QP: dict[str, list[dict[str, Any]]] = {
 			"description": "Maximum records returned",
 		},
 	],
-	"ListGrievances": [
-		{
-			"name": "page",
-			"in": "query",
-			"required": False,
-			"schema": I(default=1, minimum=1),
-			"description": "Page number",
-		},
-		{
-			"name": "page_size",
-			"in": "query",
-			"required": False,
-			"schema": I(default=20, minimum=1, maximum=100),
-			"description": "Page size",
-		},
-		{
-			"name": "status",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": (
-				"Comma-separated queue statuses: All, In Progress, Require More Info, "
-				+ "Rejected, Resolved, Closed. Draft is excluded."
-			),
-		},
-		{
-			"name": "category",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Comma-separated service categories e.g. 'Inputs,Payments'",
-		},
-		{
-			"name": "service_category",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Single category alias",
-		},
-		{
-			"name": "grievance_type",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Comma-separated grievance types",
-		},
-		{
-			"name": "region",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Comma-separated regional administrative area IDs",
-		},
-		{
-			"name": "administrative_area",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Single administrative area ID or path_code",
-		},
-		{
-			"name": "from_date",
-			"in": "query",
-			"required": False,
-			"schema": S(format="date"),
-			"description": "Creation date lower bound (YYYY-MM-DD)",
-		},
-		{
-			"name": "to_date",
-			"in": "query",
-			"required": False,
-			"schema": S(format="date"),
-			"description": "Creation date upper bound (YYYY-MM-DD)",
-		},
-		{
-			"name": "search",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Free text search matching ticket, citizen name, or phone",
-		},
-		{
-			"name": "sort_by",
-			"in": "query",
-			"required": False,
-			"schema": S(default="creation"),
-			"description": "Column to order by",
-		},
-		{
-			"name": "sort_order",
-			"in": "query",
-			"required": False,
-			"schema": S(default="asc", enum=["asc", "desc"]),
-			"description": "Sort direction",
-		},
-	],
-	"ListChangeRequests": [
-		{
-			"name": "status",
-			"in": "query",
-			"required": False,
-			"schema": S(default="Pending", enum=["Pending", "Approved", "Rejected"]),
-			"description": "Filter by change request status",
-		},
-		{
-			"name": "scope",
-			"in": "query",
-			"required": False,
-			"schema": S(default="pending_with_me", enum=["pending_with_me", "raised_by_me", "all"]),
-			"description": "Filter scope by caller involvement",
-		},
-		{
-			"name": "ticket_number",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Filter changes for a specific grievance ticket",
-		},
-		{
-			"name": "limit",
-			"in": "query",
-			"required": False,
-			"schema": I(default=50, maximum=200),
-			"description": "Maximum records returned",
-		},
-	],
 	"ViewAttachment": [
 		{
 			"name": "download",
@@ -1538,43 +1213,6 @@ QP: dict[str, list[dict[str, Any]]] = {
 			"schema": B(default=False),
 			"description": "Send Content-Disposition: attachment (Save As) instead of inline",
 		}
-	],
-	"ListCategoryAssignments": [
-		{
-			"name": "service_category",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Filter by service category name or code",
-		},
-		{
-			"name": "department",
-			"in": "query",
-			"required": False,
-			"schema": S(),
-			"description": "Filter by department name or short name",
-		},
-		{
-			"name": "active",
-			"in": "query",
-			"required": False,
-			"schema": B(),
-			"description": "Filter by active flag. Omit to return active and inactive rules.",
-		},
-		{
-			"name": "page",
-			"in": "query",
-			"required": False,
-			"schema": I(default=1, minimum=1),
-			"description": "Page number",
-		},
-		{
-			"name": "page_size",
-			"in": "query",
-			"required": False,
-			"schema": I(default=20, minimum=1, maximum=100),
-			"description": "Page size",
-		},
 	],
 }
 
@@ -1657,6 +1295,14 @@ PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
 # ---------------------------------------------------------------------------
 # Dynamic Discovery & Spec Builder
 # ---------------------------------------------------------------------------
+# Requests that carry files. The others are JSON only.
+MULTIPART_REQUESTS = {
+	"SubmitDocumentsRequest": ("multipart/form-data",),
+	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
+	"PostMessageRequest": ("application/json", "multipart/form-data"),
+}
+
+
 def _import_all_api_modules() -> None:
 	"""Import all endpoint modules so Werkzeug rules are fully populated."""
 	api_modules = [
@@ -1669,6 +1315,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.profile",
+		"oan_grievance_service.api.v1.response_config",
 		"oan_grievance_service.api.v1.submitter",
 	]
 	for mod_name in api_modules:
@@ -1687,7 +1334,7 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administrative Areas"
 	if path.startswith("/api/v1/drafts"):
 		return "Grievance Drafts"
-	if path.startswith("/api/v1/category-assignments"):
+	if path.startswith(("/api/v1/category-assignments", "/api/v1/response-templates")):
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"
@@ -1697,7 +1344,15 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Attachments"
 	if any(
 		kw in path
-		for kw in ("action", "note", "message", "timeline", "reassign", "defer-sla", "anonymity-decision")
+		for kw in (
+			"action",
+			"message",
+			"timeline",
+			"reassign",
+			"defer-sla",
+			"anonymity-decision",
+			"response-templates",
+		)
 	):
 		return "Grievance Lifecycle & Actions"
 	return "Grievances Core"
@@ -1713,8 +1368,8 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"submit": "GrievanceSubmitResultResponse",
 		"action": "GrievanceActionResultResponse",
 		"timeline": "GrievanceTimelineResponse",
-		"add_note": "GrievanceActionResultResponse",
-		"message": "GrievanceActionResultResponse",
+		"response_templates": "ResponseTemplatesResponse",
+		"message": "GrievanceMessageResponse",
 		"reassign": "GrievanceChangeResponse",
 		"defer_sla": "GrievanceChangeResponse",
 		"anonymity_decision": "GrievanceChangeResponse",
@@ -1737,6 +1392,16 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"block_submitter": "SubmitterBlockResponse",
 		"unblock_submitter": "SubmitterBlockResponse",
 		"get_charts": "DashboardChartsResponse",
+		"list_assignments": "CategoryAssignmentListResponse",
+		"get_assignment": "CategoryAssignmentResponse",
+		"create_assignment": "CategoryAssignmentResponse",
+		"update_assignment": "CategoryAssignmentResponse",
+		"deactivate_assignment": "CategoryAssignmentResponse",
+		"list_response_templates": "AdminResponseTemplateListResponse",
+		"get_response_template": "AdminResponseTemplateResponse",
+		"create_response_template": "AdminResponseTemplateResponse",
+		"update_response_template": "AdminResponseTemplateResponse",
+		"deactivate_response_template": "AdminResponseTemplateResponse",
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
@@ -1766,8 +1431,9 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 		description = (unwrapped.__doc__ or "").strip() or summary
 
 		tag = _determine_tag(openapi_path, func_name)
-		req_schema_cls = getattr(endpoint_fn, "_request_schema", None)
-		req_schema_name = req_schema_cls.__name__ if req_schema_cls else None
+		req_model = request_model(endpoint_fn)
+		req_schema_name = req_model.__name__ if req_model else None
+		req_schema = request_schema(req_model, path_param_names, REQ) if req_model else None
 
 		for method in sorted(methods):
 			op_key = (method, openapi_path)
@@ -1801,18 +1467,17 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					}
 				)
 
-			# Query parameters
+			# Query parameters: from the request model, else the catalog for the few
+			# GET routes that read their query string without one.
 			if method == "GET":
-				if func_name == "list_grievances":
-					parameters.extend(copy.deepcopy(QP["ListGrievances"]))
+				if req_schema:
+					parameters.extend(query_parameters(req_schema))
 				elif func_name == "get_areas":
 					parameters.extend(copy.deepcopy(QP["AdministrativeAreas"]))
 				elif func_name == "options" and "submitters" in openapi_path:
 					parameters.extend(copy.deepcopy(QP["SubmitterOptions"]))
 				elif func_name == "options" and "grievances" in openapi_path:
 					parameters.extend(copy.deepcopy(QP["GrievanceOptions"]))
-				elif func_name == "list_requests":
-					parameters.extend(copy.deepcopy(QP["ListChangeRequests"]))
 				elif func_name == "view":
 					parameters.extend(copy.deepcopy(QP["ViewAttachment"]))
 				elif func_name == "get_charts":
@@ -1870,15 +1535,23 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				op["security"] = [] if allow_guest else [{"BearerAuth": []}]
 
 			# Request body for mutation methods
-			if method in ("POST", "PUT", "PATCH", "DELETE") and req_schema_name:
-				req_ct = (
-					"multipart/form-data"
-					if req_schema_name == "SubmitDocumentsRequest"
-					else "application/json"
-				)
+			# Request body. A model left empty once the path parameters are taken out
+			# (the *Ref models) means the operation takes no body.
+			if method in ("POST", "PUT", "PATCH", "DELETE") and req_schema:
+				body_schema = copy.deepcopy(req_schema)
+				if req_schema_name in MULTIPART_REQUESTS:
+					body_schema["properties"]["files"] = ARR(
+						BINARY, description="Files, sent as multipart/form-data"
+					)
+				component = req_schema_name
+				if REQ.get(component, body_schema) != body_schema:
+					# The same model on routes with different path parameters.
+					component = f"{req_schema_name}_{'_'.join(path_param_names) or 'body'}"
+				REQ[component] = body_schema
+				content_types = MULTIPART_REQUESTS.get(req_schema_name, ("application/json",))
 				op["requestBody"] = {
-					"required": True,
-					"content": {req_ct: {"schema": REF(req_schema_name)}},
+					"required": bool(body_schema.get("required")),
+					"content": {ct: {"schema": REF(component)} for ct in content_types},
 				}
 
 			paths[openapi_path][method.lower()] = op
@@ -1934,7 +1607,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			},
 			{
 				"name": "Administration",
-				"description": "Category-to-department routing rules for the Category Assignments admin tab",
+				"description": "Category-to-department routing rules, and the response templates officers respond with",
 			},
 			{
 				"name": "Dashboard Charts",
@@ -1963,42 +1636,33 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 	return doc, paths, components_schemas
 
 
-def strip_extensions(o: Any) -> Any:
-	if isinstance(o, dict):
-		return {k: strip_extensions(v) for k, v in o.items() if not k.startswith("x-")}
-	if isinstance(o, list):
-		return [strip_extensions(v) for v in o]
-	return o
-
-
 def main() -> None:
 	doc, paths, components_schemas = build_openapi()
-
-	# 1. Write internal spec
-	with INTERNAL_SPEC_OUTPUT.open("w", encoding="utf-8") as f:  # nosemgrep: frappe-security-file-traversal
-		f.write("# OAN Grievance Service API -- OpenAPI 3.0.3 (INTERNAL)\n")
-		f.write("# Carries internal vendor extensions (x-legacy-rpc-method).\n")
-		f.write("# Dynamically generated from generate_openapi_spec.py -- do not edit manually.\n")
-		yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False, width=100, allow_unicode=True)
-
 	n_paths = len(paths)
 	n_ops = sum(len(v) for v in paths.values())
+
+	dump_spec(
+		doc,
+		INTERNAL_SPEC_OUTPUT,
+		[
+			"OAN Grievance Service API -- OpenAPI 3.0.3 (INTERNAL)",
+			"Carries internal vendor extensions (x-legacy-rpc-method).",
+			"Dynamically generated from generate_openapi_spec.py -- do not edit manually.",
+		],
+	)
 	print(
 		f"Wrote {INTERNAL_SPEC_OUTPUT.name}: {n_paths} paths, {n_ops} operations, {len(components_schemas)} schemas",
 		file=sys.stderr,
 	)
 
-	# 2. Write public spec (vendor extensions stripped)
-	public_doc = strip_extensions(doc)
-	with PUBLIC_SPEC_OUTPUT.open("w", encoding="utf-8") as f:  # nosemgrep: frappe-security-file-traversal
-		f.write("# OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)\n")
-		f.write(
-			"# Contract with vendor extensions removed. Dynamically generated from generate_openapi_spec.py.\n"
-		)
-		yaml.safe_dump(
-			public_doc, f, sort_keys=False, default_flow_style=False, width=100, allow_unicode=True
-		)
-
+	dump_spec(
+		strip_extensions(doc),
+		PUBLIC_SPEC_OUTPUT,
+		[
+			"OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)",
+			"Contract with vendor extensions removed. Dynamically generated from generate_openapi_spec.py.",
+		],
+	)
 	print(
 		f"Wrote {PUBLIC_SPEC_OUTPUT.name}: {n_paths} paths, {n_ops} operations, {len(components_schemas)} schemas",
 		file=sys.stderr,

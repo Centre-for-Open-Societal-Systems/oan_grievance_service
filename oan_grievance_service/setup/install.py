@@ -59,18 +59,22 @@ WORKFLOW_STATES = [
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
-SUBMITTER_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+# Officers file on someone's behalf (assisted, walk-in, IVR), so filing is shared.
+# Replying, reopening and confirming a resolution are the submitter's word alone.
+FILING_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+SUBMITTER_ROLES = ("Grievance Submitter",)
 SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
-	(C.STATE_DRAFT, "Submit", C.STATE_SUBMITTED, SUBMITTER_ROLES),
+	(C.STATE_DRAFT, "Submit", C.STATE_SUBMITTED, FILING_ROLES),
 	(C.STATE_SUBMITTED, "Assign", C.STATE_ASSIGNED, SYSTEM_ROLES),
 	(C.STATE_SUBMITTED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Start Work", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
-	(C.STATE_IN_PROGRESS, "Submit Response", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
@@ -187,22 +191,55 @@ SUBMISSION_TYPES = [
 	("Development Agent Assisted", "DA"),
 ]
 
-# Master Grievance Response Types (Contract A: Dynamic Master Resolution)
-# (name, workflow_action, requires_referred_dept, description)
-RESPONSE_TYPES = [
-	("Resolved", "Submit Response", 0, "Full case resolution proposed to the submitter."),
-	("Partially Resolved", "Submit Response", 0, "Partial case resolution proposed to the submitter."),
+# Starting wording for each officer action, global (no department or category scope).
+# Seeded once; administrators edit, scope or deactivate them from there. The body is a
+# Jinja template rendered into the action's reason; see grievance_response_template.py
+# for the variables in scope.
+#
+# (template_code, title, workflow_action, body)
+RESPONSE_TEMPLATES = [
 	(
-		"Referred to another dept",
-		"Refer Onward",
-		1,
-		"Case referred onward to another responsible department.",
+		"RESOLVED-STANDARD",
+		"Resolved - standard",
+		"Resolve",
+		"Action Taken:\n"
+		"{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+		"on {{ service_category }} and took the following action:\n\n"
+		"Resolution Summary:\n"
+		"Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
+		"with the outcome, you can reopen it from the grievance page.\n\n"
+		"{{ officer_name }}, {{ today }}",
 	),
 	(
-		"Requires further info",
+		"PARTIALLY-RESOLVED-STANDARD",
+		"Partially resolved - standard",
+		"Partially Resolve",
+		"Action Taken:\n"
+		"{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+		"on {{ service_category }} and took the following action:\n\n"
+		"Resolution Summary:\n"
+		"Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
+		"open and why:\n\n"
+		"If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
+		"{{ officer_name }}, {{ today }}",
+	),
+	(
+		"REQUEST-INFO-STANDARD",
+		"Request more information - standard",
 		"Request More Info",
-		0,
-		"Clarification or additional evidence requested from submitter.",
+		"Dear {{ submitter_name }}, to continue working on your grievance {{ ticket_number }} "
+		"we need the following information:\n\n"
+		"Please reply from the grievance page. Your case will wait for your reply.\n\n"
+		"{{ officer_name }}, {{ today }}",
+	),
+	(
+		"REFERRED-STANDARD",
+		"Referred - standard",
+		"Refer Onward",
+		"Dear {{ submitter_name }}, your grievance {{ ticket_number }} has been referred to the "
+		"department responsible for it, because:\n\n"
+		"You will be informed once an officer there takes it up.\n\n"
+		"{{ officer_name }}, {{ today }}",
 	),
 ]
 
@@ -445,7 +482,7 @@ def seed_all():
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
-		"response_types": seed_response_types(),
+		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
@@ -502,22 +539,22 @@ def seed_holiday_list():
 	return [name]
 
 
-def seed_response_types():
+def seed_response_templates():
 	made = []
-	for name, action, requires_dept, desc in RESPONSE_TYPES:
-		if frappe.db.exists("Grievance Response Type", name):
+	for code, title, workflow_action, body in RESPONSE_TEMPLATES:
+		if frappe.db.exists("Grievance Response Template", code):
 			continue
 		frappe.get_doc(
 			{
-				"doctype": "Grievance Response Type",
-				"response_type_name": name,
-				"workflow_action": action,
-				"requires_referred_dept": requires_dept,
+				"doctype": "Grievance Response Template",
+				"template_code": code,
+				"title": title,
+				"workflow_action": workflow_action,
+				"body": body,
 				"is_active": 1,
-				"description": desc,
 			}
 		).insert(ignore_permissions=True)
-		made.append(name)
+		made.append(code)
 	return made
 
 

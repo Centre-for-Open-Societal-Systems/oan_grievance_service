@@ -10,8 +10,7 @@
   "grievance",
   "from_status",
   "to_status",
-  "transition",
-  "closure_type",
+  "action",
   "is_automated",
   "col_hist",
   "changed_by",
@@ -50,15 +49,11 @@
    "read_only": 1
   },
   {
-   "fieldname": "transition",
+   "description": "The Grievance Workflow action that made the move.",
+   "fieldname": "action",
    "fieldtype": "Data",
-   "label": "Transition Taken"
-  },
-  {
-   "fieldname": "closure_type",
-   "fieldtype": "Select",
-   "label": "Closure Type",
-   "options": "\nconfirmed\nauto_closed\nauto_resolved\nrejected\nreferred"
+   "label": "Action",
+   "read_only": 1
   },
   {
    "default": "0",
@@ -89,13 +84,16 @@
   {
    "fieldname": "reason",
    "fieldtype": "Small Text",
-   "label": "Reason / Justification"
+   "label": "Reason / Justification",
+   "description": "Why the move was made, as shown to the submitter. For a department response, the response itself.",
+   "reqd": 1
   },
   {
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Notes",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Optional detail recorded with the move."
   },
   {
    "fieldname": "sec_hash",
@@ -118,7 +116,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-14 12:00:00.000000",
+ "modified": "2026-10-04 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Status History",

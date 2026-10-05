@@ -439,11 +439,11 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
 
-		# Attempting 'Submit Response' action without a formal Grievance Response is refused
+		# Attempting 'Resolve' without a reason is refused
 		req_resp_bad = make_test_request(
 			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
-			data={"action": "Submit Response"},
+			data={"action": "Resolve"},
 		)
 		res_resp_bad = frappe.api.handle(req_resp_bad)
 		body_resp_bad = json.loads(res_resp_bad.get_data(as_text=True))

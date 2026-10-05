@@ -292,36 +292,6 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: post-api-v1-grievances-ticket_number-note
-    methods:
-    - POST
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/note$
-    strip_path: false
-    regex_priority: 5
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
   - name: post-api-v1-grievances-ticket_number-message
     methods:
     - POST
@@ -387,6 +357,36 @@ services:
     - POST
     paths:
     - ~/api/v1/grievances/(?<ticket_number>[^/]+)/defer-sla$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-grievances-ticket_number-response-templates
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/response-templates$
     strip_path: false
     regex_priority: 5
     tags:
@@ -1424,6 +1424,156 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: get-api-v1-response-templates
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/response-templates$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-response-templates
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/response-templates$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-response-templates-template
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/response-templates/(?<template>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-response-templates-template
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/response-templates/(?<template>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: delete-api-v1-response-templates-template
+    methods:
+    - DELETE
+    paths:
+    - ~/api/v1/response-templates/(?<template>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
   - name: get-api-v1-submitters-options
     methods:
     - GET
@@ -1567,6 +1717,74 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+- name: oan-grievance-realtime-v1
+  url: http://oan-grievance-websocket.internal.svc:9000
+  connect_timeout: 5000
+  write_timeout: 3600000
+  read_timeout: 3600000
+  retries: 0
+  tags:
+  - oan
+  - grievance
+  - v1
+  - realtime
+  plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Request-Id
+      generator: uuid
+      echo_downstream: true
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+  routes:
+  - name: realtime-socket-io
+    paths:
+    - /socket.io/
+    protocols:
+    - http
+    - https
+    strip_path: false
+    preserve_host: true
+    tags:
+    - oan
+    - grievance
+    - v1
+    - realtime
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: ip
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+        uri_param_names:
+        - access_token
+    - name: request-transformer
+      config:
+        remove:
+          headers:
+          - Cookie
+        replace:
+          headers:
+          - Origin:https://$(headers.host)
+        add:
+          headers:
+          - Origin:https://$(headers.host)
+          - Authorization:Bearer $(query_params.access_token)
+          - X-Frappe-Site-Name:${{ env "DECK_FRAPPE_SITE_NAME" }}
 consumers:
 - username: oan-citizen-mobile-client
   tags:

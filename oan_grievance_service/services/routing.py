@@ -356,7 +356,7 @@ def apply_routing(grievance, commit_status=True):
 
 	if commit_status:
 		lifecycle.transition(
-			grievance, "Assign", note=f"Auto-routed by assignment {doc.name}", automated=True
+			grievance, "Assign", reason=f"Auto-routed by assignment {doc.name}", automated=True
 		)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc

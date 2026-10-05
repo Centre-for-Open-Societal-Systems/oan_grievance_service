@@ -22,6 +22,13 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "kong.yml"
 GRIEVANCE_UPSTREAM_URL = "http://oan-grievance.internal.svc:8000"
+# Frappe's Node socket.io server (`bench socketio`, the `websocket` service in
+# frappe_docker). Its events are described in openapi/asyncapi_v1.yaml, not the
+# OpenAPI spec, so its route is declared here rather than derived.
+GRIEVANCE_SOCKET_UPSTREAM_URL = "http://oan-grievance-websocket.internal.svc:9000"
+# The Frappe site the socket server serves. Clients connect to the `/<site>`
+# socket.io namespace and the server checks it against this header.
+FRAPPE_SITE_NAME = '${{ env "DECK_FRAPPE_SITE_NAME" }}'
 SELECT_TAGS = ["oan", "grievance"]
 
 # ---------------------------------------------------------------------------
@@ -82,10 +89,10 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/grievances/{ticket_number}/action"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/feedback"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/message"): "citizen-intake",
-	("POST", "/api/v1/grievances/{ticket_number}/note"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/reassign"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/defer-sla"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
+	("GET", "/api/v1/grievances/{ticket_number}/response-templates"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/attachments"): "officer-core",
@@ -102,6 +109,11 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
 	("PATCH", "/api/v1/category-assignments/{assignment}"): "officer-core",
 	("DELETE", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("GET", "/api/v1/response-templates"): "officer-core",
+	("POST", "/api/v1/response-templates"): "officer-core",
+	("GET", "/api/v1/response-templates/{template}"): "officer-core",
+	("PATCH", "/api/v1/response-templates/{template}"): "officer-core",
+	("DELETE", "/api/v1/response-templates/{template}"): "officer-core",
 	("GET", "/api/v1/charts"): "officer-core",
 	**{
 		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"
@@ -305,10 +317,98 @@ def build_config(routes):
 		# here, so syncing this file never touches another service's routes or
 		# consumers on a shared Kong.
 		"_info": {"select_tags": SELECT_TAGS},
-		"services": [service],
+		"services": [service, build_socket_service()],
 		"consumers": consumers,
 	}
 	return doc
+
+
+def build_socket_service():
+	"""The realtime socket.io service, see openapi/asyncapi_v1.yaml.
+
+	Frappe's socket server authenticates a socket by replaying its Authorization
+	header against frappe.realtime.get_user_info, and refuses any handshake whose
+	Origin host differs from its Host. Neither suits a gateway: a browser cannot set
+	headers on a WebSocket, and a native app sends no Origin. So Kong takes the JWT
+	from the header or the `access_token` query parameter, verifies it, and hands it
+	on as a header, and it states the Origin itself. Rewriting Origin is safe only
+	because the jwt plugin runs first and the Cookie header is dropped: no request
+	reaches Node on ambient browser credentials, which is the attack the Origin
+	check exists to stop.
+	"""
+	return {
+		"name": "oan-grievance-realtime-v1",
+		"url": GRIEVANCE_SOCKET_UPSTREAM_URL,
+		"connect_timeout": 5000,
+		# A socket sits idle between events. socket.io pings every 25 seconds, so a
+		# live connection never reaches these; a dead one is reaped after an hour.
+		"write_timeout": 3600000,
+		"read_timeout": 3600000,
+		"retries": 0,
+		"tags": ["oan", "grievance", "v1", "realtime"],
+		"plugins": [
+			{
+				"name": "correlation-id",
+				"config": {"header_name": "X-Request-Id", "generator": "uuid", "echo_downstream": True},
+			},
+			{
+				"name": "prometheus",
+				"config": {"status_code_metrics": True, "latency_metrics": True, "bandwidth_metrics": True},
+			},
+		],
+		"routes": [
+			{
+				"name": "realtime-socket-io",
+				"paths": ["/socket.io/"],
+				"protocols": ["http", "https"],
+				"strip_path": False,
+				# The Origin rewrite below copies the public host; Node compares the two.
+				"preserve_host": True,
+				"tags": ["oan", "grievance", "v1", "realtime", "bearer"],
+				"plugins": [
+					{
+						# Handshakes, not messages: clients use the websocket transport,
+						# so each connection is one request. Limited by address because
+						# every JWT maps to the one issuer consumer.
+						"name": "rate-limiting",
+						"config": {
+							"minute": 60,
+							"hour": 1000,
+							"limit_by": "ip",
+							"policy": "redis",
+							"fault_tolerant": True,
+							"hide_client_headers": False,
+						},
+					},
+					{
+						"name": "jwt",
+						"config": {
+							"claims_to_verify": ["exp"],
+							"key_claim_name": "iss",
+							"header_names": ["Authorization"],
+							"uri_param_names": ["access_token"],
+						},
+					},
+					{
+						"name": "request-transformer",
+						"config": {
+							"remove": {"headers": ["Cookie"]},
+							"replace": {"headers": ["Origin:https://$(headers.host)"]},
+							# `add` only fills a header the client did not send, so a
+							# header-borne token is left as it came.
+							"add": {
+								"headers": [
+									"Origin:https://$(headers.host)",
+									"Authorization:Bearer $(query_params.access_token)",
+									f"X-Frappe-Site-Name:{FRAPPE_SITE_NAME}",
+								]
+							},
+						},
+					},
+				],
+			}
+		],
+	}
 
 
 def main():
