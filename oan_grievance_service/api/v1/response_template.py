@@ -19,20 +19,21 @@ import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
+	PageParams,
 	api_doc,
 	handle_api_errors,
+	page_meta,
 	require_role,
 	success_response,
 	validate_request,
 )
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
-from oan_grievance_service.api.v1._pagination import PageParams, page_meta
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, PartialBody, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.grievance_management.doctype.grievance_response.grievance_response import (
 	ACTION_TAKEN_LIMIT,
 )
-from oan_grievance_service.grievance_notification.doctype.grievance_response_template.grievance_response_template import (
+from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
 	VERSIONED_FIELDS,
 	extract_placeholders,
 )
@@ -136,7 +137,7 @@ class CreateTemplate(Body):
 	_type_blank = field_validator("grievance_type", mode="before")(blank_to_none)
 
 
-class UpdateTemplate(PartialBody):
+class UpdateTemplate(Body):
 	"""Partial update. Omitted fields stay as they are, so only grievance_type accepts null."""
 
 	template: NonBlank
@@ -326,7 +327,7 @@ def list_templates(
 	return success_response(
 		data={
 			"templates": _records(rows),
-			"pagination": page_meta(params, frappe.db.count(DOCTYPE, filters)),
+			"pagination": page_meta(frappe.db.count(DOCTYPE, filters), params.page, params.page_size),
 		},
 		message=_("Response templates retrieved"),
 	)
@@ -399,7 +400,7 @@ def create_template(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@validate_request(UpdateTemplate)
+@validate_request(UpdateTemplate, exclude_unset=True)
 @api_doc(
 	summary="Update a response template",
 	description="Partial update. A change to the title, response type, category, subcategory, or "

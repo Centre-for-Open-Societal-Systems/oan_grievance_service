@@ -75,7 +75,7 @@ class TestTypeSniffing(FrappeTestCase):
 
 
 class TestLocationMetadata(FrappeTestCase):
-	"""FSD 9.2 anonymity survives the database and then dies in the EXIF block."""
+	"""Anonymity survives the database and then dies in the EXIF block."""
 
 	def test_a_phone_photo_carries_coordinates(self):
 		self.assertTrue(scanning.has_location_metadata(_real_jpeg(with_gps=True)))

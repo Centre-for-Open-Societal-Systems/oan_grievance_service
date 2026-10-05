@@ -323,14 +323,13 @@ is unaffected.
 
 All optional. Each falls back to the documented default.
 
-| Key                                  | Default                                 | Effect                                             |
-| ------------------------------------ | --------------------------------------- | -------------------------------------------------- |
-| `grievance_clamav_host`              | unset                                   | ClamAV daemon host. **Unset disables scanning.**   |
-| `grievance_clamav_port`              | `3310`                                  | ClamAV daemon port                                 |
-| `grievance_sla_clock_start`          | `assignment`                            | Start the SLA clock at `assignment` or `creation`  |
-| `grievance_sla_paused_statuses`      | `More Info Needed`, `Pending Submitter` | Statuses that pause the SLA clock                  |
-| `grievance_confirmation_window_days` | `7`                                     | Days a submitter has to confirm a resolution       |
-| `grievance_auto_escalation_enabled`  | `true`                                  | Set `false` to stop automatic escalation site-wide |
+| Key                                  | Default      | Effect                                             |
+| ------------------------------------ | ------------ | -------------------------------------------------- |
+| `grievance_clamav_host`              | unset        | ClamAV daemon host. **Unset disables scanning.**   |
+| `grievance_clamav_port`              | `3310`       | ClamAV daemon port                                 |
+| `grievance_sla_clock_start`          | `assignment` | Start the SLA clock at `assignment` or `creation`  |
+| `grievance_confirmation_window_days` | `7`          | Days a submitter has to confirm a resolution       |
+| `grievance_auto_escalation_enabled`  | `true`       | Set `false` to stop automatic escalation site-wide |
 
 ### 4.4 Scheduled jobs
 
@@ -430,18 +429,18 @@ set up.
 
 ## 8. What the app contains
 
-Twenty-six doctypes across six modules, split along the FSD's own functional
+Twenty-five doctypes across six modules, split along the FSD's own functional
 decomposition rather than one flat module. Moving a doctype between modules after
 deployment means a patch on every site, so the split is worth getting right early.
 
-| Module                   | Doctypes                                                                                                                                                                                                | FSD area                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Grievance Management     | Grievance, Grievance Response, Grievance Comment, Grievance Status History, Grievance Duplicate, Grievance Anonymity Request, Grievance Attachment, Grievance Draft                                     | FR-02/04/05/06 — the case and its lifecycle    |
-| Grievance Masters        | Grievance Service Category, Grievance Type, Grievance Administrative Area, Grievance Department, Grievance Submitter Profile, Grievance Submitter Type, Grievance Submission Type, Grievance Role Level | 3.2.2, 3.11.8, Appendix A — reference data     |
-| Grievance SLA            | Grievance SLA Configuration, Grievance SLA Deferral, Grievance Deferral Policy                                                                                                                          | FR-07, 3.11.7 — windows, deferrals, escalation |
-| Grievance Notification   | Grievance Notification Log, Grievance Response Template                                                                                                                                                 | FR-08, Appendix C — matrix and templates       |
-| Grievance Routing        | Grievance Routing Rule, Grievance Reassignment Request                                                                                                                                                  | FR-03, 3.3.1 — routing and reassignment        |
-| Grievance Access Control | Grievance RBAC Assignment, Grievance RBAC Assignment Officer, Grievance Access Audit Event                                                                                                              | FR-01, 3.1.1, FR-10 — scope and audit          |
+| Module                   | Doctypes                                                                                                                                                                                                                         | FSD area                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Grievance Management     | Grievance, Grievance Response, Grievance Timeline, Grievance Status History, Grievance Duplicate, Grievance Attachment, Grievance Submitter Profile                                                                              | FR-02/04/05/06 — the case and its records                         |
+| Grievance Requests       | Grievance Change Request, Grievance Change Request Item, Grievance Change Request Approval                                                                                                                                       | 3.3.1, 3.11.7, 9.2 — changes to a case, approved up the hierarchy |
+| Grievance Masters        | Grievance Service Category, Grievance Type, Grievance Administrative Area, Grievance Department, Grievance Submitter Type, Grievance Submission Type, Grievance Role Level, Grievance Response Type, Grievance Response Template | 3.2.2, 3.11.8, Appendix A — reference data                        |
+| Grievance SLA            | Grievance SLA Configuration, Grievance Deferral Policy                                                                                                                                                                           | FR-07, 3.11.7 — windows and escalation rules                      |
+| Grievance Notification   | Grievance Notification Log                                                                                                                                                                                                       | FR-08, Appendix C — delivery log                                  |
+| Grievance Access Control | Grievance RBAC Assignment, Grievance RBAC Assignment Officer, Grievance Access Audit Event                                                                                                                                       | FR-01, 3.1.1, FR-10 — scope and audit                             |
 
 `grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
 dashboard charts and the FR-11.1 workspace, since those are cross-module views.

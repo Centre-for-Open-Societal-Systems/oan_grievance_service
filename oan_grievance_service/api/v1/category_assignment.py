@@ -22,16 +22,17 @@ import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
+	PageParams,
 	api_doc,
 	handle_api_errors,
+	page_meta,
 	require_role,
 	success_response,
 	validate_request,
 )
 from pydantic import BaseModel, Field, field_validator
 
-from oan_grievance_service.api.v1._pagination import PageParams, page_meta
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, PartialBody, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import category_assignment as service
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
@@ -82,7 +83,7 @@ class CreateCategoryAssignment(Body):
 	_l2_blank = field_validator("l2_officer", mode="before")(blank_to_none)
 
 
-class UpdateCategoryAssignment(PartialBody):
+class UpdateCategoryAssignment(Body):
 	"""Partial update. Omitted fields stay as they are, so only l2_officer accepts null."""
 
 	assignment: NonBlank
@@ -206,7 +207,7 @@ def list_assignments(
 	return success_response(
 		data={
 			"assignments": _records(desks),
-			"pagination": page_meta(params, frappe.db.count(service.DOCTYPE, filters)),
+			"pagination": page_meta(frappe.db.count(service.DOCTYPE, filters), params.page, params.page_size),
 		},
 		message=_("Category assignments retrieved"),
 	)
@@ -274,7 +275,7 @@ def create_assignment(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@validate_request(UpdateCategoryAssignment)
+@validate_request(UpdateCategoryAssignment, exclude_unset=True)
 @api_doc(
 	summary="Update a category assignment",
 	description="Change department, officers, SLA window, or the auto-escalate and active flags. "

@@ -22,6 +22,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "kong.yml"
 GRIEVANCE_UPSTREAM_URL = "http://oan-grievance.internal.svc:8000"
+SELECT_TAGS = ["oan", "grievance"]
 
 # ---------------------------------------------------------------------------
 # Throttling tiers
@@ -41,6 +42,13 @@ TIERS = {
 		"policy": "redis",
 		"note": "Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.",
 	},
+	"public-dashboards": {
+		"limit_by": "ip",
+		"minute": 120,
+		"hour": 3000,
+		"policy": "redis",
+		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; Kong has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
+	},
 	"officer-core": {
 		"limit_by": "consumer",
 		"minute": 300,
@@ -57,7 +65,10 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/grievances/health"): "public-reference",
 	("GET", "/api/v1/grievances/ping"): "public-reference",
 	("GET", "/api/v1/submitters/options"): "public-reference",
-	("GET", "/api/v1/submitters/me"): "citizen-intake",
+	("POST", "/api/v1/submitters"): "citizen-intake",
+	("POST", "/api/v1/submitters/register"): "citizen-intake",
+	("POST", "/api/v1/submitters/{profile_id}/block"): "officer-core",
+	("POST", "/api/v1/submitters/{profile_id}/unblock"): "officer-core",
 	("GET", "/api/v1/administrative-areas"): "public-reference",
 	("GET", "/api/v1/administrative-areas/{area_id_or_path}/ancestors"): "public-reference",
 	("POST", "/api/v1/drafts"): "citizen-intake",
@@ -65,18 +76,27 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/drafts/submit"): "citizen-intake",
 	("DELETE", "/api/v1/drafts"): "citizen-intake",
 	("GET", "/api/v1/grievances"): "officer-core",
+	("POST", "/api/v1/grievances"): "citizen-intake",
 	("GET", "/api/v1/grievances/summary"): "officer-core",
 	("GET", "/api/v1/grievances/options"): "officer-core",
-	("GET", "/api/v1/grievances/{ticket_number}"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/action"): "citizen-intake",
+	("POST", "/api/v1/grievances/{ticket_number}/feedback"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/message"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/note"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/reassign"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/defer-sla"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
+	("GET", "/api/v1/attachments"): "officer-core",
+	("POST", "/api/v1/attachments"): "citizen-intake",
+	("POST", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
 	("GET", "/api/v1/attachments/{attachment_id}/download"): "citizen-intake",
 	("GET", "/api/v1/attachments/{attachment_id}/view"): "citizen-intake",
 	("DELETE", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
+	("GET", "/api/v1/change-requests"): "officer-core",
+	("GET", "/api/v1/change-requests/{name}"): "officer-core",
+	("POST", "/api/v1/change-requests/{name}/decide"): "officer-core",
 	("GET", "/api/v1/category-assignments"): "officer-core",
 	("POST", "/api/v1/category-assignments"): "officer-core",
 	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
@@ -87,7 +107,34 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/response-templates/{template}"): "officer-core",
 	("PATCH", "/api/v1/response-templates/{template}"): "officer-core",
 	("DELETE", "/api/v1/response-templates/{template}"): "officer-core",
+	("GET", "/api/v1/charts"): "officer-core",
+	**{
+		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"
+		for chart_id in (
+			"grvKpis",
+			"grvPerformanceKpis",
+			"grvMonthlyTrend",
+			"grvWeeklyTrend",
+			"grvNetBacklogTrend",
+			"grvStatusDistribution",
+			"grvByCategory",
+			"grvCategoryResolution",
+			"grvResolutionRateByRegion",
+			"grvSlaRisk",
+			"grvPendingDuplicates",
+			"grvOldestOpen",
+			"grvFilterRegions",
+			"grvFilterCategories",
+		)
+	},
 }
+
+
+# Browser origins allowed to call the API, one regex per environment (Kong matches each
+# `origins` entry as a regex), e.g. `https://(portal|backoffice)\.openagrinet\.org`.
+# Not a secret, since browsers see it in Access-Control-Allow-Origin, but it differs
+# per environment, so it comes from the environment at `deck sync`.
+CORS_ORIGINS = '${{ env "DECK_CORS_ORIGINS_REGEX" }}'
 
 
 def load_spec(path):
@@ -104,6 +151,9 @@ def spec_routes(spec):
 			security = op.get("security", spec.get("security", []))
 			if not security or security == []:
 				auth = "public"
+			elif security == [{"FrappeTokenAuth": []}]:
+				# Frappe checks the API key and secret itself; Kong passes the header on.
+				auth = "frappe-token"
 			elif any("BearerAuth" in s for s in security):
 				auth = "bearer"
 			else:
@@ -174,8 +224,8 @@ def build_config(routes):
 			{
 				"name": "cors",
 				"config": {
-					"origins": ["*"],
-					"methods": ["GET", "POST", "DELETE", "OPTIONS"],
+					"origins": [CORS_ORIGINS],
+					"methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 					"headers": ["Authorization", "Content-Type", "X-Request-Id"],
 					"credentials": False,
 					"max_age": 3600,
@@ -240,11 +290,9 @@ def build_config(routes):
 
 		service["routes"].append(route)
 
+	# oan-auth-jwt-issuer is owned by oan_auth_service's kong.yml, which also holds
+	# its jwt_secrets. Declaring it here too would clash with that repo's slice.
 	consumers = [
-		{
-			"username": "oan-auth-jwt-issuer",
-			"tags": ["oan", "auth", "issuer"],
-		},
 		{
 			"username": "oan-citizen-mobile-client",
 			"tags": ["oan", "grievance", "mobile"],
@@ -258,6 +306,10 @@ def build_config(routes):
 	doc = {
 		"_format_version": "3.0",
 		"_transform": True,
+		# decK reads, diffs and deletes only entities carrying every tag listed
+		# here, so syncing this file never touches another service's routes or
+		# consumers on a shared Kong.
+		"_info": {"select_tags": SELECT_TAGS},
 		"services": [service],
 		"consumers": consumers,
 	}

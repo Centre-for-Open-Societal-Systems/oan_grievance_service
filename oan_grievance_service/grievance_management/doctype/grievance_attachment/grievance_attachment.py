@@ -50,7 +50,7 @@ class GrievanceAttachment(Document):
 	def validate_uploader(self):
 		"""Every file is attributable to whoever put it there.
 
-		FR-10 needs the trail to name a person for each piece of evidence, and an
+		The audit trail must name a person for each piece of evidence, and an
 		attachment with no uploader is evidence nobody is answerable for.
 		"""
 		if self.uploaded_by_user or self.uploaded_by_submitter:

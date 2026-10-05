@@ -20,6 +20,7 @@ Kong fronts the grievance service:
 - **TLS Termination & Global Hygiene:** CORS headers, request correlation IDs (`X-Request-Id`), and payload size limiting (15 MB safety limit).
 - **Rate-Limiting Tiers:** Segregated rate limits protecting public reference data from abuse while giving high-throughput capacity to staff operations.
 - **JWT Authentication:** Protects authenticated endpoints (intake, tracking, replies, notes, lifecycle actions) using Bearer tokens minted by `oan_auth_service`.
+- **Dashboard charts:** The public dashboard charts (`/api/v1/charts/<chart_id>`, `FrappeTokenAuth` in the spec) are read by the OAN dashboards with a Frappe API key and secret (`Authorization: token <key>:<secret>`) of a user holding `Grievance Dashboard Reader`. Frappe checks the key; Kong only passes the header through and rate limits.
 
 ---
 
@@ -48,11 +49,12 @@ deck sync -s kong.yml --kong-addr https://kong-admin.internal:8001
 
 ## 3. Throttling Tiers
 
-| Tier               | Keyed By  | Limit                  | Purpose                                                                                                                              |
-| :----------------- | :-------- | :--------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `public-reference` | Client IP | 120 / min, 3,000 / hr  | Public unauthenticated queries: health probes, ping, submitter options, administrative area hierarchies.                             |
-| `citizen-intake`   | Consumer  | 60 / min, 1,000 / hr   | Citizen actions: lodging grievances, tracking by ticket number, replies, conversation messages, reopen, and resolution confirmation. |
-| `officer-core`     | Consumer  | 300 / min, 10,000 / hr | Back-office / staff workflows: multi-select grievance search and listing, officer dropdown options, internal case notes.             |
+| Tier                | Keyed By  | Limit                  | Purpose                                                                                                                              |
+| :------------------ | :-------- | :--------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `public-reference`  | Client IP | 120 / min, 3,000 / hr  | Public unauthenticated queries: health probes, ping, submitter options, administrative area hierarchies.                             |
+| `citizen-intake`    | Consumer  | 60 / min, 1,000 / hr   | Citizen actions: lodging grievances, tracking by ticket number, replies, conversation messages, reopen, and resolution confirmation. |
+| `officer-core`      | Consumer  | 300 / min, 10,000 / hr | Back-office / staff workflows: multi-select grievance search and listing, officer dropdown options, internal case notes.             |
+| `public-dashboards` | Client IP | 120 / min, 3,000 / hr  | Dashboard charts read by the OAN dashboards with their Frappe API key (checked by the platform, no Kong consumer).                   |
 
 Counters use `policy: redis` to synchronize rate-limiting across distributed Kong nodes.
 
@@ -65,3 +67,4 @@ Before syncing `kong.yml` to production:
 1. **Upstream URL:** Replace `GRIEVANCE_UPSTREAM_URL` (defaults to `http://oan-grievance.internal.svc:8000`) with your production service address.
 2. **JWT Secret:** In `consumers[0].jwt_secrets`, set `secret` to match `jwt_secret` from your `site_config.json` or secrets manager.
 3. **Redis Host/Port:** Configure Kong's rate-limiting plugin to connect to your central Redis cluster or Sentinel.
+4. **CORS origins:** The service's `cors` plugin allows `${{ env "DECK_CORS_ORIGINS_REGEX" }}`, a regex of the browser origins for that environment (e.g. `https://(portal|backoffice)\.openagrinet\.org`, or `http://localhost:\d+` locally). Export it for `deck sync`. It is configuration, not a secret.

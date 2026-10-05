@@ -146,7 +146,7 @@ class TestUploadGate(AttachmentAPITestCase):
 
 class TestLocationMetadataIsStripped(AttachmentAPITestCase):
 	def test_coordinates_do_not_survive_the_upload(self):
-		"""FSD 9.2 anonymity would otherwise die in the EXIF block."""
+		"""Anonymity would otherwise die in the EXIF block."""
 		original = _jpeg(with_gps=True)
 		self.assertTrue(scanning.has_location_metadata(original))
 
@@ -805,7 +805,9 @@ class TestDeletion(AttachmentAPITestCase):
 		the assertion is on the refusal rather than on the row outliving it.
 		"""
 		name = self._send("evidence.jpg", _jpeg())["data"][0]["attachment"]
-		frappe.db.set_value("Grievance", self.grievance.name, "status", "Closed")
+		frappe.db.set_value(
+			"Grievance", self.grievance.name, {"status": "Closed", "workflow_state": "Closed"}
+		)
 
 		result = attachment.delete(attachment=name)
 		self.assertEqual(result["status"], "error")

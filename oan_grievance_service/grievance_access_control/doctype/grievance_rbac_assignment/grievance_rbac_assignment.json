@@ -14,6 +14,7 @@
   "administrative_area_scope",
   "service_provider_scope",
   "routing_strategy",
+  "reassignment_requires_approval",
   "active",
   "sec_validity",
   "effective_from",
@@ -78,6 +79,14 @@
   },
   {
    "default": "1",
+   "description": "Whether moving a case off this desk needs department head approval.",
+   "fieldname": "reassignment_requires_approval",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Reassignment Requires Approval"
+  },
+  {
+   "default": "1",
    "fieldname": "active",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -120,7 +129,8 @@
    "fieldname": "officers",
    "fieldtype": "Table",
    "label": "Officers",
-   "options": "Grievance RBAC Assignment Officer"
+   "options": "Grievance RBAC Assignment Officer",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,

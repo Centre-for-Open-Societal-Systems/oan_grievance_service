@@ -21,7 +21,7 @@
    "reqd": 1
   },
   {
-   "description": "FSD 3.2.2: grievance type is loaded dynamically per category",
+   "description": "Grievance type is loaded dynamically per category",
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,

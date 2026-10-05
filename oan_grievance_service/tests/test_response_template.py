@@ -17,7 +17,7 @@ from oan_grievance_service.api.v1.response_template import (
 	list_templates,
 	update_template,
 )
-from oan_grievance_service.grievance_notification.doctype.grievance_response_template.grievance_response_template import (
+from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
 	extract_placeholders,
 )
 

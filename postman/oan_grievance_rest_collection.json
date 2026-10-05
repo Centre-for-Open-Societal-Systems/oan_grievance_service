@@ -1864,13 +1864,12 @@
                 "{{ticket_number}}",
                 "escalate"
               ]
-            },
-            "description": "FSD 3.7: Allows the submitter to trigger a manual escalation once the SLA window has expired."
+            }
           },
           "response": []
         },
         {
-          "name": "11. Confirm Resolution",
+          "name": "11. Close Case (confirm resolution)",
           "event": [
             {
               "listen": "prerequest",
@@ -1893,7 +1892,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status code is 200 or 400 (requires Pending Submitter state)\", function () {",
+                  "pm.test(\"Status code is 200 or 400 (requires Resolved state)\", function () {",
                   "    pm.expect([200, 400]).to.include(pm.response.code);",
                   "});",
                   "",
@@ -1906,7 +1905,7 @@
                   "    });",
                   "} else {",
                   "    var envelope = jsonData.message || jsonData;",
-                  "    pm.test(\"Returns validation error when not in Pending Submitter state\", function () {",
+                  "    pm.test(\"Returns validation error when not in Resolved state\", function () {",
                   "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
                   "    });",
                   "}"
@@ -1925,10 +1924,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
+              "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/confirm",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
@@ -1937,10 +1936,10 @@
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
-                "confirm"
+                "action"
               ]
             },
-            "description": "FSD 3.6 / UC-03: The submitter confirms the resolution provided by the officer, submitting an optional 1-5 satisfaction rating and comments, transitioning the case to Closed."
+            "description": "FSD 3.6 / UC-03: The submitter accepts the resolution with the Close Case action, moving the case from Resolved to Closed. An optional 1-5 rating and comments are recorded as feedback; ratings can also be sent later through /feedback."
           },
           "response": []
         },
@@ -2000,10 +1999,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
+              "raw": "{\n    \"action\": \"Reopen\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reopen",
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
@@ -2012,7 +2011,7 @@
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
-                "reopen"
+                "action"
               ]
             },
             "description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."

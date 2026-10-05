@@ -1,7 +1,7 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""FSD 3.11.7: the ceilings a deferral may not exceed, as a Single.
+"""The ceilings a deferral may not exceed, as a Single.
 
 A deferral ceiling is not an SLA window. `sla_days` and the escalation behaviour are
 per service category and live on `Grievance SLA Configuration`; what lives here is the
@@ -34,7 +34,7 @@ def get_policy():
 
 
 def max_deferral_days():
-	"""FSD 3.11.7 ceiling on a single deferral request."""
+	"""Ceiling on a single deferral request."""
 	configured = get_policy().max_deferral_days
 	return configured if configured else C.DEFAULT_MAX_DEFERRAL_DAYS
 

@@ -56,23 +56,6 @@ SUBMITTER_TYPE_RULES = {
 }
 
 
-def rule_for(submitter_type):
-	"""The rule for a type, or None if the type is unknown to this map."""
-	return SUBMITTER_TYPE_RULES.get(submitter_type)
-
-
-def required_fields_for(submitter_type: str | None):
-	"""Return the required fields for a submitter type (common baseline only).
-
-	Scheme-specific identity (fayda_id / registration_number) is owned by the
-	submitter profile dedupe_key and is not required on grievance submission.
-	"""
-	rule = rule_for(submitter_type)
-	if rule:
-		return tuple(rule.required)
-	return tuple(COMMON_REQUIRED)
-
-
 def _validate_fayda_id(fayda_id: str):
 	if not FAYDA_PATTERN.match(fayda_id):
 		frappe.throw(
@@ -89,8 +72,8 @@ def _validate_registration_number(registration_number: str):
 		)
 
 
-# Bare / national numbers (no +ISD) are parsed against Ethiopia — primary
-# jurisdiction and the historical FSD default. International numbers carry their
+# Bare / national numbers (no +ISD) are parsed against Ethiopia, the primary
+# jurisdiction. International numbers carry their
 # own country code and are validated by that country's numbering plan.
 DEFAULT_PHONE_REGION = "ET"
 
@@ -151,7 +134,9 @@ def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
 		)
 
 	number_region = region_code_for_number(parsed)
-	allowed = _jurisdiction_phone_regions()
+	from oan_grievance_service.api.v1._options import get_phone_extensions
+
+	allowed = {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
 	if allowed and number_region and number_region not in allowed:
 		frappe.throw(
 			_("{0} belongs to a country outside the active jurisdiction. Use a number from: {1}.").format(
@@ -162,13 +147,6 @@ def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
 		)
 
 	return format_number(parsed, PhoneNumberFormat.E164)
-
-
-def _jurisdiction_phone_regions() -> set[str]:
-	"""ISO region codes from Administrative Area jurisdictions (phone_extensions)."""
-	from oan_grievance_service.api.v1._options import get_phone_extensions
-
-	return {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
 
 
 def derive_dedupe_key(
@@ -192,7 +170,7 @@ def derive_dedupe_key(
 	Fayda / registration format checks live here (profile identity), not on grievance submit.
 	"""
 	raw_key = (dedupe_key or "").strip()
-	rule = rule_for(submitter_type)
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
 	allowed_schemes = rule.schemes if rule else (SCHEME_FAYDA, SCHEME_ORG, SCHEME_PHONE)
 
 	if raw_key:
@@ -281,3 +259,43 @@ def find_or_create_submitter(payload: dict) -> str | None:
 	)
 	profile.insert(ignore_permissions=True)
 	return profile.name
+
+
+def is_reachable(doc: object) -> bool:
+	"""Whether the submitter has contact information on file (mobile or email)."""
+	if hasattr(doc, "get"):
+		return bool(doc.get("contact_mobile") or doc.get("contact_email"))
+	return bool(getattr(doc, "contact_mobile", None) or getattr(doc, "contact_email", None))
+
+
+def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
+	"""Extract and optionally mask contact mobile and split country/national phone numbers.
+
+	Returns dict with:
+	  'contact_mobile', 'contact_email', 'country_code', 'phone_number', 'can_request_more_info'
+	"""
+	from oan_auth_service.api.utils import split_phone_number
+
+	get_val = doc.get if hasattr(doc, "get") else lambda k, default=None: getattr(doc, k, default)
+
+	raw_mobile = get_val("contact_mobile")
+	raw_email = get_val("contact_email")
+
+	can_contact = bool(raw_mobile or raw_email)
+
+	if show_identity:
+		mobile = raw_mobile
+		email = raw_email
+		cc, nat = split_phone_number(mobile) if mobile else (None, None)
+	else:
+		mobile = None
+		email = None
+		cc, nat = (None, None)
+
+	return {
+		"contact_mobile": mobile,
+		"contact_email": email,
+		"country_code": cc,
+		"phone_number": nat,
+		"can_request_more_info": can_contact,
+	}

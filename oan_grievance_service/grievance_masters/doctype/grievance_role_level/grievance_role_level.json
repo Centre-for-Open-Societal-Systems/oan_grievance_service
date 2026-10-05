@@ -18,7 +18,7 @@
  ],
  "fields": [
   {
-   "description": "Stable token used by code and by the FSD enum. Becomes the record name, so it must not change once assignments reference it.",
+   "description": "Stable token used by code. Becomes the record name, so it must not change once assignments reference it.",
    "fieldname": "level_code",
    "fieldtype": "Data",
    "in_list_view": 1,

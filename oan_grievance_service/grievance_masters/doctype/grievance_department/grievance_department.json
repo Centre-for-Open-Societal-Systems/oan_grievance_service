@@ -34,7 +34,7 @@
    "label": "Short Name / Acronym"
   },
   {
-   "description": "FSD 3.3: the assigned department is notified via this account",
+   "description": "The assigned department is notified via this account",
    "fieldname": "email_account",
    "fieldtype": "Data",
    "in_list_view": 1,

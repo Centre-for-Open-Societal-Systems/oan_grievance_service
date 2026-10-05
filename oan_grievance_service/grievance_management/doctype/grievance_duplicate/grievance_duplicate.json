@@ -46,7 +46,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "FSD 3.2.3: compares submitter identity, grievance type and temporal proximity",
+   "description": "Compares submitter identity, grievance type and temporal proximity",
    "fieldname": "detection_method",
    "fieldtype": "Select",
    "label": "Detection Method",
@@ -75,7 +75,7 @@
    "label": "Submitter Justification"
   },
   {
-   "description": "FSD E3: the submitter may link to the existing grievance or proceed with justification",
+   "description": "The submitter may link to the existing grievance or proceed with justification",
    "fieldname": "submitter_justification",
    "fieldtype": "Small Text",
    "label": "Submitter Justification"
