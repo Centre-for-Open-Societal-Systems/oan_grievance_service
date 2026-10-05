@@ -504,6 +504,19 @@ data(
 )
 
 data(
+	"ResponseParts",
+	OBJ(
+		{
+			"action_taken": S(description="What the department did"),
+			"resolution_summary": S(description="The outcome for the submitter"),
+		},
+		required=["action_taken", "resolution_summary"],
+		description="A department response's two parts, split from the stored text. Null on any text "
+		"that was not written in two parts (a rejection, a reopen, an older template).",
+	),
+)
+
+data(
 	"TimelineEventItem",
 	OBJ(
 		{
@@ -517,6 +530,7 @@ data(
 			"author_role": S(nullable=True, description="Role of the actor e.g. Woreda Officer or Submitter"),
 			"author_type": S(nullable=True, enum=["submitter", "officer", "system"]),
 			"body": S(nullable=True, description="Timeline message or description text"),
+			"body_parts": {**REF("ResponseParts"), "nullable": True},
 			"is_internal": B(description="Whether visible only to staff"),
 			"action": S(nullable=True, description="Workflow action behind a status change entry"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
@@ -685,6 +699,7 @@ data(
 				nullable=True, description="Service category the template is scoped to; null for all"
 			),
 			"reason": S(description="Template body rendered for the case, as plain text. Prefills `reason`."),
+			"reason_parts": {**REF("ResponseParts"), "nullable": True},
 			"note": S(
 				nullable=True,
 				description="Template note rendered for the case, as plain text. Prefills `note`.",
@@ -972,6 +987,7 @@ data(
 			"service_category": S(nullable=True, description="Null for every category"),
 			"reason": S(nullable=True, description="Jinja template for the reason, unrendered"),
 			"body": S(description="Jinja template for the reason, unrendered"),
+			"reason_parts": {**REF("ResponseParts"), "nullable": True},
 			"note": S(nullable=True, description="Jinja template for internal note, unrendered"),
 			"usage_count": I(description="Actions sent with this template"),
 			"is_active": B(),

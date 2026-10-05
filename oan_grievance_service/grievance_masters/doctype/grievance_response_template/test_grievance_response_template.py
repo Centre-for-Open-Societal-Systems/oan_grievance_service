@@ -14,19 +14,30 @@ from oan_grievance_service.tests.fixtures import a_grievance
 class TestGrievanceResponseTemplate(FrappeTestCase):
 	def setUp(self):
 		frappe.db.delete(
-			"Grievance Response Template", {"template_code": ["in", ["TEST-TMPL-1", "TEST-TMPL-2"]]}
+			"Grievance Response Template",
+			{
+				"title": [
+					"in",
+					["Test Resolution Template", "General Template", "Inputs Specific Template", "Bad Jinja"],
+				]
+			},
 		)
 
 	def tearDown(self):
 		frappe.db.delete(
-			"Grievance Response Template", {"template_code": ["in", ["TEST-TMPL-1", "TEST-TMPL-2"]]}
+			"Grievance Response Template",
+			{
+				"title": [
+					"in",
+					["Test Resolution Template", "General Template", "Inputs Specific Template", "Bad Jinja"],
+				]
+			},
 		)
 
 	def test_template_creation_and_rendering_with_reason_and_note(self):
 		doc = frappe.get_doc(
 			{
 				"doctype": "Grievance Response Template",
-				"template_code": "TEST-TMPL-1",
 				"title": "Test Resolution Template",
 				"workflow_action": "Resolve",
 				"body": "Dear {{ submitter_name }}, grievance {{ ticket_number }} is resolved.",
@@ -35,6 +46,7 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 			}
 		).insert()
 
+		self.assertTrue(doc.name.startswith("RT-"))
 		self.assertEqual(doc.workflow_action, "Resolve")
 		self.assertEqual(doc.body, "Dear {{ submitter_name }}, grievance {{ ticket_number }} is resolved.")
 		self.assertEqual(doc.note, "Field verification verified by officer.")
@@ -47,10 +59,9 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 		self.assertEqual(rendered_note, "Field verification verified by officer.")
 
 	def test_templates_for_service_category_filtering(self):
-		frappe.get_doc(
+		doc1 = frappe.get_doc(
 			{
 				"doctype": "Grievance Response Template",
-				"template_code": "TEST-TMPL-1",
 				"title": "General Template",
 				"workflow_action": "Resolve",
 				"body": "General resolution.",
@@ -59,10 +70,9 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 			}
 		).insert()
 
-		frappe.get_doc(
+		doc2 = frappe.get_doc(
 			{
 				"doctype": "Grievance Response Template",
-				"template_code": "TEST-TMPL-2",
 				"title": "Inputs Specific Template",
 				"workflow_action": "Resolve",
 				"service_category": "Inputs",
@@ -72,27 +82,29 @@ class TestGrievanceResponseTemplate(FrappeTestCase):
 			}
 		).insert()
 
+		self.assertTrue(doc1.name.startswith("RT-"))
+		self.assertTrue(doc2.name.startswith("RT-"))
+
 		case = a_grievance(service_category="Inputs")
 
 		# With category Inputs, both are available, Inputs specific ranks first
 		inputs_templates = templates_for(case, "Resolve", service_category="Inputs")
 		template_codes = [t.name for t in inputs_templates]
-		self.assertIn("TEST-TMPL-2", template_codes)
-		self.assertIn("TEST-TMPL-1", template_codes)
-		self.assertEqual(template_codes[0], "TEST-TMPL-2")
+		self.assertIn(doc2.name, template_codes)
+		self.assertIn(doc1.name, template_codes)
+		self.assertEqual(template_codes[0], doc2.name)
 
 		# With different category, Inputs specific is excluded
 		other_templates = templates_for(case, "Resolve", service_category="Finance")
 		other_codes = [t.name for t in other_templates]
-		self.assertNotIn("TEST-TMPL-2", other_codes)
-		self.assertIn("TEST-TMPL-1", other_codes)
+		self.assertNotIn(doc2.name, other_codes)
+		self.assertIn(doc1.name, other_codes)
 
 	def test_invalid_jinja_syntax_in_note_raises_validation_error(self):
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc(
 				{
 					"doctype": "Grievance Response Template",
-					"template_code": "TEST-TMPL-1",
 					"title": "Bad Jinja",
 					"workflow_action": "Resolve",
 					"body": "Valid body",

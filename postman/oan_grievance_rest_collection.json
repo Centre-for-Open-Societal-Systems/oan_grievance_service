@@ -1606,7 +1606,8 @@
                   "        pm.expect(Array.isArray(data.items)).to.be.true;",
                   "        data.items.forEach(function (t) {",
                   "            pm.expect(t).to.have.property(\"template\");",
-                  "            pm.expect(t).to.have.property(\"resolution_summary\");",
+                  "            pm.expect(t).to.have.property(\"reason\");",
+                  "            pm.expect(t).to.have.property(\"reason_parts\");",
                   "        });",
                   "    });",
                   "}"

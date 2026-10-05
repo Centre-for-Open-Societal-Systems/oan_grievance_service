@@ -1,13 +1,12 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:template_code",
+ "autoname": "RT-.###",
  "creation": "2026-09-03 19:13:18.774946",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "template_code",
   "title",
   "is_active",
   "usage_count",
@@ -20,14 +19,6 @@
   "note"
  ],
  "fields": [
-  {
-   "fieldname": "template_code",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Template Code",
-   "reqd": 1,
-   "unique": 1
-  },
   {
    "fieldname": "title",
    "fieldtype": "Data",
@@ -107,7 +98,6 @@
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Response Template",
- "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {

@@ -261,8 +261,10 @@ def response_template_query_conditions(user=None):
 
 	scopes = active_scopes(user)
 	clauses = [_template_scope_clause(scope) for scope in scopes] or [
-		"(ifnull(`tabGrievance Response Template`.department, '') = ''"
-		" and ifnull(`tabGrievance Response Template`.service_category, '') = '')"
+		(
+			"(ifnull(`tabGrievance Response Template`.department, '') = ''"
+			+ " and ifnull(`tabGrievance Response Template`.service_category, '') = '')"
+		)
 	]
 	return "(`tabGrievance Response Template`.is_active = 1 and (" + " or ".join(clauses) + "))"
 

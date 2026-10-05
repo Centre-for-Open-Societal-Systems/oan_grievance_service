@@ -45,6 +45,13 @@ class GrievanceAttachment(Document):
 				_("An attachment must belong to a grievance."),
 				title=_("Missing Grievance"),
 			)
+		if self.timeline_entry:
+			tl_grievance = frappe.db.get_value("Grievance Timeline", self.timeline_entry, "grievance")
+			if tl_grievance and tl_grievance != self.grievance:
+				frappe.throw(
+					_("A timeline-scoped attachment cannot point at another case's timeline entry."),
+					frappe.ValidationError,
+				)
 
 	def validate_uploader(self):
 		"""Every file is attributable to whoever put it there.

@@ -665,11 +665,15 @@ paths:
       description: 'Take a workflow action on a grievance.
 
 
-        Every action carries a `reason`, which the submitter sees. Which actions the caller
+        Every action carries a `reason`, which the submitter sees. A department response
 
-        may take from the case''s state is the Grievance Workflow''s call. Files sent as
+        may instead come as `action_taken` and `resolution_summary`, stored together as
 
-        multipart attach to the action''s timeline entry.'
+        the reason. Which actions the caller may take from the case''s state is the
+
+        Grievance Workflow''s call. Files sent as multipart attach to the action''s
+
+        timeline entry.'
       operationId: post_api_v1_grievances_ticket_number_action
       responses:
         '200':
@@ -5343,6 +5347,20 @@ components:
       - description
       - creation
       description: Full grievance case details
+    ResponseParts:
+      type: object
+      properties:
+        action_taken:
+          type: string
+          description: What the department did
+        resolution_summary:
+          type: string
+          description: The outcome for the submitter
+      required:
+      - action_taken
+      - resolution_summary
+      description: A department response's two parts, split from the stored text. Null on any text that
+        was not written in two parts (a rejection, a reopen, an older template).
     TimelineEventItem:
       type: object
       properties:
@@ -5375,6 +5393,9 @@ components:
           type: string
           nullable: true
           description: Timeline message or description text
+        body_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
         is_internal:
           type: boolean
           description: Whether visible only to staff
@@ -5680,6 +5701,9 @@ components:
         reason:
           type: string
           description: Template body rendered for the case, as plain text. Prefills `reason`.
+        reason_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
         note:
           type: string
           nullable: true
@@ -6145,6 +6169,9 @@ components:
         body:
           type: string
           description: Jinja template for the reason, unrendered
+        reason_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
         note:
           type: string
           nullable: true
@@ -6299,6 +6326,18 @@ components:
           type: string
           default: null
           description: Shown to the submitter. For a department response, the response itself.
+          nullable: true
+        action_taken:
+          type: string
+          default: null
+          description: 'Department response, first part: what was done. Sent with `resolution_summary`
+            instead of `reason`; the two are stored together as the reason.'
+          nullable: true
+        resolution_summary:
+          type: string
+          default: null
+          description: 'Department response, second part: the outcome for the submitter. Sent with `action_taken`
+            instead of `reason`.'
           nullable: true
         note:
           type: string
@@ -6733,10 +6772,6 @@ components:
     CreateResponseTemplateRequest:
       additionalProperties: false
       properties:
-        template:
-          description: Template code; the template's identifier
-          minLength: 1
-          type: string
         title:
           minLength: 1
           type: string
@@ -6776,6 +6811,18 @@ components:
           default: null
           description: Jinja template for the response's reason
           nullable: true
+        action_taken:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the reason's first part; sent with resolution_summary
+          nullable: true
+        resolution_summary:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the reason's second part; sent with action_taken
+          nullable: true
         note:
           type: string
           default: null
@@ -6785,7 +6832,6 @@ components:
           default: true
           type: boolean
       required:
-      - template
       - title
       type: object
     UpdateResponseTemplateRequest:
@@ -6815,6 +6861,12 @@ components:
           minLength: 1
           type: string
         body:
+          minLength: 1
+          type: string
+        action_taken:
+          minLength: 1
+          type: string
+        resolution_summary:
           minLength: 1
           type: string
         note:

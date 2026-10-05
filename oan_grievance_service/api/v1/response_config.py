@@ -7,6 +7,10 @@ Templates are administrator-owned master data, each written for one Grievance wo
 action. They are never deleted: DELETE deactivates, so the usage count keeps meaning
 something. The template's code is its identifier and is fixed once created.
 
+A template's text may be sent and read as two parts, `action_taken` and
+`resolution_summary`, which are stored together as its body; see
+`services/response_body.py`.
+
 Handlers stay thin. Field and link checks live in each doctype's `validate()`.
 """
 
@@ -24,6 +28,7 @@ from oan_auth_service.api.utils import (
 from pydantic import Field, field_validator, model_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.services import response_body
 
 template_route = prefixed("/api/v1/response-templates")
 
@@ -51,8 +56,20 @@ class TemplateRef(Body):
 	template: NonBlank
 
 
+def _check_body_parts(model, require_body: bool):
+	"""`action_taken` and `resolution_summary` come together, in place of `reason`/`body`."""
+	has_text = bool(model.body or model.reason)
+	if model.action_taken is None and model.resolution_summary is None:
+		if require_body and not has_text:
+			raise ValueError("Reason (or body, or action_taken with resolution_summary) is required")
+		return
+	if model.action_taken is None or model.resolution_summary is None:
+		raise ValueError("action_taken and resolution_summary are sent together")
+	if has_text:
+		raise ValueError("Send either reason/body or action_taken with resolution_summary, not both")
+
+
 class CreateResponseTemplateRequest(Body):
-	template: NonBlank = Field(description="Template code; the template's identifier")
 	title: NonBlank
 	action: NonBlank | None = Field(None, description="Grievance workflow action the template is written for")
 	workflow_action: NonBlank | None = Field(
@@ -62,6 +79,12 @@ class CreateResponseTemplateRequest(Body):
 	service_category: NonBlank | None = Field(None, description="Omit for every category")
 	reason: NonBlank | None = Field(None, description="Jinja template for the response's reason")
 	body: NonBlank | None = Field(None, description="Jinja template for the response's reason")
+	action_taken: NonBlank | None = Field(
+		None, description="Jinja template for the reason's first part; sent with resolution_summary"
+	)
+	resolution_summary: NonBlank | None = Field(
+		None, description="Jinja template for the reason's second part; sent with action_taken"
+	)
 	note: str | None = Field(None, description="Optional Jinja template for internal notes")
 	is_active: bool = True
 
@@ -71,8 +94,7 @@ class CreateResponseTemplateRequest(Body):
 	def check_action_and_reason(self):
 		if not self.workflow_action and not self.action:
 			raise ValueError("Action (or workflow_action) is required")
-		if not self.body and not self.reason:
-			raise ValueError("Reason (or body) is required")
+		_check_body_parts(self, require_body=True)
 		if not self.workflow_action:
 			self.workflow_action = self.action
 		if not self.body:
@@ -91,10 +113,17 @@ class UpdateResponseTemplateRequest(Body):
 	service_category: NonBlank | None = None
 	reason: NonBlank = None
 	body: NonBlank = None
+	action_taken: NonBlank = None
+	resolution_summary: NonBlank = None
 	note: str | None = None
 	is_active: bool = None
 
 	_scope_blank = field_validator("department", "service_category", "note", mode="before")(blank_to_none)
+
+	@model_validator(mode="after")
+	def check_body_parts(self):
+		_check_body_parts(self, require_body=False)
+		return self
 
 
 class ListResponseTemplatesRequest(PageParams, Body):
@@ -163,6 +192,7 @@ def _template_record(row) -> dict:
 		"service_category": cat_val,
 		"reason": body_val or "",
 		"body": body_val or "",
+		"reason_parts": response_body.split(body_val),
 		"note": note_val or "",
 		"usage_count": usage_val or 0,
 		"is_active": bool(active_val),
@@ -244,12 +274,13 @@ def get_response_template(template: str, **kwargs):
 @require_role(ADMIN_ROLES)
 @validate_request(CreateResponseTemplateRequest)
 def create_response_template(
-	template: str,
 	title: str,
 	workflow_action: str | None = None,
 	action: str | None = None,
 	body: str | None = None,
 	reason: str | None = None,
+	action_taken: str | None = None,
+	resolution_summary: str | None = None,
 	note: str | None = None,
 	department: str | None = None,
 	service_category: str | None = None,
@@ -258,11 +289,13 @@ def create_response_template(
 ):
 	"""Create a response template for one workflow action, optionally scoped."""
 	wf_action = workflow_action or action
-	body_text = body or reason
+	if action_taken is not None:
+		body_text = response_body.compose(action_taken, resolution_summary)
+	else:
+		body_text = body or reason
 	doc = frappe.get_doc(
 		{
 			"doctype": TEMPLATE_DOCTYPE,
-			"template_code": template,
 			"title": title,
 			"workflow_action": wf_action,
 			"department": department,
@@ -291,6 +324,8 @@ def update_response_template(template: str, **kwargs):
 		kwargs["workflow_action"] = kwargs.pop("action")
 	if "reason" in kwargs:
 		kwargs["body"] = kwargs.pop("reason")
+	if "action_taken" in kwargs:
+		kwargs["body"] = response_body.compose(kwargs.pop("action_taken"), kwargs.pop("resolution_summary"))
 	if "is_active" in kwargs:
 		kwargs["is_active"] = 1 if kwargs["is_active"] else 0
 	doc.update(kwargs)

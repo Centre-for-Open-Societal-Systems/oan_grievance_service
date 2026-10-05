@@ -41,7 +41,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
-from oan_grievance_service.services import audit, identity, lifecycle, routing, sla
+from oan_grievance_service.services import audit, identity, lifecycle, response_body, routing, sla
 from oan_grievance_service.services import constants as C
 
 # Aliased: several entry points take a `ticket_number` argument, which would
@@ -117,6 +117,16 @@ class GrievanceActionRequest(Body):
 	reason: str | None = Field(
 		None, description="Shown to the submitter. For a department response, the response itself."
 	)
+	action_taken: str | None = Field(
+		None,
+		description="Department response, first part: what was done. Sent with `resolution_summary` "
+		"instead of `reason`; the two are stored together as the reason.",
+	)
+	resolution_summary: str | None = Field(
+		None,
+		description="Department response, second part: the outcome for the submitter. "
+		"Sent with `action_taken` instead of `reason`.",
+	)
 	note: str | None = Field(
 		None, description="Optional detail recorded directly on the Grievance Status History audit row."
 	)
@@ -126,7 +136,19 @@ class GrievanceActionRequest(Body):
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
 	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
 
-	_blank = field_validator("reason", "note", "internal_notes", "template", mode="before")(blank_to_none)
+	_blank = field_validator(
+		"reason", "action_taken", "resolution_summary", "note", "internal_notes", "template", mode="before"
+	)(blank_to_none)
+
+	@model_validator(mode="after")
+	def check_response_parts(self):
+		if self.action_taken is None and self.resolution_summary is None:
+			return self
+		if self.action_taken is None or self.resolution_summary is None:
+			raise ValueError("action_taken and resolution_summary are sent together")
+		if self.reason is not None:
+			raise ValueError("Send either reason or action_taken with resolution_summary, not both")
+		return self
 
 
 class GrievanceFeedbackRequest(BaseModel):
@@ -787,13 +809,15 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None):
 	created_val = (
 		getattr(entry, "created_on", None) if hasattr(entry, "created_on") else entry.get("created_on")
 	)
+	body = getattr(entry, "body", None) if hasattr(entry, "body") else entry.get("body")
 
 	return {
 		"id": getattr(entry, "name", None) if hasattr(entry, "name") else entry.get("name"),
 		"entry_type": getattr(entry, "entry_type", None)
 		if hasattr(entry, "entry_type")
 		else entry.get("entry_type"),
-		"body": getattr(entry, "body", None) if hasattr(entry, "body") else entry.get("body"),
+		"body": body,
+		"body_parts": response_body.split(body),
 		"is_internal": bool(
 			getattr(entry, "is_internal", False)
 			if hasattr(entry, "is_internal")
@@ -831,6 +855,8 @@ def action(
 	ticket_number: str,
 	action: str,
 	reason: str | None = None,
+	action_taken: str | None = None,
+	resolution_summary: str | None = None,
 	note: str | None = None,
 	internal_notes: str | None = None,
 	template: str | None = None,
@@ -839,10 +865,14 @@ def action(
 ):
 	"""Take a workflow action on a grievance.
 
-	Every action carries a `reason`, which the submitter sees. Which actions the caller
-	may take from the case's state is the Grievance Workflow's call. Files sent as
-	multipart attach to the action's timeline entry.
+	Every action carries a `reason`, which the submitter sees. A department response
+	may instead come as `action_taken` and `resolution_summary`, stored together as
+	the reason. Which actions the caller may take from the case's state is the
+	Grievance Workflow's call. Files sent as multipart attach to the action's
+	timeline entry.
 	"""
+	if action_taken is not None:
+		reason = response_body.compose(action_taken, resolution_summary)
 	doc = _load(ticket_number, ptype="write")
 	from_status = doc.status
 	user = frappe.session.user
@@ -865,6 +895,15 @@ def action(
 	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
 
 	prepared = prepare_uploads(doc.name)
+
+	if matching_action == "Assign":
+		frappe.throw(
+			_(
+				"Direct 'Assign' action is not permitted on this endpoint. Use the assignment/reassignment API to assign a department and officer."
+			),
+			frappe.ValidationError,
+			title=_("Action Not Permitted"),
+		)
 
 	if matching_action == "Start Work":
 		_ensure_department(doc)
@@ -1091,6 +1130,7 @@ def timeline(
 		entry["author_type"] = author_type
 		entry["author_role"] = author_role
 		entry["created_on"] = to_tz_aware_iso(entry.get("created_on"))
+		entry["body_parts"] = response_body.split(entry.get("body"))
 
 	# Only scanned evidence is listed. Files attached straight to the case used
 	# to be shown beside these rows without a verdict; the
@@ -1209,6 +1249,8 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
 
 	internal = bool(_parse_flag(is_internal))
+	if is_internal is None and kwargs.get("type") in ("note", "internal", "internal_note"):
+		internal = True
 	doc = _load(ticket_number, ptype="write")
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
@@ -1239,6 +1281,11 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 		},
 		message=_("Note added successfully") if internal else _("Message posted successfully"),
 	)
+
+
+def add_note(ticket_number: str, body: str, **kwargs):
+	"""Convenience wrapper for posting an internal note to a grievance thread."""
+	return message(ticket_number=ticket_number, body=body, is_internal=True, **kwargs)
 
 
 def _parse_flag(value):
@@ -1382,20 +1429,22 @@ def response_templates(ticket_number: str, action: str, service_category: str | 
 	doc = _load(ticket_number, ptype="write")
 	category = service_category or doc.service_category
 
-	items = [
-		{
-			"template": row.name,
-			"title": row.title,
-			"action": row.workflow_action,
-			"workflow_action": row.workflow_action,
-			"department": row.department,
-			"service_category": row.service_category,
-			"reason": render(row, doc, "body"),
-			"resolution_summary": render(row, doc, "body"),
-			"note": render(row, doc, "note") if row.get("note") else None,
-		}
-		for row in templates_for(doc, action, service_category=category)
-	]
+	items = []
+	for row in templates_for(doc, action, service_category=category):
+		rendered = render(row, doc, "body")
+		items.append(
+			{
+				"template": row.name,
+				"title": row.title,
+				"action": row.workflow_action,
+				"workflow_action": row.workflow_action,
+				"department": row.department,
+				"service_category": row.service_category,
+				"reason": rendered,
+				"reason_parts": response_body.split(rendered),
+				"note": render(row, doc, "note") if row.get("note") else None,
+			}
+		)
 	return success_response(data={"items": items}, message=_("Response templates fetched successfully"))
 
 

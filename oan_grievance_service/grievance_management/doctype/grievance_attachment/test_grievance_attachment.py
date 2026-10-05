@@ -86,18 +86,16 @@ class TestGrievanceAttachment(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Grievance Attachment", doc.name))
 
 	def test_a_response_from_another_case_is_refused(self):
-		# A response moves the case to Resolved, which is only legal from In Progress.
 		other = a_grievance(status="In Progress")
-		response = frappe.get_doc(
+		timeline = frappe.get_doc(
 			{
-				"doctype": "Grievance Response",
+				"doctype": "Grievance Timeline",
 				"grievance": other.name,
-				"response_type": "Resolved",
-				"action_taken": "Handled on the other case.",
-				"resolution_summary": "<p>Closed on the other case.</p>",
+				"entry_type": "note",
+				"body": "Handled on the other case.",
 			}
 		).insert(ignore_permissions=True)
 
-		doc = self._attachment(response=response.name)
+		doc = self._attachment(timeline_entry=timeline.name)
 		with self.assertRaises(frappe.ValidationError):
 			doc.insert(ignore_permissions=True)

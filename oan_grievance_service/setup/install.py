@@ -196,50 +196,54 @@ SUBMISSION_TYPES = [
 # Jinja template rendered into the action's reason; see grievance_response_template.py
 # for the variables in scope.
 #
-# (template_code, title, workflow_action, body)
+# (title, workflow_action, body)
 RESPONSE_TEMPLATES = [
 	(
-		"RESOLVED-STANDARD",
 		"Resolved - standard",
 		"Resolve",
-		"Action Taken:\n"
-		"{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
-		"on {{ service_category }} and took the following action:\n\n"
-		"Resolution Summary:\n"
-		"Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
-		"with the outcome, you can reopen it from the grievance page.\n\n"
-		"{{ officer_name }}, {{ today }}",
+		(
+			"Action Taken:\n"
+			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+			+ "on {{ service_category }} and took the following action:\n\n"
+			+ "Resolution Summary:\n"
+			+ "Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
+			+ "with the outcome, you can reopen it from the grievance page.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 	(
-		"PARTIALLY-RESOLVED-STANDARD",
 		"Partially resolved - standard",
 		"Partially Resolve",
-		"Action Taken:\n"
-		"{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
-		"on {{ service_category }} and took the following action:\n\n"
-		"Resolution Summary:\n"
-		"Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
-		"open and why:\n\n"
-		"If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
-		"{{ officer_name }}, {{ today }}",
+		(
+			"Action Taken:\n"
+			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+			+ "on {{ service_category }} and took the following action:\n\n"
+			+ "Resolution Summary:\n"
+			+ "Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
+			+ "open and why:\n\n"
+			+ "If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 	(
-		"REQUEST-INFO-STANDARD",
 		"Request more information - standard",
 		"Request More Info",
-		"Dear {{ submitter_name }}, to continue working on your grievance {{ ticket_number }} "
-		"we need the following information:\n\n"
-		"Please reply from the grievance page. Your case will wait for your reply.\n\n"
-		"{{ officer_name }}, {{ today }}",
+		(
+			"Dear {{ submitter_name }}, to continue working on your grievance {{ ticket_number }} "
+			+ "we need the following information:\n\n"
+			+ "Please reply from the grievance page. Your case will wait for your reply.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 	(
-		"REFERRED-STANDARD",
 		"Referred - standard",
 		"Refer Onward",
-		"Dear {{ submitter_name }}, your grievance {{ ticket_number }} has been referred to the "
-		"department responsible for it, because:\n\n"
-		"You will be informed once an officer there takes it up.\n\n"
-		"{{ officer_name }}, {{ today }}",
+		(
+			"Dear {{ submitter_name }}, your grievance {{ ticket_number }} has been referred to the "
+			+ "department responsible for it, because:\n\n"
+			+ "You will be informed once an officer there takes it up.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 ]
 
@@ -541,20 +545,19 @@ def seed_holiday_list():
 
 def seed_response_templates():
 	made = []
-	for code, title, workflow_action, body in RESPONSE_TEMPLATES:
-		if frappe.db.exists("Grievance Response Template", code):
+	for title, workflow_action, body in RESPONSE_TEMPLATES:
+		if frappe.db.exists("Grievance Response Template", {"title": title}):
 			continue
-		frappe.get_doc(
+		doc = frappe.get_doc(
 			{
 				"doctype": "Grievance Response Template",
-				"template_code": code,
 				"title": title,
 				"workflow_action": workflow_action,
 				"body": body,
 				"is_active": 1,
 			}
 		).insert(ignore_permissions=True)
-		made.append(code)
+		made.append(doc.name)
 	return made
 
 
