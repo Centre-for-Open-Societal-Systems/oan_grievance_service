@@ -25,22 +25,172 @@ from typing import Any
 
 import frappe
 from oan_auth_service.api.router import _exempt_paths, _rules
-from oan_auth_service.openapi_spec import (
-	ARR,
-	BINARY,
-	OBJ,
-	REF,
-	B,
-	I,
-	N,
-	S,
-	dump_spec,
-	make_envelope,
-	query_parameters,
-	request_model,
-	request_schema,
-	strip_extensions,
-)
+
+try:
+	from oan_auth_service.openapi_spec import (
+		ARR,
+		BINARY,
+		OBJ,
+		REF,
+		B,
+		I,
+		N,
+		S,
+		dump_spec,
+		make_envelope,
+		query_parameters,
+		request_model,
+		request_schema,
+		strip_extensions,
+	)
+except ImportError:
+	import yaml
+	from pydantic import BaseModel
+
+	def S(**kw: Any) -> dict[str, Any]:
+		return {"type": "string", **kw}
+
+	def I(**kw: Any) -> dict[str, Any]:  # noqa: E743
+		return {"type": "integer", **kw}
+
+	def N(**kw: Any) -> dict[str, Any]:
+		return {"type": "number", **kw}
+
+	def B(**kw: Any) -> dict[str, Any]:
+		return {"type": "boolean", **kw}
+
+	def ARR(items: Any, **kw: Any) -> dict[str, Any]:
+		return {"type": "array", "items": items, **kw}
+
+	def OBJ(
+		props: dict[str, Any],
+		required: list[str] | None = None,
+		description: str | None = None,
+		confidence: str | None = None,
+		**kw: Any,
+	) -> dict[str, Any]:
+		d: dict[str, Any] = {"type": "object", "properties": props, **kw}
+		if required:
+			d["required"] = required
+		if description:
+			d["description"] = description
+		if confidence:
+			d["x-schema-confidence"] = confidence
+		return d
+
+	def REF(name: str) -> dict[str, str]:
+		return {"$ref": f"#/components/schemas/{name}"}
+
+	BINARY = {"type": "string", "format": "binary"}
+
+	def make_envelope(
+		data_ref: str,
+		is_list: bool = False,
+		nullable_data: bool = False,
+		description: str = "Successful response",
+	) -> dict[str, Any]:
+		if is_list:
+			data_prop: Any = ARR(REF(data_ref))
+		elif nullable_data:
+			data_prop = {**REF(data_ref), "nullable": True}
+		else:
+			data_prop = REF(data_ref)
+		return OBJ(
+			{
+				"status": S(example="success", enum=["success"]),
+				"message": S(nullable=True, description="Optional response message"),
+				"data": data_prop,
+				"meta": REF("ApiMeta"),
+				"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
+			},
+			required=["status", "data"],
+			description=description,
+		)
+
+	_DROP_KEYWORDS = {"title"}
+
+	def oas30(node: Any) -> Any:
+		if isinstance(node, list):
+			return [oas30(n) for n in node]
+		if not isinstance(node, dict):
+			return node
+		out: dict[str, Any] = {}
+		for key, value in node.items():
+			if key in _DROP_KEYWORDS:
+				continue
+			if key == "properties":
+				out[key] = {name: oas30(prop) for name, prop in value.items()}
+			else:
+				out[key] = oas30(value)
+		for key in ("anyOf", "oneOf"):
+			options = out.get(key)
+			if options and any(o.get("type") == "null" for o in options):
+				rest = [o for o in options if o.get("type") != "null"]
+				del out[key]
+				out = {**rest[0], **out} if len(rest) == 1 else {key: rest, **out}
+				out["nullable"] = True
+		if "const" in out:
+			out["enum"] = [out.pop("const")]
+		if "default" in out and out["default"] is None and not out.get("nullable"):
+			del out["default"]
+		if "$ref" in out and len(out) > 1:
+			out = {"allOf": [{"$ref": out.pop("$ref")}], **out}
+		return out
+
+	def request_schema(
+		cls: type[BaseModel], path_params: list[str], components: dict[str, Any]
+	) -> dict[str, Any] | None:
+		schema = cls.model_json_schema(ref_template="#/components/schemas/{model}")
+		for name, sub in schema.pop("$defs", {}).items():
+			components.setdefault(name, oas30(sub))
+		schema = oas30(schema)
+		props = {k: v for k, v in schema.get("properties", {}).items() if k not in path_params}
+		if not props:
+			return None
+		schema["properties"] = props
+		required = [k for k in schema.get("required", []) if k in props]
+		if required:
+			schema["required"] = required
+		else:
+			schema.pop("required", None)
+		if cls.__doc__ and "description" not in schema:
+			schema["description"] = inspect.cleandoc(cls.__doc__)
+		return schema
+
+	def query_parameters(schema: dict[str, Any]) -> list[dict[str, Any]]:
+		required = set(schema.get("required", []))
+		params = []
+		for name, prop in schema["properties"].items():
+			param: dict[str, Any] = {
+				"name": name,
+				"in": "query",
+				"required": name in required,
+				"schema": {k: v for k, v in prop.items() if k != "description"},
+			}
+			if prop.get("description"):
+				param["description"] = prop["description"]
+			params.append(param)
+		return params
+
+	def request_model(endpoint_fn: Any) -> type[BaseModel] | None:
+		return getattr(endpoint_fn, "_request_schema", None) or getattr(
+			inspect.unwrap(endpoint_fn), "_request_schema", None
+		)
+
+	def strip_extensions(o: Any) -> Any:
+		if isinstance(o, dict):
+			return {k: strip_extensions(v) for k, v in o.items() if not k.startswith("x-")}
+		if isinstance(o, list):
+			return [strip_extensions(v) for v in o]
+		return o
+
+	def dump_spec(doc: dict[str, Any], path, header: list[str]) -> None:
+		with open(path, "w", encoding="utf-8") as f:
+			for line in header:
+				f.write(f"# {line}\n")
+			yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False, width=100, allow_unicode=True)
+
+
 from werkzeug.routing import Rule
 
 SCRIPT_DIR = Path(__file__).resolve().parent

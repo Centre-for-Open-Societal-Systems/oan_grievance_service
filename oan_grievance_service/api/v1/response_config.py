@@ -30,7 +30,7 @@ from pydantic import Field, field_validator, model_validator
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import response_body
 
-template_route = prefixed("/api/v1/response-templates")
+route = prefixed("/api/v1/response-templates")
 
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
@@ -205,7 +205,7 @@ def _get_template(name: str):
 	return frappe.get_doc(TEMPLATE_DOCTYPE, name)
 
 
-@template_route("", methods=("GET",), summary="List response templates")
+@route("", methods=("GET",), summary="List response templates")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -255,7 +255,7 @@ def list_response_templates(
 	)
 
 
-@template_route("/<template>", methods=("GET",), summary="Get a response template")
+@route("/<template>", methods=("GET",), summary="Get a response template")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -268,7 +268,7 @@ def get_response_template(template: str, **kwargs):
 	)
 
 
-@template_route("", methods=("POST",), summary="Create a response template")
+@route("", methods=("POST",), summary="Create a response template")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -310,7 +310,7 @@ def create_response_template(
 	)
 
 
-@template_route("/<template>", methods=("PATCH",), summary="Update a response template")
+@route("/<template>", methods=("PATCH",), summary="Update a response template")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -335,7 +335,7 @@ def update_response_template(template: str, **kwargs):
 	)
 
 
-@template_route("/<template>", methods=("DELETE",), summary="Deactivate a response template")
+@route("/<template>", methods=("DELETE",), summary="Deactivate a response template")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
