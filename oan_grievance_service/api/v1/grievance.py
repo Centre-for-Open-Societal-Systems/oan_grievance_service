@@ -117,13 +117,16 @@ class GrievanceActionRequest(Body):
 	reason: str | None = Field(
 		None, description="Shown to the submitter. For a department response, the response itself."
 	)
+	note: str | None = Field(
+		None, description="Optional detail recorded directly on the Grievance Status History audit row."
+	)
 	internal_notes: str | None = Field(
 		None, description="Staff only. Posted as a separate internal timeline entry."
 	)
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
 	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
 
-	_blank = field_validator("reason", "internal_notes", "template", mode="before")(blank_to_none)
+	_blank = field_validator("reason", "note", "internal_notes", "template", mode="before")(blank_to_none)
 
 
 class GrievanceFeedbackRequest(BaseModel):
@@ -151,6 +154,7 @@ class ResponseTemplatesRequest(BaseModel):
 
 	ticket_number: str | None = None
 	action: str = Field(..., min_length=1, description="Workflow action the templates are written for")
+	service_category: str | None = Field(None, description="Filter templates by service category")
 
 
 class ReassignGrievanceRequest(BaseModel):
@@ -827,6 +831,7 @@ def action(
 	ticket_number: str,
 	action: str,
 	reason: str | None = None,
+	note: str | None = None,
 	internal_notes: str | None = None,
 	template: str | None = None,
 	rating: int | None = None,
@@ -866,7 +871,7 @@ def action(
 
 	# A submitter closing the case accepts the resolution; staff closing it does not.
 	confirmed = matching_action == "Close Case" and not is_staff
-	history = lifecycle.transition(doc, matching_action, reason=reason, confirmed=confirmed)
+	history = lifecycle.transition(doc, matching_action, reason=reason, note=note, confirmed=confirmed)
 	if matching_action == "Close Case":
 		doc.db_set("closure_reason", reason, update_modified=False)
 	elif matching_action == "Reopen":
@@ -1366,7 +1371,7 @@ def defer_sla(
 @validate_request(ResponseTemplatesRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
-def response_templates(ticket_number: str, action: str, **kwargs):
+def response_templates(ticket_number: str, action: str, service_category: str | None = None, **kwargs):
 	"""Active templates for workflow `action` that fit the case's department and category,
 	most specific first, rendered with the case's details for the officer to edit."""
 	from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
@@ -1375,16 +1380,21 @@ def response_templates(ticket_number: str, action: str, **kwargs):
 	)
 
 	doc = _load(ticket_number, ptype="write")
+	category = service_category or doc.service_category
 
 	items = [
 		{
 			"template": row.name,
 			"title": row.title,
+			"action": row.workflow_action,
+			"workflow_action": row.workflow_action,
 			"department": row.department,
 			"service_category": row.service_category,
-			"reason": render(row, doc),
+			"reason": render(row, doc, "body"),
+			"resolution_summary": render(row, doc, "body"),
+			"note": render(row, doc, "note") if row.get("note") else None,
 		}
-		for row in templates_for(doc, action)
+		for row in templates_for(doc, action, service_category=category)
 	]
 	return success_response(data={"items": items}, message=_("Response templates fetched successfully"))
 

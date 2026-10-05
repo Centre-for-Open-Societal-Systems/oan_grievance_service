@@ -1107,6 +1107,14 @@ paths:
           minLength: 1
           type: string
         description: Workflow action the templates are written for
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Filter templates by service category
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.response_templates
       security:
       - BearerAuth: []
@@ -3932,6 +3940,13 @@ paths:
           minimum: 1
           type: integer
         description: Items per page
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
       - name: workflow_action
         in: query
         required: false
@@ -3947,6 +3962,13 @@ paths:
           default: null
           nullable: true
       - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: category
         in: query
         required: false
         schema:
@@ -5639,6 +5661,14 @@ components:
           description: Template ID, sent as `template` to /action
         title:
           type: string
+        action:
+          type: string
+          nullable: true
+          description: Workflow action the template is for
+        workflow_action:
+          type: string
+          nullable: true
+          description: Workflow action the template is for
         department:
           type: string
           nullable: true
@@ -5650,6 +5680,10 @@ components:
         reason:
           type: string
           description: Template body rendered for the case, as plain text. Prefills `reason`.
+        note:
+          type: string
+          nullable: true
+          description: Template note rendered for the case, as plain text. Prefills `note`.
       required:
       - template
       - title
@@ -6087,6 +6121,11 @@ components:
           description: Template code; fixed once created
         title:
           type: string
+        action:
+          type: string
+          example: Resolve
+          nullable: true
+          description: Grievance workflow action the template is for
         workflow_action:
           type: string
           example: Resolve
@@ -6099,9 +6138,17 @@ components:
           type: string
           nullable: true
           description: Null for every category
+        reason:
+          type: string
+          nullable: true
+          description: Jinja template for the reason, unrendered
         body:
           type: string
           description: Jinja template for the reason, unrendered
+        note:
+          type: string
+          nullable: true
+          description: Jinja template for internal note, unrendered
         usage_count:
           type: integer
           description: Actions sent with this template
@@ -6249,9 +6296,15 @@ components:
           minLength: 1
           type: string
         reason:
-          description: Shown to the submitter. For a department response, the response itself.
-          minLength: 1
           type: string
+          default: null
+          description: Shown to the submitter. For a department response, the response itself.
+          nullable: true
+        note:
+          type: string
+          default: null
+          description: Optional detail recorded directly on the Grievance Status History audit row.
+          nullable: true
         internal_notes:
           type: string
           default: null
@@ -6275,7 +6328,6 @@ components:
           description: Files, sent as multipart/form-data
       required:
       - action
-      - reason
       type: object
     GrievanceFeedbackRequest:
       additionalProperties: true
@@ -6688,10 +6740,18 @@ components:
         title:
           minLength: 1
           type: string
-        workflow_action:
-          description: Grievance workflow action the template is written for
+        action:
           minLength: 1
           type: string
+          default: null
+          description: Grievance workflow action the template is written for
+          nullable: true
+        workflow_action:
+          minLength: 1
+          type: string
+          default: null
+          description: Grievance workflow action the template is written for
+          nullable: true
         department:
           minLength: 1
           type: string
@@ -6704,24 +6764,38 @@ components:
           default: null
           description: Omit for every category
           nullable: true
-        body:
-          description: Jinja template for the response's reason
+        reason:
           minLength: 1
           type: string
+          default: null
+          description: Jinja template for the response's reason
+          nullable: true
+        body:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the response's reason
+          nullable: true
+        note:
+          type: string
+          default: null
+          description: Optional Jinja template for internal notes
+          nullable: true
         is_active:
           default: true
           type: boolean
       required:
       - template
       - title
-      - workflow_action
-      - body
       type: object
     UpdateResponseTemplateRequest:
       additionalProperties: false
       description: Partial update. The code is the identifier and cannot change; null clears a scope.
       properties:
         title:
+          minLength: 1
+          type: string
+        action:
           minLength: 1
           type: string
         workflow_action:
@@ -6737,9 +6811,16 @@ components:
           type: string
           default: null
           nullable: true
+        reason:
+          minLength: 1
+          type: string
         body:
           minLength: 1
           type: string
+        note:
+          type: string
+          default: null
+          nullable: true
         is_active:
           type: boolean
       type: object

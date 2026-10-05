@@ -474,6 +474,37 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
 
+		# 6. Action with note and internal_notes populates status history notes and internal timeline
+		rej_case_3 = a_grievance()
+		req_rej_notes = make_test_request(
+			f"/api/v1/grievances/{rej_case_3.ticket_number or rej_case_3.name}/action",
+			method="POST",
+			data={
+				"action": "Reject",
+				"reason": "Out of scope",
+				"note": "Audit note on status change",
+				"internal_notes": "Private officer timeline note",
+			},
+		)
+		res_rej_notes = frappe.api.handle(req_rej_notes)
+		self.assertEqual(res_rej_notes.status_code, 200)
+		hist_row = frappe.get_all(
+			"Grievance Status History",
+			filters={"grievance": rej_case_3.name},
+			fields=["reason", "notes"],
+			order_by="creation desc",
+			limit=1,
+		)[0]
+		self.assertEqual(hist_row["reason"], "Out of scope")
+		self.assertEqual(hist_row["notes"], "Audit note on status change")
+		internal_tl = frappe.get_all(
+			"Grievance Timeline",
+			filters={"grievance": rej_case_3.name, "is_internal": 1},
+			fields=["body", "entry_type"],
+		)
+		self.assertEqual(len(internal_tl), 1)
+		self.assertEqual(internal_tl[0]["body"], "Private officer timeline note")
+
 	def test_reassign_and_defer_endpoints(self):
 		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
 		import uuid

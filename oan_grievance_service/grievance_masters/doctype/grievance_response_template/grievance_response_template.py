@@ -25,7 +25,10 @@ class GrievanceResponseTemplate(Document):
 		self.validate_workflow_action()
 		self.validate_links_active()
 		# A syntax error would otherwise surface only when an officer loads the template.
-		validate_template(self.body)
+		if self.body:
+			validate_template(self.body)
+		if getattr(self, "note", None):
+			validate_template(self.note)
 
 	def validate_workflow_action(self):
 		# A new action is a workflow change, not master data: templates follow the workflow.
@@ -52,27 +55,30 @@ class GrievanceResponseTemplate(Document):
 				)
 
 
-def templates_for(grievance, action):
+def templates_for(grievance, action, service_category=None):
 	"""Active templates for workflow `action` that fit the case, most specific first.
 
 	The case is the gate here, not the officer's own scope: whoever may respond to the
 	case may use what was written for it, even when it was reassigned to them from
 	outside their usual desk.
 	"""
+	target_category = service_category if service_category is not None else (grievance.service_category or "")
 	t = frappe.qb.DocType("Grievance Response Template")
 	rows = (
 		frappe.qb.from_(t)
 		.select(
 			t.name,
 			t.title,
+			t.workflow_action,
 			t.department,
 			t.service_category,
 			t.body,
+			t.note,
 		)
 		.where(t.is_active == 1)
 		.where(t.workflow_action == action)
 		.where(IfNull(t.department, "").isin(["", grievance.assigned_dept or ""]))
-		.where(IfNull(t.service_category, "").isin(["", grievance.service_category or ""]))
+		.where(IfNull(t.service_category, "").isin(["", target_category or ""]))
 		.run(as_dict=True)
 	)
 	# Department outranks category: a department's wording is its own, a category's
@@ -91,10 +97,17 @@ def record_use(template):
 	frappe.qb.update(t).set(t.usage_count, t.usage_count + 1).where(t.name == template).run()
 
 
-def render(template, grievance):
-	"""The template's text filled in for this case, ready to send as the action's reason."""
+def render(template, grievance, field="body"):
+	"""The template's text filled in for this case, ready to send as the action's reason or note."""
+	text = (
+		getattr(template, field, None)
+		if hasattr(template, field)
+		else (template.get(field) if isinstance(template, dict) else None)
+	)
+	if not text:
+		return ""
 	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-	return frappe.render_template(template.body or "", render_context(grievance))
+	return frappe.render_template(text, render_context(grievance))
 
 
 def render_context(grievance):

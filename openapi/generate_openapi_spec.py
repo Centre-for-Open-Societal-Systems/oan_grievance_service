@@ -678,11 +678,17 @@ data(
 		{
 			"template": S(description="Template ID, sent as `template` to /action"),
 			"title": S(),
+			"action": S(nullable=True, description="Workflow action the template is for"),
+			"workflow_action": S(nullable=True, description="Workflow action the template is for"),
 			"department": S(nullable=True, description="Department the template is scoped to; null for all"),
 			"service_category": S(
 				nullable=True, description="Service category the template is scoped to; null for all"
 			),
 			"reason": S(description="Template body rendered for the case, as plain text. Prefills `reason`."),
+			"note": S(
+				nullable=True,
+				description="Template note rendered for the case, as plain text. Prefills `note`.",
+			),
 		},
 		required=["template", "title", "reason"],
 		description="A response template filled in for the grievance",
@@ -956,12 +962,17 @@ data(
 		{
 			"template": S(example="TPL-RESOLVED-INPUTS", description="Template code; fixed once created"),
 			"title": S(),
+			"action": S(
+				example="Resolve", nullable=True, description="Grievance workflow action the template is for"
+			),
 			"workflow_action": S(
 				example="Resolve", description="Grievance workflow action the template is for"
 			),
 			"department": S(nullable=True, description="Null for every department"),
 			"service_category": S(nullable=True, description="Null for every category"),
+			"reason": S(nullable=True, description="Jinja template for the reason, unrendered"),
 			"body": S(description="Jinja template for the reason, unrendered"),
+			"note": S(nullable=True, description="Jinja template for internal note, unrendered"),
 			"usage_count": I(description="Actions sent with this template"),
 			"is_active": B(),
 		},

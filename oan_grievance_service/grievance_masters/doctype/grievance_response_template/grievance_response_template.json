@@ -16,7 +16,8 @@
   "department",
   "service_category",
   "sec_body",
-  "body"
+  "body",
+  "note"
  ],
  "fields": [
   {
@@ -91,6 +92,12 @@
    "fieldtype": "Small Text",
    "label": "Body",
    "reqd": 1
+  },
+  {
+   "description": "Optional Jinja template for the internal note. Rendered for the case when an officer loads it.",
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
   }
  ],
  "grid_page_length": 50,

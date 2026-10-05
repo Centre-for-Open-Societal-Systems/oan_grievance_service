@@ -21,7 +21,7 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 
@@ -37,6 +37,7 @@ TEMPLATE_FIELDS = [
 	"department",
 	"service_category",
 	"body",
+	"note",
 	"usage_count",
 	"is_active",
 ]
@@ -53,13 +54,30 @@ class TemplateRef(Body):
 class CreateResponseTemplateRequest(Body):
 	template: NonBlank = Field(description="Template code; the template's identifier")
 	title: NonBlank
-	workflow_action: NonBlank = Field(description="Grievance workflow action the template is written for")
+	action: NonBlank | None = Field(None, description="Grievance workflow action the template is written for")
+	workflow_action: NonBlank | None = Field(
+		None, description="Grievance workflow action the template is written for"
+	)
 	department: NonBlank | None = Field(None, description="Omit for every department")
 	service_category: NonBlank | None = Field(None, description="Omit for every category")
-	body: NonBlank = Field(description="Jinja template for the response's reason")
+	reason: NonBlank | None = Field(None, description="Jinja template for the response's reason")
+	body: NonBlank | None = Field(None, description="Jinja template for the response's reason")
+	note: str | None = Field(None, description="Optional Jinja template for internal notes")
 	is_active: bool = True
 
-	_scope_blank = field_validator("department", "service_category", mode="before")(blank_to_none)
+	_scope_blank = field_validator("department", "service_category", "note", mode="before")(blank_to_none)
+
+	@model_validator(mode="after")
+	def check_action_and_reason(self):
+		if not self.workflow_action and not self.action:
+			raise ValueError("Action (or workflow_action) is required")
+		if not self.body and not self.reason:
+			raise ValueError("Reason (or body) is required")
+		if not self.workflow_action:
+			self.workflow_action = self.action
+		if not self.body:
+			self.body = self.reason
+		return self
 
 
 class UpdateResponseTemplateRequest(Body):
@@ -67,34 +85,87 @@ class UpdateResponseTemplateRequest(Body):
 
 	template: NonBlank
 	title: NonBlank = None
+	action: NonBlank = None
 	workflow_action: NonBlank = None
 	department: NonBlank | None = None
 	service_category: NonBlank | None = None
+	reason: NonBlank = None
 	body: NonBlank = None
+	note: str | None = None
 	is_active: bool = None
 
-	_scope_blank = field_validator("department", "service_category", mode="before")(blank_to_none)
+	_scope_blank = field_validator("department", "service_category", "note", mode="before")(blank_to_none)
 
 
 class ListResponseTemplatesRequest(PageParams, Body):
+	action: str | None = None
 	workflow_action: str | None = None
 	department: str | None = None
 	service_category: str | None = None
+	category: str | None = None
 	is_active: bool | None = None
 
 	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
 
 def _template_record(row) -> dict:
+	action_val = (
+		getattr(row, "workflow_action", None)
+		if hasattr(row, "workflow_action")
+		else (row.get("workflow_action") if isinstance(row, dict) else None)
+	)
+	body_val = (
+		getattr(row, "body", None)
+		if hasattr(row, "body")
+		else (row.get("body") if isinstance(row, dict) else None)
+	)
+	note_val = (
+		getattr(row, "note", None)
+		if hasattr(row, "note")
+		else (row.get("note") if isinstance(row, dict) else None)
+	)
+	name_val = (
+		getattr(row, "name", None)
+		if hasattr(row, "name")
+		else (row.get("name") if isinstance(row, dict) else None)
+	)
+	title_val = (
+		getattr(row, "title", None)
+		if hasattr(row, "title")
+		else (row.get("title") if isinstance(row, dict) else None)
+	)
+	dept_val = (
+		getattr(row, "department", None)
+		if hasattr(row, "department")
+		else (row.get("department") if isinstance(row, dict) else None)
+	)
+	cat_val = (
+		getattr(row, "service_category", None)
+		if hasattr(row, "service_category")
+		else (row.get("service_category") if isinstance(row, dict) else None)
+	)
+	usage_val = (
+		getattr(row, "usage_count", 0)
+		if hasattr(row, "usage_count")
+		else (row.get("usage_count") if isinstance(row, dict) else 0)
+	)
+	active_val = (
+		getattr(row, "is_active", 0)
+		if hasattr(row, "is_active")
+		else (row.get("is_active") if isinstance(row, dict) else 0)
+	)
 	return {
-		"template": row.name,
-		"title": row.title,
-		"workflow_action": row.workflow_action,
-		"department": row.department,
-		"service_category": row.service_category,
-		"body": row.body,
-		"usage_count": row.usage_count or 0,
-		"is_active": bool(row.is_active),
+		"template": name_val,
+		"title": title_val,
+		"action": action_val,
+		"workflow_action": action_val,
+		"department": dept_val,
+		"service_category": cat_val,
+		"reason": body_val or "",
+		"body": body_val or "",
+		"note": note_val or "",
+		"usage_count": usage_val or 0,
+		"is_active": bool(active_val),
 	}
 
 
@@ -110,9 +181,11 @@ def _get_template(name: str):
 @require_role(ADMIN_ROLES)
 @validate_request(ListResponseTemplatesRequest)
 def list_response_templates(
+	action: str | None = None,
 	workflow_action: str | None = None,
 	department: str | None = None,
 	service_category: str | None = None,
+	category: str | None = None,
 	is_active: bool | str | None = None,
 	page: int | str = 1,
 	page_size: int | str = 20,
@@ -120,12 +193,14 @@ def list_response_templates(
 ):
 	"""Admin list of response templates with their usage counts."""
 	params = PageParams(page=page, page_size=page_size)
+	wf_action = action or workflow_action
+	cat = service_category or category
 	filters = {
 		key: value
 		for key, value in (
-			("workflow_action", workflow_action),
+			("workflow_action", wf_action),
 			("department", department),
-			("service_category", service_category),
+			("service_category", cat),
 		)
 		if value
 	}
@@ -171,23 +246,29 @@ def get_response_template(template: str, **kwargs):
 def create_response_template(
 	template: str,
 	title: str,
-	workflow_action: str,
-	body: str,
+	workflow_action: str | None = None,
+	action: str | None = None,
+	body: str | None = None,
+	reason: str | None = None,
+	note: str | None = None,
 	department: str | None = None,
 	service_category: str | None = None,
 	is_active: bool | str = True,
 	**kwargs,
 ):
 	"""Create a response template for one workflow action, optionally scoped."""
+	wf_action = workflow_action or action
+	body_text = body or reason
 	doc = frappe.get_doc(
 		{
 			"doctype": TEMPLATE_DOCTYPE,
 			"template_code": template,
 			"title": title,
-			"workflow_action": workflow_action,
+			"workflow_action": wf_action,
 			"department": department,
 			"service_category": service_category,
-			"body": body,
+			"body": body_text,
+			"note": note,
 			"is_active": 1 if is_active else 0,
 		}
 	).insert()
@@ -206,6 +287,10 @@ def update_response_template(template: str, **kwargs):
 	doc = _get_template(template)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
+	if "action" in kwargs:
+		kwargs["workflow_action"] = kwargs.pop("action")
+	if "reason" in kwargs:
+		kwargs["body"] = kwargs.pop("reason")
 	if "is_active" in kwargs:
 		kwargs["is_active"] = 1 if kwargs["is_active"] else 0
 	doc.update(kwargs)
