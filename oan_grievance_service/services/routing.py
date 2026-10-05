@@ -1,4 +1,4 @@
-"""FR-03 Routing and Assignment with Nearest-Ancestor Administrative Area matching.
+"""Routing and assignment with nearest-ancestor Administrative Area matching.
 
 Auto-routing rules consider service category, grievance type, service provider, and
 administrative area (tree hierarchy) configured on Grievance RBAC Assignment desks.
@@ -11,8 +11,11 @@ from typing import Any
 
 import frappe
 
-from oan_grievance_service.permissions import get_area_bounds
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+	get_area_bounds,
+)
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import sla
 
 MATCH_FIELDS = (
 	("category_scope", "service_category"),
@@ -72,6 +75,31 @@ def _evaluate_ancestor_area(case_area, case_lft, case_rgt, rule_area):
 	return (True, int(anc_rgt) - int(anc_lft), True)
 
 
+def _score_desk(desk, case_area, case_lft, case_rgt):
+	"""Score a desk against a case area.
+
+	Returns (matched, area_span, specificity).
+	Specificity counts matching constraints on the desk.
+	"""
+	area_match, area_span, has_area_constraint = _evaluate_ancestor_area(
+		case_area, case_lft, case_rgt, desk.get("administrative_area_scope")
+	)
+	if not area_match:
+		return False, 999999999, 0
+
+	specificity = 0
+	if desk.get("category_scope"):
+		specificity += 1
+	if desk.get("grievance_type_scope"):
+		specificity += 1
+	if desk.get("service_provider_scope"):
+		specificity += 1
+	if has_area_constraint:
+		specificity += 1
+
+	return True, area_span, specificity
+
+
 def find_matching_assignment(grievance):
 	"""Return the winning Grievance RBAC Assignment (Desk), or None.
 
@@ -103,13 +131,13 @@ def find_matching_assignment(grievance):
 			"service_provider_scope",
 			"administrative_area_scope",
 			"routing_strategy",
+			"reassignment_requires_approval",
 			"creation",
 		],
 	)
 
 	candidates = []
 	for a in assignments:
-		specificity = 0
 		matched = True
 
 		# Direct fields match: category_scope, grievance_type_scope, service_provider_scope
@@ -117,7 +145,6 @@ def find_matching_assignment(grievance):
 			constraint = a.get(scope_field)
 			if not constraint:
 				continue
-			specificity += 1
 			doc_val = (
 				grievance.get(doc_field)
 				if isinstance(grievance, dict) or hasattr(grievance, "get")
@@ -129,13 +156,9 @@ def find_matching_assignment(grievance):
 		if not matched:
 			continue
 
-		area_match, area_span, has_area_constraint = _evaluate_ancestor_area(
-			case_area, case_lft, case_rgt, a.administrative_area_scope
-		)
+		area_match, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
 		if not area_match:
 			continue
-		if has_area_constraint:
-			specificity += 1
 
 		# Candidate tuple: (area_span, -specificity, assignment)
 		candidates.append((area_span, -specificity, a))
@@ -146,6 +169,90 @@ def find_matching_assignment(grievance):
 	# Oldest desk wins, then name, so the same case always routes the same way.
 	candidates.sort(key=lambda row: (row[0], row[1], str(row[2].creation), row[2].name))
 	return candidates[0][2]
+
+
+def officer_desks(grievance, department, officer):
+	"""Return the active desks held by `officer` that cover `department` and the grievance's area,
+	ranked by (area_span asc, -specificity).
+	"""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		query_active_officer_assignments,
+	)
+
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	rows = query_active_officer_assignments(
+		user=officer,
+		fields=[
+			"p.name AS name",
+			"p.department_scope",
+			"p.category_scope",
+			"p.grievance_type_scope",
+			"p.service_provider_scope",
+			"p.administrative_area_scope",
+			"p.routing_strategy",
+			"p.reassignment_requires_approval",
+		],
+		order_by=None,
+	)
+
+	seen = set()
+	candidates = []
+	for r in rows:
+		desk = dict(r)
+		desk_name = desk.get("name")
+		if not desk_name or desk_name in seen:
+			continue
+
+		if desk.get("department_scope") and desk.get("department_scope") != department:
+			continue
+
+		matched, area_span, specificity = _score_desk(desk, case_area, case_lft, case_rgt)
+		if not matched:
+			continue
+
+		seen.add(desk_name)
+		candidates.append((area_span, -specificity, desk))
+
+	candidates.sort(key=lambda row: (row[0], row[1]))
+	return [row[2] for row in candidates]
+
+
+def department_desks(grievance, department):
+	"""Return active desks with department_scope == department covering the grievance's area,
+	ranked by (area_span asc, -specificity).
+	"""
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	today = frappe.utils.today()
+	assignments = frappe.get_all(
+		"Grievance RBAC Assignment",
+		filters={"active": 1, "department_scope": department, "effective_from": ["<=", today]},
+		or_filters=[
+			["effective_to", "is", "not set"],
+			["effective_to", ">=", today],
+		],
+		fields=[
+			"name",
+			"department_scope",
+			"category_scope",
+			"grievance_type_scope",
+			"service_provider_scope",
+			"administrative_area_scope",
+			"routing_strategy",
+			"reassignment_requires_approval",
+		],
+	)
+
+	candidates = []
+	for a in assignments:
+		if a.get("department_scope") and a.get("department_scope") != department:
+			continue
+		matched, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
+		if not matched:
+			continue
+		candidates.append((area_span, -specificity, a))
+
+	candidates.sort(key=lambda row: (row[0], row[1]))
+	return [row[2] for row in candidates]
 
 
 def pick_officer_by_strategy(assignment_doc):
@@ -187,15 +294,16 @@ def pick_officer_by_strategy(assignment_doc):
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
+			# A case whose SLA clock has Stopped is no longer open load.
 			rows = frappe.db.sql(
 				"""
 				SELECT assigned_to, COUNT(name) AS open_count
 				FROM `tabGrievance`
 				WHERE assigned_to IN %(users)s
-				  AND status NOT IN ('Closed', 'Rejected', 'Resolved')
+				  AND status NOT IN %(concluded)s
 				GROUP BY assigned_to
 				""",
-				{"users": tuple(users)},
+				{"users": tuple(users), "concluded": tuple(sla.states_in_category(sla.STOPPED)) or ("",)},
 				as_dict=True,
 			)
 			counts = {r.assigned_to: r.open_count for r in rows}
@@ -221,7 +329,7 @@ def pick_officer_by_strategy(assignment_doc):
 def apply_routing(grievance, commit_status=True):
 	"""Route a grievance. Returns the matching Grievance RBAC Assignment, or None.
 
-	FSD 3.3 / Database Schema 8: resolves Tier 1 (department) and Tier 2 (officer) from the
+	Resolves Tier 1 (department) and Tier 2 (officer) from the
 	matching Grievance RBAC Assignment desk record.
 	Where none matches, the grievance stays Submitted in the manual queue.
 	"""
@@ -254,29 +362,55 @@ def apply_routing(grievance, commit_status=True):
 	return doc
 
 
-def manual_assign(grievance, department, officer=None, assigned_by=None):
-	"""FSD 3.3 / 4.1 step 8b: the nodal officer assigns from the manual queue."""
-	from oan_grievance_service.services import lifecycle, notifications
-
-	updates = {
-		"assigned_dept": department,
-		"routed_automatically": 0,
-	}
-	if officer:
-		updates["assigned_to"] = officer
-	grievance.db_set(updates, update_modified=False)
-
-	lifecycle.transition(
-		grievance, "Assign", note=f"Manually assigned by {assigned_by or frappe.session.user}"
-	)
-	notifications.queue(grievance, C.EVENT_ASSIGNED_MANUAL)
+def enqueue_routing(grievance_name: str) -> None:
+	"""Asynchronously enqueue auto-routing for a submitted grievance."""
+	try:
+		frappe.enqueue(
+			"oan_grievance_service.services.routing.route_grievance_job",
+			queue="default",
+			grievance_name=grievance_name,
+			enqueue_after_commit=True,
+		)
+	except Exception:
+		frappe.log_error(
+			title=f"Failed to enqueue routing for grievance: {grievance_name}",
+			message=frappe.get_traceback(),
+		)
 
 
-def manual_queue():
-	"""FSD 3.3: grievances awaiting a nodal officer's routing decision."""
-	return frappe.get_all(
+def route_grievance_job(grievance_name: str) -> None:
+	"""Worker task to route a grievance in the background queue."""
+	if not frappe.db.exists("Grievance", grievance_name):
+		return
+	doc = frappe.get_doc("Grievance", grievance_name)
+	# Only route if it is submitted and unassigned
+	if doc.docstatus != 1 or doc.workflow_state != C.STATE_SUBMITTED or doc.assigned_to:
+		return
+	apply_routing(doc)
+
+
+def drain_routing_queue(limit: int = 50) -> int:
+	"""Process unrouted submitted cases through the routing engine without deleting any cases."""
+	unrouted = frappe.get_all(
 		"Grievance",
-		filters={"status": "Submitted", "assigned_dept": ["is", "not set"]},
-		fields=["name", "ticket_number", "service_category", "administrative_area", "creation"],
-		order_by="creation asc",
+		filters={
+			"docstatus": 1,
+			"workflow_state": C.STATE_SUBMITTED,
+			"assigned_to": ["is", "not set"],
+			"routed_automatically": 0,
+		},
+		pluck="name",
+		limit=limit,
 	)
+	routed_count = 0
+	for name in unrouted:
+		try:
+			doc = frappe.get_doc("Grievance", name)
+			if apply_routing(doc):
+				routed_count += 1
+		except Exception:
+			frappe.log_error(
+				title=f"Scheduled queue routing failed for {name}",
+				message=frappe.get_traceback(),
+			)
+	return routed_count

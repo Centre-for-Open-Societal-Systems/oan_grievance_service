@@ -9,7 +9,7 @@ Grievance. Two views share the builders:
 
 - admin: `GET /api/v1/charts`, Grievance Admin only; every chart, and live
   case detail where a chart has it.
-- public: `GET /api/v1/charts/<chart_id>`, no login; only charts marked public,
+- public: `GET /api/v1/charts/<chart_id>`, Grievance Dashboard Reader; only charts marked public,
   which are counts from the rollups and never name a case, a person or a text.
 
 Results are cached per chart and parameters in Redis. A rollup chart's key

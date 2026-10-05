@@ -27,7 +27,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, field_validator
 
 from oan_grievance_service.api.v1._pagination import PageParams, page_meta
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, PartialBody, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import officer as service
 
 route = prefixed("/api/v1/officers")
@@ -84,7 +84,7 @@ class CreateOfficer(Body):
 	_blank = field_validator("phone", "region", "reports_to", "user", mode="before")(blank_to_none)
 
 
-class UpdateOfficer(PartialBody):
+class UpdateOfficer(Body):
 	"""Partial update. Omitted fields stay as they are. `level` is fixed once created."""
 
 	officer: NonBlank
@@ -224,7 +224,7 @@ def create_officer(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@validate_request(UpdateOfficer)
+@validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
 	description="Change contact details, department, region, status, service categories or supervisor. "

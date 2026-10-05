@@ -12,7 +12,6 @@
   "response_date",
   "col_resp_meta",
   "response_type",
-  "sla_behaviour",
   "responded_by",
   "proposed_close_date",
   "sec_body",
@@ -37,7 +36,7 @@
    "reqd": 1
   },
   {
-   "description": "FSD D-3: sequential number of this response for the grievance",
+   "description": "Sequential number of this response for the grievance",
    "fieldname": "response_sequence_no",
    "fieldtype": "Int",
    "label": "Response Sequence No",
@@ -55,21 +54,13 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "FSD D-2: determines the next workflow step",
+   "description": "Determines the next workflow step",
    "fieldname": "response_type",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Response Type",
    "options": "Grievance Response Type",
    "reqd": 1
-  },
-  {
-   "description": "FSD D-2: what the SLA clock does after this response. Set from the response type.",
-   "fieldname": "sla_behaviour",
-   "fieldtype": "Select",
-   "label": "SLA Behaviour",
-   "options": "\nrunning\npaused\nstopped",
-   "read_only": 1
   },
   {
    "fieldname": "responded_by",
@@ -91,7 +82,7 @@
    "label": "Response"
   },
   {
-   "description": "FSD D-1: maximum 500 characters",
+   "description": "Maximum 500 characters",
    "fieldname": "action_taken",
    "fieldtype": "Small Text",
    "label": "Action Taken",
@@ -104,7 +95,7 @@
    "reqd": 1
   },
   {
-   "description": "FSD D-4: not visible to the submitter",
+   "description": "Not visible to the submitter",
    "fieldname": "internal_notes",
    "fieldtype": "Text",
    "label": "Internal Notes"
@@ -131,7 +122,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "FSD D-4: visible to nodal officer and admin only",
+   "description": "Visible to nodal officer and admin only",
    "fieldname": "ip_address",
    "fieldtype": "Data",
    "label": "IP Address",

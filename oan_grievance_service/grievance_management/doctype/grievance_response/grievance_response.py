@@ -6,13 +6,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
-# FSD Appendix D-1: the action taken is capped at 500 characters.
+# The action taken is capped at 500 characters.
 ACTION_TAKEN_LIMIT = 500
 
 
 class GrievanceResponse(Document):
 	def before_validate(self):
-		"""FSD Appendix D-1 marks these fields "Yes (auto)": the system fills them in
+		"""These fields are system-filled: the system fills them in
 		and the officer cannot edit them. They are set before validation so the
 		mandatory check sees a value rather than rejecting the officer's own save."""
 		if not self.response_date:
@@ -25,19 +25,13 @@ class GrievanceResponse(Document):
 			)
 		if not self.prior_status and self.grievance:
 			self.prior_status = frappe.db.get_value("Grievance", self.grievance, "status")
-		# Dynamic Master Resolution: SLA behaviour is derived from the linked Grievance Response Type.
-		if self.response_type and frappe.db.exists("Grievance Response Type", self.response_type):
-			resp_type = frappe.get_cached_doc("Grievance Response Type", self.response_type)
-			self.sla_behaviour = resp_type.sla_behaviour or "running"
-		else:
-			self.sla_behaviour = "running"
 
 	def validate(self):
 		self.validate_action_taken_length()
 		self.validate_referral_target()
 
 	def validate_action_taken_length(self):
-		"""FSD Appendix D-1 and 3.11.4: action taken has a 500-character limit."""
+		"""Action taken has a 500-character limit."""
 		if self.action_taken and len(self.action_taken) > ACTION_TAKEN_LIMIT:
 			frappe.throw(
 				_("Action taken must be {0} characters or fewer (currently {1}).").format(
@@ -47,7 +41,7 @@ class GrievanceResponse(Document):
 			)
 
 	def validate_referral_target(self):
-		"""FSD Appendix D-2: a referral has to say where the case is going."""
+		"""A referral has to say where the case is going."""
 		requires_dept = False
 		if self.response_type and frappe.db.exists("Grievance Response Type", self.response_type):
 			requires_dept = bool(
@@ -64,3 +58,12 @@ class GrievanceResponse(Document):
 				indicator="orange",
 				alert=True,
 			)
+
+	@property
+	def sla_behaviour(self):
+		"""What the resulting grievance status does to the SLA clock ('running', 'paused', 'stopped')."""
+		if not self.new_status:
+			return None
+		from oan_grievance_service.services import sla
+
+		return (sla.sla_category_of(self.new_status) or "").lower()

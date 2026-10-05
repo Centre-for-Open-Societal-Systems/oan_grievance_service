@@ -58,7 +58,7 @@
    "fieldname": "closure_type",
    "fieldtype": "Select",
    "label": "Closure Type",
-   "options": "\nconfirmed\nauto_closed\nrejected\nreferred"
+   "options": "\nconfirmed\nauto_closed\nauto_resolved\nrejected\nreferred"
   },
   {
    "default": "0",

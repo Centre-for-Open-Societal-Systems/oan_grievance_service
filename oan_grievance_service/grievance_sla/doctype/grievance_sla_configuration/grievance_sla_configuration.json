@@ -9,17 +9,18 @@
  "field_order": [
   "service_category",
   "sla_days",
+  "holiday_list",
   "active",
   "col_sla_esc",
   "auto_escalate",
   "auto_escalation_threshold",
-  "top_level_authority",
   "sec_milestones",
   "first_response_hours",
   "update_cadence_hours",
   "col_milestones",
   "remand_execution_hours",
-  "appeal_window_days"
+  "sec_state_timers",
+  "state_timers"
  ],
  "fields": [
   {
@@ -31,12 +32,19 @@
    "reqd": 1
   },
   {
-   "description": "FSD 3.7: expected response time in days",
+   "description": "Expected response time in days",
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "SLA Days",
    "reqd": 1
+  },
+  {
+   "description": "Holiday list used for working day calculations. If blank, default holiday list is used.",
+   "fieldname": "holiday_list",
+   "fieldtype": "Link",
+   "label": "Holiday List",
+   "options": "Grievance Holiday List"
   },
   {
    "default": "1",
@@ -63,13 +71,6 @@
    "fieldtype": "Int",
    "label": "Auto Escalation Threshold (%)",
    "non_negative": 1
-  },
-  {
-   "description": "FSD 3.7: notified on second-level (2x SLA) breach",
-   "fieldname": "top_level_authority",
-   "fieldtype": "Link",
-   "label": "Top Level Authority",
-   "options": "User"
   },
   {
    "fieldname": "sec_milestones",
@@ -102,17 +103,22 @@
    "label": "Supervisor Remand Execution (Hours)"
   },
   {
-   "default": "15",
-   "description": "Post-resolution citizen objection & appeal window in days",
-   "fieldname": "appeal_window_days",
-   "fieldtype": "Int",
-   "label": "Appeal Window (Days)"
+   "fieldname": "sec_state_timers",
+   "fieldtype": "Section Break",
+   "label": "State Timers",
+   "description": "How long a case may sit in a state before something happens. With no row for Resolved, the confirmation window defaults to grievance_confirmation_window_days (7 days)."
+  },
+  {
+   "fieldname": "state_timers",
+   "fieldtype": "Table",
+   "label": "State Timers",
+   "options": "Grievance State Timer"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 19:13:27.860923",
+ "modified": "2026-09-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",

@@ -1,21 +1,28 @@
 """Scheduled jobs. Registered in hooks.py under scheduler_events.
 
-FSD 4.3 describes a background process that continuously monitors open grievances
-against their SLA deadlines. FSD 7 requires that batch to finish inside 30 minutes,
-so each job filters on an indexed column and touches only the cases that need work.
+A background process monitors open grievances against their SLA deadlines. The
+batch must finish inside 30 minutes, so each job filters on an indexed column and touches only the cases that need work.
 """
 
 import frappe
 from frappe.utils import now_datetime
 
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+	current_level_of,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle, notifications, sla
 
 
 def open_grievances_with_sla(extra_filters=None):
 	filters = {
-		"status": ["not in", ["Closed", "Rejected", "Draft"]],
+		"docstatus": 1,
 		"sla_due_date": ["is", "set"],
+		# A stopped clock has nothing left to remind anyone about.
+		"status": ["not in", list(sla.states_in_category(sla.STOPPED))],
 	}
 	if extra_filters:
 		filters.update(extra_filters)
@@ -48,7 +55,7 @@ def open_grievances_with_sla(extra_filters=None):
 
 
 def send_sla_reminders():
-	"""FSD 3.7: reminders to the assigned officer at 50% and 80% of the window."""
+	"""Reminders to the assigned officer at 50% and 80% of the window."""
 	sent = 0
 	for row in open_grievances_with_sla():
 		# A paused case is waiting on the submitter, so the officer has nothing to be
@@ -73,12 +80,12 @@ def send_sla_reminders():
 
 
 def escalate_breached():
-	"""FSD 3.7 / 4.3: hand every overdue case one rung up the chain.
+	"""Hand every overdue case one rung up the chain.
 
 	One indexed read on `next_escalation_at` rather than a scan of every open case:
 	a grievance carries its own next deadline, so the query is the schedule. Each case
 	is escalated inside its own try block, because one unroutable grievance must not
-	take the rest of the batch down with it (FSD 7's 30-minute budget assumes the run
+	take the rest of the batch down with it (the 30-minute budget assumes the run
 	completes).
 	"""
 	# Site-wide stop, one read per run. Per-category is the `auto_escalate` tick on the
@@ -89,7 +96,7 @@ def escalate_breached():
 	due_now = frappe.get_all(
 		"Grievance",
 		filters={
-			"status": ["not in", ["Closed", "Rejected", "Draft"]],
+			"docstatus": 1,
 			"next_escalation_at": ["<=", now_datetime()],
 			"on_hold_since": ["is", "not set"],
 		},
@@ -99,8 +106,7 @@ def escalate_breached():
 	escalated = 0
 	for name in due_now:
 		try:
-			grievance = frappe.get_doc("Grievance", name)
-			if sla.escalate(grievance, trigger="System"):
+			if sla.escalate(frappe.get_doc("Grievance", name)):
 				escalated += 1
 		except Exception:
 			frappe.log_error(
@@ -111,46 +117,113 @@ def escalate_breached():
 	return escalated
 
 
-def auto_close_expired():
-	"""FSD 3.6: close cases whose confirmation window has expired with no response."""
+# How long a change request waits on someone whose rung sets no hours of its own.
+DEFAULT_CHANGE_REQUEST_HOURS = 24
+
+
+def forward_stale_change_requests():
+	"""Hand every change request nobody has acted on one step up the hierarchy.
+
+	A request waits as long as its approver's rung allows (`escalation_hours`), the
+	same clock a case gets on that rung. Requests already in the admin queue stay put.
+	"""
+	from frappe.utils import add_to_date, get_datetime
+
+	pending = frappe.get_all(
+		"Grievance Change Request",
+		filters={"status": "Pending", "pending_with": ["is", "set"]},
+		fields=["name", "pending_with", "pending_since"],
+	)
+	hours_by_level = {rung.name: rung.escalation_hours for rung in GrievanceRoleLevel.get_chain()}
+	default_hours = frappe.conf.get("grievance_change_request_hours") or DEFAULT_CHANGE_REQUEST_HOURS
+
+	forwarded = 0
+	for row in pending:
+		hours = hours_by_level.get(current_level_of(row.pending_with)) or default_hours
+		if (
+			not row.pending_since
+			or add_to_date(get_datetime(row.pending_since), hours=hours) > now_datetime()
+		):
+			continue
+		try:
+			frappe.get_doc("Grievance Change Request", row.name).forward()
+			forwarded += 1
+		except Exception:
+			frappe.log_error(
+				title="Change request forwarding failed",
+				message=f"{row.name}\n\n{frappe.get_traceback()}",
+			)
+
+	return forwarded
+
+
+def expire_state_timers():
+	"""Act on every case that has sat in its current state longer than its timer allows.
+
+	The deadline was stamped on entering the state (sla.arm_state_timer). The timer is
+	read again here rather than trusted from then, so a row an admin has since removed
+	simply lets the case go.
+	"""
+	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+		GrievanceTimeline,
+	)
+
 	expired = frappe.get_all(
 		"Grievance",
-		filters={
-			"status": "Pending Submitter",
-			"confirmation_deadline": ["<", now_datetime()],
-		},
+		filters={"docstatus": 1, "state_deadline": ["<", now_datetime()]},
 		pluck="name",
 	)
 
 	for name in expired:
-		grievance = frappe.get_doc("Grievance", name)
-		grievance.db_set("closure_reason", "Closed - no objection received", update_modified=False)
-		lifecycle.transition(
-			grievance,
-			"Auto Close",
-			note="Closed - no objection received",
-			automated=True,
-			notify=False,
-			closure_type="auto_closed",
-		)
-		from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
-			GrievanceTimeline,
-		)
+		try:
+			grievance = frappe.get_doc("Grievance", name)
+			state = grievance.workflow_state
+			timer = sla.state_timer(grievance.service_category, state)
+			grievance.db_set("state_deadline", None, update_modified=False)
+			if not timer:
+				continue
 
-		GrievanceTimeline.record(
-			grievance=grievance.name,
-			entry_type="status_change",
-			is_internal=False,
-			body="Grievance auto-closed: confirmation window elapsed without objection.",
-			author_user=None,
-		)
-		notifications.queue(grievance, C.EVENT_AUTO_CLOSED)
+			if timer[1] == "Escalate":
+				sla.escalate(grievance, reason=f"No action while {state}")
+				continue
+
+			if state == C.STATE_RESOLVED:
+				reason = "Closed - resolution period elapsed without objection"
+				body = "Grievance auto-closed: resolution period elapsed without objection."
+			elif state == C.STATE_MORE_INFO_NEEDED:
+				reason = "Closed - no response to information request"
+				body = "Grievance auto-closed: no response to information request."
+			else:
+				reason = f"Closed - no activity while {state}"
+				body = f"Grievance auto-closed: no activity while {state}."
+
+			grievance.db_set("closure_reason", reason, update_modified=False)
+			lifecycle.transition(
+				grievance,
+				"Auto Close",
+				note=reason,
+				automated=True,
+				notify=True,
+				closure_type="auto_closed",
+			)
+			GrievanceTimeline.record(
+				grievance=grievance.name,
+				entry_type="status_change",
+				is_internal=False,
+				body=body,
+				author_user=None,
+			)
+		except Exception:
+			frappe.log_error(
+				title="Grievance state timer failed",
+				message=f"{name}\n\n{frappe.get_traceback()}",
+			)
 
 	return len(expired)
 
 
 def dispatch_notifications():
-	"""FR-08: drain the notification queue."""
+	"""Drain the notification queue."""
 	return notifications.dispatch_queued()
 
 
@@ -163,6 +236,13 @@ def scan_pending_attachments():
 	from oan_grievance_service.services import scanning
 
 	return scanning.scan_pending()
+
+
+def drain_routing_queue():
+	"""Drain unrouted submitted cases from the routing queue without deleting them."""
+	from oan_grievance_service.services import routing
+
+	return routing.drain_routing_queue()
 
 
 def purge_expired_drafts():
@@ -190,11 +270,12 @@ def hourly():
 	"""Entry point wired to the hourly scheduler event."""
 	send_sla_reminders()
 	scan_pending_attachments()
+	drain_routing_queue()
 	escalate_breached()
+	expire_state_timers()
 	dispatch_notifications()
 
 
 def daily():
 	"""Entry point wired to the daily scheduler event."""
-	auto_close_expired()
 	purge_expired_drafts()

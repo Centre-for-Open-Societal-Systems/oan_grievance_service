@@ -61,7 +61,7 @@
   "escalated_at",
   "resolved_at",
   "sec_closure",
-  "confirmation_deadline",
+  "state_deadline",
   "reopen_count",
   "col_closure",
   "satisfaction_rating",
@@ -70,7 +70,7 @@
  ],
  "fields": [
   {
-   "description": "Nine Base32 characters: region (1), category (3), sequence (4), year (1). Example 3001002A0, shown as 3-001-002A-0. Supersedes FSD 3.2.3 per the standup of 16 Sep 2026.",
+   "description": "Nine Base32 characters: region (1), category (3), sequence (4), year (1). Example 3001002A0, shown as 3-001-002A-0.",
    "fieldname": "ticket_number",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -87,14 +87,14 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nPending Submitter\nResolved\nClosed\nRejected",
+   "options": "Draft\nSubmitted\nAssigned\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
   },
   {
    "allow_on_submit": 1,
-   "description": "FSD 3.4 lifecycle state, driven by the Grievance Workflow (setup/install.py).",
+   "description": "Lifecycle state, driven by the Grievance Workflow (setup/install.py).",
    "fieldname": "workflow_state",
    "fieldtype": "Link",
    "in_standard_filter": 1,
@@ -111,7 +111,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "FSD 3.4: overlay flag, does not replace the lifecycle status",
+   "description": "Overlay flag, does not replace the lifecycle status",
    "fieldname": "escalated",
    "fieldtype": "Check",
    "label": "Escalated"
@@ -124,7 +124,7 @@
    "reqd": 1
   },
   {
-   "description": "Client-generated key for one submission attempt. A retry carrying the same value returns the original ticket instead of lodging a second grievance -- the offline-first app of FSD 3.2.1 retries by design, and a farmer double-tapping on a slow connection must not file twice.",
+   "description": "Client-generated key for one submission attempt. A retry carrying the same value returns the original ticket instead of lodging a second grievance -- the offline-first app retries by design, and a farmer double-tapping on a slow connection must not file twice.",
    "fieldname": "client_submission_uuid",
    "fieldtype": "Data",
    "label": "Client Submission UUID",
@@ -174,14 +174,14 @@
    "options": "Email"
   },
   {
-   "description": "FSD 2.2: officer ID retained for audit; the farmer remains primary owner",
+   "description": "Officer ID retained for audit; the farmer remains primary owner",
    "fieldname": "assisted_by_officer",
    "fieldtype": "Link",
    "label": "Assisted By (Development Agent)",
    "options": "User"
   },
   {
-   "description": "FSD 9: the submitter's agreement to the processing of their personal data. Required on every channel; for IVR and assisted submissions the officer records that it was read out and given.",
+   "description": "The submitter's agreement to the processing of their personal data. Required on every channel; for IVR and assisted submissions the officer records that it was read out and given.",
    "fieldname": "consent_given",
    "fieldtype": "Check",
    "label": "Consent Given"
@@ -200,7 +200,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "FSD 9.2: absent from the section 5 data model, added for the approval workflow",
+   "description": "Set through the anonymity approval workflow",
    "fieldname": "is_anonymous",
    "fieldtype": "Check",
    "label": "Anonymous Submission"
@@ -275,6 +275,7 @@
    "label": "Classification"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -285,7 +286,8 @@
    "search_index": 1
   },
   {
-   "description": "FSD 3.2.2: loaded per category. No master entity is defined in FSD section 5.",
+   "allow_on_submit": 1,
+   "description": "Loaded per category.",
    "fieldname": "grievance_type",
    "fieldtype": "Link",
    "label": "Grievance Type",
@@ -298,7 +300,7 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "FSD 3.2.2: pre-filled from the OAN registry when available",
+   "description": "Pre-filled from the OAN registry when available",
    "fieldname": "associated_service_provider",
    "fieldtype": "Data",
    "label": "Associated Service Provider"
@@ -309,7 +311,7 @@
    "label": "Grievance Detail"
   },
   {
-   "description": "FSD 3.2.2: minimum 20 characters",
+   "description": "Minimum 20 characters",
    "fieldname": "description",
    "fieldtype": "Text",
    "label": "Description",
@@ -351,7 +353,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "FSD 3.3: false means the case entered the nodal officer manual queue",
+   "description": "False means the case entered the nodal officer manual queue",
    "fieldname": "routed_automatically",
    "fieldtype": "Check",
    "label": "Routed Automatically",
@@ -379,7 +381,7 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "UNRESOLVED: FSD 4.2 starts the clock at assignment, UC-04 uses the creation date",
+   "description": "Starts at assignment by default; set site config grievance_sla_clock_start to \"creation\" to count from submission",
    "fieldname": "sla_start_at",
    "fieldtype": "Datetime",
    "label": "SLA Start",
@@ -416,7 +418,7 @@
   {
    "allow_on_submit": 1,
    "default": "0",
-   "description": "FSD section 5 places this on SLA Configuration; it is per-grievance state",
+   "description": "Per-grievance flag so the 50% reminder is sent once",
    "fieldname": "reminder_50_sent",
    "fieldtype": "Check",
    "label": "50% Reminder Sent",
@@ -463,10 +465,10 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "FSD 3.6: configurable window, default 7 days",
-   "fieldname": "confirmation_deadline",
+   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved this is the closure window.",
+   "fieldname": "state_deadline",
    "fieldtype": "Datetime",
-   "label": "Confirmation Deadline",
+   "label": "State Deadline",
    "read_only": 1,
    "search_index": 1
   },
@@ -483,7 +485,7 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "FSD 3.6 requires this; it is absent from the section 5 data model",
+   "description": "Submitter's satisfaction rating on confirmation",
    "fieldname": "satisfaction_rating",
    "fieldtype": "Int",
    "label": "Satisfaction Rating (1-5)"

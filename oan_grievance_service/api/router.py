@@ -13,7 +13,6 @@ from oan_auth_service.api.router import (
 	_exempt_paths,
 	_rules,
 	prefixed,
-	registered_routes,
 	rest,
 )
 from oan_auth_service.api.router import (
@@ -86,6 +85,7 @@ def _register() -> None:
 		administrative_area,
 		attachment,
 		category_assignment,
+		change_request,
 		charts,
 		draft,
 		grievance,

@@ -44,16 +44,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance Comment",
-   "link_count": 0,
-   "link_to": "Grievance Comment",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Grievance Timeline",
    "link_count": 0,
    "link_to": "Grievance Timeline",
@@ -113,9 +103,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance SLA Deferral",
+   "label": "Grievance Change Request",
    "link_count": 0,
-   "link_to": "Grievance SLA Deferral",
+   "link_to": "Grievance Change Request",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -303,20 +293,8 @@
   },
   {
    "doc_view": "",
-   "label": "Reassignment Approvals",
-   "link_to": "Grievance Reassignment Request",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "SLA Deferrals",
-   "link_to": "Grievance SLA Deferral",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "Anonymity Approvals",
-   "link_to": "Grievance Anonymity Request",
+   "label": "Change Requests",
+   "link_to": "Grievance Change Request",
    "type": "DocType"
   }
  ],

@@ -42,7 +42,7 @@ cache another 15 minutes).
 | --------------- | ---------------------------------------------------------------------------- |
 | Total           | Every grievance except Draft                                                 |
 | Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)           |
-| Open            | Awaiting Action + More Info Needed + Pending Submitter (waiting on them)     |
+| Open            | Awaiting Action + More Info Needed (waiting on them)                         |
 | Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either        |
 | Escalated       | Open cases with the `escalated` flag; `escalated_at` is the first escalation |
 | At risk         | Open, clock running, due within 24 hours                                     |
@@ -51,22 +51,24 @@ cache another 15 minutes).
 
 ## Endpoints
 
-| Route                           | Access          | Returns                                                    |
-| ------------------------------- | --------------- | ---------------------------------------------------------- |
-| `GET /api/v1/charts/<chart_id>` | public, no auth | one chart; public charts only; counts, never case detail   |
-| `GET /api/v1/charts?charts=...` | Grievance Admin | several charts per call, admin-only charts and live detail |
+| Route                           | Access           | Returns                                                    |
+| ------------------------------- | ---------------- | ---------------------------------------------------------- |
+| `GET /api/v1/charts/<chart_id>` | Dashboard Reader | one chart; public charts only; counts, never case detail   |
+| `GET /api/v1/charts?charts=...` | Grievance Admin  | several charts per call, admin-only charts and live detail |
 
 Both return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
 `service_category` (alias `category`), `from` / `to`, `month`, `granularity`; the admin form
 also takes `assigned_dept` and `limit`. An unknown value is a 400 naming the field.
 
-Each public chart is its own literal route, because the JWT middleware exempts guest routes
-by exact path; an admin-only or unknown chart id is therefore never reachable without a token.
+Each public chart is its own literal route, so an admin-only or unknown chart id never reaches
+the chart code.
 
-**Through the gateway.** The public chart routes are guest to the platform, but the spec marks them
-`DashboardKeyAuth`: once Kong enforces authorization, it requires the OAN dashboards' API key
-(consumer `oan-dashboards`, group `dashboards`) and strips it before forwarding. The dashboards
-already send the key when configured; until the gateway enforces keys the header is ignored.
+**Authentication.** The OAN dashboards are a Frappe user holding only `Grievance Dashboard Reader`
+(no desk access). Generate an API key and secret on that user in the desk, store them in the
+dashboards' secret store, and send them as `Authorization: token <api_key>:<api_secret>`. Frappe
+checks the key itself (`FrappeTokenAuth` in the spec), so a call without it gets 401 whether it
+came through Kong or reached the backend directly; Kong passes the header through. Rotate or
+revoke by regenerating the key on the user.
 
 Public charts: `grvKpis`, `grvPerformanceKpis`, `grvMonthlyTrend`, `grvWeeklyTrend`,
 `grvNetBacklogTrend`, `grvStatusDistribution`, `grvByCategory`, `grvCategoryResolution`,

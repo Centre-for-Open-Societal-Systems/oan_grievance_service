@@ -20,6 +20,7 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field, model_validator
 
+from oan_grievance_service import permissions
 from oan_grievance_service.services import constants as C
 
 DRAFT_LIFETIME_DAYS = 30
@@ -44,7 +45,9 @@ def _resolve_grievance_type(grievance_type, category):
 	"""
 	if not grievance_type:
 		return None
-	from oan_grievance_service.services.resolvers import resolve_grievance_type
+	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+		resolve_grievance_type,
+	)
 
 	resolved = resolve_grievance_type(grievance_type, category)
 	if not resolved:
@@ -76,6 +79,9 @@ class SaveDraftRequest(BaseModel):
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
+	country_code: str | None = None
+	phone_number: str | None = None
+	phone: str | None = None
 	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
@@ -85,6 +91,9 @@ class SaveDraftRequest(BaseModel):
 	description: str | None = None
 	desired_outcome: str | None = None
 	is_anonymous: int | None = Field(None, ge=0, le=1)
+	can_request_more_info: bool | int | None = Field(
+		True, description="Whether submitter can be contacted for more information"
+	)
 	validate: bool | int | None = Field(False, description="If true, execute validation on the draft payload")
 
 	@model_validator(mode="after")
@@ -117,6 +126,7 @@ def save(
 	description: str | None = None,
 	desired_outcome: str | None = None,
 	is_anonymous: int | None = None,
+	can_request_more_info: bool | int | None = None,
 	validate: bool | int = False,
 	**kwargs,
 ):
@@ -125,16 +135,23 @@ def save(
 	if not client_submission_uuid:
 		frappe.throw(_("client_submission_uuid or client_uuid is required."), frappe.ValidationError)
 
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	country_code = kwargs.get("country_code")
+	if incoming_phone:
+		from oan_auth_service.api.utils import assemble_phone_number
+
+		contact_mobile = assemble_phone_number(incoming_phone, country_code=country_code)
 
 	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 
 	if name:
 		doc = frappe.get_doc("Grievance", name)
 		_assert_owner(doc, session_user)
-		if doc.workflow_state != "Draft" and doc.docstatus != 0:
+		if doc.docstatus != 0:
 			frappe.throw(
 				_("This draft has already been submitted as {0}.").format(doc.ticket_number or doc.name),
 				title=_("Already Submitted"),
@@ -145,8 +162,8 @@ def save(
 		doc = frappe.new_doc("Grievance")
 		doc.client_submission_uuid = client_submission_uuid
 		doc.owner = session_user
-		doc.workflow_state = "Draft"
-		doc.status = "Draft"
+		doc.workflow_state = C.STATE_DRAFT
+		doc.status = C.STATE_DRAFT
 		doc.docstatus = 0
 
 	# Associate submitter profile if available
@@ -208,6 +225,9 @@ def save(
 		doc.desired_outcome = desired_outcome
 	if is_anonymous is not None:
 		doc.is_anonymous = 1 if is_anonymous else 0
+	if can_request_more_info is not None and not can_request_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
 
 	if validate:
 		if doc.contact_mobile:
@@ -228,38 +248,24 @@ def save(
 	return success_response(data=_draft_state(doc), message=_("Draft saved"))
 
 
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def save_draft(**kwargs):
-	return save(**kwargs)
-
-
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
 def load():
 	"""Return the caller's latest unsubmitted draft."""
-	user = _session_user()
+	user = permissions.session_user()
 	if not user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
 	name = _latest_own_draft_name(user)
 	if not name:
-		frappe.throw(_("No saved draft found."), frappe.DoesNotExistError, title=_("Not Found"))
+		return success_response(data=None, message=_("No saved draft found"))
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, user)
 
 	return success_response(data=_draft_state(doc), message=_("Draft loaded"))
-
-
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def get_draft():
-	return load()
 
 
 class SubmitDraftRequest(BaseModel):
@@ -271,10 +277,16 @@ class SubmitDraftRequest(BaseModel):
 	consent_given: int | bool = 1
 	is_anonymous: int | bool = 0
 	anonymity_justification: str | None = None
+	can_request_more_info: bool | int = Field(
+		True, description="Whether submitter can be contacted for more information"
+	)
 	submission_channel: str | None = None
 	submitter_type: str | None = None
 	submitter_name: str | None = None
 	contact_mobile: str | None = None
+	country_code: str | None = None
+	phone_number: str | None = None
+	phone: str | None = None
 	contact_email: SafeEmail | None = None
 	administrative_area: str | None = None
 	administrative_unit: str | None = None
@@ -295,6 +307,7 @@ def submit_draft(
 	consent_given: int | bool = 1,
 	is_anonymous: int | bool = 0,
 	anonymity_justification: str | None = None,
+	can_request_more_info: bool | int = True,
 	submission_channel: str | None = None,
 	submitter_type: str | None = None,
 	submitter_name: str | None = None,
@@ -307,11 +320,19 @@ def submit_draft(
 	associated_service_provider: str | None = None,
 	description: str | None = None,
 	desired_outcome: str | None = None,
+	**kwargs,
 ):
 	"""Submit an existing draft grievance, transitioning its status to Submitted."""
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
+
+	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	country_code = kwargs.get("country_code")
+	if incoming_phone:
+		from oan_auth_service.api.utils import assemble_phone_number
+
+		contact_mobile = assemble_phone_number(incoming_phone, country_code=country_code)
 
 	name = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
 	if not name:
@@ -319,7 +340,7 @@ def submit_draft(
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, session_user)
-	if doc.workflow_state != "Draft" and doc.docstatus != 0:
+	if doc.docstatus != 0:
 		frappe.throw(
 			_("This draft has already been submitted as {0}.").format(doc.ticket_number or doc.name),
 			title=_("Already Submitted"),
@@ -368,6 +389,11 @@ def submit_draft(
 	if not doc.consent_recorded_at:
 		doc.consent_recorded_at = now_datetime()
 
+	wants_more_info = bool(can_request_more_info) if can_request_more_info is not None else True
+	if not wants_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
+
 	if not doc.submission_channel:
 		doc.submission_channel = "Web Portal"
 
@@ -384,8 +410,12 @@ def submit_draft(
 			doc.submitter = ident["submitter"]
 			doc.submitter_type = ident.get("submitter_type") or doc.submitter_type
 			doc.submitter_name = ident.get("submitter_name") or doc.submitter_name
-			doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
-			doc.contact_email = ident.get("contact_email") or doc.contact_email
+			if wants_more_info:
+				doc.contact_mobile = ident.get("contact_mobile") or doc.contact_mobile
+				doc.contact_email = ident.get("contact_email") or doc.contact_email
+			else:
+				doc.contact_mobile = None
+				doc.contact_email = None
 			if ident.get("assisted_by_officer"):
 				doc.assisted_by_officer = ident.get("assisted_by_officer")
 		else:
@@ -401,13 +431,20 @@ def submit_draft(
 		if profile:
 			doc.submitter_type = doc.submitter_type or profile.submitter_type
 			doc.submitter_name = doc.submitter_name or profile.submitter_name
-			doc.contact_mobile = doc.contact_mobile or profile.contact_mobile
-			doc.contact_email = doc.contact_email or profile.contact_email
+			if wants_more_info:
+				doc.contact_mobile = doc.contact_mobile or profile.contact_mobile
+				doc.contact_email = doc.contact_email or profile.contact_email
+			else:
+				doc.contact_mobile = None
+				doc.contact_email = None
 
-	if doc.contact_mobile:
+	if wants_more_info and doc.contact_mobile:
 		from oan_grievance_service.services import identity
 
 		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
+	elif not wants_more_info:
+		doc.contact_mobile = None
+		doc.contact_email = None
 
 	from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 		validate_submission_payload,
@@ -428,7 +465,7 @@ def submit_draft(
 	doc.ticket_number = doc.name
 	doc.save(ignore_permissions=True)
 
-	from oan_grievance_service.api.v1.grievance import _request_anonymity, detect_duplicates
+	from oan_grievance_service.api.v1.grievance import detect_duplicates
 	from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 		GrievanceTimeline,
 	)
@@ -463,24 +500,26 @@ def submit_draft(
 			update_modified=False,
 		)
 
-	if is_anonymous or doc.is_anonymous:
+	wants_anonymity = bool(is_anonymous or doc.is_anonymous)
+	if wants_anonymity:
 		doc.is_anonymous = 1
-		_request_anonymity(doc, anonymity_justification)
+		doc.db_set("is_anonymous", 1, update_modified=False)
 
 	duplicates = detect_duplicates(doc)
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
 	if duplicates:
 		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
-	rule = routing.apply_routing(doc)
+	routing.enqueue_routing(doc.name)
 	doc.reload()
 
 	return success_response(
 		data={
-			"ticket_number": doc.ticket_number,
+			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
-			"routing_rule": rule.name if hasattr(rule, "name") else str(rule) if rule else None,
+			"routing_rule": getattr(doc, "routing_rule", None),
+			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 		},
 		message=_("Grievance submitted successfully"),
 	)
@@ -501,7 +540,7 @@ class DiscardDraftRequest(BaseModel):
 @require_role(ALLOWED_DRAFT_ROLES)
 def discard(client_submission_uuid: str):
 	"""Delete a draft the submitter abandoned."""
-	session_user = _session_user()
+	session_user = permissions.session_user()
 	if not session_user:
 		frappe.throw(_("Authentication required."), frappe.PermissionError, title=_("Unauthorized"))
 
@@ -511,7 +550,7 @@ def discard(client_submission_uuid: str):
 
 	doc = frappe.get_doc("Grievance", name)
 	_assert_owner(doc, session_user)
-	if doc.workflow_state != "Draft" and doc.docstatus != 0:
+	if doc.docstatus != 0:
 		frappe.throw(
 			_("This draft became grievance {0} and cannot be discarded.").format(
 				doc.ticket_number or doc.name
@@ -524,20 +563,12 @@ def discard(client_submission_uuid: str):
 	return success_response(data={"discarded": True}, message=_("Draft discarded"))
 
 
-@frappe.whitelist()
-@handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
-def delete_draft(client_submission_uuid: str):
-	return discard(client_submission_uuid=client_submission_uuid)
-
-
 def purge_expired_drafts():
 	"""Daily: clear abandoned drafts that were never submitted (older than 30 days)."""
 	cutoff = add_days(now_datetime(), -DRAFT_LIFETIME_DAYS)
 	stale = frappe.get_all(
 		"Grievance",
 		filters={
-			"workflow_state": "Draft",
 			"docstatus": 0,
 			"creation": ["<", cutoff],
 		},
@@ -564,11 +595,6 @@ def _purge_draft_uploads(grievance_name):
 		frappe.delete_doc("File", f.name, force=True, ignore_permissions=True)
 
 
-def _session_user():
-	user = frappe.session.user
-	return None if user in ("Guest", None) else user
-
-
 def _assert_owner(doc, session_user):
 	"""A draft claimed by a signed-in user stays with that user."""
 	if not doc.owner:
@@ -586,7 +612,7 @@ def _latest_own_draft_name(user):
 	"""The caller's newest unsubmitted draft, or None."""
 	return frappe.db.get_value(
 		"Grievance",
-		filters={"owner": user, "workflow_state": "Draft", "docstatus": 0},
+		filters={"owner": user, "docstatus": 0},
 		fieldname="name",
 		order_by="modified desc",
 	)
@@ -598,6 +624,7 @@ def _draft_state(doc):
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
+	from oan_grievance_service.services.identity import mask_contact
 
 	attachments = _attachments(doc.name)
 	hierarchy = get_administrative_hierarchy(doc.administrative_area)
@@ -605,6 +632,7 @@ def _draft_state(doc):
 	grievance_type_name = (
 		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
 	)
+	contact = mask_contact(doc, show_identity=True)
 
 	return {
 		"name": doc.name,
@@ -615,8 +643,10 @@ def _draft_state(doc):
 		"submission_channel": doc.submission_channel,
 		"submitter_type": doc.submitter_type,
 		"submitter_name": doc.submitter_name,
-		"contact_mobile": doc.contact_mobile,
-		"contact_email": doc.contact_email,
+		"contact_mobile": contact["contact_mobile"],
+		"country_code": contact["country_code"],
+		"phone_number": contact["phone_number"],
+		"contact_email": contact["contact_email"],
 		"administrative_area": doc.administrative_area,
 		"administrative_hierarchy": hierarchy,
 		"location": location_str,
@@ -628,6 +658,7 @@ def _draft_state(doc):
 		"description": doc.description,
 		"desired_outcome": doc.desired_outcome,
 		"is_anonymous": doc.is_anonymous,
+		"can_request_more_info": contact["can_request_more_info"],
 		"attachments": attachments,
 		"attachment_count": len(attachments),
 		"owner": doc.owner,

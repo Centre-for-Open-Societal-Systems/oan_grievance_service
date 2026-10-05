@@ -29,12 +29,14 @@ jobs:
       - uses: pre-commit/action@v3.0.0
 
       - name: Download Semgrep rules
-        run: git clone --depth 1 https://github.com/frappe/semgrep-rules.git frappe-semgrep-rules
+        run: |
+          git clone --depth 1 https://github.com/frappe/semgrep-rules.git frappe-semgrep-rules
+          git clone --depth 1 https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service.git /tmp/oan_auth_service
 
       - name: Run Semgrep rules
         run: |
           pip install semgrep
-          semgrep ci --config ./frappe-semgrep-rules/rules --config r/python.lang.correctness
+          semgrep ci --metrics=off --config ./frappe-semgrep-rules/rules --config r/python.lang.correctness --config /tmp/oan_auth_service/.semgrep/rules.yml
 
   deps-vulnerable-check:
     name: 'Vulnerable Dependency Check'

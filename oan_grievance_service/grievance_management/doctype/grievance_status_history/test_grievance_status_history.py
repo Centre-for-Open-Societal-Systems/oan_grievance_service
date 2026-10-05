@@ -8,7 +8,7 @@ from oan_grievance_service.tests.fixtures import a_grievance
 
 
 class TestGrievanceStatusHistory(FrappeTestCase):
-	"""FR-10: the status trail is evidence, so it must be append-only.
+	"""The status trail is evidence, so it must be append-only.
 
 	These assert the refusal itself rather than the permission flags, because the
 	service layer inserts with `ignore_permissions=True` and would sail past them.
