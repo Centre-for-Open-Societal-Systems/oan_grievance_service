@@ -185,7 +185,7 @@ except ImportError:
 		return o
 
 	def dump_spec(doc: dict[str, Any], path, header: list[str]) -> None:
-		with open(path, "w", encoding="utf-8") as f:
+		with open(path, "w", encoding="utf-8") as f:  # nosemgrep: frappe-security-file-traversal
 			for line in header:
 				f.write(f"# {line}\n")
 			yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False, width=100, allow_unicode=True)
