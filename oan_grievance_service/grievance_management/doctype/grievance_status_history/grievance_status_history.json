@@ -85,8 +85,7 @@
    "fieldname": "reason",
    "fieldtype": "Small Text",
    "label": "Reason / Justification",
-   "description": "Why the move was made, as shown to the submitter. For a department response, the response itself.",
-   "reqd": 1
+   "description": "Why the move was made, as shown to the submitter. For a department response, the response itself."
   },
   {
    "fieldname": "notes",

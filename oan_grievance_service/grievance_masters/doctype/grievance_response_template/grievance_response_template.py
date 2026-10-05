@@ -20,6 +20,8 @@ from frappe.utils.jinja import validate_template
 
 class GrievanceResponseTemplate(Document):
 	def validate(self):
+		if not self.is_active:
+			return
 		self.validate_workflow_action()
 		self.validate_links_active()
 		# A syntax error would otherwise surface only when an officer loads the template.

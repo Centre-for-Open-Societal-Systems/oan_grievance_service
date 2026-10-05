@@ -114,8 +114,8 @@ class ListGrievancesRequest(PageParams):
 class GrievanceActionRequest(Body):
 	ticket_number: str | None = None
 	action: NonBlank = Field(..., description="Workflow action, one of the case's available_actions")
-	reason: NonBlank = Field(
-		..., description="Shown to the submitter. For a department response, the response itself."
+	reason: str | None = Field(
+		None, description="Shown to the submitter. For a department response, the response itself."
 	)
 	internal_notes: str | None = Field(
 		None, description="Staff only. Posted as a separate internal timeline entry."
@@ -123,7 +123,7 @@ class GrievanceActionRequest(Body):
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
 	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
 
-	_blank = field_validator("internal_notes", "template", mode="before")(blank_to_none)
+	_blank = field_validator("reason", "internal_notes", "template", mode="before")(blank_to_none)
 
 
 class GrievanceFeedbackRequest(BaseModel):
@@ -826,7 +826,7 @@ _ACTION_ENTRY_TYPES = {
 def action(
 	ticket_number: str,
 	action: str,
-	reason: str,
+	reason: str | None = None,
 	internal_notes: str | None = None,
 	template: str | None = None,
 	rating: int | None = None,
@@ -880,7 +880,7 @@ def action(
 		grievance=doc.name,
 		entry_type=_ACTION_ENTRY_TYPES.get(matching_action, "status_change"),
 		is_internal=False,
-		body=reason,
+		body=reason or _("Action: {0}").format(matching_action),
 		author_user=user if is_staff else None,
 		author_submitter=None if is_staff else doc.submitter,
 		ref_doctype="Grievance Status History",

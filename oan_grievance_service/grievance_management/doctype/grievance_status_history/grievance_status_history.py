@@ -8,6 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.audit import ImmutableRecord
 
 
@@ -51,13 +52,18 @@ class GrievanceStatusHistory(ImmutableRecord, Document):
 
 
 def require_reason(from_status, to_status, reason):
-	"""Every move is justified.
+	"""Rejections and reopens must be justified.
 
 	The rule lives here, with the row that records the move, and nowhere else.
 	Every status change writes one of these rows inside the same transaction as
 	the move, so a missing reason rolls the move back whether it came from the
-	desk, the API or a scheduled job. System moves state their own reason.
+	desk, the API or a scheduled job.
 	"""
+	is_reason_required = (to_status == C.STATE_REJECTED) or (
+		from_status == C.STATE_RESOLVED and to_status == C.STATE_IN_PROGRESS
+	)
+	if not is_reason_required:
+		return
 	if reason and reason.strip():
 		return
 	frappe.throw(
