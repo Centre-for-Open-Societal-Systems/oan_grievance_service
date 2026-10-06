@@ -129,6 +129,8 @@ ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@$RKE2_NODE" \
     bash -s -- "$DEPLOYMENTS" "$FULL_IMAGE" "$K8S_NAMESPACE" <<'ENDSSH'
 set -euo pipefail
 DEPLOYMENTS="$1"; IMAGE="$2"; NS="$3"
+# Non-interactive SSH sessions do not load the login PATH; RKE2 keeps kubectl in its own bin dir
+export PATH="$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin:/snap/bin"
 export KUBECONFIG="$HOME/.kube/config"
 
 # Fail fast if any Deployment name does not exist
