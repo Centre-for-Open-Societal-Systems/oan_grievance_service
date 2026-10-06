@@ -94,9 +94,16 @@ def actions_available(grievance):
 	tell them, so the case would only sit there until it timed out. Which states
 	wait is the Workflow's own setting, not a list kept here.
 	"""
+	import frappe
 	from frappe.model.workflow import get_transitions
 
+	from oan_grievance_service import permissions
 	from oan_grievance_service.services import identity, sla
+
+	user = frappe.session.user
+	if permissions.is_staff(user) and not permissions.is_unrestricted(user):
+		if grievance.assigned_to and grievance.assigned_to != user:
+			return []
 
 	transitions = get_transitions(grievance)
 	if transitions and not identity.is_reachable(grievance):
