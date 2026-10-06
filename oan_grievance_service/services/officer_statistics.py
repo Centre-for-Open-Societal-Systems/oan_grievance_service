@@ -7,8 +7,10 @@ Nothing here is stored. The roster (who is an L1 or L2 officer) comes from the o
 rows of active Grievance RBAC Assignments. The numbers come from one aggregate over
 Grievance per page of officers:
 
-- assigned: submitted grievances whose `assigned_to` is the officer right now. A case
-  moved to another officer counts for the new one only.
+- assigned: grievances past Draft whose `assigned_to` is the officer right now. A case
+  moved to another officer counts for the new one only. Closed and Rejected cases are
+  docstatus 2 in the workflow, so Draft is excluded by state of the document, never by
+  `docstatus == 1`, which would drop every closed case.
 - resolved: those of them now at Resolved or Closed.
 - avg_resolution_hours: mean of creation to `resolved_at` over the resolved ones, the same
   clock the dashboard rollups use. None while the officer has resolved nothing.
@@ -66,8 +68,12 @@ def list_officers(*, level: str | None, department: str | None, start: int, limi
 	return rows, total
 
 
-def statistics_for(users: list[str]) -> dict[str, dict]:
-	"""assigned, resolved and average resolution hours for each user, in one query."""
+def statistics_for(users: list[str], department: str | None = None) -> dict[str, dict]:
+	"""assigned, resolved and average resolution hours for each user, in one query.
+
+	With a department, only the grievances assigned to that department count, so a row on
+	a department's tab shows that department's workload, not the officer's total.
+	"""
 	if not users:
 		return {}
 	G = frappe.qb.DocType("Grievance")
@@ -75,7 +81,7 @@ def statistics_for(users: list[str]) -> dict[str, dict]:
 	seconds = CustomFunction("TIMESTAMPDIFF", ["unit", "start", "end"])(
 		LiteralValue("SECOND"), G.creation, G.resolved_at
 	)
-	rows = (
+	query = (
 		frappe.qb.from_(G)
 		.select(
 			G.assigned_to.as_("user"),
@@ -83,16 +89,18 @@ def statistics_for(users: list[str]) -> dict[str, dict]:
 			Sum(Case().when(is_resolved, 1).else_(0)).as_("resolved"),
 			(Avg(Case().when(is_resolved & G.resolved_at.notnull(), seconds)) / 3600).as_("avg_hours"),
 		)
-		.where((G.docstatus == 1) & G.assigned_to.isin(users))
+		.where((G.docstatus != 0) & G.assigned_to.isin(users))
 		.groupby(G.assigned_to)
-		.run(as_dict=True)
 	)
+	if department:
+		query = query.where(G.assigned_dept == department)
+	rows = query.run(as_dict=True)
 	return {row.user: row for row in rows}
 
 
-def build_records(officers: list) -> list[dict]:
+def build_records(officers: list, department: str | None = None) -> list[dict]:
 	"""Join the roster page with live statistics into API records."""
-	stats = statistics_for(list({row.user for row in officers}))
+	stats = statistics_for(list({row.user for row in officers}), department)
 	records = []
 	for officer in officers:
 		row = stats.get(officer.user)

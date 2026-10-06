@@ -66,8 +66,8 @@ class ListOfficerStatistics(PageParams, Body):
 	summary="List officer statistics",
 	description="Per-officer grievances assigned, grievances resolved, average resolution time "
 	+ "in hours and resolution rate (percent), for L1 and L2 officers staffing an active RBAC desk. "
-	+ "Computed live from Grievance on every call. Assigned counts submitted grievances currently "
-	+ "assigned to the officer. Resolved counts those at Resolved or Closed. Average resolution time "
+	+ "Computed live from Grievance on every call. Assigned counts grievances past Draft currently "
+	+ "assigned to the officer, scoped to the department when one is given. Resolved counts those at Resolved or Closed. Average resolution time "
 	+ "runs from creation to resolution and is null until the officer has resolved a case.",
 	tags=["Administration"],
 	response_model=OfficerStatisticsListData,
@@ -81,15 +81,13 @@ def list_officer_statistics(
 ):
 	"""Page of officer statistics, filterable by level (L1/L2) and department."""
 	params = PageParams(page=page, page_size=page_size)
+	department = resolve_department(department) if department else None
 	officers, total = service.list_officers(
-		level=level,
-		department=resolve_department(department) if department else None,
-		start=params.start,
-		limit=params.page_size,
+		level=level, department=department, start=params.start, limit=params.page_size
 	)
 	return success_response(
 		data={
-			"officers": service.build_records(officers),
+			"officers": service.build_records(officers, department),
 			"pagination": page_meta(total, params.page, params.page_size),
 		},
 		message=_("Officer statistics retrieved"),

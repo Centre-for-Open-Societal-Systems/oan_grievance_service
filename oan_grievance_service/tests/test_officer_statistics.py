@@ -44,10 +44,13 @@ class TestOfficerStatistics(FrappeTestCase):
 		for name in self.made:
 			discard_grievance(name)
 
-	def _case(self, officer, state=C.STATE_ASSIGNED, hours=None):
+	def _case(self, officer, state=C.STATE_ASSIGNED, hours=None, department=None):
 		doc = a_grievance()
 		self.made.append(doc.name)
-		values = {"assigned_to": officer, "workflow_state": state}
+		# Closed and Rejected are docstatus 2 in the workflow, as in production.
+		docstatus = 2 if state in (C.STATE_CLOSED, C.STATE_REJECTED) else 1
+		values = {"assigned_to": officer, "workflow_state": state, "docstatus": docstatus}
+		values["assigned_dept"] = department or self.department
 		if hours is not None:
 			values["resolved_at"] = add_to_date(doc.creation, hours=hours)
 		frappe.db.set_value("Grievance", doc.name, values, update_modified=False)
@@ -107,3 +110,21 @@ class TestOfficerStatistics(FrappeTestCase):
 		self.addCleanup(frappe.set_user, "Administrator")
 		result = list_officer_statistics()
 		self.assertNotEqual(result.get("status"), "success")
+
+	def test_closed_and_rejected_cases_are_counted(self):
+		self._case(self.l1, C.STATE_CLOSED, hours=8)
+		self._case(self.l1, C.STATE_REJECTED)
+		stats, _ = self._stats()
+		row = stats[self.l1]
+		self.assertEqual((row["assigned"], row["resolved"]), (2, 1))
+		self.assertAlmostEqual(row["avg_resolution_hours"], 8.0, places=1)
+
+	def test_department_filter_scopes_the_case_counts(self):
+		other = _department("STG431 Other Agency", "S432")
+		self._case(self.l1, C.STATE_RESOLVED, hours=4, department=self.department)
+		self._case(self.l1, C.STATE_IN_PROGRESS, department=other)
+		scoped, _ = self._stats()
+		self.assertEqual(scoped[self.l1]["assigned"], 1)
+		everything = list_officer_statistics()["data"]["officers"]
+		total = next(row for row in everything if row["user"] == self.l1)
+		self.assertEqual(total["assigned"], 2)
