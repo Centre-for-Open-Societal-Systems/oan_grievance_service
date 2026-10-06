@@ -9,6 +9,10 @@ officer id is the User id, which is the officer's email.
 
 Officers are not deleted: set `status` to Inactive. Performance metrics (assigned, resolved,
 average time, resolution rate) are served by the statistics API, not by this resource.
+
+An officer who is given a temporary password at creation, or one reissued here, cannot sign in
+until they replace it through `POST /api/v1/auth/set-initial-password`. The mechanism lives in
+oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
 from typing import Literal
@@ -19,12 +23,14 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	api_doc,
+	check_rate_limit,
 	handle_api_errors,
 	page_meta,
 	require_role,
 	success_response,
 	validate_email_string,
 	validate_request,
+	validate_temporary_password,
 )
 from pydantic import BaseModel, Field, field_validator
 
@@ -61,6 +67,7 @@ class OfficerRecord(BaseModel):
 	department: str
 	email: str
 	phone: str | None = None
+	must_change_password: bool = False
 	region: str | None = None
 	region_name: str | None = None
 	status: Status
@@ -93,9 +100,24 @@ class CreateOfficer(Body):
 	region: str | None = None
 	status: Status = "Active"
 	reports_to: str | None = None
+	temporary_password: str | None = Field(default=None, max_length=128)
 
 	_email = field_validator("email")(normalize_email)
-	_blank = field_validator("phone", "region", "reports_to", mode="before")(blank_to_none)
+	_blank = field_validator("phone", "region", "reports_to", "temporary_password", mode="before")(
+		blank_to_none
+	)
+
+	@field_validator("temporary_password")
+	@classmethod
+	def _temporary_password(cls, value: str | None) -> str | None:
+		return None if value is None else validate_temporary_password(value)
+
+
+class ResetTemporaryPassword(Body):
+	officer: NonBlank
+	temporary_password: str = Field(max_length=128)
+
+	_temporary_password = field_validator("temporary_password")(validate_temporary_password)
 
 
 class UpdateOfficer(Body):
@@ -202,7 +224,9 @@ def get_officer(officer: str, **kwargs):
 	summary="Create an officer",
 	description="Make a login an L1 or L2 officer on the category desks of a department. "
 	+ "The login is created when the email is new. Every service category must already have a "
-	+ "category assignment for the department. reports_to is an L2 officer and is only for an L1.",
+	+ "category assignment for the department. reports_to is an L2 officer and is only for an L1. "
+	+ "temporary_password is optional and only for a new login: the officer can sign in with it only "
+	+ "to replace it through set-initial-password.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -217,6 +241,7 @@ def create_officer(
 	region: str | None = None,
 	status: str = "Active",
 	reports_to: str | None = None,
+	temporary_password: str | None = None,
 	**kwargs,
 ):
 	"""Create an officer."""
@@ -231,6 +256,7 @@ def create_officer(
 		region=region,
 		status=status,
 		reports_to=reports_to,
+		temporary_password=temporary_password,
 	)
 	return success_response(data={"officer": service.record(user_id)}, message=_("Officer created"))
 
@@ -255,3 +281,37 @@ def update_officer(officer: str, **kwargs):
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
 	service.update(officer, kwargs)
 	return success_response(data={"officer": service.record(officer)}, message=_("Officer updated"))
+
+
+@route("/<officer>/temporary-password", methods=("POST",), summary="Issue a new temporary password")
+@frappe.whitelist()
+@handle_api_errors
+@require_role(ADMIN_ROLES)
+@validate_request(ResetTemporaryPassword)
+@api_doc(
+	summary="Issue a new temporary password",
+	description="Set a new temporary password on an officer who cannot sign in, for example after a "
+	+ "forgotten password. The officer's current sessions end at once and they must replace the "
+	+ "password through set-initial-password before signing in. Not available for an account that "
+	+ "itself holds an admin role.",
+	tags=["Administration"],
+	response_model=OfficerData,
+)
+def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
+	"""Reissue a temporary password to an officer. The officer must already exist."""
+	check_rate_limit(f"rl:officer_temporary_password:{frappe.session.user}", limit=10, window=300)
+
+	# This sets a password the caller knows, so it must never reach an account more powerful
+	# than the caller is entitled to manage. Officers are not admins; an account that is both
+	# is recovered through the System Manager endpoint in oan_auth_service instead.
+	if set(frappe.get_roles(officer)) & set(ADMIN_ROLES):
+		frappe.throw(_("A temporary password cannot be issued for this account."), frappe.PermissionError)
+
+	service.reset_temporary_password(officer, temporary_password)
+	frappe.logger("oan_grievance_service").info(
+		f"temporary password reissued by={frappe.session.user} for={officer}"
+	)
+	return success_response(
+		data={"officer": service.record(officer)},
+		message=_("Temporary password issued. The officer must set their own password before signing in."),
+	)

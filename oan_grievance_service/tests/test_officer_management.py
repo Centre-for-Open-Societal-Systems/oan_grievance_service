@@ -5,11 +5,14 @@
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils.password import check_password
+from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.api.v1.officer import (
 	create_officer,
 	get_officer,
 	list_officers,
+	reset_temporary_password,
 	update_officer,
 )
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
@@ -427,3 +430,76 @@ class TestOfficerManagement(FrappeTestCase):
 			self.assertEqual(list_officers()["code"], "PERMISSION_DENIED")
 		frappe.set_user(admin)
 		self.assertEqual(list_officers()["status"], "success")
+
+	def test_a_temporary_password_is_set_flagged_and_replaceable(self):
+		without = self._create("stg430-nopassword@example.com")
+		self.assertFalse(without["must_change_password"])
+
+		officer = self._create(temporary_password="Temp1234")
+		self.assertTrue(officer["must_change_password"])
+		self.assertEqual(frappe.db.get_value("User", officer["name"], MUST_CHANGE_PASSWORD_FIELD), 1)
+		# The password really exists: it is what set-initial-password will verify.
+		self.assertEqual(check_password(officer["name"], "Temp1234"), officer["name"])
+		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["must_change_password"], True)
+
+	def test_a_temporary_password_must_meet_the_rule(self):
+		base = {
+			"full_name": "X",
+			"designation": "Y",
+			"level": "L1",
+			"department": "S430",
+			"email": "stg430-weak@example.com",
+			"service_categories": [self.inputs],
+		}
+		with _keep_transaction():
+			for weak in ("short1", "lettersonly", "12345678"):
+				result = create_officer(**base, temporary_password=weak)
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(weak, result))
+				self.assertIn("temporary_password", result["details"])
+		self.assertFalse(frappe.db.exists("User", base["email"]))
+
+	def test_a_temporary_password_is_refused_for_an_existing_login(self):
+		"""An existing account already has a password; setting one here would be taking it over."""
+		login = _user("stg430-has-login@example.com", "Has A Login")
+		with _keep_transaction():
+			result = create_officer(
+				full_name="Has A Login",
+				designation="Nodal Officer",
+				level="L1",
+				department="S430",
+				email=login,
+				service_categories=[self.inputs],
+				temporary_password="Temp1234",
+			)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertFalse(frappe.db.get_value("User", login, MUST_CHANGE_PASSWORD_FIELD))
+		self.assertEqual(self._rows(login), [])
+
+	def test_a_temporary_password_can_be_reissued_to_an_officer(self):
+		officer = self._create()
+		self.assertFalse(officer["must_change_password"])
+
+		result = reset_temporary_password(officer["name"], temporary_password="Another123")
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertTrue(result["data"]["officer"]["must_change_password"])
+		self.assertEqual(check_password(officer["name"], "Another123"), officer["name"])
+
+	def test_a_temporary_password_is_only_reissued_to_an_officer(self):
+		plain = _user("stg430-plain@example.com", "Plain Login")
+		admin_officer = self._create("stg430-admin-officer@example.com")
+		user = frappe.get_doc("User", admin_officer["name"])
+		user.append("roles", {"role": "System Manager"})
+		user.save(ignore_permissions=True)
+
+		with _keep_transaction():
+			not_an_officer = reset_temporary_password(plain, temporary_password="Another123")
+			self.assertEqual(not_an_officer["code"], "NOT_FOUND", msg=not_an_officer)
+
+			privileged = reset_temporary_password(admin_officer["name"], temporary_password="Another123")
+			self.assertEqual(privileged["code"], "PERMISSION_DENIED", msg=privileged)
+
+			weak = reset_temporary_password(admin_officer["name"], temporary_password="lettersonly")
+			self.assertEqual(weak["code"], "VALIDATION_ERROR", msg=weak)
+
+		self.assertFalse(frappe.db.get_value("User", plain, MUST_CHANGE_PASSWORD_FIELD))
+		self.assertFalse(frappe.db.get_value("User", admin_officer["name"], MUST_CHANGE_PASSWORD_FIELD))

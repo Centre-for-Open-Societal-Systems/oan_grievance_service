@@ -25,6 +25,8 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
+from oan_auth_service.api.v1.auth import issue_temporary_password
+from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.resolvers import (
@@ -44,6 +46,7 @@ USER_FIELDS = [
 	"full_name",
 	"email",
 	"phone",
+	MUST_CHANGE_PASSWORD_FIELD,
 ]
 
 
@@ -59,15 +62,26 @@ def create(
 	region: str | None = None,
 	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
+	temporary_password: str | None = None,
 ) -> str:
 	"""Make `email` an officer on the category desks of `department`. Returns the user id.
 
 	An existing login with no desk rows is promoted, so an admin can staff someone who
 	already has an account. A login that is already an officer is rejected.
+
+	`temporary_password` is for a new login only. The officer can use it just long enough
+	to replace it (`oan_auth_service`'s set-initial-password). It is refused for an
+	existing login rather than ignored: that account already has a password, and setting
+	one on it would let whoever typed it take the account over.
 	"""
 	desks = _category_desks(resolve_department(department), service_categories)
 	if _rows([email]):
 		frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
+	if temporary_password and frappe.db.exists("User", email):
+		frappe.throw(
+			_("{0} already has a login, so a temporary password cannot be set for it here.").format(email),
+			frappe.ValidationError,
+		)
 	placement = _placement(level, status)
 	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
@@ -77,7 +91,21 @@ def create(
 	_write_user(user, {"full_name": full_name, "phone": phone})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
+	if temporary_password:
+		issue_temporary_password(user.name, temporary_password)
 	return user.name
+
+
+def reset_temporary_password(user_id: str, password: str) -> str:
+	"""Issue a fresh temporary password to an existing officer (the forgotten-password path).
+
+	Only an officer: this is how an admin recovers an account they manage, and it must not
+	be a way to set a password on any other login. The officer's current sessions end and
+	they must replace the password before signing in again.
+	"""
+	_current(user_id)
+	issue_temporary_password(user_id, password)
+	return user_id
 
 
 def update(user_id: str, changes: dict) -> str:
@@ -207,6 +235,7 @@ def records(user_ids: list[str]) -> list[dict]:
 				"department": top.department_scope,
 				"email": person.email,
 				"phone": person.phone,
+				"must_change_password": bool(person.get(MUST_CHANGE_PASSWORD_FIELD)),
 				"region": region,
 				"region_name": area_names.get(region),
 				"status": _status(own),
@@ -302,9 +331,10 @@ def _category_desks(department: str, categories: list[str]) -> list:
 	missing = set(names) - {desk.category_scope for desk in desks}
 	if missing:
 		frappe.throw(
-			_("{0} has no category assignment for: {1}. Create it first.").format(
-				department, ", ".join(sorted(missing))
-			),
+			_(
+				"{0} has no category assignment for: {1}. Create it first. "
+				"An assignment scoped to a grievance type or service provider does not count."
+			).format(department, ", ".join(sorted(missing))),
 			frappe.ValidationError,
 		)
 	return desks
