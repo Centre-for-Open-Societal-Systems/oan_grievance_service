@@ -25,7 +25,6 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
-from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.resolvers import (
@@ -40,6 +39,9 @@ OFFICER_ROLE = "Grievance Officer"
 LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
 CODE_LEVELS = {code: level for level, code in LEVEL_CODES.items()}
 DEFAULT_STATUS = "Active"
+# Custom field on User, created by oan_auth_service. Named here rather than imported so this
+# module still loads against an auth service that predates temporary passwords.
+MUST_CHANGE_PASSWORD_FIELD = "oan_must_change_password"
 USER_FIELDS = [
 	"name",
 	"full_name",

@@ -178,18 +178,18 @@ No query or body. Returns `data.officer` with the same shape as above. 404 if th
 }
 ```
 
-| Field                | Required | Notes                                                    |
-| :------------------- | :------- | :------------------------------------------------------- |
-| `full_name`          | yes      | Non-blank                                                |
-| `designation`        | yes      | Title shown on the card, for example "Nodal Officer"     |
-| `level`              | yes      | `L1` or `L2`                                             |
-| `department`         | yes      | Must be an active department                             |
-| `email`              | yes      | Valid email. Stored lowercase and becomes the officer id |
-| `service_categories` | yes      | At least one                                             |
-| `phone`              | no       | Validated. Blank means not set                           |
-| `region`             | no       | Blank means every area                                   |
-| `status`             | no       | Default `Active`                                         |
-| `reports_to`         | no       | L2 officer id. Only for `level: "L1"`. Blank means none  |
+| Field                | Required | Notes                                                       |
+| :------------------- | :------- | :---------------------------------------------------------- |
+| `full_name`          | yes      | Non-blank                                                   |
+| `designation`        | yes      | Title shown on the card, for example "Nodal Officer"        |
+| `level`              | yes      | `L1` or `L2`                                                |
+| `department`         | yes      | Must be an active department                                |
+| `email`              | yes      | Valid email. Stored lowercase and becomes the officer id    |
+| `service_categories` | yes      | At least one                                                |
+| `phone`              | no       | Validated. Blank means not set                              |
+| `region`             | no       | Blank means every area                                      |
+| `status`             | no       | Default `Active`                                            |
+| `reports_to`         | no       | L2 officer id. Only for `level: "L1"`. Blank means none     |
 | `temporary_password` | yes      | At least 8 characters with a letter and a number. See below |
 
 Returns 200 with `message: "Officer created"` and `data.officer`. There is no 201.
@@ -282,32 +282,32 @@ Returns 200 with `message: "Officer updated"` and the updated `data.officer`. Us
 
 ## 10. Rules that produce a 400
 
-| Message (shortened)                                               | What to tell the user                                                           |
-| :---------------------------------------------------------------- | :------------------------------------------------------------------------------ |
+| Message (shortened)                                               | What to tell the user                                                                                                                                                  |
+| :---------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "has no category assignment for: …. Create it first."             | The department has no category-wide routing rule for it. A rule limited to one grievance type or service provider does not count. Set up the category assignment first |
-| "An officer needs at least one service category."                 | Keep at least one category selected                                             |
-| "… is already an officer."                                        | That email is already registered as an officer                                  |
-| "Only an L1 officer reports to an L2 officer."                    | Hide "Reports to" for L2                                                        |
-| "… is not an L2 officer."                                         | Pick the supervisor from the L2 list                                            |
-| "… cannot change level while other officers report to them."      | Move or re-point those L1 officers first                                        |
-| "… would be left without officers. Assign another officer first." | The officer is the only one on a desk they are being removed from               |
-| "Department '…' does not exist." / "Region '…' does not exist."   | The picker value is stale. Reload the options                                   |
+| "An officer needs at least one service category."                 | Keep at least one category selected                                                                                                                                    |
+| "… is already an officer."                                        | That email is already registered as an officer                                                                                                                         |
+| "Only an L1 officer reports to an L2 officer."                    | Hide "Reports to" for L2                                                                                                                                               |
+| "… is not an L2 officer."                                         | Pick the supervisor from the L2 list                                                                                                                                   |
+| "… cannot change level while other officers report to them."      | Move or re-point those L1 officers first                                                                                                                               |
+| "… would be left without officers. Assign another officer first." | The officer is the only one on a desk they are being removed from                                                                                                      |
+| "Department '…' does not exist." / "Region '…' does not exist."   | The picker value is stale. Reload the options                                                                                                                          |
 
 ## 11. Suggested screen wiring
 
-| Screen part                       | Call                                                                            |
-| :-------------------------------- | :------------------------------------------------------------------------------ |
-| Nodal Officers tab (L1)           | `GET /officers?level=L1&page=…` and the status and department filters           |
-| Senior Officers tab (L2)          | `GET /officers?level=L2&page=…`                                                 |
-| Search box                        | Add `q`. Debounce, and reset `page` to 1                                        |
-| Officer card                      | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge     |
-| Add modal                         | `POST /officers`. On success, add the returned `officer` or refetch             |
-| Edit modal                        | `PATCH /officers/{id}` with only the changed fields                             |
-| Deactivate and On Leave actions   | `PATCH /officers/{id}` with `status`                                            |
-| "Issue new temporary password"    | `POST /officers/{id}/temporary-password`. Show it when the officer cannot sign in |
-| Awaiting first sign-in badge      | `officer.must_change_password` is `true`                                        |
+| Screen part                        | Call                                                                                      |
+| :--------------------------------- | :---------------------------------------------------------------------------------------- |
+| Nodal Officers tab (L1)            | `GET /officers?level=L1&page=…` and the status and department filters                     |
+| Senior Officers tab (L2)           | `GET /officers?level=L2&page=…`                                                           |
+| Search box                         | Add `q`. Debounce, and reset `page` to 1                                                  |
+| Officer card                       | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge               |
+| Add modal                          | `POST /officers`. On success, add the returned `officer` or refetch                       |
+| Edit modal                         | `PATCH /officers/{id}` with only the changed fields                                       |
+| Deactivate and On Leave actions    | `PATCH /officers/{id}` with `status`                                                      |
+| "Issue new temporary password"     | `POST /officers/{id}/temporary-password`. Show it when the officer cannot sign in         |
+| Awaiting first sign-in badge       | `officer.must_change_password` is `true`                                                  |
 | Officer's "Set your password" page | `POST /auth/set-initial-password`, opened when sign-in returns `PASSWORD_CHANGE_REQUIRED` |
-| L2 card "N officers report to me" | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id |
+| L2 card "N officers report to me"  | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id           |
 
 ## 12. Not available yet
 

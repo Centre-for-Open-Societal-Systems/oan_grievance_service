@@ -30,7 +30,6 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_email_string,
 	validate_request,
-	validate_temporary_password,
 )
 from pydantic import BaseModel, Field, field_validator
 
@@ -47,6 +46,16 @@ Status = Literal["Active", "On Leave", "Inactive"]
 def normalize_email(value: str) -> str:
 	"""The one place an officer's email is validated and canonicalised. The User id is this value."""
 	return validate_email_string(value.strip()).lower()
+
+
+def validate_temporary_password(value: str) -> str:
+	"""The temporary-password rule, which oan_auth_service owns.
+
+	Imported on use so this module still loads against an auth service that predates it.
+	"""
+	from oan_auth_service.api.utils import validate_temporary_password as rule
+
+	return rule(value)
 
 
 class OfficerAssignment(BaseModel):

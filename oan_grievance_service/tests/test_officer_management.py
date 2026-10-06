@@ -6,7 +6,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.password import check_password
-from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.api.v1.officer import (
 	create_officer,
@@ -19,6 +18,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	get_officer_supervisor,
 )
 from oan_grievance_service.services import category_assignment, routing
+from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
 from oan_grievance_service.tests.fixtures import a_leaf_area
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
