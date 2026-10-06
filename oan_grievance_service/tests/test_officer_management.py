@@ -308,6 +308,32 @@ class TestOfficerManagement(FrappeTestCase):
 				(self.department, "L1", area, True, False),
 			)
 
+	def test_designation_lives_on_the_desk_rows_not_on_user(self):
+		"""User is shared by submitters and admins, so the title is not a column on it."""
+		self.assertFalse(frappe.get_meta("User").has_field("grievance_designation"))
+		officer = self._create(service_categories=[self.inputs, self.credit])
+		rows = frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={"user": officer["name"], "parenttype": DESK},
+			pluck="designation",
+		)
+		self.assertEqual(rows, ["Nodal Officer", "Nodal Officer"])
+
+		update_officer(officer["name"], designation="Chief Nodal Officer")
+		update_officer(officer["name"], service_categories=[self.inputs, self.credit])
+		rows = frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={"user": officer["name"], "parenttype": DESK},
+			pluck="designation",
+		)
+		self.assertEqual(rows, ["Chief Nodal Officer", "Chief Nodal Officer"])
+		self.assertEqual(
+			get_officer(officer["name"])["data"]["officer"]["designation"], "Chief Nodal Officer"
+		)
+
+		with_new_desk = update_officer(officer["name"], service_categories=[self.inputs])
+		self.assertEqual(with_new_desk["data"]["officer"]["designation"], "Chief Nodal Officer")
+
 	def test_partial_update_changes_only_what_was_sent(self):
 		officer = self._create()
 		updated = update_officer(officer["name"], designation="Chief Nodal Officer", phone=None)

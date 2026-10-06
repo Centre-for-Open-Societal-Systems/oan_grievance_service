@@ -10,6 +10,7 @@
   "role_level",
   "reports_to",
   "administrative_area",
+  "designation",
   "is_primary",
   "active",
   "on_leave",
@@ -49,6 +50,12 @@
    "in_list_view": 1,
    "label": "Administrative Area",
    "options": "Grievance Administrative Area"
+  },
+  {
+   "description": "Officer title shown in the administration screens, for example Nodal Officer.",
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
   },
   {
    "default": "1",
@@ -95,7 +102,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-06 10:00:00.000000",
+ "modified": "2026-10-07 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance RBAC Assignment Officer",

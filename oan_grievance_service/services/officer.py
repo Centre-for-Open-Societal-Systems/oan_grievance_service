@@ -7,8 +7,8 @@ There is no officer record of its own. An officer is a User with Grievance RBAC 
 Officer rows, one on each category desk they staff, so routing, permissions and escalation
 read exactly what an admin edits here:
 
-- the person (name, email, phone, designation) is the User;
-- the level (L1 Nodal, L2 Senior Nodal) is the row's role level;
+- the person (name, email, phone) is the User;
+- the level (L1 Nodal, L2 Senior Nodal) and the designation are on the row;
 - the service categories are the category desks the officer sits on;
 - the region, the supervisor (`reports_to`) and availability are on the officer's rows.
 
@@ -44,7 +44,6 @@ USER_FIELDS = [
 	"full_name",
 	"email",
 	"phone",
-	"grievance_designation",
 ]
 
 
@@ -70,11 +69,12 @@ def create(
 	if _rows([email]):
 		frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
 	placement = _placement(level, status)
+	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
 	placement["reports_to"] = _resolve_supervisor(reports_to, level)
 
 	user = _new_or_existing_user(email)
-	_write_user(user, {"full_name": full_name, "designation": designation, "phone": phone})
+	_write_user(user, {"full_name": full_name, "phone": phone})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	return user.name
@@ -86,11 +86,14 @@ def update(user_id: str, changes: dict) -> str:
 	changes = dict(changes)
 	level = changes.pop("level", current.level)
 	status = changes.pop("status", None)
-	person = {key: changes.pop(key) for key in ("full_name", "designation", "phone") if key in changes}
+	person = {key: changes.pop(key) for key in ("full_name", "phone") if key in changes}
 	if person:
 		_write_user(frappe.get_doc("User", user_id), person)
 
 	row_changes = _availability(status) if status else {}
+	designation = changes.get("designation", current.designation)
+	if "designation" in changes:
+		row_changes["designation"] = designation
 	if level != current.level:
 		row_changes.update(_change_level(user_id, current.level, level))
 	if "region" in changes:
@@ -104,7 +107,12 @@ def update(user_id: str, changes: dict) -> str:
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
-		_save_desk(name, user_id, row_changes, on_new=_placement(level, status or current.status))
+		_save_desk(
+			name,
+			user_id,
+			row_changes,
+			on_new={**_placement(level, status or current.status), "designation": designation},
+		)
 	return user_id
 
 
@@ -194,7 +202,7 @@ def records(user_ids: list[str]) -> list[dict]:
 			{
 				"name": person.name,
 				"full_name": person.full_name,
-				"designation": person.grievance_designation,
+				"designation": next((row.designation for row in own if row.designation), None),
 				"level": CODE_LEVELS[top.role_level],
 				"department": top.department_scope,
 				"email": person.email,
@@ -243,6 +251,7 @@ def _current(user_id: str) -> SimpleNamespace:
 		categories=sorted({row.category_scope for row in rows}),
 		desks={row.parent for row in rows},
 		status=_status(rows),
+		designation=next((row.designation for row in rows if row.designation), None),
 	)
 
 
@@ -267,6 +276,7 @@ def _rows(user_ids: list[str]) -> list:
 			row.parent,
 			row.role_level,
 			row.administrative_area,
+			row.designation,
 			row.reports_to,
 			row.active,
 			row.on_leave,
@@ -382,9 +392,8 @@ def _write_user(user, fields: dict):
 	"""Set the person-level fields that were given and make sure the User holds the officer role."""
 	if "full_name" in fields:
 		user.first_name, user.last_name = fields["full_name"], ""
-	for key, field in (("designation", "grievance_designation"), ("phone", "phone")):
-		if key in fields:
-			user.set(field, fields[key])
+	if "phone" in fields:
+		user.phone = fields["phone"]
 	if OFFICER_ROLE not in {role.role for role in user.roles}:
 		user.append("roles", {"role": OFFICER_ROLE})
 	user.save(ignore_permissions=True)

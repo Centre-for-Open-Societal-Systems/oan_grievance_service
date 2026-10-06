@@ -447,7 +447,6 @@ def seed_all():
 		"submission_types": seed_submission_types(),
 		"response_types": seed_response_types(),
 		"notification_recipient_field": seed_recipient_custom_field(),
-		"officer_user_fields": seed_officer_user_fields(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
@@ -801,37 +800,6 @@ def seed_recipient_custom_field():
 		},
 	)
 	return ["Notification-grievance_recipient"]
-
-
-OFFICER_USER_FIELDS = [
-	{
-		"fieldname": "grievance_designation",
-		"label": "Grievance Designation",
-		"fieldtype": "Data",
-		"insert_after": "mobile_no",
-		"description": "Officer title shown in the grievance administration screens.",
-	},
-]
-
-
-def seed_officer_user_fields():
-	"""Officer title, as a Custom Field on core User.
-
-	An officer is a User placed on desks through Grievance RBAC Assignment Officer rows. The
-	title belongs to the person, so it lives on the User. Availability (Active, On Leave,
-	Inactive) is per desk row, not here, so core User is not otherwise touched. Name, email
-	and phone are core fields already.
-	"""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
-
-	made = []
-	for field in OFFICER_USER_FIELDS:
-		name = f"User-{field['fieldname']}"
-		if frappe.db.exists("Custom Field", name):
-			continue
-		create_custom_field("User", field)
-		made.append(name)
-	return made
 
 
 def _translatable(source, args, context_key):
