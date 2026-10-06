@@ -102,6 +102,7 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
 	("PATCH", "/api/v1/category-assignments/{assignment}"): "officer-core",
 	("DELETE", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("GET", "/api/v1/officer-statistics"): "officer-core",
 	("GET", "/api/v1/charts"): "officer-core",
 	**{
 		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"

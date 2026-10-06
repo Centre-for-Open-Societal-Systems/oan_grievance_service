@@ -3619,6 +3619,52 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/officer-statistics:
+    get:
+      tags:
+      - Administration
+      summary: List officer statistics
+      description: Page of officer statistics, filterable by level (L1/L2) and department.
+      operationId: get_api_v1_officer_statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer_statistics.list_officer_statistics
+      security:
+      - BearerAuth: []
   /api/v1/submitters/options:
     get:
       tags:
