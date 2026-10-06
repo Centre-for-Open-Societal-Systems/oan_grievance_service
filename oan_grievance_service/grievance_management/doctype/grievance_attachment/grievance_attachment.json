@@ -8,7 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "grievance",
-  "response",
   "timeline_entry",
   "document_type",
   "col_source",
@@ -40,14 +39,6 @@
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
-  },
-  {
-   "description": "Set when the file arrived with an officer response rather than the original submission.",
-   "fieldname": "response",
-   "fieldtype": "Link",
-   "label": "Grievance Response",
-   "options": "Grievance Response",
-   "read_only": 1
   },
   {
    "description": "Optional timeline entry this attachment is associated with.",
@@ -182,7 +173,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-29 10:00:00.000000",
+ "modified": "2026-10-04 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Attachment",

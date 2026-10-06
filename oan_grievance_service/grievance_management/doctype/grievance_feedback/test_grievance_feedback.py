@@ -37,16 +37,7 @@ class TestGrievanceFeedback(FrappeTestCase):
 	def test_feedback_allowed_on_resolved_and_closed(self):
 		"""Feedback can be submitted on resolved cases and creates timeline entry."""
 		# Respond to reach Resolved
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": self.grievance.name,
-				"response_type": "Resolved",
-				"action_taken": "Replaced faulty seed bags.",
-				"resolution_summary": "Replaced seed bags at warehouse.",
-				"proposed_close_date": frappe.utils.today(),
-			}
-		).insert(ignore_permissions=True)
+		lifecycle.transition(self.grievance, "Resolve", reason="Replaced faulty seed bags.")
 
 		self.grievance.reload()
 		self.assertEqual(self.grievance.workflow_state, "Resolved")
@@ -79,16 +70,7 @@ class TestGrievanceFeedback(FrappeTestCase):
 
 	def test_feedback_api_endpoint(self):
 		"""Test POST /api/v1/grievance/{ticket_number}/feedback endpoint."""
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": self.grievance.name,
-				"response_type": "Resolved",
-				"action_taken": "Replaced faulty seed bags.",
-				"resolution_summary": "Replaced seed bags at warehouse.",
-				"proposed_close_date": frappe.utils.today(),
-			}
-		).insert(ignore_permissions=True)
+		lifecycle.transition(self.grievance, "Resolve", reason="Replaced faulty seed bags.")
 
 		frappe.set_user(self.grievance.owner or "Administrator")
 		res = submit_feedback(
@@ -107,16 +89,7 @@ class TestGrievanceFeedback(FrappeTestCase):
 
 	def test_feedback_rejected_for_non_owner_submitter(self):
 		"""A submitter cannot insert feedback for someone else's grievance."""
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": self.grievance.name,
-				"response_type": "Resolved",
-				"action_taken": "Resolved case issue.",
-				"resolution_summary": "Resolved.",
-				"proposed_close_date": frappe.utils.today(),
-			}
-		).insert(ignore_permissions=True)
+		lifecycle.transition(self.grievance, "Resolve", reason="Resolved case issue.")
 
 		other_user = f"unauthorized_submitter_{frappe.generate_hash(length=6)}@example.com"
 		if not frappe.db.exists("User", other_user):
@@ -146,16 +119,7 @@ class TestGrievanceFeedback(FrappeTestCase):
 
 	def test_feedback_api_endpoint_as_submitter(self):
 		"""Test submitter role calling POST /api/v1/grievances/{ticket_number}/feedback directly."""
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Response",
-				"grievance": self.grievance.name,
-				"response_type": "Resolved",
-				"action_taken": "Fixed issue.",
-				"resolution_summary": "Fixed issue.",
-				"proposed_close_date": frappe.utils.today(),
-			}
-		).insert(ignore_permissions=True)
+		lifecycle.transition(self.grievance, "Resolve", reason="Fixed issue.")
 
 		submitter_user = f"citizen_{frappe.generate_hash(length=6)}@example.com"
 		if not frappe.db.exists("User", submitter_user):

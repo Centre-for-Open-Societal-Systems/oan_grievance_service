@@ -1589,6 +1589,65 @@
           "response": []
         },
         {
+          "name": "9e. Get Response Templates (Staff Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 403\", function () {",
+                  "    pm.expect([200, 403]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "    pm.test(\"Rendered templates returned\", function () {",
+                  "        pm.expect(Array.isArray(data.items)).to.be.true;",
+                  "        data.items.forEach(function (t) {",
+                  "            pm.expect(t).to.have.property(\"template\");",
+                  "            pm.expect(t).to.have.property(\"reason\");",
+                  "            pm.expect(t).to.have.property(\"reason_parts\");",
+                  "        });",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "response-templates"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "Resolve"
+                },
+                {
+                  "key": "service_category",
+                  "value": "Inputs",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists active response templates for the workflow action that fit the grievance's department and category, most specific first, rendered with the grievance's details. Pass the chosen template ID as `template` when posting the response."
+          },
+          "response": []
+        },
+        {
           "name": "10. Escalate Grievance",
           "event": [
             {

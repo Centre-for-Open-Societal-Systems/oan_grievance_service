@@ -37,7 +37,6 @@ class GrievanceAttachment(Document):
 		self.validate_uploader()
 		self.validate_size()
 		self.validate_type()
-		self.validate_response_belongs_to_grievance()
 
 	def validate_owner(self):
 		"""Evidence belongs to a grievance case."""
@@ -46,6 +45,13 @@ class GrievanceAttachment(Document):
 				_("An attachment must belong to a grievance."),
 				title=_("Missing Grievance"),
 			)
+		if self.timeline_entry:
+			tl_grievance = frappe.db.get_value("Grievance Timeline", self.timeline_entry, "grievance")
+			if tl_grievance and tl_grievance != self.grievance:
+				frappe.throw(
+					_("A timeline-scoped attachment cannot point at another case's timeline entry."),
+					frappe.ValidationError,
+				)
 
 	def validate_uploader(self):
 		"""Every file is attributable to whoever put it there.
@@ -96,20 +102,6 @@ class GrievanceAttachment(Document):
 					frappe.bold(self.file_name), self.mime_type
 				),
 				title=_("Extension Does Not Match Content"),
-			)
-
-	def validate_response_belongs_to_grievance(self):
-		"""A response-scoped attachment cannot point at another case's response."""
-		if not self.response:
-			return
-
-		owner = frappe.db.get_value("Grievance Response", self.response, "grievance")
-		if owner and owner != self.grievance:
-			frappe.throw(
-				_("Response {0} belongs to grievance {1}, not {2}.").format(
-					frappe.bold(self.response), frappe.bold(owner), frappe.bold(self.grievance)
-				),
-				title=_("Response Does Not Match Grievance"),
 			)
 
 	def on_trash(self):

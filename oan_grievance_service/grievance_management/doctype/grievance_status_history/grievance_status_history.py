@@ -44,7 +44,8 @@ class GrievanceStatusHistory(ImmutableRecord, Document):
 			f"{self.timestamp}|"
 			f"{self.changed_by or ''}|"
 			f"{self.reason or ''}|"
-			f"{self.closure_type or ''}|"
+			f"{self.notes or ''}|"
+			f"{self.action or ''}|"
 			f"{1 if self.is_automated else 0}"
 		)
 		self.row_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -56,8 +57,7 @@ def require_reason(from_status, to_status, reason):
 	The rule lives here, with the row that records the move, and nowhere else.
 	Every status change writes one of these rows inside the same transaction as
 	the move, so a missing reason rolls the move back whether it came from the
-	desk, the API or a scheduled job. The Grievance controller also asks this
-	before it writes the move, so the refusal arrives before the row does.
+	desk, the API or a scheduled job.
 	"""
 	is_reason_required = (to_status == C.STATE_REJECTED) or (
 		from_status == C.STATE_RESOLVED and to_status == C.STATE_IN_PROGRESS
@@ -68,7 +68,7 @@ def require_reason(from_status, to_status, reason):
 		return
 	frappe.throw(
 		_("A reason is required to move a grievance from {0} to {1}.").format(
-			frappe.bold(from_status), frappe.bold(to_status)
+			frappe.bold(from_status or _("New")), frappe.bold(to_status)
 		),
 		title=_("Reason Required"),
 	)

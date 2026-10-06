@@ -91,6 +91,7 @@ def _register() -> None:
 		grievance,
 		officer,
 		profile,
+		response_config,
 		submitter,
 	)
 

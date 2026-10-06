@@ -165,6 +165,130 @@ MAX_ATTACHMENTS_PER_CASE = 10
 grievance_route = prefixed("/api/v1/grievances")
 
 
+def has_uploads() -> bool:
+	"""Whether the request carries any multipart file."""
+	req = getattr(frappe, "request", None)
+	return bool(getattr(req, "files", None)) if req else False
+
+
+def check_attachment_limit(case_name: str, adding: int):
+	"""Refuse an upload that would take the case past MAX_ATTACHMENTS_PER_CASE."""
+	existing = frappe.db.count("Grievance Attachment", {"grievance": case_name})
+	if existing + adding > MAX_ATTACHMENTS_PER_CASE:
+		frappe.throw(
+			_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE),
+			frappe.ValidationError,
+			title=_("Too Many Files"),
+		)
+
+
+def validate_timeline_entry(case_name: str, timeline_entry: str | None):
+	"""A file may hang only off an entry of the same case, and a submitter's only off a public one."""
+	if not timeline_entry:
+		return
+	entry = frappe.db.get_value(
+		"Grievance Timeline", timeline_entry, ["grievance", "is_internal"], as_dict=True
+	)
+	if not entry or entry.grievance != case_name:
+		frappe.throw(
+			_("Timeline entry '{0}' does not belong to this grievance.").format(timeline_entry),
+			frappe.ValidationError,
+		)
+	if entry.is_internal and not permissions.is_staff():
+		frappe.throw(_("You cannot attach files to an internal entry."), frappe.PermissionError)
+
+
+def prepare_uploads(case_name: str) -> list[dict]:
+	"""Check and clean the request's files without storing anything; [] when none came.
+
+	Callers that also move the case run this before the move, so a bad file refuses
+	the whole request rather than leaving a move recorded without its evidence.
+	"""
+	if not has_uploads():
+		return []
+	uploads = get_uploaded_files()
+	check_attachment_limit(case_name, len(uploads))
+	prepared = []
+	for upload in uploads:
+		validated = scanning.validate_upload(upload.file_name, upload.content)
+		cleaned = scanning.strip_location_metadata(upload.content, validated.mime_type)
+		prepared.append(
+			{
+				"file_name": validated.file_name,
+				"content": cleaned,
+				"mime_type": validated.mime_type,
+				"size_bytes": len(cleaned),
+				"checksum_sha256": scanning.sha256_of(cleaned),
+			}
+		)
+	return prepared
+
+
+def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> list[dict]:
+	"""Persist files from `prepare_uploads` against `case`, optionally on one timeline
+	entry, and queue their scans for after the commit."""
+	# Credited to whoever sent it: an officer's evidence on a response is not the submitter's.
+	submitter = None if permissions.is_staff() else case.submitter
+	results = []
+	attachment_names = []
+	for idx, item in enumerate(prepared):
+		stored = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": item["file_name"],
+				"content": item["content"],
+				"is_private": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		doc_type = (
+			document_type[idx]
+			if isinstance(document_type, list | tuple) and idx < len(document_type)
+			else (str(document_type) if document_type else None)
+		)
+
+		attachment = frappe.get_doc(
+			{
+				"doctype": "Grievance Attachment",
+				"grievance": case.name,
+				"timeline_entry": timeline_entry,
+				"document_type": doc_type,
+				"file": stored.name,
+				"file_name": stored.file_name,
+				"file_url": stored.file_url,
+				"mime_type": item["mime_type"],
+				"size_bytes": item["size_bytes"],
+				"checksum_sha256": item["checksum_sha256"],
+				"uploaded_by_submitter": submitter,
+				"uploaded_by_user": None if submitter else permissions.session_user(),
+				"scan_status": SCAN_PENDING,
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.db.set_value(
+			"File",
+			stored.name,
+			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
+			update_modified=False,
+		)
+
+		attachment_names.append(attachment.name)
+		results.append(
+			{
+				"attachment": attachment.name,
+				"file_name": stored.file_name,
+				"mime_type": item["mime_type"],
+				"size_bytes": item["size_bytes"],
+				"checksum_sha256": attachment.checksum_sha256,
+				"scan_status": attachment.scan_status,
+				"timeline_entry": attachment.timeline_entry,
+			}
+		)
+
+	scanning.enqueue_scan_attachments(attachment_names)
+	return results
+
+
 class SubmitDocumentsRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
@@ -173,7 +297,6 @@ class SubmitDocumentsRequest(BaseModel):
 	ticket_number: str | None = Field(None, description="Grievance ticket number (REST path parameter)")
 	grievance: str | None = Field(None, description="Grievance name or ticket number (RPC body field)")
 	document_type: str | list[str] | None = None
-	response: str | None = None
 	timeline_entry: str | None = None
 
 	@model_validator(mode="after")
@@ -214,7 +337,6 @@ def submit_documents(
 	ticket_number: str | None = None,
 	grievance: str | None = None,
 	document_type: str | list[str] | None = None,
-	response: str | None = None,
 	timeline_entry: str | None = None,
 	**kwargs,
 ):
@@ -225,91 +347,9 @@ def submit_documents(
 	Always returns a list of created attachment records.
 	"""
 	case = _case_for_write(ticket_number or grievance)
-	owner = {"grievance": case.name}
-	submitter = case.submitter
-
-	uploads = get_uploaded_files()
-
-	# 1. Validate each file and strip location metadata before storing
-	prepared_files = []
-	for upload in uploads:
-		file_name = upload.file_name
-		content = upload.content
-
-		validated = scanning.validate_upload(file_name, content)
-		cleaned_content = scanning.strip_location_metadata(content, validated.mime_type)
-
-		prepared_files.append(
-			{
-				"file_name": validated.file_name,
-				"content": cleaned_content,
-				"mime_type": validated.mime_type,
-				"size_bytes": len(cleaned_content),
-				"checksum_sha256": scanning.sha256_of(cleaned_content),
-			}
-		)
-
-	# 2. Persist File and Grievance Attachment records
-	results = []
-	attachment_names = []
-	for idx, item in enumerate(prepared_files):
-		stored = frappe.get_doc(
-			{
-				"doctype": "File",
-				"file_name": item["file_name"],
-				"content": item["content"],
-				"is_private": 1,
-			}
-		).insert(ignore_permissions=True)
-
-		doc_type = (
-			document_type[idx]
-			if isinstance(document_type, list | tuple) and idx < len(document_type)
-			else (str(document_type) if document_type else None)
-		)
-
-		attachment = frappe.get_doc(
-			{
-				"doctype": "Grievance Attachment",
-				**owner,
-				"response": response,
-				"timeline_entry": timeline_entry,
-				"document_type": doc_type,
-				"file": stored.name,
-				"file_name": stored.file_name,
-				"file_url": stored.file_url,
-				"mime_type": item["mime_type"],
-				"size_bytes": item["size_bytes"],
-				"checksum_sha256": item["checksum_sha256"],
-				"uploaded_by_submitter": submitter,
-				"uploaded_by_user": None if submitter else permissions.session_user(),
-				"scan_status": SCAN_PENDING,
-			}
-		).insert(ignore_permissions=True)
-
-		frappe.db.set_value(
-			"File",
-			stored.name,
-			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
-			update_modified=False,
-		)
-
-		attachment_names.append(attachment.name)
-		results.append(
-			{
-				"attachment": attachment.name,
-				"file_name": stored.file_name,
-				"mime_type": item["mime_type"],
-				"size_bytes": item["size_bytes"],
-				"checksum_sha256": attachment.checksum_sha256,
-				"scan_status": attachment.scan_status,
-				"timeline_entry": attachment.timeline_entry,
-			}
-		)
-
-	# 3. Asynchronously enqueue scanning for all created attachments
-	scanning.enqueue_scan_attachments(attachment_names)
-
+	validate_timeline_entry(case.name, timeline_entry)
+	prepared = prepare_uploads(case.name)
+	results = store_uploads(case, prepared, timeline_entry=timeline_entry, document_type=document_type)
 	return success_response(
 		data=results,
 		message=_("{0} document(s) uploaded and queued for scanning").format(len(results)),
@@ -339,7 +379,6 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 			"mime_type",
 			"size_bytes",
 			"document_type",
-			"response",
 			"timeline_entry",
 			"scan_status",
 			"scanned_at",

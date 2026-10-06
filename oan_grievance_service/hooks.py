@@ -40,10 +40,12 @@ after_migrate = [
 
 permission_query_conditions = {
 	"Grievance": "oan_grievance_service.permissions.grievance_query_conditions",
+	"Grievance Response Template": "oan_grievance_service.permissions.response_template_query_conditions",
 }
 
 has_permission = {
 	"Grievance": "oan_grievance_service.permissions.has_grievance_permission",
+	"Grievance Response Template": "oan_grievance_service.permissions.has_response_template_permission",
 	# Core's File resolves a private file's permission against whatever it is
 	# attached to, so this is what stops /private/files/<name> serving an unscanned
 	# object behind download()'s back.
@@ -57,7 +59,7 @@ has_permission = {
 # ------------------
 # The lifecycle is the Grievance Workflow record (setup/install.py); the
 # Grievance controller records each move from the save Frappe's engine makes.
-# A structured response advances the lifecycle. Every read of a case is audited.
+# Every read of a case is audited.
 
 _CLEAR_LOOKUP_CACHE = {
 	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
@@ -66,9 +68,6 @@ _CLEAR_LOOKUP_CACHE = {
 doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
-	},
-	"Grievance Response": {
-		"after_insert": "oan_grievance_service.services.hooks_handlers.response_after_insert",
 	},
 	# Our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal

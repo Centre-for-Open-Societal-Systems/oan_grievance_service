@@ -353,10 +353,10 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(tl_data["data"]["ticket_number"], tn.display(ticket_number))
 		self.assertIn("attachments", tl_data["data"])
 
-		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/note
+		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/message
 		frappe.set_user("Administrator")
 		req_note = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/note",
+			f"/api/v1/grievances/{ticket_number}/message",
 			method="POST",
 			data={"body": "Officer reviewing case via REST", "is_internal": True},
 		)
@@ -439,16 +439,16 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
 
-		# Attempting 'Submit Response' action without a formal Grievance Response is refused
+		# Attempting an unavailable action is refused
 		req_resp_bad = make_test_request(
 			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
-			data={"action": "Submit Response"},
+			data={"action": "Submit"},
 		)
 		res_resp_bad = frappe.api.handle(req_resp_bad)
 		body_resp_bad = json.loads(res_resp_bad.get_data(as_text=True))
 		self.assertEqual(body_resp_bad["status"], "error")
-		self.assertIn("response", body_resp_bad["message"].lower())
+		self.assertIn("not available", body_resp_bad["message"].lower())
 
 		# 4. Reject without reason is refused (400)
 		rej_case = a_grievance()
@@ -473,6 +473,81 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(res_rej_ok.status_code, 200)
 		action_rej = json.loads(res_rej_ok.get_data(as_text=True))
 		self.assertEqual(action_rej["data"]["status"], "Rejected")
+
+		# 6. Action with note and internal_notes populates status history notes and internal timeline
+		rej_case_3 = a_grievance()
+		req_rej_notes = make_test_request(
+			f"/api/v1/grievances/{rej_case_3.ticket_number or rej_case_3.name}/action",
+			method="POST",
+			data={
+				"action": "Reject",
+				"reason": "Out of scope",
+				"note": "Audit note on status change",
+				"internal_notes": "Private officer timeline note",
+			},
+		)
+		res_rej_notes = frappe.api.handle(req_rej_notes)
+		self.assertEqual(res_rej_notes.status_code, 200)
+		hist_row = frappe.get_all(
+			"Grievance Status History",
+			filters={"grievance": rej_case_3.name},
+			fields=["reason", "notes"],
+			order_by="creation desc",
+			limit=1,
+		)[0]
+		self.assertEqual(hist_row["reason"], "Out of scope")
+		self.assertEqual(hist_row["notes"], "Audit note on status change")
+		internal_tl = frappe.get_all(
+			"Grievance Timeline",
+			filters={"grievance": rej_case_3.name, "is_internal": 1},
+			fields=["body", "entry_type"],
+		)
+		self.assertEqual(len(internal_tl), 1)
+		self.assertEqual(internal_tl[0]["body"], "Private officer timeline note")
+
+		# 7. Resolve without reason is refused (400)
+		res_case = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(res_case, "Assign", automated=True)
+		lifecycle.transition(res_case, "Start Work")
+		req_res_bad = make_test_request(
+			f"/api/v1/grievances/{res_case.ticket_number or res_case.name}/action",
+			method="POST",
+			data={"action": "Resolve"},
+		)
+		res_res_bad = frappe.api.handle(req_res_bad)
+		body_res_bad = json.loads(res_res_bad.get_data(as_text=True))
+		self.assertEqual(body_res_bad["status"], "error")
+		self.assertIn("reason is required", body_res_bad["message"].lower())
+
+		# 8. Resolve with incomplete two-part resolution is refused (400)
+		res_case_2 = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(res_case_2, "Assign", automated=True)
+		lifecycle.transition(res_case_2, "Start Work")
+		req_res_incomplete = make_test_request(
+			f"/api/v1/grievances/{res_case_2.ticket_number or res_case_2.name}/action",
+			method="POST",
+			data={"action": "Resolve", "action_taken": "Inspected crop damage"},
+		)
+		res_res_incomplete = frappe.api.handle(req_res_incomplete)
+		body_res_incomplete = json.loads(res_res_incomplete.get_data(as_text=True))
+		self.assertEqual(body_res_incomplete["status"], "error")
+		self.assertEqual(body_res_incomplete["code"], "VALIDATION_ERROR")
+		self.assertIn("action_taken and resolution_summary", str(body_res_incomplete["details"]))
+
+		# 9. Resolve with complete two-part resolution succeeds
+		req_res_twopart = make_test_request(
+			f"/api/v1/grievances/{res_case_2.ticket_number or res_case_2.name}/action",
+			method="POST",
+			data={
+				"action": "Resolve",
+				"action_taken": "Inspected crop damage and processed subsidy payout.",
+				"resolution_summary": "Subsidy credited to farmer account.",
+			},
+		)
+		res_res_twopart = frappe.api.handle(req_res_twopart)
+		self.assertEqual(res_res_twopart.status_code, 200)
+		body_res_twopart = json.loads(res_res_twopart.get_data(as_text=True))
+		self.assertEqual(body_res_twopart["data"]["status"], "Resolved")
 
 	def test_reassign_and_defer_endpoints(self):
 		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
@@ -631,7 +706,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		req_note = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
 			method="POST",
-			data={"body": "Internal investigation note", "type": "note"},
+			data={"body": "Internal investigation note", "is_internal": True},
 		)
 		res_note = frappe.api.handle(req_note)
 		self.assertEqual(res_note.status_code, 200)
@@ -641,46 +716,53 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# 3. Staff posts an information request -> moves state to More Info Needed
 		req_req_info = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/message",
+			f"/api/v1/grievances/{ticket_number}/action",
 			method="POST",
-			data={"body": "Please provide proof of purchase.", "type": "info_request"},
+			data={"action": "Request More Info", "reason": "Please provide proof of purchase."},
 		)
 		res_req_info = frappe.api.handle(req_req_info)
 		self.assertEqual(res_req_info.status_code, 200)
 		info_req_data = json.loads(res_req_info.get_data(as_text=True))
 		self.assertEqual(info_req_data["data"]["status"], "More Info Needed")
-		self.assertEqual(info_req_data["data"]["entry_type"], "info_request")
 
 		# 4. Citizen replies -> automatically moves state back to In Progress
 		frappe.set_user(self.farmer_user.name)
 		req_reply = make_test_request(
-			f"/api/v1/grievances/{ticket_number}/message",
+			f"/api/v1/grievances/{ticket_number}/action",
 			method="POST",
-			data={"body": "Receipt number is RCP-998811."},
+			data={"action": "Submitter Reply", "reason": "Receipt number is RCP-998811."},
 		)
 		res_reply = frappe.api.handle(req_reply)
 		self.assertEqual(res_reply.status_code, 200)
 		reply_data = json.loads(res_reply.get_data(as_text=True))
 		self.assertEqual(reply_data["data"]["status"], "In Progress")
-		self.assertEqual(reply_data["data"]["entry_type"], "info_response")
 
-		# 5. Staff posts formal department response -> moves state to Resolved
+		# 5. Staff posts a public message
 		frappe.set_user("Administrator")
-		req_resp = make_test_request(
+		req_msg = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
 			method="POST",
+			data={"body": "We have verified your receipt and are dispatching replacement seeds."},
+		)
+		res_msg = frappe.api.handle(req_msg)
+		self.assertEqual(res_msg.status_code, 200)
+		msg_data = json.loads(res_msg.get_data(as_text=True))
+		self.assertEqual(msg_data["data"]["entry_type"], "message")
+		self.assertFalse(msg_data["data"]["is_internal"])
+
+		# 6. Staff resolves grievance via action endpoint
+		req_resp = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/action",
+			method="POST",
 			data={
-				"body": "Replacement seeds delivered to the primary warehouse.",
-				"type": "Resolved",
-				"action_taken": "Issued replacement voucher.",
+				"action": "Resolve",
+				"reason": "Replacement seeds delivered to the primary warehouse.",
 			},
 		)
 		res_resp = frappe.api.handle(req_resp)
 		self.assertEqual(res_resp.status_code, 200)
 		resp_data = json.loads(res_resp.get_data(as_text=True))
 		self.assertEqual(resp_data["data"]["status"], "Resolved")
-		self.assertEqual(resp_data["data"]["entry_type"], "response")
-		self.assertEqual(resp_data["data"]["response_type"], "Resolved")
 
 	def test_list_grievances_prioritizes_escalated(self):
 		"""Test that GET /api/v1/grievances returns escalated cases first."""
@@ -795,3 +877,41 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		card_statuses = [card["status"] for card in res["data"]["cards"]]
 		self.assertIn("All", card_statuses)
 		self.assertIn("In Progress", card_statuses)
+
+	def test_response_template_rest_crud_and_autonaming(self):
+		"""Creating a template via REST auto-generates RT-### without client code."""
+		frappe.set_user("Administrator")
+		req_create = make_test_request(
+			"/api/v1/response-templates",
+			method="POST",
+			data={
+				"title": "Auto Named Template",
+				"action": "Resolve",
+				"reason": "Dear {{ submitter_name }}, resolved via REST.",
+				"note": "Internal note for RT test.",
+				"is_active": True,
+			},
+		)
+		res_create = frappe.api.handle(req_create)
+		self.assertEqual(res_create.status_code, 200)
+		data_create = json.loads(res_create.get_data(as_text=True))
+		self.assertEqual(data_create["status"], "success")
+		tmpl = data_create["data"]["response_template"]
+		tmpl_id = tmpl["template"]
+		self.assertTrue(tmpl_id.startswith("RT-"))
+		self.assertEqual(tmpl["title"], "Auto Named Template")
+		self.assertEqual(tmpl["workflow_action"], "Resolve")
+
+		# Update via PATCH
+		req_update = make_test_request(
+			f"/api/v1/response-templates/{tmpl_id}",
+			method="PATCH",
+			data={"note": "Updated internal note."},
+		)
+		res_update = frappe.api.handle(req_update)
+		self.assertEqual(res_update.status_code, 200)
+		data_update = json.loads(res_update.get_data(as_text=True))
+		self.assertEqual(data_update["data"]["response_template"]["note"], "Updated internal note.")
+
+		# Clean up
+		frappe.db.delete("Grievance Response Template", {"name": tmpl_id})

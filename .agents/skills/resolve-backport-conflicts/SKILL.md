@@ -9,11 +9,11 @@ disable-model-invocation: true
 Mergify backports a pull request with a cherry-pick. When the cherry-pick conflicts, Mergify runs `git add` on the conflicted files and commits them unresolved. The branch then holds raw conflict markers:
 
 ```
-<<<<<<< HEAD
-content of the target branch, such as version-16-hotfix
-=======
-content of the commit under backport
->>>>>>> <sha> (commit subject)
+  <<<<<<< HEAD
+  content of the target branch, such as version-16-hotfix
+  =======
+  content of the commit under backport
+  >>>>>>> <sha> (commit subject)
 ```
 
 The `HEAD` side is the target branch. The `>>>>>>>` side is the pull request under backport. Neither side wins by default.
