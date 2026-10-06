@@ -534,7 +534,11 @@ def list_grievances(
 		raw = next((val for val in candidates if val is not None), None)
 		vals = parse_multi_value(raw)
 		if vals:
-			filters.append([fieldname, "in", vals])
+			if fieldname == "grievance_type":
+				resolved_vals = [resolve_grievance_type(v) or v for v in vals]
+				filters.append([fieldname, "in", resolved_vals])
+			else:
+				filters.append([fieldname, "in", vals])
 
 	if assigned_to:
 		target_user = frappe.session.user if assigned_to == "me" else assigned_to
@@ -720,6 +724,18 @@ def list_grievances(
 		loc = format_administrative_location(h)
 		area_cache[area_id] = {"hierarchy": h, "location": loc}
 
+	unique_types = {item.get("grievance_type") for item in items if item.get("grievance_type")}
+	type_names = {}
+	if unique_types:
+		type_names = dict(
+			frappe.get_all(
+				"Grievance Type",
+				filters={"name": ["in", list(unique_types)]},
+				fields=["name", "type_name"],
+				as_list=True,
+			)
+		)
+
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		state_deadline = item.pop("state_deadline", None)
@@ -740,6 +756,12 @@ def list_grievances(
 		area_info = area_cache.get(item.get("administrative_area"))
 		item["location"] = area_info["location"] if area_info else None
 		item["administrative_hierarchy"] = area_info["hierarchy"] if area_info else None
+
+		raw_type = item.get("grievance_type")
+		resolved_type_name = type_names.get(raw_type, raw_type)
+		item["grievance_type_id"] = raw_type
+		item["grievance_type_name"] = resolved_type_name
+		item["grievance_type"] = resolved_type_name
 
 	audit.record_access(audit.ACTION_VIEW_LIST)
 
@@ -1314,13 +1336,17 @@ def timeline(
 
 		from oan_grievance_service.api.v1.change_request import serialize as serialize_cr
 
-		for req_name in pending_reqs:
-			if req_name in deferral_req_names and not active_deferral_request:
-				active_deferral_request = serialize_cr(frappe.get_doc("Grievance Change Request", req_name))
-			if req_name in reassign_req_names and not active_reassignment_request:
-				active_reassignment_request = serialize_cr(
-					frappe.get_doc("Grievance Change Request", req_name)
-				)
+		deferral_req_name = next((r for r in pending_reqs if r in deferral_req_names), None)
+		reassign_req_name = next((r for r in pending_reqs if r in reassign_req_names), None)
+
+		if deferral_req_name:
+			active_deferral_request = serialize_cr(
+				frappe.get_doc("Grievance Change Request", deferral_req_name)
+			)
+		if reassign_req_name:
+			active_reassignment_request = serialize_cr(
+				frappe.get_doc("Grievance Change Request", reassign_req_name)
+			)
 
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
@@ -1329,6 +1355,9 @@ def timeline(
 
 	area_hierarchy = get_administrative_hierarchy(doc.administrative_area)
 	location_str = format_administrative_location(area_hierarchy)
+	grievance_type_name = (
+		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
+	)
 
 	return success_response(
 		data={
@@ -1340,7 +1369,9 @@ def timeline(
 				"description": doc.description,
 				"desired_outcome": doc.desired_outcome,
 				"service_category": doc.service_category,
-				"grievance_type": doc.grievance_type,
+				"grievance_type": grievance_type_name or doc.grievance_type,
+				"grievance_type_id": doc.grievance_type,
+				"grievance_type_name": grievance_type_name or doc.grievance_type,
 				"administrative_area": doc.administrative_area,
 				"administrative_hierarchy": area_hierarchy,
 				"location": location_str,
