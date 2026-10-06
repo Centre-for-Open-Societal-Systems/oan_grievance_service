@@ -467,13 +467,13 @@ class TestGrievance(FrappeTestCase):
 			{
 				"doctype": "Grievance RBAC Assignment",
 				"category_scope": "Inputs",
-				"administrative_area_scope": self.region_area.name,
 				"department_scope": "Regional Agronomy Dept",
 				"effective_from": frappe.utils.today(),
 				"active": 1,
 				"officers": [
 					{
 						"user": "Administrator",
+						"administrative_area": self.region_area.name,
 						"role_level": "nodal_officer",
 						"active": 1,
 					}
@@ -485,13 +485,13 @@ class TestGrievance(FrappeTestCase):
 			{
 				"doctype": "Grievance RBAC Assignment",
 				"category_scope": "Inputs",
-				"administrative_area_scope": self.woreda_leaf.name,
 				"department_scope": "Agriculture Dept",
 				"effective_from": frappe.utils.today(),
 				"active": 1,
 				"officers": [
 					{
 						"user": "Administrator",
+						"administrative_area": self.woreda_leaf.name,
 						"role_level": "nodal_officer",
 						"active": 1,
 					}

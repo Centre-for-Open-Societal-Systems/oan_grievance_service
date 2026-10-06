@@ -3882,6 +3882,287 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/officers:
+    get:
+      tags:
+      - Administration
+      summary: List officers
+      description: 'List officers by name.
+
+
+        Numeric parameters also accept str: frappe checks annotations before validate_request
+
+        runs, and a bare int would turn a bad value into its own type error.'
+      operationId: get_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: status
+        in: query
+        required: false
+        schema:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+          default: null
+          nullable: true
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create an officer
+      description: Create an officer.
+      operationId: post_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.create_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOfficer'
+  /api/v1/officers/{officer}:
+    get:
+      tags:
+      - Administration
+      summary: Get an officer
+      description: Return one officer.
+      operationId: get_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.get_officer
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update an officer
+      description: Update an officer. `kwargs` holds only the fields the client sent.
+      operationId: patch_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.update_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOfficer'
   /api/v1/response-templates:
     get:
       tags:
@@ -6768,6 +7049,102 @@ components:
           type: string
       required:
       - client_submission_uuid
+      type: object
+    CreateOfficer:
+      additionalProperties: false
+      properties:
+        full_name:
+          minLength: 1
+          type: string
+        designation:
+          minLength: 1
+          type: string
+        level:
+          enum:
+          - L1
+          - L2
+          type: string
+        department:
+          minLength: 1
+          type: string
+        email:
+          minLength: 1
+          type: string
+        service_categories:
+          items:
+            minLength: 1
+            type: string
+          minItems: 1
+          type: array
+        phone:
+          type: string
+          default: null
+          nullable: true
+        region:
+          type: string
+          default: null
+          nullable: true
+        status:
+          default: Active
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+        reports_to:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - full_name
+      - designation
+      - level
+      - department
+      - email
+      - service_categories
+      type: object
+    UpdateOfficer:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are. `email` is fixed once created.
+      properties:
+        level:
+          enum:
+          - L1
+          - L2
+          type: string
+        full_name:
+          minLength: 1
+          type: string
+        designation:
+          minLength: 1
+          type: string
+        department:
+          minLength: 1
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        region:
+          type: string
+          default: null
+          nullable: true
+        status:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+        service_categories:
+          items:
+            minLength: 1
+            type: string
+          minItems: 1
+          type: array
+        reports_to:
+          type: string
+          default: null
+          nullable: true
       type: object
     CreateResponseTemplateRequest:
       additionalProperties: false

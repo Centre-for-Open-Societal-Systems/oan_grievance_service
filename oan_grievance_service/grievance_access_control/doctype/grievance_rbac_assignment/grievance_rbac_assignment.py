@@ -19,13 +19,14 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 )
 
 OFFICER_ROLES = {"Grievance Officer", "Grievance Admin"}
-# Scope fields that make a desk more specific than a category-only desk.
-NARROWING_SCOPES = ("administrative_area_scope", "grievance_type_scope", "service_provider_scope")
+# Scope fields that make a desk more specific than a category-only desk. Area is not one:
+# it sits on each officer row, because an officer is assigned to a region, not a desk.
+NARROWING_SCOPES = ("grievance_type_scope", "service_provider_scope")
 
 
 class GrievanceRBACAssignment(Document):
 	def validate(self):
-		# Area-aware desks predate these rules and are left alone.
+		# Type- and provider-scoped desks predate these rules and are left alone.
 		if self.is_category_only():
 			self.validate_no_repeated_officer()
 			self.reject_duplicate_desk()
@@ -53,7 +54,6 @@ class GrievanceRBACAssignment(Document):
 		filters = {
 			"category_scope": self.category_scope,
 			"department_scope": self.department_scope,
-			"administrative_area_scope": ["is", "not set"],
 			"grievance_type_scope": ["is", "not set"],
 			"service_provider_scope": ["is", "not set"],
 		}
@@ -155,7 +155,7 @@ def query_active_officer_assignments(
 		field_str = (
 			", ".join(fields)
 			if fields
-			else "DISTINCT c.user AS user_id, COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name, u.email, c.role_level, c.is_primary, c.reports_to, p.administrative_area_scope"
+			else "DISTINCT c.user AS user_id, COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name, u.email, c.role_level, c.is_primary, c.reports_to, c.administrative_area AS administrative_area_scope"
 		)
 		sql = f"""  # nosemgrep: frappe-sql-format-injection
 			SELECT {field_str}
@@ -168,7 +168,7 @@ def query_active_officer_assignments(
 		field_str = (
 			", ".join(fields)
 			if fields
-			else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
+			else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, c.administrative_area AS administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
 		)
 		sql = f"""  # nosemgrep: frappe-sql-format-injection
 			SELECT {field_str}
@@ -201,7 +201,7 @@ def active_scopes(user=None):
 	user = user or frappe.session.user
 	fields = [
 		"p.name AS assignment_name",
-		"p.administrative_area_scope",
+		"c.administrative_area AS administrative_area_scope",
 		"p.department_scope",
 		"p.category_scope",
 		"p.grievance_type_scope",
@@ -219,7 +219,12 @@ def find_officer_by_role_level(role_level, department=None, administrative_area=
 	Honours role_level, geographic jurisdiction (area tree interval), line department
 	(NULL for nodal officers who cover all departments in an area), and primary post priority.
 	"""
-	fields = ["c.user", "c.is_primary", "p.administrative_area_scope", "p.department_scope"]
+	fields = [
+		"c.user",
+		"c.is_primary",
+		"c.administrative_area AS administrative_area_scope",
+		"p.department_scope",
+	]
 	officers = query_active_officer_assignments(role_level=role_level, fields=fields)
 	if not officers:
 		return None
@@ -266,7 +271,7 @@ def holds_rung(user, role_level, department=None, area=None):
 	rows = query_active_officer_assignments(
 		user=user,
 		role_level=role_level,
-		fields=["p.department_scope", "p.administrative_area_scope"],
+		fields=["p.department_scope", "c.administrative_area AS administrative_area_scope"],
 		order_by=None,
 	)
 	if not rows:
@@ -336,7 +341,7 @@ def get_officer_supervisor(user, department=None, administrative_area=None, stri
 
 	rows = query_active_officer_assignments(
 		user=user,
-		fields=["c.reports_to", "p.department_scope", "p.administrative_area_scope"],
+		fields=["c.reports_to", "p.department_scope", "c.administrative_area AS administrative_area_scope"],
 	)
 	rows = [r for r in rows if r.reports_to]
 	if not rows:
