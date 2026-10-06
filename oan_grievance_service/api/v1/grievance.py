@@ -683,6 +683,19 @@ ACTIONS_REQUIRING_REASON = {
 	"Submitter Reply",
 }
 
+ACTION_CODES = {
+	"Close Case": "close_case",
+	"Reopen": "reopen",
+	"Resolve": "resolve",
+	"Partially Resolve": "partially_resolve",
+	"Reject": "reject",
+	"Refer Onward": "refer_onward",
+	"Request More Info": "request_more_info",
+	"Submitter Reply": "submitter_reply",
+}
+
+ACTIONS_REQUIRING_RATING = {"Close Case"}
+
 
 def _get_available_actions_for_user(doc):
 	"""List actions available to the current user on this grievance with localized labels."""
@@ -699,8 +712,10 @@ def _get_available_actions_for_user(doc):
 		result.append(
 			{
 				"action": act,
+				"action_code": ACTION_CODES.get(act, frappe.scrub(act)),
 				"label": _(act),
 				"requires_reason": act in ACTIONS_REQUIRING_REASON,
+				"requires_rating": act in ACTIONS_REQUIRING_RATING,
 			}
 		)
 

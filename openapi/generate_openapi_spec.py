@@ -990,8 +990,10 @@ data(
 	OBJ(
 		{
 			"action": S(description="Action name"),
+			"action_code": S(description="Stable machine-readable action identifier"),
 			"label": S(description="Localized action label"),
 			"requires_reason": B(description="Always true: every action carries a reason"),
+			"requires_rating": B(description="True if the action accepts a rating (e.g. Close Case)"),
 		},
 		required=["action", "label", "requires_reason"],
 	),

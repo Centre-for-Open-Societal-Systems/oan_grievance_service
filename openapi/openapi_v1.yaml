@@ -6218,12 +6218,18 @@ components:
         action:
           type: string
           description: Action name
+        action_code:
+          type: string
+          description: Stable machine-readable action identifier
         label:
           type: string
           description: Localized action label
         requires_reason:
           type: boolean
           description: 'Always true: every action carries a reason'
+        requires_rating:
+          type: boolean
+          description: True if the action accepts a rating (e.g. Close Case)
       required:
       - action
       - label
