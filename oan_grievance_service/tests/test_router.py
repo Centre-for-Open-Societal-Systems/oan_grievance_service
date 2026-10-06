@@ -505,6 +505,50 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(len(internal_tl), 1)
 		self.assertEqual(internal_tl[0]["body"], "Private officer timeline note")
 
+		# 7. Resolve without reason is refused (400)
+		res_case = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(res_case, "Assign", automated=True)
+		lifecycle.transition(res_case, "Start Work")
+		req_res_bad = make_test_request(
+			f"/api/v1/grievances/{res_case.ticket_number or res_case.name}/action",
+			method="POST",
+			data={"action": "Resolve"},
+		)
+		res_res_bad = frappe.api.handle(req_res_bad)
+		body_res_bad = json.loads(res_res_bad.get_data(as_text=True))
+		self.assertEqual(body_res_bad["status"], "error")
+		self.assertIn("reason is required", body_res_bad["message"].lower())
+
+		# 8. Resolve with incomplete two-part resolution is refused (400)
+		res_case_2 = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(res_case_2, "Assign", automated=True)
+		lifecycle.transition(res_case_2, "Start Work")
+		req_res_incomplete = make_test_request(
+			f"/api/v1/grievances/{res_case_2.ticket_number or res_case_2.name}/action",
+			method="POST",
+			data={"action": "Resolve", "action_taken": "Inspected crop damage"},
+		)
+		res_res_incomplete = frappe.api.handle(req_res_incomplete)
+		body_res_incomplete = json.loads(res_res_incomplete.get_data(as_text=True))
+		self.assertEqual(body_res_incomplete["status"], "error")
+		self.assertEqual(body_res_incomplete["code"], "VALIDATION_ERROR")
+		self.assertIn("action_taken and resolution_summary", str(body_res_incomplete["details"]))
+
+		# 9. Resolve with complete two-part resolution succeeds
+		req_res_twopart = make_test_request(
+			f"/api/v1/grievances/{res_case_2.ticket_number or res_case_2.name}/action",
+			method="POST",
+			data={
+				"action": "Resolve",
+				"action_taken": "Inspected crop damage and processed subsidy payout.",
+				"resolution_summary": "Subsidy credited to farmer account.",
+			},
+		)
+		res_res_twopart = frappe.api.handle(req_res_twopart)
+		self.assertEqual(res_res_twopart.status_code, 200)
+		body_res_twopart = json.loads(res_res_twopart.get_data(as_text=True))
+		self.assertEqual(body_res_twopart["data"]["status"], "Resolved")
+
 	def test_reassign_and_defer_endpoints(self):
 		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
 		import uuid

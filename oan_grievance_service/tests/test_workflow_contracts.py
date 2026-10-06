@@ -374,7 +374,21 @@ class TestContractFiveTheClockFollowsTheState(WorkflowTestCase):
 		self.grievance.reload()
 		self.assertEqual(self.grievance.workflow_state, "Resolved")
 
-		res = grievance.action(self.grievance.ticket_number or self.grievance.name, action="Close Case")
+		res = grievance.action(
+			self.grievance.ticket_number or self.grievance.name,
+			action="Close Case",
+			reason="Satisfied with resolution.",
+		)
 		self.assertEqual(res["status"], "success")
 		self.grievance.reload()
 		self.assertEqual(self.grievance.status, "Closed")
+		self.assertEqual(self.grievance.closure_reason, "Satisfied with resolution.")
+
+	def test_close_case_without_reason_is_refused(self):
+		from oan_grievance_service.api.v1 import grievance
+
+		self._at_pending_submitter()
+		self.grievance.reload()
+		res = grievance.action(self.grievance.ticket_number or self.grievance.name, action="Close Case")
+		self.assertEqual(res["status"], "error")
+		self.assertIn("reason is required", res["message"].lower())

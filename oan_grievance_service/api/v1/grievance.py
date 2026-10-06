@@ -672,6 +672,18 @@ def _grievance_page(items, page, page_size, total_count):
 	)
 
 
+ACTIONS_REQUIRING_REASON = {
+	"Close Case",
+	"Partially Resolve",
+	"Refer Onward",
+	"Reject",
+	"Reopen",
+	"Request More Info",
+	"Resolve",
+	"Submitter Reply",
+}
+
+
 def _get_available_actions_for_user(doc):
 	"""List actions available to the current user on this grievance with localized labels."""
 	user = frappe.session.user
@@ -688,8 +700,7 @@ def _get_available_actions_for_user(doc):
 			{
 				"action": act,
 				"label": _(act),
-				# Kept for clients that read it: every action now carries a reason.
-				"requires_reason": True,
+				"requires_reason": act in ACTIONS_REQUIRING_REASON,
 			}
 		)
 
@@ -871,7 +882,15 @@ def action(
 	Grievance Workflow's call. Files sent as multipart attach to the action's
 	timeline entry.
 	"""
-	if action_taken is not None:
+	if action_taken is not None or resolution_summary is not None:
+		if not (action_taken and action_taken.strip() and resolution_summary and resolution_summary.strip()):
+			frappe.throw(
+				_(
+					"Both 'action_taken' and 'resolution_summary' are required when submitting a two-part resolution."
+				),
+				frappe.ValidationError,
+				title=_("Resolution Details Required"),
+			)
 		reason = response_body.compose(action_taken, resolution_summary)
 	doc = _load(ticket_number, ptype="write")
 	from_status = doc.status
@@ -891,6 +910,13 @@ def action(
 			frappe.PermissionError,
 		)
 
+	if matching_action in ACTIONS_REQUIRING_REASON and (not reason or not reason.strip()):
+		frappe.throw(
+			_("A reason is required for action '{0}'.").format(matching_action),
+			frappe.ValidationError,
+			title=_("Reason Required"),
+		)
+
 	# Files are checked before the move so a bad one refuses the whole request.
 	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
 
@@ -908,8 +934,8 @@ def action(
 	if matching_action == "Start Work":
 		_ensure_department(doc)
 
-	# A submitter closing the case accepts the resolution; staff closing it does not.
-	confirmed = matching_action == "Close Case" and not is_staff
+	# Submitter closing the case accepts and confirms the resolution.
+	confirmed = matching_action == "Close Case"
 	history = lifecycle.transition(doc, matching_action, reason=reason, note=note, confirmed=confirmed)
 	if matching_action == "Close Case":
 		doc.db_set("closure_reason", reason, update_modified=False)
