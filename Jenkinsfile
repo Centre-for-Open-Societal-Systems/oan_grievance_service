@@ -47,15 +47,18 @@ pipeline {
             when { branch 'develop' }
             steps {
                 script {
-                    // Both OAN apps are pinned to the branch being built, so the image carries
-                    // current develop HEAD of BOTH apps. frappe stays on version-16.
-                    def appsJson = groovy.json.JsonOutput.toJson([
-                        [url: 'https://github.com/frappe/frappe', branch: 'version-16'],
-                        [url: 'https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service', branch: env.BRANCH_NAME],
-                        [url: 'https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service', branch: env.BRANCH_NAME],
-                    ])
+                    // Only the EXTRA apps go here: frappe itself is installed from FRAPPE_PATH /
+                    // FRAPPE_BRANCH in the build step. Both OAN apps are pinned to the branch being
+                    // built, so the image carries current develop HEAD of BOTH apps.
+                    // Written as plain text: groovy.json.JsonOutput is blocked by the Jenkins
+                    // script sandbox ("Scripts not permitted to use staticMethod ...").
+                    def branch = env.BRANCH_NAME
+                    def appsJson = """[
+  {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service", "branch": "${branch}"},
+  {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service", "branch": "${branch}"}
+]
+"""
                     writeFile file: 'apps.json', text: appsJson
-                    env.APPS_JSON_BASE64 = sh(script: 'base64 -w0 apps.json', returnStdout: true).trim()
                 }
             }
         }
@@ -65,18 +68,30 @@ pipeline {
             steps {
                 // frappe_docker's own layered Containerfile is the build definition; this repo
                 // only supplies the apps.json branch pins above.
+                // Current frappe_docker reads apps.json from a BuildKit secret with id "apps_json"
+                // (the old APPS_JSON_BASE64 build arg is silently ignored and gives plain frappe).
+                // BuildKit does not include secret contents in its cache key, so CACHE_BUST (the
+                // Containerfile's own cache-busting arg) forces `bench init` to re-fetch the apps
+                // on every build; without it a cached no-apps layer would be reused.
                 sh '''
+                    [ -s "$WORKSPACE/apps.json" ] || { echo "apps.json is missing or empty"; exit 1; }
+                    cat "$WORKSPACE/apps.json"
+
                     rm -rf frappe_docker
                     git clone --depth 1 --branch "$FRAPPE_DOCKER_REF" https://github.com/frappe/frappe_docker.git
                     cd frappe_docker
-                    docker build \
+                    DOCKER_BUILDKIT=1 docker build \
+                        --secret id=apps_json,src="$WORKSPACE/apps.json" \
+                        --build-arg CACHE_BUST="$BUILD_NUMBER" \
                         --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
                         --build-arg FRAPPE_BRANCH=version-16 \
-                        --build-arg APPS_JSON_BASE64="$APPS_JSON_BASE64" \
                         --file images/layered/Containerfile \
                         -t "$FULL_IMAGE" \
                         -t "$IMAGE_REGISTRY/$IMAGE_NAME:develop" \
                         .
+
+                    # Never push or deploy an image that is missing the OAN apps
+                    docker run --rm "$FULL_IMAGE" bash -c "ls apps && test -d apps/oan_auth_service && test -d apps/oan_grievance_service"
                 '''
             }
         }
