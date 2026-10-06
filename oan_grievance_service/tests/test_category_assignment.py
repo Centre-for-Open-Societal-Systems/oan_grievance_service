@@ -13,6 +13,8 @@ from oan_grievance_service.api.v1.category_assignment import (
 	list_assignments,
 	update_assignment,
 )
+from oan_grievance_service.api.v1.officer import get_officer, list_officers
+from oan_grievance_service.services import constants as C
 
 
 class TestGrievanceCategoryAssignment(FrappeTestCase):
@@ -406,6 +408,76 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		result = list_assignments(service_category=self.category)
 		self.assertEqual(result["status"], "success")
 		self.assertEqual(result["data"]["pagination"]["total_count"], 1)
+
+	def test_category_admin_manages_assignments_end_to_end(self):
+		"""The role is enforced by the endpoints and backed by DocPerm, so every write runs as the user."""
+		admin = _user("stg433-cat-admin@example.com", "Meron Category", role=C.ROLE_CATEGORY_ADMIN)
+		frappe.set_user(admin)
+
+		created = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=8,
+		)
+		self.assertEqual(created["status"], "success", msg=created)
+		name = created["data"]["assignment"]["name"]
+
+		updated = update_assignment(name, sla_days=5, l2_officer=None)
+		self.assertEqual(updated["status"], "success", msg=updated)
+		self.assertEqual(updated["data"]["assignment"]["sla_days"], 5)
+
+		self.assertEqual(get_assignment(name)["status"], "success")
+		listed = list_assignments(service_category=self.category)
+		self.assertEqual(listed["data"]["pagination"]["total_count"], 1)
+
+		deactivated = deactivate_assignment(name)
+		self.assertEqual(deactivated["status"], "success", msg=deactivated)
+		self.assertFalse(deactivated["data"]["assignment"]["active"])
+
+	def test_grievance_admin_can_write(self):
+		admin = _user("stg433-admin@example.com", "Selam Writer", role=C.ROLE_ADMIN)
+		frappe.set_user(admin)
+		created = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			sla_days=6,
+		)
+		self.assertEqual(created["status"], "success", msg=created)
+		name = created["data"]["assignment"]["name"]
+		self.assertEqual(update_assignment(name, sla_days=4)["status"], "success")
+		self.assertEqual(deactivate_assignment(name)["status"], "success")
+
+	def test_category_admin_holds_no_other_admin_authority(self):
+		admin = _user("stg433-cat-scope@example.com", "Dawit Scope", role=C.ROLE_CATEGORY_ADMIN)
+		frappe.set_user(admin)
+		with _keep_transaction():
+			self.assertEqual(list_officers()["code"], "PERMISSION_DENIED")
+			self.assertEqual(get_officer(self.l1)["code"], "PERMISSION_DENIED")
+
+	def test_category_admin_cannot_write_scoped_desks_directly(self):
+		admin = _user("stg433-cat-direct@example.com", "Hana Direct", role=C.ROLE_CATEGORY_ADMIN)
+		scoped = frappe.new_doc("Grievance RBAC Assignment")
+		scoped.department_scope = self.department
+		scoped.category_scope = self.category
+		scoped.service_provider_scope = "Provider 433"
+		scoped.effective_from = frappe.utils.today()
+		scoped.append("officers", {"user": self.l1, "role_level": "nodal_officer", "is_primary": 1})
+		scoped.insert()
+		plain = frappe.new_doc("Grievance RBAC Assignment")
+		plain.category_scope = self.category
+
+		self.assertFalse(frappe.has_permission(scoped.doctype, "write", doc=scoped, user=admin))
+		self.assertTrue(frappe.has_permission(scoped.doctype, "read", doc=scoped, user=admin))
+		self.assertTrue(frappe.has_permission(plain.doctype, "write", doc=plain, user=admin))
+
+		officer = _user("stg433-officer-desk@example.com", "Officer Desk")
+		self.assertFalse(frappe.has_permission(scoped.doctype, "write", doc=scoped, user=officer))
+
+	def test_category_admin_role_is_seeded_without_desk_access(self):
+		self.assertEqual(frappe.db.get_value("Role", C.ROLE_CATEGORY_ADMIN, "desk_access"), 0)
 
 	def test_guest_cannot_manage_assignments(self):
 		name = self._assignment()

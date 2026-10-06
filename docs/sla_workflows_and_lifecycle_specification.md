@@ -253,6 +253,14 @@ for you_; it never answers _which cases you may touch_.
 | `Grievance Officer`   | Every case-working officer at every rung                                                                             | Read and work assigned cases, file structured responses, request deferrals, approve within their chain |
 | `Grievance Admin`     | Platform administrator                                                                                               | Taxonomy, routing rules, SLA policy, holiday calendars, thresholds                                     |
 
+**Scoped roles outside the three.** `Grievance Dashboard Reader` (the dashboards' machine
+user) and `Grievance Category Admin` (STG-433) are narrow grants, not rungs. Category Admin
+may create, edit and deactivate category-to-department routing rules and their category SLA
+window through `/api/v1/category-assignments`, enforced by the endpoints' `require_role` and by
+DocPerm on `Grievance RBAC Assignment` and `Grievance SLA Configuration`. A document-level
+`has_permission` hook limits its writes to category-only desks. It holds no other admin
+authority: officers, response templates, charts and the rest stay with `Grievance Admin`.
+
 **Seniority is not a role.** The former `L1 Nodal Officer`, `L2 Senior Nodal Officer`
 and `Department Head` roles are replaced by position in the reporting chain. This is the
 single change that keeps the role list at three no matter how many rungs the

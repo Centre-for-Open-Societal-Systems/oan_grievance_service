@@ -118,13 +118,23 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-28 00:00:00.000000",
+ "modified": "2026-10-06 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
+  {
+   "role": "Grievance Category Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0
+  },
   {
    "role": "Grievance Admin",
    "read": 1,

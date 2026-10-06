@@ -1768,6 +1768,9 @@ paths:
       description: 'List category-only RBAC desks for the admin tab.
 
 
+        Requires Grievance Category Admin, Grievance Admin, or System Manager.
+
+
         Numeric and boolean parameters also accept str: frappe checks annotations before
 
         validate_request runs, and a bare int would turn a bad value into its own type error.'
@@ -1855,7 +1858,10 @@ paths:
       tags:
       - Administration
       summary: Create a category assignment
-      description: Create a category-only RBAC desk and set the category's SLA.
+      description: 'Create a category-only RBAC desk and set the category''s SLA.
+
+
+        Requires Grievance Category Admin, Grievance Admin, or System Manager.'
       operationId: post_api_v1_category_assignments
       responses:
         '200':
@@ -1908,7 +1914,10 @@ paths:
       tags:
       - Administration
       summary: Get a category assignment
-      description: Return one category-only RBAC assignment.
+      description: 'Return one category-only RBAC assignment.
+
+
+        Requires Grievance Category Admin, Grievance Admin, or System Manager.'
       operationId: get_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -1961,7 +1970,10 @@ paths:
       tags:
       - Administration
       summary: Update a category assignment
-      description: Update a category-only RBAC desk. `kwargs` holds only the fields the client sent.
+      description: 'Update a category-only RBAC desk. `kwargs` holds only the fields the client sent.
+
+
+        Requires Grievance Category Admin, Grievance Admin, or System Manager.'
       operationId: patch_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -2020,7 +2032,10 @@ paths:
       tags:
       - Administration
       summary: Deactivate a category assignment
-      description: Deactivate a category-only RBAC desk. Repeating the call is a no-op.
+      description: 'Deactivate a category-only RBAC desk. Repeating the call is a no-op.
+
+
+        Requires Grievance Category Admin, Grievance Admin, or System Manager.'
       operationId: delete_api_v1_category_assignments_assignment
       responses:
         '200':

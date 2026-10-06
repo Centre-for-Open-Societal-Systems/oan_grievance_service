@@ -45,6 +45,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 )
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
+	ROLE_CATEGORY_ADMIN,
 	ROLE_OFFICER,
 	ROLE_SUBMITTER,
 	STAFF_ROLES,
@@ -292,6 +293,20 @@ def has_response_template_permission(doc, ptype="read", user=None):
 	if not scopes:
 		return not doc.get("department") and not doc.get("service_category")
 	return any(fits(scope) for scope in scopes)
+
+
+def has_rbac_assignment_permission(doc, ptype="read", user=None):
+	"""Keep a Category Admin to category-only desks.
+
+	The role's DocPerm covers the whole Grievance RBAC Assignment doctype, so without this
+	a holder could write an area- or provider-scoped desk through Frappe's generic REST
+	routes. A controller hook can only deny, so everyone else passes through to their own
+	DocPerm.
+	"""
+	roles = set(frappe.get_roles(user or frappe.session.user))
+	if ptype == "read" or ROLE_CATEGORY_ADMIN not in roles or roles & UNRESTRICTED_ROLES:
+		return True
+	return doc.is_category_only()
 
 
 def outranks(approver, assignee, if_unplaced=True):
