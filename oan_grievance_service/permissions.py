@@ -234,6 +234,66 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	return False
 
 
+def _template_scope_clause(scope):
+	"""SQL matching templates one RBAC scope may see: an empty template dimension
+	matches everyone, an empty scope dimension matches every template."""
+	parts = []
+	for scope_field, template_field in (
+		("department_scope", "department"),
+		("category_scope", "service_category"),
+	):
+		value = scope.get(scope_field)
+		if value:
+			parts.append(
+				f"ifnull(`tabGrievance Response Template`.{template_field}, '') in ('', {frappe.db.escape(value)})"
+			)
+	return "(" + " and ".join(parts) + ")" if parts else "1 = 1"
+
+
+def response_template_query_conditions(user=None):
+	"""Officers list the active templates within their department and category scope."""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & UNRESTRICTED_ROLES:
+		return ""
+	if ROLE_OFFICER not in roles:
+		return "1 = 0"
+
+	scopes = active_scopes(user)
+	clauses = [_template_scope_clause(scope) for scope in scopes] or [
+		(
+			"(ifnull(`tabGrievance Response Template`.department, '') = ''"
+			+ " and ifnull(`tabGrievance Response Template`.service_category, '') = '')"
+		)
+	]
+	return "(`tabGrievance Response Template`.is_active = 1 and (" + " or ".join(clauses) + "))"
+
+
+def has_response_template_permission(doc, ptype="read", user=None):
+	"""Per-document check. Mirrors the list conditions for a single template."""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & UNRESTRICTED_ROLES:
+		return True
+	if ROLE_OFFICER not in roles or ptype != "read" or not doc.get("is_active"):
+		return False
+
+	def fits(scope):
+		for scope_field, template_field in (
+			("department_scope", "department"),
+			("category_scope", "service_category"),
+		):
+			value = scope.get(scope_field)
+			if value and doc.get(template_field) and doc.get(template_field) != value:
+				return False
+		return True
+
+	scopes = active_scopes(user)
+	if not scopes:
+		return not doc.get("department") and not doc.get("service_category")
+	return any(fits(scope) for scope in scopes)
+
+
 def outranks(approver, assignee, if_unplaced=True):
 	"""True when the approver sits strictly higher in the escalation chain.
 

@@ -90,7 +90,9 @@ def _register() -> None:
 		draft,
 		grievance,
 		officer,
+		officer_statistics,
 		profile,
+		response_config,
 		submitter,
 	)
 

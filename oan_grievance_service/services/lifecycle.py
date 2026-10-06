@@ -28,7 +28,7 @@ def transition(
 	note=None,
 	automated=False,
 	notify=True,
-	closure_type=None,
+	confirmed=False,
 ):
 	"""Take a workflow action on a grievance. Returns the Grievance Status History row.
 
@@ -37,6 +37,9 @@ def transition(
 	actions to officer roles, but the request they run in may be a submitter's, so
 	they run with the system's authority and the history row records them as
 	automated, with no user.
+
+	`confirmed` marks a Close Case the submitter took, which earns the confirmation
+	notification rather than the plain closure one.
 
 	Permission on the document itself was settled by whoever loaded it (`_load` in
 	the API checks the caller can act on the case); the workflow's role check is
@@ -50,7 +53,7 @@ def transition(
 		note=note,
 		automated=automated,
 		notify=notify,
-		closure_type=closure_type,
+		confirmed=confirmed,
 		history=None,
 	)
 	outer = frappe.flags.grievance_transition
@@ -84,7 +87,20 @@ def transition(
 
 
 def actions_available(grievance):
-	"""The actions the Workflow offers the current user from where the case is now."""
+	"""The actions the Workflow offers the current user from where the case is now.
+
+	A move into a state that waits on the submitter -- one whose SLA category is
+	Paused -- is withheld when the submitter has no contact details: nobody could
+	tell them, so the case would only sit there until it timed out. Which states
+	wait is the Workflow's own setting, not a list kept here.
+	"""
 	from frappe.model.workflow import get_transitions
 
-	return [row["action"] for row in get_transitions(grievance)]
+	from oan_grievance_service.services import identity, sla
+
+	transitions = get_transitions(grievance)
+	if transitions and not identity.is_reachable(grievance):
+		waiting = sla.states_in_category(sla.PAUSED)
+		transitions = [row for row in transitions if row["next_state"] not in waiting]
+	# One transition row per allowed role: a user holding two of them sees each action once.
+	return list(dict.fromkeys(row["action"] for row in transitions))

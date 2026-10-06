@@ -8,11 +8,8 @@ import frappe
 from frappe.model.workflow import get_workflow
 from frappe.utils import now_datetime
 
-from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
-	GrievanceTimeline,
-)
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import lifecycle, notifications, sla
+from oan_grievance_service.services import notifications, sla
 
 # Workflow moves
 # --------------
@@ -27,16 +24,15 @@ def after_workflow_action(doc, from_state):
 	to_state = doc.workflow_state
 
 	# A desk button arrives with no context; the Workflow still knows which
-	# action joins the two states, so the trail names it either way.
+	# action joins the two states, so the trail names it -- unless several do
+	# (Resolve and Partially Resolve), where guessing would record the wrong one.
 	if not context.action:
-		context.action = next(
-			(
-				row.action
-				for row in get_workflow(doc.doctype).transitions
-				if row.state == from_state and row.next_state == to_state
-			),
-			None,
-		)
+		joining = {
+			row.action
+			for row in get_workflow(doc.doctype).transitions
+			if row.state == from_state and row.next_state == to_state
+		}
+		context.action = joining.pop() if len(joining) == 1 else None
 
 	user = None if context.automated else frappe.session.user
 	if user == "Guest":
@@ -49,13 +45,12 @@ def after_workflow_action(doc, from_state):
 			"grievance": doc.name,
 			"from_status": from_state,
 			"to_status": to_state,
-			"transition": context.action,
-			"closure_type": context.closure_type,
+			"action": context.action,
 			"is_automated": 1 if context.automated else 0,
 			"changed_by": user,
 			"timestamp": now_datetime(),
 			"reason": context.reason,
-			"notes": context.reason or context.note,
+			"notes": context.note,
 		}
 	).insert(ignore_permissions=True)
 	context.history = history
@@ -74,13 +69,12 @@ def after_workflow_action(doc, from_state):
 		elif to_state == C.STATE_MORE_INFO_NEEDED:
 			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
 		elif to_state == C.STATE_RESOLVED:
-			pass
+			# Asks the submitter to confirm the resolution or reopen within the window.
+			notifications.queue(doc, C.EVENT_RESPONSE_SENT)
 		elif to_state == C.STATE_CLOSED:
-			if from_state == C.STATE_RESOLVED and (
-				context.get("closure_type") == "auto_closed" or context.get("action") == "Auto Close"
-			):
+			if from_state == C.STATE_RESOLVED and context.get("action") == "Auto Close":
 				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
-			elif context.get("closure_type") == "confirmed":
+			elif context.get("confirmed"):
 				notifications.queue(doc, C.EVENT_CONFIRMED)
 			else:
 				notifications.queue(doc, C.EVENT_CLOSED)
@@ -100,50 +94,3 @@ def stamp_resolution(doc, to_state):
 			doc.db_set("resolved_at", now_datetime(), update_modified=False)
 	elif doc.resolved_at and to_state != C.STATE_REJECTED:
 		doc.db_set("resolved_at", None, update_modified=False)
-
-
-def response_after_insert(doc, method=None):
-	"""The response outcome drives the next status."""
-	grievance = frappe.get_doc("Grievance", doc.grievance)
-
-	# response_date, responded_by, sequence and prior_status are filled in by the
-	# controller before validation, because they are mandatory. The IP is captured here
-	# because it is only meaningful for a request that actually reached the server.
-	if getattr(frappe.local, "request_ip", None):
-		doc.db_set("ip_address", frappe.local.request_ip, update_modified=False)
-
-	# Record formal response in unified timeline spine
-	GrievanceTimeline.record(
-		grievance=grievance.name,
-		entry_type="response",
-		is_internal=False,
-		body=doc.resolution_summary or doc.action_taken or f"Formal Response ({doc.response_type})",
-		author_user=doc.responded_by or frappe.session.user,
-		ref_doctype="Grievance Response",
-		ref_docname=doc.name,
-	)
-
-	# Dynamic Master Resolution: the linked Grievance Response Type names the action.
-	action = None
-	if doc.response_type and frappe.db.exists("Grievance Response Type", doc.response_type):
-		action = frappe.db.get_value("Grievance Response Type", doc.response_type, "workflow_action")
-
-	if action and action in lifecycle.actions_available(grievance):
-		lifecycle.transition(
-			grievance,
-			action,
-			note=f"Response {doc.name} ({doc.response_type})",
-		)
-
-	doc.db_set("new_status", grievance.status, update_modified=False)
-
-	# A response clears the escalation flag only. `next_escalation_at` keeps running:
-	# an officer who answers and then sits on the case again must still be overtaken.
-	if grievance.escalated:
-		grievance.db_set("escalated", 0, update_modified=False)
-
-	# structured_response_sent prompts the citizen to confirm resolution or reopen within
-	# the confirmation window, so queue it only for resolution responses.
-	if doc.response_type in ("Resolved", "Partially Resolved"):
-		notifications.queue(grievance, C.EVENT_RESPONSE_SENT)
-		doc.db_set({"notification_sent": 1, "notification_sent_at": now_datetime()}, update_modified=False)

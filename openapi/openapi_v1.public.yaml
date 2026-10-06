@@ -33,7 +33,7 @@ tags:
 - name: Attachments
   description: Supporting document and evidence upload, listing, download, and deletion
 - name: Administration
-  description: Category-to-department routing rules for the Category Assignments admin tab
+  description: Category-to-department routing rules, and the response templates officers respond with
 - name: Dashboard Charts
   description: Aggregate counts from the 15-minute rollups, for the OAN programme dashboards
 paths:
@@ -328,93 +328,275 @@ paths:
         in: query
         required: false
         schema:
-          type: integer
           default: 1
           minimum: 1
-        description: Page number
+          type: integer
+        description: Page number, 1-indexed
       - name: page_size
         in: query
         required: false
         schema:
-          type: integer
           default: 20
-          minimum: 1
           maximum: 100
-        description: Page size
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: limit
+        in: query
+        required: false
+        schema:
+          maximum: 100
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
       - name: status
         in: query
         required: false
         schema:
-          type: string
-        description: 'Comma-separated queue statuses: All, In Progress, Require More Info, Rejected, Resolved,
-          Closed. Draft is excluded.'
-      - name: category
-        in: query
-        required: false
-        schema:
-          type: string
-        description: Comma-separated service categories e.g. 'Inputs,Payments'
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
       - name: service_category
         in: query
         required: false
         schema:
-          type: string
-        description: Single category alias
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: category
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
       - name: grievance_type
         in: query
         required: false
         schema:
-          type: string
-        description: Comma-separated grievance types
-      - name: region
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: assigned_dept
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: dept
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: assigned_to
         in: query
         required: false
         schema:
           type: string
-        description: Comma-separated regional administrative area IDs
+          default: null
+          nullable: true
       - name: administrative_area
         in: query
         required: false
         schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: location
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: region
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: zone
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: woreda
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: kebele
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: administrative_unit
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: submission_channel
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: channel
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - items: {}
+            type: array
+          default: null
+          nullable: true
+      - name: escalated
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: string
+          - type: integer
+          default: null
+          nullable: true
+      - name: is_escalated
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: string
+          - type: integer
+          default: null
+          nullable: true
+      - name: is_anonymous
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: string
+          - type: integer
+          default: null
+          nullable: true
+      - name: submitter
+        in: query
+        required: false
+        schema:
           type: string
-        description: Single administrative area ID or path_code
+          default: null
+          nullable: true
       - name: from_date
         in: query
         required: false
         schema:
           type: string
-          format: date
-        description: Creation date lower bound (YYYY-MM-DD)
+          default: null
+          nullable: true
       - name: to_date
         in: query
         required: false
         schema:
           type: string
-          format: date
-        description: Creation date upper bound (YYYY-MM-DD)
+          default: null
+          nullable: true
       - name: search
         in: query
         required: false
         schema:
           type: string
-        description: Free text search matching ticket, citizen name, or phone
+          default: null
+          nullable: true
       - name: sort_by
         in: query
         required: false
         schema:
-          type: string
           default: creation
-        description: Column to order by
+          type: string
       - name: sort_order
         in: query
         required: false
         schema:
-          type: string
           default: asc
-          enum:
-          - asc
-          - desc
-        description: Sort direction
+          type: string
       security:
       - BearerAuth: []
     post:
@@ -463,7 +645,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -473,10 +655,18 @@ paths:
       tags:
       - Grievance Lifecycle & Actions
       summary: Execute a workflow action on a grievance
-      description: 'Execute a state-machine workflow action on a grievance.
+      description: 'Take a workflow action on a grievance.
 
 
-        Validates role permissions and the current workflow state dynamically.'
+        Every action carries a `reason`, which the submitter sees. A department response
+
+        may instead come as `action_taken` and `resolution_summary`, stored together as
+
+        the reason. Which actions the caller may take from the case''s state is the
+
+        Grievance Workflow''s call. Files sent as multipart attach to the action''s
+
+        timeline entry.'
       operationId: post_api_v1_grievances_ticket_number_action
       responses:
         '200':
@@ -528,6 +718,9 @@ paths:
         required: true
         content:
           application/json:
+            schema:
+              $ref: '#/components/schemas/GrievanceActionRequest'
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/GrievanceActionRequest'
   /api/v1/grievances/{ticket_number}/feedback:
@@ -648,20 +841,27 @@ paths:
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       security:
       - BearerAuth: []
-  /api/v1/grievances/{ticket_number}/note:
+  /api/v1/grievances/{ticket_number}/message:
     post:
       tags:
       - Grievance Lifecycle & Actions
-      summary: Add internal or public note (staff only)
-      description: Staff-only endpoint to add an internal or public note to the case timeline.
-      operationId: post_api_v1_grievances_ticket_number_note
+      summary: Post a message or an internal note, with optional files
+      description: 'Post to the case thread: a public message, or an internal note when staff send
+
+        `is_internal`. Files sent as multipart attach to the new entry.
+
+
+        Never moves the case. A reply to an information request is the `Submitter Reply`
+
+        action and an information request is the `Request More Info` action, both on /action.'
+      operationId: post_api_v1_grievances_ticket_number_message
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GrievanceActionResultResponse'
+                $ref: '#/components/schemas/GrievanceMessageResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -706,65 +906,8 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddNoteRequest'
-  /api/v1/grievances/{ticket_number}/message:
-    post:
-      tags:
-      - Grievance Lifecycle & Actions
-      summary: Post a communication, note, reply, or department response
-      description: Unified endpoint for posting public messages, citizen replies, internal notes, or department
-        responses.
-      operationId: post_api_v1_grievances_ticket_number_message
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GrievanceActionResultResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: ticket_number
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
+              $ref: '#/components/schemas/PostMessageRequest'
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/PostMessageRequest'
   /api/v1/grievances/{ticket_number}/reassign:
@@ -895,6 +1038,76 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DeferSLARequest'
+  /api/v1/grievances/{ticket_number}/response-templates:
+    get:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Response templates for a workflow action, filled in for this grievance
+      description: 'Active templates for workflow `action` that fit the case''s department and category,
+
+        most specific first, rendered with the case''s details for the officer to edit.'
+      operationId: get_api_v1_grievances_ticket_number_response_templates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseTemplatesResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      - name: action
+        in: query
+        required: true
+        schema:
+          minLength: 1
+          type: string
+        description: Workflow action the templates are written for
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Filter templates by service category
+      security:
+      - BearerAuth: []
   /api/v1/grievances/summary:
     get:
       tags:
@@ -1088,7 +1301,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           multipart/form-data:
             schema:
@@ -1206,11 +1419,11 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/SubmitDocumentsRequest'
+              $ref: '#/components/schemas/SubmitDocumentsRequest_ticket_number'
     get:
       tags:
       - Attachments
@@ -1541,8 +1754,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
-                format: binary
+                $ref: '#/components/schemas/CategoryAssignmentListResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1573,6 +1785,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
       security:
       - BearerAuth: []
     post:
@@ -1587,7 +1838,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GrievanceActionResultResponse'
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1639,8 +1890,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
-                format: binary
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1692,8 +1942,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
-                format: binary
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1734,7 +1983,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -1751,8 +2000,7 @@ paths:
           content:
             application/json:
               schema:
-                type: string
-                format: binary
+                $ref: '#/components/schemas/CategoryAssignmentResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1792,12 +2040,6 @@ paths:
         description: Assignment identifier
       security:
       - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssignmentRef'
   /api/v1/change-requests:
     get:
       tags:
@@ -1856,36 +2098,49 @@ paths:
         schema:
           type: string
           default: Pending
-          enum:
-          - Pending
-          - Approved
-          - Rejected
-        description: Filter by change request status
+          nullable: true
+        description: Filter by request status
       - name: scope
         in: query
         required: false
         schema:
           type: string
           default: pending_with_me
-          enum:
-          - pending_with_me
-          - raised_by_me
-          - all
-        description: Filter scope by caller involvement
+          nullable: true
+        description: 'Scope: pending_with_me, raised_by_me, all'
       - name: ticket_number
         in: query
         required: false
         schema:
           type: string
-        description: Filter changes for a specific grievance ticket
+          default: null
+          nullable: true
+        description: Filter by grievance ticket number
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 50
+          maximum: 200
+          minimum: 1
+          type: integer
+        description: Items per page
       - name: limit
         in: query
         required: false
         schema:
           type: integer
-          default: 50
-          maximum: 200
-        description: Maximum records returned
+          default: null
+          nullable: true
+        description: Legacy limit parameter
       security:
       - BearerAuth: []
   /api/v1/change-requests/{name}:
@@ -3423,7 +3678,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -3626,6 +3881,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: status
+        in: query
+        required: false
+        schema:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+          default: null
+          nullable: true
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
       security:
       - BearerAuth: []
     post:
@@ -3787,11 +4109,472 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateOfficer'
+  /api/v1/officers/{officer}/temporary-password:
+    post:
+      tags:
+      - Administration
+      summary: Issue a new temporary password
+      description: Reissue a temporary password to an officer. The officer must already exist.
+      operationId: post_api_v1_officers_officer_temporary_password
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetTemporaryPassword'
+  /api/v1/officers/statistics:
+    get:
+      tags:
+      - Administration
+      summary: List officer statistics
+      description: Page of officer statistics, filterable by level (L1/L2) and department.
+      operationId: get_api_v1_officers_statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      security:
+      - BearerAuth: []
+  /api/v1/response-templates:
+    get:
+      tags:
+      - Administration
+      summary: List response templates
+      description: Admin list of response templates with their usage counts.
+      operationId: get_api_v1_response_templates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponseTemplateListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: action
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: workflow_action
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: is_active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create a response template
+      description: Create a response template for one workflow action, optionally scoped.
+      operationId: post_api_v1_response_templates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateResponseTemplateRequest'
+  /api/v1/response-templates/{template}:
+    get:
+      tags:
+      - Administration
+      summary: Get a response template
+      description: Return one response template, unrendered.
+      operationId: get_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: template
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Template identifier
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update a response template
+      description: Change a template's text, scope, workflow action or active flag. Edits are tracked.
+      operationId: patch_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: template
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Template identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateResponseTemplateRequest'
+    delete:
+      tags:
+      - Administration
+      summary: Deactivate a response template
+      description: Retire a template. Same as PATCH with is_active false; repeating it is a no-op.
+      operationId: delete_api_v1_response_templates_template
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminResponseTemplateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: template
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Template identifier
+      security:
+      - BearerAuth: []
   /api/v1/submitters/options:
     get:
       tags:
@@ -3928,7 +4711,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -3987,7 +4770,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -4927,6 +5710,20 @@ components:
       - description
       - creation
       description: Full grievance case details
+    ResponseParts:
+      type: object
+      properties:
+        action_taken:
+          type: string
+          description: What the department did
+        resolution_summary:
+          type: string
+          description: The outcome for the submitter
+      required:
+      - action_taken
+      - resolution_summary
+      description: A department response's two parts, split from the stored text. Null on any text that
+        was not written in two parts (a rejection, a reopen, an older template).
     TimelineEventItem:
       type: object
       properties:
@@ -4959,9 +5756,21 @@ components:
           type: string
           nullable: true
           description: Timeline message or description text
+        body_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
         is_internal:
           type: boolean
           description: Whether visible only to staff
+        action:
+          type: string
+          nullable: true
+          description: Workflow action behind a status change entry
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: Files attached to this entry
         created_on:
           type: string
           format: date-time
@@ -5044,22 +5853,74 @@ components:
       properties:
         ticket_number:
           type: string
-          example: ET14IN000012026
+          example: 3-001-002A-0
         status:
           type: string
-          example: Under Investigation
-        message:
+          example: Resolved
+        action:
           type: string
-          description: Result confirmation message
-        action_timestamp:
-          type: string
-          format: date-time
+          description: Workflow action taken
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: Files stored with the action
+        current_state:
+          $ref: '#/components/schemas/GrievanceCurrentState'
+        timeline_event:
+          $ref: '#/components/schemas/TimelineEventItem'
           nullable: true
+        available_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailableActionItem'
       required:
       - ticket_number
       - status
-      - message
-      description: Outcome of a state transition or action on a grievance
+      - action
+      - current_state
+      - available_actions
+      description: Outcome of a workflow action on a grievance
+    GrievanceMessageData:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Timeline entry ID
+        ticket_number:
+          type: string
+          example: 3-001-002A-0
+        entry_type:
+          type: string
+          enum:
+          - message
+          - note
+        is_internal:
+          type: boolean
+        author_type:
+          type: string
+          enum:
+          - officer
+          - submitter
+        created_on:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          description: Grievance status, unchanged by a message
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: Files stored with the message
+      required:
+      - name
+      - ticket_number
+      - entry_type
+      - is_internal
+      - status
+      description: The timeline entry a message or internal note created
     GrievanceOptionsData:
       type: object
       properties:
@@ -5176,6 +6037,55 @@ components:
       required:
       - cards
       description: Status summary for the all-grievances queue. Draft is excluded.
+    ResponseTemplateItem:
+      type: object
+      properties:
+        template:
+          type: string
+          description: Template ID, sent as `template` to /action
+        title:
+          type: string
+        action:
+          type: string
+          nullable: true
+          description: Workflow action the template is for
+        workflow_action:
+          type: string
+          nullable: true
+          description: Workflow action the template is for
+        department:
+          type: string
+          nullable: true
+          description: Department the template is scoped to; null for all
+        service_category:
+          type: string
+          nullable: true
+          description: Service category the template is scoped to; null for all
+        reason:
+          type: string
+          description: Template body rendered for the case, as plain text. Prefills `reason`.
+        reason_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
+        note:
+          type: string
+          nullable: true
+          description: Template note rendered for the case, as plain text. Prefills `note`.
+      required:
+      - template
+      - title
+      - reason
+      description: A response template filled in for the grievance
+    ResponseTemplatesData:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponseTemplateItem'
+          description: Most specific first
+      required:
+      - items
     AttachmentItem:
       type: object
       properties:
@@ -5209,6 +6119,10 @@ components:
           type: string
           nullable: true
           description: Classification of document
+        timeline_entry:
+          type: string
+          nullable: true
+          description: Timeline entry the file is attached to
         creation:
           type: string
           format: date-time
@@ -5386,12 +6300,18 @@ components:
         action:
           type: string
           description: Action name
+        action_code:
+          type: string
+          description: Stable machine-readable action identifier
         label:
           type: string
           description: Localized action label
         requires_reason:
           type: boolean
-          description: Whether a reason is mandatory
+          description: 'Always true: every action carries a reason'
+        requires_rating:
+          type: boolean
+          description: True if the action accepts a rating (e.g. Close Case)
       required:
       - action
       - label
@@ -5585,6 +6505,78 @@ components:
       - assignments
       - pagination
       description: One page of category assignments
+    AdminResponseTemplate:
+      type: object
+      properties:
+        template:
+          type: string
+          example: TPL-RESOLVED-INPUTS
+          description: Template code; fixed once created
+        title:
+          type: string
+        action:
+          type: string
+          example: Resolve
+          nullable: true
+          description: Grievance workflow action the template is for
+        workflow_action:
+          type: string
+          example: Resolve
+          description: Grievance workflow action the template is for
+        department:
+          type: string
+          nullable: true
+          description: Null for every department
+        service_category:
+          type: string
+          nullable: true
+          description: Null for every category
+        reason:
+          type: string
+          nullable: true
+          description: Jinja template for the reason, unrendered
+        body:
+          type: string
+          description: Jinja template for the reason, unrendered
+        reason_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
+        note:
+          type: string
+          nullable: true
+          description: Jinja template for internal note, unrendered
+        usage_count:
+          type: integer
+          description: Actions sent with this template
+        is_active:
+          type: boolean
+      required:
+      - template
+      - title
+      - workflow_action
+      - body
+      - usage_count
+      - is_active
+      description: A response template as administrators manage it
+    AdminResponseTemplateData:
+      type: object
+      properties:
+        response_template:
+          $ref: '#/components/schemas/AdminResponseTemplate'
+      required:
+      - response_template
+    AdminResponseTemplateListData:
+      type: object
+      properties:
+        response_templates:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminResponseTemplate'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - response_templates
+      - pagination
     DashboardChartRow:
       type: object
       properties: {}
@@ -5599,574 +6591,870 @@ components:
           $ref: '#/components/schemas/DashboardChartRow'
         nullable: true
       description: Rows per requested chart id; null for a chart that failed (see meta.errors)
-    SaveDraftRequest:
-      type: object
+    SubmitGrievanceRequest:
+      additionalProperties: true
+      description: Request body for the one-step submission endpoint.
       properties:
+        contact_mobile:
+          type: string
+          default: null
+          nullable: true
+        description:
+          minLength: 20
+          type: string
+          default: null
+          nullable: true
+        service_category:
+          type: string
+          default: null
+          nullable: true
+        grievance_type:
+          type: string
+          default: null
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        can_request_more_info:
+          anyOf:
+          - type: boolean
+          - type: integer
+          default: true
+        submitter_type:
+          type: string
+          default: null
+          nullable: true
+        submitter_name:
+          type: string
+          default: null
+          nullable: true
+        country_code:
+          type: string
+          default: null
+          nullable: true
+        phone_number:
+          type: string
+          default: null
+          nullable: true
+        phone:
+          type: string
+          default: null
+          nullable: true
+        contact_email:
+          type: string
+          default: null
+          nullable: true
+        submission_channel:
+          type: string
+          default: null
+          nullable: true
+        administrative_unit:
+          type: string
+          default: null
+          nullable: true
+        associated_service_provider:
+          type: string
+          default: null
+          nullable: true
+        desired_outcome:
+          type: string
+          default: null
+          nullable: true
+        is_anonymous:
+          anyOf:
+          - type: integer
+          - type: boolean
+          default: 0
+        consent_given:
+          anyOf:
+          - type: integer
+          - type: boolean
+          default: 1
+        anonymity_justification:
+          type: string
+          default: null
+          nullable: true
         client_submission_uuid:
           type: string
-          minLength: 1
+          default: null
           nullable: true
-          description: Stable client-generated draft key
         client_uuid:
           type: string
+          default: null
           nullable: true
-          description: Alias for client_submission_uuid
-        submission_channel:
-          type: string
-          nullable: true
-          description: Submission channel
-        submitter_type:
-          type: string
-          nullable: true
-          description: Submitter type
-        submitter_name:
-          type: string
-          nullable: true
-          description: Submitter citizen name
-        contact_mobile:
-          type: string
-          nullable: true
-          description: Contact mobile phone
-        country_code:
-          type: string
-          nullable: true
-          description: Country phone code prefix (e.g. +251)
-        phone_number:
-          type: string
-          nullable: true
-          description: National phone number
-        phone:
-          type: string
-          nullable: true
-          description: Phone alias
-        contact_email:
-          type: string
-          format: email
-          nullable: true
-          description: Contact email address
-        administrative_area:
-          type: string
-          nullable: true
-          description: Administrative area ID or path_code
-        administrative_unit:
-          type: string
-          nullable: true
-          description: Specific local landmark or unit
-        service_category:
-          type: string
-          nullable: true
-          description: Service category name
-        grievance_type:
-          type: string
-          nullable: true
-          description: Grievance type name
-        associated_service_provider:
-          type: string
-          nullable: true
-          description: Associated service provider
-        description:
-          type: string
-          nullable: true
-          description: Draft narrative description
-        desired_outcome:
-          type: string
-          nullable: true
-          description: Desired resolution outcome
-        is_anonymous:
-          type: integer
-          enum:
-          - 0
-          - 1
-          default: 0
-          nullable: true
-          description: 1 if anonymous
-        validate:
-          type: boolean
-          default: false
-          description: If true, execute validation on the draft payload
-      description: Payload for saving or updating a grievance draft
-    SubmitDocumentsRequest:
       type: object
-      properties:
-        grievance:
-          type: string
-          description: Grievance ticket number or document identifier
-        document_type:
-          type: string
-          nullable: true
-          description: Document type or category
-        response:
-          type: string
-          nullable: true
-          description: Associated formal response ID if applicable
-      required:
-      - grievance
-      description: Supporting document upload request
-    SubmitDraftRequest:
-      type: object
-      properties:
-        client_submission_uuid:
-          type: string
-          minLength: 1
-          description: Stable client-generated draft key to submit
-        consent_given:
-          type: integer
-          enum:
-          - 0
-          - 1
-          default: 1
-          description: 1 to record citizen consent
-        is_anonymous:
-          type: integer
-          enum:
-          - 0
-          - 1
-          default: 0
-          description: 1 to request anonymity
-        anonymity_justification:
-          type: string
-          nullable: true
-          description: Justification for anonymity
-        submission_channel:
-          type: string
-          nullable: true
-          description: Submission channel
-        submitter_type:
-          type: string
-          nullable: true
-          description: Submitter type
-        submitter_name:
-          type: string
-          nullable: true
-          description: Submitter citizen name
-        contact_mobile:
-          type: string
-          nullable: true
-          description: Contact mobile phone
-        country_code:
-          type: string
-          nullable: true
-          description: Country phone code prefix (e.g. +251)
-        phone_number:
-          type: string
-          nullable: true
-          description: National phone number
-        phone:
-          type: string
-          nullable: true
-          description: Phone alias
-        contact_email:
-          type: string
-          format: email
-          nullable: true
-          description: Contact email
-        administrative_area:
-          type: string
-          nullable: true
-          description: Administrative area
-        administrative_unit:
-          type: string
-          nullable: true
-          description: Administrative unit
-        service_category:
-          type: string
-          nullable: true
-          description: Service category
-        grievance_type:
-          type: string
-          nullable: true
-          description: Grievance type
-        associated_service_provider:
-          type: string
-          nullable: true
-          description: Associated service provider
-        description:
-          type: string
-          nullable: true
-          description: Narrative description
-        desired_outcome:
-          type: string
-          nullable: true
-          description: Desired outcome
-      required:
-      - client_submission_uuid
-      description: Payload for submitting a saved grievance draft
-    SubmitGrievanceRequest:
-      type: object
-      properties:
-        client_submission_uuid:
-          type: string
-          minLength: 1
-          nullable: true
-          description: Stable client-generated submission key
-        submitter_type:
-          type: string
-          nullable: true
-          description: Submitter classification
-        submitter_name:
-          type: string
-          nullable: true
-          description: Submitter name or organization
-        contact_mobile:
-          type: string
-          nullable: true
-          description: Contact mobile phone
-        country_code:
-          type: string
-          nullable: true
-          description: Country dialing prefix e.g. +251
-        phone_number:
-          type: string
-          nullable: true
-          description: National phone number
-        phone:
-          type: string
-          nullable: true
-          description: Phone alias
-        contact_email:
-          type: string
-          format: email
-          nullable: true
-          description: Contact email address
-        submission_channel:
-          type: string
-          nullable: true
-          description: Intake channel
-        administrative_area:
-          type: string
-          nullable: true
-          description: Administrative area ID
-        administrative_unit:
-          type: string
-          nullable: true
-          description: Administrative unit / woreda / branch
-        service_category:
-          type: string
-          nullable: true
-          description: Service category name
-        grievance_type:
-          type: string
-          nullable: true
-          description: Grievance type name
-        associated_service_provider:
-          type: string
-          nullable: true
-          description: Associated service provider
-        description:
-          type: string
-          minLength: 1
-          description: Narrative description of grievance
-        desired_outcome:
-          type: string
-          nullable: true
-          description: Desired resolution outcome
-        is_anonymous:
-          type: integer
-          enum:
-          - 0
-          - 1
-          default: 0
-          nullable: true
-          description: 1 if requesting anonymity
-        anonymity_justification:
-          type: string
-          nullable: true
-          description: Justification for anonymity request
-        consent_given:
-          type: integer
-          enum:
-          - 0
-          - 1
-          default: 1
-          nullable: true
-          description: 1 to record citizen consent
-      required:
-      - description
-      description: Payload for lodging a grievance directly
-    DiscardDraftRequest:
-      type: object
-      properties:
-        client_submission_uuid:
-          type: string
-          minLength: 1
-          description: Stable client-generated draft key to discard
-      required:
-      - client_submission_uuid
-      description: Payload for discarding an unsubmitted grievance draft
-    PostMessageRequest:
-      type: object
-      properties:
-        message:
-          type: string
-          minLength: 1
-          description: Message text posted to the conversation thread
-      required:
-      - message
-      description: Message payload
-    AddNoteRequest:
-      type: object
-      properties:
-        note:
-          type: string
-          minLength: 1
-          description: Internal or external note content
-        is_internal:
-          type: boolean
-          default: true
-          description: Whether this note is hidden from citizens (staff-only)
-      required:
-      - note
-      description: Staff note payload
     GrievanceActionRequest:
-      type: object
+      additionalProperties: false
       properties:
         action:
-          type: string
+          description: Workflow action, one of the case's available_actions
           minLength: 1
-          description: Canonical workflow action name (e.g. 'Start Work', 'Close Case', 'Reopen', 'Reject')
+          type: string
         reason:
           type: string
+          default: null
+          description: Shown to the submitter. For a department response, the response itself.
           nullable: true
-          description: Mandatory justification when required by the action
+        action_taken:
+          type: string
+          default: null
+          description: 'Department response, first part: what was done. Sent with `resolution_summary`
+            instead of `reason`; the two are stored together as the reason.'
+          nullable: true
+        resolution_summary:
+          type: string
+          default: null
+          description: 'Department response, second part: the outcome for the submitter. Sent with `action_taken`
+            instead of `reason`.'
+          nullable: true
         note:
           type: string
+          default: null
+          description: Optional detail recorded directly on the Grievance Status History audit row.
           nullable: true
-          description: Optional note text
+        internal_notes:
+          type: string
+          default: null
+          description: Staff only. Posted as a separate internal timeline entry.
+          nullable: true
+        template:
+          type: string
+          default: null
+          description: Staff only. Response template the reason started from.
+          nullable: true
         rating:
-          type: integer
-          minimum: 1
           maximum: 5
+          minimum: 1
+          type: integer
+          default: null
+          description: Close Case by the submitter only
           nullable: true
-          description: Citizen satisfaction rating (1-5) for resolution confirmation
-        comments:
-          type: string
-          nullable: true
-          description: Optional citizen feedback remarks
-        body:
-          type: string
-          nullable: true
-          description: Response body text for submitter reply
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: Files, sent as multipart/form-data
       required:
       - action
-      description: Workflow action and state transition payload
-    DecideChangeRequest:
       type: object
+    GrievanceFeedbackRequest:
+      additionalProperties: true
       properties:
-        decision:
+        rating:
+          maximum: 5
+          minimum: 1
+          type: integer
+        comments:
           type: string
-          minLength: 1
-          enum:
-          - Approved
-          - Rejected
-          description: Approval decision
-        note:
-          type: string
+          default: null
           nullable: true
-          description: Decision note or rejection explanation
+        feedback_type:
+          type: string
+          default: Resolution
+          nullable: true
+        feedback_channel:
+          type: string
+          default: Web Portal
+          nullable: true
       required:
-      - decision
-      description: Payload for approving or rejecting a change request
-    ReassignGrievanceRequest:
+      - rating
       type: object
+    PostMessageRequest:
+      additionalProperties: true
+      properties:
+        body:
+          minLength: 1
+          type: string
+        is_internal:
+          anyOf:
+          - type: boolean
+          - type: string
+          default: null
+          description: Hide from the submitter (staff only). Defaults to a public message.
+          nullable: true
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: Files, sent as multipart/form-data
+      required:
+      - body
+      type: object
+    ReassignGrievanceRequest:
+      additionalProperties: true
       properties:
         target_department:
-          type: string
           minLength: 1
-          description: Target department identifier
+          type: string
         target_officer:
           type: string
+          default: null
           nullable: true
-          description: Target officer user email
         target_category:
           type: string
+          default: null
           nullable: true
-          description: Target service category name
         target_grievance_type:
           type: string
+          default: null
           nullable: true
-          description: Target grievance type name
         reason:
           type: string
+          default: null
           nullable: true
-          description: Reassignment rationale
       required:
       - target_department
-      description: Payload for reassigning department or officer on a grievance
-    DeferSLARequest:
       type: object
+    DeferSLARequest:
+      additionalProperties: true
       properties:
         additional_days:
-          type: integer
           minimum: 1
-          description: Number of additional days requested
+          type: integer
         reason:
-          type: string
           minLength: 1
-          description: Justification for extending SLA deadline
+          type: string
       required:
       - additional_days
       - reason
-      description: Payload for requesting an SLA deadline deferral
-    AnonymityDecisionRequest:
       type: object
+    SubmitDocumentsRequest:
+      additionalProperties: true
       properties:
-        decision:
+        ticket_number:
           type: string
-          minLength: 1
-          enum:
-          - Approved
-          - Rejected
-          description: Approval decision
-        reason:
-          type: string
+          default: null
+          description: Grievance ticket number (REST path parameter)
           nullable: true
-          description: Mandatory reason when declining anonymity
-      required:
-      - decision
-      description: Payload for ruling on submitter anonymity request
-    RegisterSubmitterRequest:
+        grievance:
+          type: string
+          default: null
+          description: Grievance name or ticket number (RPC body field)
+          nullable: true
+        document_type:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          default: null
+          nullable: true
+        timeline_entry:
+          type: string
+          default: null
+          nullable: true
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: Files, sent as multipart/form-data
       type: object
+    SubmitDocumentsRequest_ticket_number:
+      additionalProperties: true
       properties:
-        user:
+        grievance:
           type: string
+          default: null
+          description: Grievance name or ticket number (RPC body field)
           nullable: true
-          description: Existing user ID to associate
-        submitter_type:
-          type: string
-          default: Individual Farmer
-          description: Submitter classification
-        submitter_name:
-          type: string
+        document_type:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          default: null
           nullable: true
-          description: Submitter full name or organization name
-        contact_mobile:
+        timeline_entry:
           type: string
+          default: null
           nullable: true
-          description: Contact mobile number
-        country_code:
-          type: string
-          nullable: true
-          description: Country dialing prefix
-        phone_number:
-          type: string
-          nullable: true
-          description: National phone number
-        phone:
-          type: string
-          nullable: true
-          description: Phone alias
-        contact_email:
-          type: string
-          format: email
-          nullable: true
-          description: Contact email address
-        administrative_area:
-          type: string
-          nullable: true
-          description: Administrative area link
-        administrative_unit:
-          type: string
-          nullable: true
-          description: Administrative unit / woreda / branch
-        preferred_language:
-          type: string
-          nullable: true
-          description: Preferred language code
-        fayda_id:
-          type: string
-          nullable: true
-          description: National Fayda ID
-        national_id:
-          type: string
-          nullable: true
-          description: National ID alias
-        registration_number:
-          type: string
-          nullable: true
-          description: Organization registration number
-        org_number:
-          type: string
-          nullable: true
-          description: Organization number alias
-        farmer_id:
-          type: string
-          nullable: true
-          description: Farmer registry ID
-        dedupe_key:
-          type: string
-          nullable: true
-          description: Explicit deduplication key
-      description: Payload for registering or updating a submitter profile
-    BlockSubmitterRequest:
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: Files, sent as multipart/form-data
       type: object
-      properties:
-        reason:
-          type: string
-          minLength: 1
-          description: Reason for blocking submitter
-      required:
-      - reason
-      description: Payload for blocking a submitter profile
-    CreateCategoryAssignmentRequest:
-      type: object
+    CreateCategoryAssignment:
+      additionalProperties: false
       properties:
         service_category:
-          type: string
           minLength: 1
-          description: Category name or code
+          type: string
         department:
-          type: string
           minLength: 1
-          description: Department name or short name
+          type: string
         l1_officer:
-          type: string
           minLength: 1
-          description: L1 nodal officer user id
-        l2_officer:
           type: string
+        l2_officer:
+          minLength: 1
+          type: string
+          default: null
           nullable: true
-          description: L2 senior nodal officer user id. Omit or null for none.
         sla_days:
-          type: integer
           minimum: 1
-          description: SLA window in days
+          type: integer
         auto_escalate:
-          type: boolean
           default: true
+          type: boolean
         active:
-          type: boolean
           default: true
+          type: boolean
       required:
       - service_category
       - department
       - l1_officer
       - sla_days
-      description: Create the routing rule for one department and service category
-    UpdateCategoryAssignmentRequest:
       type: object
+    UpdateCategoryAssignment:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are, so only l2_officer accepts null.
       properties:
         department:
-          type: string
           minLength: 1
-          description: Department name or short name. Null or blank is rejected.
+          type: string
         l1_officer:
-          type: string
           minLength: 1
-          description: L1 nodal officer user id. Null or blank is rejected.
-        l2_officer:
           type: string
+        l2_officer:
+          minLength: 1
+          type: string
+          default: null
           nullable: true
-          description: L2 senior nodal officer. Null clears it.
         sla_days:
-          type: integer
           minimum: 1
+          type: integer
         auto_escalate:
           type: boolean
         active:
           type: boolean
-          description: Set false to deactivate. Same as DELETE.
-      description: Partial update. Omit a field to leave it unchanged. Unknown fields, including service_category,
-        are rejected.
+      type: object
+    DecideChangeRequest:
+      additionalProperties: true
+      properties:
+        decision:
+          description: Approved or Rejected
+          minLength: 1
+          type: string
+        note:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - decision
+      type: object
+    SaveDraftRequest:
+      additionalProperties: false
+      description: Partial grievance state for saving a draft.
+      properties:
+        client_submission_uuid:
+          minLength: 1
+          type: string
+          default: null
+          description: Stable client-generated draft key
+          nullable: true
+        client_uuid:
+          minLength: 1
+          type: string
+          default: null
+          description: Alias for client_submission_uuid
+          nullable: true
+        submission_channel:
+          type: string
+          default: null
+          nullable: true
+        submitter_type:
+          type: string
+          default: null
+          nullable: true
+        submitter_name:
+          type: string
+          default: null
+          nullable: true
+        contact_mobile:
+          type: string
+          default: null
+          nullable: true
+        country_code:
+          type: string
+          default: null
+          nullable: true
+        phone_number:
+          type: string
+          default: null
+          nullable: true
+        phone:
+          type: string
+          default: null
+          nullable: true
+        contact_email:
+          type: string
+          default: null
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        administrative_unit:
+          type: string
+          default: null
+          nullable: true
+        service_category:
+          type: string
+          default: null
+          nullable: true
+        grievance_type:
+          type: string
+          default: null
+          nullable: true
+        associated_service_provider:
+          type: string
+          default: null
+          nullable: true
+        description:
+          type: string
+          default: null
+          nullable: true
+        desired_outcome:
+          type: string
+          default: null
+          nullable: true
+        is_anonymous:
+          maximum: 1
+          minimum: 0
+          type: integer
+          default: null
+          nullable: true
+        can_request_more_info:
+          anyOf:
+          - type: boolean
+          - type: integer
+          default: true
+          description: Whether submitter can be contacted for more information
+          nullable: true
+        validate:
+          anyOf:
+          - type: boolean
+          - type: integer
+          default: false
+          description: If true, execute validation on the draft payload
+          nullable: true
+      type: object
+    SubmitDraftRequest:
+      additionalProperties: false
+      properties:
+        client_submission_uuid:
+          description: Stable client-generated draft key to submit
+          minLength: 1
+          type: string
+        consent_given:
+          anyOf:
+          - type: integer
+          - type: boolean
+          default: 1
+        is_anonymous:
+          anyOf:
+          - type: integer
+          - type: boolean
+          default: 0
+        anonymity_justification:
+          type: string
+          default: null
+          nullable: true
+        can_request_more_info:
+          anyOf:
+          - type: boolean
+          - type: integer
+          default: true
+          description: Whether submitter can be contacted for more information
+        submission_channel:
+          type: string
+          default: null
+          nullable: true
+        submitter_type:
+          type: string
+          default: null
+          nullable: true
+        submitter_name:
+          type: string
+          default: null
+          nullable: true
+        contact_mobile:
+          type: string
+          default: null
+          nullable: true
+        country_code:
+          type: string
+          default: null
+          nullable: true
+        phone_number:
+          type: string
+          default: null
+          nullable: true
+        phone:
+          type: string
+          default: null
+          nullable: true
+        contact_email:
+          type: string
+          default: null
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        administrative_unit:
+          type: string
+          default: null
+          nullable: true
+        service_category:
+          type: string
+          default: null
+          nullable: true
+        grievance_type:
+          type: string
+          default: null
+          nullable: true
+        associated_service_provider:
+          type: string
+          default: null
+          nullable: true
+        description:
+          type: string
+          default: null
+          nullable: true
+        desired_outcome:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - client_submission_uuid
+      type: object
+    DiscardDraftRequest:
+      additionalProperties: false
+      properties:
+        client_submission_uuid:
+          description: Stable client-generated draft key to discard
+          minLength: 1
+          type: string
+      required:
+      - client_submission_uuid
+      type: object
+    CreateOfficer:
+      additionalProperties: false
+      properties:
+        full_name:
+          minLength: 1
+          type: string
+        designation:
+          minLength: 1
+          type: string
+        level:
+          enum:
+          - L1
+          - L2
+          type: string
+        department:
+          minLength: 1
+          type: string
+        email:
+          minLength: 1
+          type: string
+        service_categories:
+          items:
+            minLength: 1
+            type: string
+          minItems: 1
+          type: array
+        temporary_password:
+          maxLength: 128
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        region:
+          type: string
+          default: null
+          nullable: true
+        status:
+          default: Active
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+        reports_to:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - full_name
+      - designation
+      - level
+      - department
+      - email
+      - service_categories
+      - temporary_password
+      type: object
+    UpdateOfficer:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are. `email` is fixed once created.
+      properties:
+        level:
+          enum:
+          - L1
+          - L2
+          type: string
+        full_name:
+          minLength: 1
+          type: string
+        designation:
+          minLength: 1
+          type: string
+        department:
+          minLength: 1
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        region:
+          type: string
+          default: null
+          nullable: true
+        status:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+        service_categories:
+          items:
+            minLength: 1
+            type: string
+          minItems: 1
+          type: array
+        reports_to:
+          type: string
+          default: null
+          nullable: true
+      type: object
+    ResetTemporaryPassword:
+      additionalProperties: false
+      properties:
+        temporary_password:
+          maxLength: 128
+          type: string
+      required:
+      - temporary_password
+      type: object
+    CreateResponseTemplateRequest:
+      additionalProperties: false
+      properties:
+        title:
+          minLength: 1
+          type: string
+        action:
+          minLength: 1
+          type: string
+          default: null
+          description: Grievance workflow action the template is written for
+          nullable: true
+        workflow_action:
+          minLength: 1
+          type: string
+          default: null
+          description: Grievance workflow action the template is written for
+          nullable: true
+        department:
+          minLength: 1
+          type: string
+          default: null
+          description: Omit for every department
+          nullable: true
+        service_category:
+          minLength: 1
+          type: string
+          default: null
+          description: Omit for every category
+          nullable: true
+        reason:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the response's reason
+          nullable: true
+        body:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the response's reason
+          nullable: true
+        action_taken:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the reason's first part; sent with resolution_summary
+          nullable: true
+        resolution_summary:
+          minLength: 1
+          type: string
+          default: null
+          description: Jinja template for the reason's second part; sent with action_taken
+          nullable: true
+        note:
+          type: string
+          default: null
+          description: Optional Jinja template for internal notes
+          nullable: true
+        is_active:
+          default: true
+          type: boolean
+      required:
+      - title
+      type: object
+    UpdateResponseTemplateRequest:
+      additionalProperties: false
+      description: Partial update. The code is the identifier and cannot change; null clears a scope.
+      properties:
+        title:
+          minLength: 1
+          type: string
+        action:
+          minLength: 1
+          type: string
+        workflow_action:
+          minLength: 1
+          type: string
+        department:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        service_category:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        reason:
+          minLength: 1
+          type: string
+        body:
+          minLength: 1
+          type: string
+        action_taken:
+          minLength: 1
+          type: string
+        resolution_summary:
+          minLength: 1
+          type: string
+        note:
+          type: string
+          default: null
+          nullable: true
+        is_active:
+          type: boolean
+      type: object
+    RegisterSubmitterRequest:
+      additionalProperties: false
+      properties:
+        submitter_type:
+          default: Individual Farmer
+          description: Submitter type (e.g. Individual Farmer, Cooperative, Development Agent, etc.)
+          type: string
+        submitter_name:
+          type: string
+          default: null
+          description: Submitter name or organization name
+          nullable: true
+        contact_mobile:
+          type: string
+          default: null
+          description: Contact mobile number
+          nullable: true
+        country_code:
+          type: string
+          default: null
+          description: Country phone code prefix (e.g. +251)
+          nullable: true
+        phone_number:
+          type: string
+          default: null
+          description: National phone number
+          nullable: true
+        phone:
+          type: string
+          default: null
+          description: Phone number alias
+          nullable: true
+        contact_email:
+          type: string
+          default: null
+          description: Contact email address
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          description: Administrative area Link
+          nullable: true
+        administrative_unit:
+          type: string
+          default: null
+          description: Administrative unit / woreda / branch
+          nullable: true
+        preferred_language:
+          type: string
+          default: null
+          description: Preferred notification language
+          nullable: true
+        fayda_id:
+          type: string
+          default: null
+          description: Fayda National ID (16 digits)
+          nullable: true
+        national_id:
+          type: string
+          default: null
+          description: National ID alias
+          nullable: true
+        registration_number:
+          type: string
+          default: null
+          description: Official organization registration/certificate number
+          nullable: true
+        org_number:
+          type: string
+          default: null
+          description: Organization number alias
+          nullable: true
+        farmer_id:
+          type: string
+          default: null
+          description: Farmer ID alias
+          nullable: true
+        dedupe_key:
+          type: string
+          default: null
+          description: Explicit dedupe key
+          nullable: true
+      type: object
+    BlockSubmitterRequest:
+      additionalProperties: false
+      properties:
+        reason:
+          description: Reason for blocking submitter
+          minLength: 1
+          type: string
+      required:
+      - reason
+      type: object
     HealthResponse:
       type: object
       properties:
@@ -6568,6 +7856,31 @@ components:
       - status
       - data
       description: KPI status card counts
+    ResponseTemplatesResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ResponseTemplatesData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Rendered response templates
     GrievanceTimelineResponse:
       type: object
       properties:
@@ -6618,6 +7931,81 @@ components:
       - status
       - data
       description: Action result response
+    GrievanceMessageResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceMessageData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Message or internal note posted
+    AdminResponseTemplateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AdminResponseTemplateData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: One response template
+    AdminResponseTemplateListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AdminResponseTemplateListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: One page of response templates
     ChangeRequestResponse:
       type: object
       properties:

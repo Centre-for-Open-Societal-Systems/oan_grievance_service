@@ -78,6 +78,9 @@ SCAN_FAILED = "Failed"
 # withholds the object just as Failed did, and the next sweep tries again.
 SCAN_RETRY = "retry"
 
+# Realtime event pushed to the uploader and to the grievance's doc room on a verdict.
+EVENT_ATTACHMENT_SCANNED = "attachment_scanned"
+
 # One hourly sweep per attempt: a day of outage before a row is given up on.
 MAX_SCAN_ATTEMPTS = 24
 
@@ -147,6 +150,7 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 			),
 			title=_("Unrecognised File"),
 		)
+	assert mime is not None
 
 	if mime not in ALLOWED_MIME_TYPES:
 		frappe.throw(
@@ -447,7 +451,35 @@ def _settle(name: str, status: str, detail: str) -> str:
 		{"scan_status": status, "scan_detail": detail[:500], "scanned_at": now_datetime()},
 		update_modified=False,
 	)
-	return frappe.db.get_value("Grievance Attachment", name, "scan_status") or SCAN_FAILED
+	current = frappe.db.get_value("Grievance Attachment", name, "scan_status") or SCAN_FAILED
+	# Only the scanner whose verdict landed announces it; a loser stays silent.
+	if current == status:
+		publish_scan_status(name, status)
+	return current
+
+
+def publish_scan_status(name: str, status: str) -> None:
+	"""Tell open clients an attachment's verdict, so they need not poll for it.
+
+	The payload carries ids and status only; the client refetches through the API,
+	which applies permissions and is_servable(). Sent after commit, so a client that
+	refetches on receipt never reads the row still Pending.
+	"""
+	row = frappe.db.get_value("Grievance Attachment", name, ["grievance", "owner"], as_dict=True)
+	if not row:
+		return
+	payload = {"attachment": name, "grievance": row.grievance, "scan_status": status}
+	# The uploader, wherever they are in the app.
+	frappe.publish_realtime(EVENT_ATTACHMENT_SCANNED, payload, user=row.owner, after_commit=True)
+	# Anyone with the grievance open. Node checks read permission before letting a
+	# socket join a doc room, so this reaches only users who can read the grievance.
+	frappe.publish_realtime(
+		EVENT_ATTACHMENT_SCANNED,
+		payload,
+		doctype="Grievance",
+		docname=row.grievance,
+		after_commit=True,
+	)
 
 
 def _defer(name: str, attempts: int, detail: str) -> str:
@@ -521,6 +553,7 @@ def _discard_infected(name: str, file_name: str | None, checksum: str | None) ->
 			update_modified=False,
 		)
 		_drop_object(twin.name, twin_file)
+		publish_scan_status(twin.name, SCAN_INFECTED)
 
 	if content_hash:
 		sharers = frappe.get_all(

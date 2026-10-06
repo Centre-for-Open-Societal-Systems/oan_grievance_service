@@ -30,7 +30,6 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_email_string,
 	validate_request,
-	validate_temporary_password,
 )
 from pydantic import BaseModel, Field, field_validator
 
@@ -47,6 +46,16 @@ Status = Literal["Active", "On Leave", "Inactive"]
 def normalize_email(value: str) -> str:
 	"""The one place an officer's email is validated and canonicalised. The User id is this value."""
 	return validate_email_string(value.strip()).lower()
+
+
+def validate_temporary_password(value: str) -> str:
+	"""The temporary-password rule, which oan_auth_service owns.
+
+	Imported on use so this module still loads against an auth service that predates it.
+	"""
+	from oan_auth_service.api.utils import validate_temporary_password as rule
+
+	return rule(value)
 
 
 class OfficerAssignment(BaseModel):
@@ -96,21 +105,15 @@ class CreateOfficer(Body):
 	department: NonBlank
 	email: NonBlank
 	service_categories: list[NonBlank] = Field(min_length=1)
+	temporary_password: str = Field(max_length=128)
 	phone: str | None = None
 	region: str | None = None
 	status: Status = "Active"
 	reports_to: str | None = None
-	temporary_password: str | None = Field(default=None, max_length=128)
 
 	_email = field_validator("email")(normalize_email)
-	_blank = field_validator("phone", "region", "reports_to", "temporary_password", mode="before")(
-		blank_to_none
-	)
-
-	@field_validator("temporary_password")
-	@classmethod
-	def _temporary_password(cls, value: str | None) -> str | None:
-		return None if value is None else validate_temporary_password(value)
+	_blank = field_validator("phone", "region", "reports_to", mode="before")(blank_to_none)
+	_temporary_password = field_validator("temporary_password")(validate_temporary_password)
 
 
 class ResetTemporaryPassword(Body):
@@ -225,8 +228,9 @@ def get_officer(officer: str, **kwargs):
 	description="Make a login an L1 or L2 officer on the category desks of a department. "
 	+ "The login is created when the email is new. Every service category must already have a "
 	+ "category assignment for the department. reports_to is an L2 officer and is only for an L1. "
-	+ "temporary_password is optional and only for a new login: the officer can sign in with it only "
-	+ "to replace it through set-initial-password.",
+	+ "temporary_password is required: the officer signs in with it only to replace it through "
+	+ "set-initial-password. It is applied to a new login only. An email that already has a login keeps "
+	+ "its own password and the message says so.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -237,28 +241,33 @@ def create_officer(
 	department: str,
 	email: str,
 	service_categories: list,
+	temporary_password: str,
 	phone: str | None = None,
 	region: str | None = None,
 	status: str = "Active",
 	reports_to: str | None = None,
-	temporary_password: str | None = None,
 	**kwargs,
 ):
 	"""Create an officer."""
-	user_id = service.create(
+	user_id, password_applied = service.create(
 		full_name=full_name,
 		designation=designation,
 		level=level,
 		department=department,
 		email=email,
 		service_categories=service_categories,
+		temporary_password=temporary_password,
 		phone=phone,
 		region=region,
 		status=status,
 		reports_to=reports_to,
-		temporary_password=temporary_password,
 	)
-	return success_response(data={"officer": service.record(user_id)}, message=_("Officer created"))
+	message = _("Officer created")
+	if not password_applied:
+		message = _(
+			"Officer created. {0} already had a login, so their existing password is unchanged."
+		).format(user_id)
+	return success_response(data={"officer": service.record(user_id)}, message=message)
 
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer")

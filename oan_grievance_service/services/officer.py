@@ -25,8 +25,6 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
-from oan_auth_service.api.v1.auth import issue_temporary_password
-from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.resolvers import (
@@ -41,6 +39,9 @@ OFFICER_ROLE = "Grievance Officer"
 LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
 CODE_LEVELS = {code: level for level, code in LEVEL_CODES.items()}
 DEFAULT_STATUS = "Active"
+# Custom field on User, created by oan_auth_service. Named here rather than imported so this
+# module still loads against an auth service that predates temporary passwords.
+MUST_CHANGE_PASSWORD_FIELD = "oan_must_change_password"
 USER_FIELDS = [
 	"name",
 	"full_name",
@@ -58,30 +59,29 @@ def create(
 	department: str,
 	email: str,
 	service_categories: list[str],
+	temporary_password: str,
 	phone: str | None = None,
 	region: str | None = None,
 	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
-	temporary_password: str | None = None,
-) -> str:
-	"""Make `email` an officer on the category desks of `department`. Returns the user id.
+) -> tuple[str, bool]:
+	"""Make `email` an officer on the category desks of `department`.
+
+	Returns the user id and whether `temporary_password` was applied.
 
 	An existing login with no desk rows is promoted, so an admin can staff someone who
 	already has an account. A login that is already an officer is rejected.
 
-	`temporary_password` is for a new login only. The officer can use it just long enough
-	to replace it (`oan_auth_service`'s set-initial-password). It is refused for an
-	existing login rather than ignored: that account already has a password, and setting
-	one on it would let whoever typed it take the account over.
+	`temporary_password` is required, so a new officer always has a way in: they can use it
+	just long enough to replace it (`oan_auth_service`'s set-initial-password). It is applied
+	to a new login only. An existing login keeps the password its owner already knows, because
+	replacing it with one the admin typed would let the admin take the account over. The caller
+	tells the admin when that happened.
 	"""
 	desks = _category_desks(resolve_department(department), service_categories)
 	if _rows([email]):
 		frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
-	if temporary_password and frappe.db.exists("User", email):
-		frappe.throw(
-			_("{0} already has a login, so a temporary password cannot be set for it here.").format(email),
-			frappe.ValidationError,
-		)
+	has_login = bool(frappe.db.exists("User", email))
 	placement = _placement(level, status)
 	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
@@ -91,9 +91,9 @@ def create(
 	_write_user(user, {"full_name": full_name, "phone": phone})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
-	if temporary_password:
-		issue_temporary_password(user.name, temporary_password)
-	return user.name
+	if not has_login:
+		_issue_temporary_password(user.name, temporary_password)
+	return user.name, not has_login
 
 
 def reset_temporary_password(user_id: str, password: str) -> str:
@@ -104,8 +104,17 @@ def reset_temporary_password(user_id: str, password: str) -> str:
 	they must replace the password before signing in again.
 	"""
 	_current(user_id)
-	issue_temporary_password(user_id, password)
+	_issue_temporary_password(user_id, password)
 	return user_id
+
+
+def _issue_temporary_password(user_id: str, password: str) -> None:
+	# Imported here because that module declares the auth service's REST routes as a side
+	# effect of being imported, and a module-level import would add them to this app's
+	# OpenAPI and gateway generators.
+	from oan_auth_service.api.v1.auth import issue_temporary_password
+
+	issue_temporary_password(user_id, password)
 
 
 def update(user_id: str, changes: dict) -> str:

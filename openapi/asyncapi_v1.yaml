@@ -1,0 +1,191 @@
+# OAN Grievance Service Realtime API -- AsyncAPI 3.0
+# Hand-written. OpenAPI cannot describe a persistent socket, so the realtime events
+# live here. Keep in step with the publish_realtime calls in the services and with
+# build_socket_service() in kong/generate_kong_config_from_spec.py.
+asyncapi: 3.0.0
+info:
+  title: OAN Grievance Service Realtime API
+  version: 1.0.0
+  description: |
+    Server-to-client events over Frappe's socket.io server.
+
+    Events are signals, not data. Each carries ids and a status only; on receipt the
+    client refetches through the REST API, which applies permissions. A socket can
+    drop at any time and events sent while it is down are not replayed, so a client
+    must also read current state on load, on reconnect and when it regains focus.
+
+    **Connecting**
+
+    - Use socket.io client v4 with `transports: ["websocket"]`. The long-polling
+      transport needs sticky sessions and is not supported through the gateway.
+    - Connect to the namespace named after the Frappe site, e.g.
+      `io("wss://grievance.openagrinet.org/<site>", ...)`.
+    - Authenticate with the same access token as the REST API. A native client may
+      send `Authorization: Bearer <token>`. A browser cannot set headers on a
+      WebSocket, so it passes the token as the `access_token` query parameter
+      (`query: { access_token: token }`). Query strings can reach access logs, so
+      use a short-lived token.
+    - The token is checked once, at the handshake. When it expires the socket stays
+      open; reconnect with a fresh token after refreshing it.
+  contact:
+    name: COSS - Centre for Open Societal Systems
+
+defaultContentType: application/json
+
+servers:
+  production:
+    host: grievance.openagrinet.org
+    pathname: /socket.io/
+    protocol: wss
+    description: Production gateway. Kong verifies the JWT before the handshake.
+    security:
+      - $ref: "#/components/securitySchemes/BearerAuth"
+      - $ref: "#/components/securitySchemes/QueryToken"
+  local:
+    host: localhost:9000
+    pathname: /socket.io/
+    protocol: ws
+    description: Local bench socketio process. No gateway, so only the header form works.
+    security:
+      - $ref: "#/components/securitySchemes/BearerAuth"
+
+channels:
+  userRoom:
+    address: "user:{user}"
+    title: The connected user's room
+    description: Joined automatically on connect. Carries events addressed to this user on any screen.
+    parameters:
+      user:
+        description: The Frappe User id of the authenticated caller.
+    messages:
+      attachmentScanned:
+        $ref: "#/components/messages/AttachmentScanned"
+      notification:
+        $ref: "#/components/messages/Notification"
+
+  grievanceRoom:
+    address: "doc:Grievance/{grievance}"
+    title: One grievance's room
+    description: |
+      Joined by emitting `doc_subscribe` with `("Grievance", <grievance id>)` and left
+      with `doc_unsubscribe`. The server joins the socket only if the user can read
+      the grievance. Subscribe while a grievance is open on screen.
+    parameters:
+      grievance:
+        description: The grievance id (document name), as in the REST API.
+    messages:
+      attachmentScanned:
+        $ref: "#/components/messages/AttachmentScanned"
+      docSubscribe:
+        $ref: "#/components/messages/DocSubscribe"
+      docUnsubscribe:
+        $ref: "#/components/messages/DocSubscribe"
+
+operations:
+  receiveUserAttachmentScanned:
+    action: receive
+    channel:
+      $ref: "#/channels/userRoom"
+    summary: An attachment the caller uploaded has a scan verdict.
+    messages:
+      - $ref: "#/channels/userRoom/messages/attachmentScanned"
+
+  receiveNotification:
+    action: receive
+    channel:
+      $ref: "#/channels/userRoom"
+    summary: A new in-app notification exists for the caller; refetch the inbox.
+    messages:
+      - $ref: "#/channels/userRoom/messages/notification"
+
+  receiveGrievanceAttachmentScanned:
+    action: receive
+    channel:
+      $ref: "#/channels/grievanceRoom"
+    summary: An attachment on the open grievance has a scan verdict.
+    messages:
+      - $ref: "#/channels/grievanceRoom/messages/attachmentScanned"
+
+  subscribeGrievance:
+    action: send
+    channel:
+      $ref: "#/channels/grievanceRoom"
+    summary: Start receiving a grievance's events.
+    messages:
+      - $ref: "#/channels/grievanceRoom/messages/docSubscribe"
+
+  unsubscribeGrievance:
+    action: send
+    channel:
+      $ref: "#/channels/grievanceRoom"
+    summary: Stop receiving a grievance's events.
+    messages:
+      - $ref: "#/channels/grievanceRoom/messages/docUnsubscribe"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: httpApiKey
+      name: Authorization
+      in: header
+      description: "`Bearer <access token>`, the token issued by oan_auth_service."
+    QueryToken:
+      type: httpApiKey
+      name: access_token
+      in: query
+      description: The same access token, for browsers. Accepted only through the gateway.
+
+  messages:
+    AttachmentScanned:
+      name: attachment_scanned
+      title: Attachment scan verdict
+      summary: |
+        Sent once when the malware scan settles an attachment, to its uploader and to
+        the grievance's room. Clean means the file can now be viewed and downloaded;
+        Infected and Failed mean it never will be. Pending is never sent.
+      payload:
+        type: object
+        required: [attachment, grievance, scan_status]
+        additionalProperties: false
+        properties:
+          attachment:
+            type: string
+            description: Attachment id, as in /api/v1/attachments/{attachment_id}.
+          grievance:
+            type: string
+            description: Grievance id the attachment belongs to.
+          scan_status:
+            type: string
+            enum: [Clean, Infected, Failed]
+      examples:
+        - name: clean
+          payload:
+            attachment: GA-2026-00042
+            grievance: GRV-2026-00017
+            scan_status: Clean
+
+    Notification:
+      name: notification
+      title: New in-app notification
+      summary: |
+        Emitted by Frappe when a Notification Log row is created for the user, which
+        the System Notification channel does. Carries no payload.
+      payload:
+        type: "null"
+
+    DocSubscribe:
+      name: doc_subscribe
+      title: Join or leave a grievance room
+      summary: |
+        socket.io event with two positional arguments, the doctype and the document
+        name: `socket.emit("doc_subscribe", "Grievance", id)`. `doc_unsubscribe`
+        takes the same arguments.
+      payload:
+        type: array
+        prefixItems:
+          - type: string
+            const: Grievance
+          - type: string
+            description: Grievance id.
+        minItems: 2
+        maxItems: 2

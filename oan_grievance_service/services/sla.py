@@ -529,6 +529,8 @@ def escalate(grievance, reason=None, reassign=True):
 			**_first_escalation(grievance),
 		}
 		grievance.db_set(updates, update_modified=False)
+		grievance.escalated = 1
+		grievance.next_escalation_at = None
 
 		body = "Case escalated (no higher authority configured for reassignment)"
 		if reason:
@@ -548,14 +550,19 @@ def escalate(grievance, reason=None, reassign=True):
 	# The rung the case just landed on owns the next deadline. No hours means this is a
 	# terminal rung and the ladder stops here.
 	hours = level.escalation_hours or 0
+	next_at = add_to_date(now_datetime(), hours=hours) if hours else None
 	updates = {
 		"escalated": 1,
-		"next_escalation_at": add_to_date(now_datetime(), hours=hours) if hours else None,
+		"next_escalation_at": next_at,
 		**_first_escalation(grievance),
 	}
 	if reassign:
 		updates["assigned_to"] = target
 	grievance.db_set(updates, update_modified=False)
+	grievance.escalated = 1
+	grievance.next_escalation_at = next_at
+	if reassign:
+		grievance.assigned_to = target
 
 	level_role = level.level_name or level.name
 	body = f"Case escalated to {level_role}"

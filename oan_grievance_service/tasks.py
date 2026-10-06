@@ -95,11 +95,12 @@ def escalate_breached():
 
 	due_now = frappe.get_all(
 		"Grievance",
-		filters={
-			"docstatus": 1,
-			"next_escalation_at": ["<=", now_datetime()],
-			"on_hold_since": ["is", "not set"],
-		},
+		filters=[
+			["docstatus", "=", 1],
+			["next_escalation_at", "is", "set"],
+			["next_escalation_at", "<=", now_datetime()],
+			["on_hold_since", "is", "not set"],
+		],
 		pluck="name",
 	)
 
@@ -170,7 +171,11 @@ def expire_state_timers():
 
 	expired = frappe.get_all(
 		"Grievance",
-		filters={"docstatus": 1, "state_deadline": ["<", now_datetime()]},
+		filters=[
+			["docstatus", "=", 1],
+			["state_deadline", "is", "set"],
+			["state_deadline", "<", now_datetime()],
+		],
 		pluck="name",
 	)
 
@@ -201,10 +206,9 @@ def expire_state_timers():
 			lifecycle.transition(
 				grievance,
 				"Auto Close",
-				note=reason,
+				reason=reason,
 				automated=True,
 				notify=True,
-				closure_type="auto_closed",
 			)
 			GrievanceTimeline.record(
 				grievance=grievance.name,

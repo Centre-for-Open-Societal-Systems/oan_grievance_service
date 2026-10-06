@@ -6,7 +6,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.password import check_password
-from oan_auth_service.setup.install import MUST_CHANGE_PASSWORD_FIELD
 
 from oan_grievance_service.api.v1.officer import (
 	create_officer,
@@ -19,6 +18,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	get_officer_supervisor,
 )
 from oan_grievance_service.services import category_assignment, routing
+from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
 from oan_grievance_service.tests.fixtures import a_leaf_area
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
@@ -71,6 +71,7 @@ class TestOfficerManagement(FrappeTestCase):
 				"email": email,
 				"phone": "+251911123456",
 				"service_categories": [self.inputs],
+				"temporary_password": "Temp1234",
 				**extra,
 			}
 		)
@@ -207,6 +208,7 @@ class TestOfficerManagement(FrappeTestCase):
 				department="S430",
 				email="stg430-x@example.com",
 				service_categories=["STG430 Markets"],
+				temporary_password="Temp1234",
 			)
 		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 		self.assertFalse(frappe.db.exists("User", "stg430-x@example.com"))
@@ -235,14 +237,29 @@ class TestOfficerManagement(FrappeTestCase):
 					department="S430",
 					email=officer["email"].upper(),
 					service_categories=[self.inputs],
+					temporary_password="Temp1234",
 				)["code"],
 				"VALIDATION_ERROR",
 			)
 
-	def test_an_existing_login_is_promoted(self):
+	def test_an_existing_login_is_promoted_and_keeps_its_own_password(self):
+		"""The admin's temporary password must not replace the password an existing login already has."""
 		login = _user("stg430-existing@example.com", "Existing Login")
-		officer = self._create(login)
+		result = create_officer(
+			full_name="Existing Login",
+			designation="Nodal Officer",
+			level="L1",
+			department="S430",
+			email=login,
+			service_categories=[self.inputs],
+			temporary_password="Temp1234",
+		)
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertIn("already had a login", result["message"])
+		officer = result["data"]["officer"]
 		self.assertEqual(officer["name"], login)
+		self.assertFalse(officer["must_change_password"])
+		self.assertFalse(frappe.db.get_value("User", login, MUST_CHANGE_PASSWORD_FIELD))
 		self.assertEqual(len(self._rows(login)), 1)
 
 	def test_invalid_input_is_rejected(self):
@@ -253,6 +270,7 @@ class TestOfficerManagement(FrappeTestCase):
 			"department": "S430",
 			"email": "stg430-x@example.com",
 			"service_categories": [self.inputs],
+			"temporary_password": "Temp1234",
 		}
 		bad = [
 			{"department": "Nope"},
@@ -423,6 +441,7 @@ class TestOfficerManagement(FrappeTestCase):
 					department="S430",
 					email="a@b.co",
 					service_categories=[self.inputs],
+					temporary_password="Temp1234",
 				),
 			):
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
@@ -431,16 +450,29 @@ class TestOfficerManagement(FrappeTestCase):
 		frappe.set_user(admin)
 		self.assertEqual(list_officers()["status"], "success")
 
-	def test_a_temporary_password_is_set_flagged_and_replaceable(self):
-		without = self._create("stg430-nopassword@example.com")
-		self.assertFalse(without["must_change_password"])
-
-		officer = self._create(temporary_password="Temp1234")
+	def test_a_new_officer_gets_a_temporary_password_they_must_replace(self):
+		officer = self._create(temporary_password="Temp5678")
 		self.assertTrue(officer["must_change_password"])
 		self.assertEqual(frappe.db.get_value("User", officer["name"], MUST_CHANGE_PASSWORD_FIELD), 1)
 		# The password really exists: it is what set-initial-password will verify.
-		self.assertEqual(check_password(officer["name"], "Temp1234"), officer["name"])
+		self.assertEqual(check_password(officer["name"], "Temp5678"), officer["name"])
 		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["must_change_password"], True)
+
+	def test_a_temporary_password_is_required(self):
+		base = {
+			"full_name": "X",
+			"designation": "Y",
+			"level": "L1",
+			"department": "S430",
+			"email": "stg430-nopassword@example.com",
+			"service_categories": [self.inputs],
+		}
+		with _keep_transaction():
+			for extra in ({}, {"temporary_password": ""}, {"temporary_password": "   "}):
+				result = create_officer(**base, **extra)
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(extra, result))
+				self.assertIn("temporary_password", result["details"])
+		self.assertFalse(frappe.db.exists("User", base["email"]))
 
 	def test_a_temporary_password_must_meet_the_rule(self):
 		base = {
@@ -458,26 +490,10 @@ class TestOfficerManagement(FrappeTestCase):
 				self.assertIn("temporary_password", result["details"])
 		self.assertFalse(frappe.db.exists("User", base["email"]))
 
-	def test_a_temporary_password_is_refused_for_an_existing_login(self):
-		"""An existing account already has a password; setting one here would be taking it over."""
-		login = _user("stg430-has-login@example.com", "Has A Login")
-		with _keep_transaction():
-			result = create_officer(
-				full_name="Has A Login",
-				designation="Nodal Officer",
-				level="L1",
-				department="S430",
-				email=login,
-				service_categories=[self.inputs],
-				temporary_password="Temp1234",
-			)
-		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
-		self.assertFalse(frappe.db.get_value("User", login, MUST_CHANGE_PASSWORD_FIELD))
-		self.assertEqual(self._rows(login), [])
-
 	def test_a_temporary_password_can_be_reissued_to_an_officer(self):
 		officer = self._create()
-		self.assertFalse(officer["must_change_password"])
+		frappe.db.set_value("User", officer["name"], MUST_CHANGE_PASSWORD_FIELD, 0)
+		self.assertFalse(get_officer(officer["name"])["data"]["officer"]["must_change_password"])
 
 		result = reset_temporary_password(officer["name"], temporary_password="Another123")
 		self.assertEqual(result["status"], "success", msg=result)
@@ -502,4 +518,5 @@ class TestOfficerManagement(FrappeTestCase):
 			self.assertEqual(weak["code"], "VALIDATION_ERROR", msg=weak)
 
 		self.assertFalse(frappe.db.get_value("User", plain, MUST_CHANGE_PASSWORD_FIELD))
-		self.assertFalse(frappe.db.get_value("User", admin_officer["name"], MUST_CHANGE_PASSWORD_FIELD))
+		# Every refusal left the officer's own password alone.
+		self.assertEqual(check_password(admin_officer["name"], "Temp1234"), admin_officer["name"])

@@ -1589,6 +1589,65 @@
           "response": []
         },
         {
+          "name": "9e. Get Response Templates (Staff Only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 403\", function () {",
+                  "    pm.expect([200, 403]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+                  "    pm.test(\"Rendered templates returned\", function () {",
+                  "        pm.expect(Array.isArray(data.items)).to.be.true;",
+                  "        data.items.forEach(function (t) {",
+                  "            pm.expect(t).to.have.property(\"template\");",
+                  "            pm.expect(t).to.have.property(\"reason\");",
+                  "            pm.expect(t).to.have.property(\"reason_parts\");",
+                  "        });",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "response-templates"
+              ],
+              "query": [
+                {
+                  "key": "action",
+                  "value": "Resolve"
+                },
+                {
+                  "key": "service_category",
+                  "value": "Inputs",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists active response templates for the workflow action that fit the grievance's department and category, most specific first, rendered with the grievance's details. Pass the chosen template ID as `template` when posting the response."
+          },
+          "response": []
+        },
+        {
           "name": "10. Escalate Grievance",
           "event": [
             {
@@ -2115,10 +2174,10 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new.",
+                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/set-initial-password. An email that already has a login keeps its own password.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
+                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
                 }
               },
               "response": []
@@ -2157,10 +2216,54 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1.",
+                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. temporary_password is required and is applied to a new login only.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
+                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Issue temporary password",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/temporary-password",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers",
+                    "{{officer}}",
+                    "temporary-password"
+                  ]
+                },
+                "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/set-initial-password before signing in. Refused for an account that holds an admin role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
                 }
               },
               "response": []
