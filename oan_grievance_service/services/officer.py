@@ -7,13 +7,15 @@ There is no officer record of its own. An officer is a User with Grievance RBAC 
 Officer rows, one on each category desk they staff, so routing, permissions and escalation
 read exactly what an admin edits here:
 
-- the person (name, email, phone, designation, availability) is the User;
+- the person (name, email, phone, designation) is the User;
 - the level (L1 Nodal, L2 Senior Nodal) is the row's role level;
 - the service categories are the category desks the officer sits on;
-- the region and the supervisor (`reports_to`) are on the officer's rows.
+- the region, the supervisor (`reports_to`) and availability are on the officer's rows.
 
-An officer is never deleted. Status carries Active, On Leave and Inactive: On Leave keeps the
-desk rows but auto-routing skips the officer, and Inactive also retires the rows.
+An officer is never deleted. Status is read from the rows, so it has no field of its own and
+nothing on User: Active is an active row, On Leave is an active row with `on_leave` set (the
+desk and its permissions stay, but auto-routing skips the officer), and Inactive is a row with
+`active` cleared. Changing status writes every desk row of the officer.
 """
 
 from collections import defaultdict
@@ -22,7 +24,7 @@ from types import SimpleNamespace
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
-from frappe.query_builder.functions import Coalesce, Count
+from frappe.query_builder.functions import Count
 
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.resolvers import (
@@ -43,7 +45,6 @@ USER_FIELDS = [
 	"email",
 	"phone",
 	"grievance_designation",
-	"grievance_officer_status",
 ]
 
 
@@ -73,7 +74,7 @@ def create(
 	placement["reports_to"] = _resolve_supervisor(reports_to, level)
 
 	user = _new_or_existing_user(email)
-	_write_user(user, {"full_name": full_name, "designation": designation, "phone": phone, "status": status})
+	_write_user(user, {"full_name": full_name, "designation": designation, "phone": phone})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	return user.name
@@ -83,14 +84,12 @@ def update(user_id: str, changes: dict) -> str:
 	"""Apply a partial update. `department` and `service_categories` re-seat the officer on desks."""
 	current = _current(user_id)
 	changes = dict(changes)
-	person = {
-		key: changes.pop(key) for key in ("full_name", "designation", "phone", "status") if key in changes
-	}
+	status = changes.pop("status", None)
+	person = {key: changes.pop(key) for key in ("full_name", "designation", "phone") if key in changes}
 	if person:
 		_write_user(frappe.get_doc("User", user_id), person)
 
-	status = person.get("status") or current.status
-	row_changes = {"active": 0 if status == "Inactive" else 1}
+	row_changes = _availability(status) if status else {}
 	if "region" in changes:
 		row_changes["administrative_area"] = _resolve_region(changes["region"])
 	if "reports_to" in changes:
@@ -102,7 +101,7 @@ def update(user_id: str, changes: dict) -> str:
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
-		_save_desk(name, user_id, row_changes, on_new=_placement(current.level, status))
+		_save_desk(name, user_id, row_changes, on_new=_placement(current.level, status or current.status))
 	return user_id
 
 
@@ -121,7 +120,7 @@ def list_officers(*, level=None, department=None, status=None, q=None, start=0, 
 	if department:
 		query = query.where(desk.department_scope == resolve_department(department))
 	if status:
-		query = query.where(Coalesce(user.grievance_officer_status, DEFAULT_STATUS) == status)
+		query = query.where(_status_filter(row, status))
 	if q:
 		like = f"%{q.strip()}%"
 		query = query.where(user.full_name.like(like) | user.email.like(like))
@@ -185,7 +184,7 @@ def records(user_ids: list[str]) -> list[dict]:
 				"phone": person.phone,
 				"region": region,
 				"region_name": area_names.get(region),
-				"status": person.grievance_officer_status or DEFAULT_STATUS,
+				"status": _status(own),
 				"service_categories": sorted({row.category_scope for row in own if row.category_scope}),
 				"reports_to": supervisor,
 				"reports_to_name": people[supervisor].full_name if supervisor in people else None,
@@ -212,7 +211,7 @@ def _current(user_id: str) -> SimpleNamespace:
 		department=rows[0].department_scope,
 		categories=sorted({row.category_scope for row in rows}),
 		desks={row.parent for row in rows},
-		status=frappe.db.get_value("User", user_id, "grievance_officer_status") or DEFAULT_STATUS,
+		status=_status(rows),
 	)
 
 
@@ -239,6 +238,7 @@ def _rows(user_ids: list[str]) -> list:
 			row.administrative_area,
 			row.reports_to,
 			row.active,
+			row.on_leave,
 			desk.department_scope,
 			desk.category_scope,
 			level.level_order,
@@ -269,12 +269,37 @@ def _category_desks(department: str, categories: list[str]) -> list:
 	return desks
 
 
+def _availability(status: str) -> dict:
+	"""Officer-row flags for a status. On Leave stays active: the desk row and its permissions remain."""
+	return {"active": 0 if status == "Inactive" else 1, "on_leave": 1 if status == "On Leave" else 0}
+
+
+def _status(rows: list) -> str:
+	"""An officer's status from their desk rows: the most available one wins.
+
+	Every write here keeps an officer's rows equal. They can differ only if an admin edits one
+	desk directly, and then the officer is still reachable while any desk takes cases.
+	"""
+	if any(row.active and not row.on_leave for row in rows):
+		return "Active"
+	return "On Leave" if any(row.active for row in rows) else "Inactive"
+
+
+def _status_filter(row, status: str):
+	"""SQL for officers with a row in `status`, the same reading as `_status`."""
+	if status == "Active":
+		return (row.active == 1) & (row.on_leave == 0)
+	if status == "On Leave":
+		return (row.active == 1) & (row.on_leave == 1)
+	return row.active == 0
+
+
 def _placement(level: str, status: str) -> dict:
 	"""Officer-row fields that follow from the level and status."""
 	return {
 		"role_level": LEVEL_CODES[level],
 		"is_primary": 1 if level == "L1" else 0,
-		"active": 0 if status == "Inactive" else 1,
+		**_availability(status),
 	}
 
 
@@ -312,11 +337,7 @@ def _write_user(user, fields: dict):
 	"""Set the person-level fields that were given and make sure the User holds the officer role."""
 	if "full_name" in fields:
 		user.first_name, user.last_name = fields["full_name"], ""
-	for key, field in (
-		("designation", "grievance_designation"),
-		("phone", "phone"),
-		("status", "grievance_officer_status"),
-	):
+	for key, field in (("designation", "grievance_designation"), ("phone", "phone")):
 		if key in fields:
 			user.set(field, fields[key])
 	if OFFICER_ROLE not in {role.role for role in user.roles}:

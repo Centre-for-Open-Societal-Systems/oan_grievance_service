@@ -21,7 +21,6 @@ from oan_grievance_service.services import sla
 UNBOUNDED = 999999999
 DESK = "Grievance RBAC Assignment"
 OFFICER_ROW = "Grievance RBAC Assignment Officer"
-UNAVAILABLE_STATUSES = ("On Leave", "Inactive")
 
 MATCH_FIELDS = (
 	("category_scope", "service_category"),
@@ -310,20 +309,8 @@ def _covering_case(officers, grievance):
 
 
 def _available(officers):
-	"""Drop officers an admin has marked On Leave or Inactive, so they get no new cases."""
-	if not officers or not frappe.get_meta("User").has_field("grievance_officer_status"):
-		return officers
-	away = set(
-		frappe.get_all(
-			"User",
-			filters={
-				"name": ["in", [o.user for o in officers]],
-				"grievance_officer_status": ["in", UNAVAILABLE_STATUSES],
-			},
-			pluck="name",
-		)
-	)
-	return [o for o in officers if o.user not in away]
+	"""Drop officers marked On Leave, so they get no new cases. Read from the row, no extra query."""
+	return [o for o in officers if not getattr(o, "on_leave", 0)]
 
 
 def pick_officer_by_strategy(assignment_doc, grievance=None):

@@ -12,6 +12,7 @@
   "administrative_area",
   "is_primary",
   "active",
+  "on_leave",
   "col_officer",
   "max_open_cases",
   "last_assigned_at"
@@ -62,6 +63,14 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "Keeps the desk row and its permissions, but auto-routing skips this officer until cleared.",
+   "fieldname": "on_leave",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "On Leave"
   },
   {
    "fieldname": "col_officer",

@@ -811,24 +811,15 @@ OFFICER_USER_FIELDS = [
 		"insert_after": "mobile_no",
 		"description": "Officer title shown in the grievance administration screens.",
 	},
-	{
-		"fieldname": "grievance_officer_status",
-		"label": "Grievance Officer Status",
-		"fieldtype": "Select",
-		"options": "Active\nOn Leave\nInactive",
-		"default": "Active",
-		"insert_after": "grievance_designation",
-		"in_standard_filter": 1,
-		"description": "On Leave and Inactive officers are skipped by auto-routing. Inactive also retires their desk rows.",
-	},
 ]
 
 
 def seed_officer_user_fields():
-	"""Officer title and availability, as Custom Fields on core User.
+	"""Officer title, as a Custom Field on core User.
 
-	An officer is a User placed on desks through Grievance RBAC Assignment Officer rows, so
-	the facts that belong to the person rather than to a desk live on the User. Name, email
+	An officer is a User placed on desks through Grievance RBAC Assignment Officer rows. The
+	title belongs to the person, so it lives on the User. Availability (Active, On Leave,
+	Inactive) is per desk row, not here, so core User is not otherwise touched. Name, email
 	and phone are core fields already.
 	"""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_field

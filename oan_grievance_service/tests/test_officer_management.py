@@ -78,7 +78,15 @@ class TestOfficerManagement(FrappeTestCase):
 		return frappe.get_all(
 			"Grievance RBAC Assignment Officer",
 			filters={"user": user, "parenttype": DESK},
-			fields=["parent", "role_level", "administrative_area", "reports_to", "active", "is_primary"],
+			fields=[
+				"parent",
+				"role_level",
+				"administrative_area",
+				"reports_to",
+				"active",
+				"on_leave",
+				"is_primary",
+			],
 		)
 
 	def test_create_makes_a_user_and_a_desk_row(self):
@@ -155,12 +163,25 @@ class TestOfficerManagement(FrappeTestCase):
 		desk.reload()
 		self.assertNotEqual(routing.pick_officer_by_strategy(desk), officer["name"])
 
+		self.assertEqual(self._rows(officer["name"])[0].on_leave, 1)
+
 		update_officer(officer["name"], status="Inactive")
 		self.assertEqual(self._rows(officer["name"])[0].active, 0)
 		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["status"], "Inactive")
 
 		update_officer(officer["name"], status="Active")
 		self.assertEqual(self._rows(officer["name"])[0].active, 1)
+		self.assertEqual(self._rows(officer["name"])[0].on_leave, 0)
+
+	def test_status_lives_on_every_desk_row_not_on_user(self):
+		officer = self._create(service_categories=[self.inputs, self.credit])
+		self.assertFalse(frappe.get_meta("User").has_field("grievance_officer_status"))
+
+		update_officer(officer["name"], status="On Leave")
+		rows = self._rows(officer["name"])
+		self.assertEqual(len(rows), 2)
+		self.assertEqual({(row.active, row.on_leave) for row in rows}, {(1, 1)})
+		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["status"], "On Leave")
 
 	def test_service_categories_re_seat_the_officer_on_desks(self):
 		officer = self._create()
