@@ -447,6 +447,7 @@ def seed_all():
 		"submission_types": seed_submission_types(),
 		"response_types": seed_response_types(),
 		"notification_recipient_field": seed_recipient_custom_field(),
+		"officer_user_fields": seed_officer_user_fields(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
@@ -800,6 +801,46 @@ def seed_recipient_custom_field():
 		},
 	)
 	return ["Notification-grievance_recipient"]
+
+
+OFFICER_USER_FIELDS = [
+	{
+		"fieldname": "grievance_designation",
+		"label": "Grievance Designation",
+		"fieldtype": "Data",
+		"insert_after": "mobile_no",
+		"description": "Officer title shown in the grievance administration screens.",
+	},
+	{
+		"fieldname": "grievance_officer_status",
+		"label": "Grievance Officer Status",
+		"fieldtype": "Select",
+		"options": "Active\nOn Leave\nInactive",
+		"default": "Active",
+		"insert_after": "grievance_designation",
+		"in_standard_filter": 1,
+		"description": "On Leave and Inactive officers are skipped by auto-routing. Inactive also retires their desk rows.",
+	},
+]
+
+
+def seed_officer_user_fields():
+	"""Officer title and availability, as Custom Fields on core User.
+
+	An officer is a User placed on desks through Grievance RBAC Assignment Officer rows, so
+	the facts that belong to the person rather than to a desk live on the User. Name, email
+	and phone are core fields already.
+	"""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	made = []
+	for field in OFFICER_USER_FIELDS:
+		name = f"User-{field['fieldname']}"
+		if frappe.db.exists("Custom Field", name):
+			continue
+		create_custom_field("User", field)
+		made.append(name)
+	return made
 
 
 def _translatable(source, args, context_key):

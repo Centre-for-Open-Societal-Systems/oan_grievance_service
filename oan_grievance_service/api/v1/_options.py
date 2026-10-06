@@ -93,7 +93,7 @@ def get_department_officers(
 			"COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name",
 			"c.role_level",
 			"c.is_primary",
-			"p.administrative_area_scope",
+			"c.administrative_area AS administrative_area_scope",
 		],
 		order_by="c.is_primary DESC, u.full_name ASC, c.user ASC",
 	)

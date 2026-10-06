@@ -2012,7 +2012,7 @@
         },
         {
           "name": "Officers",
-          "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officer profiles. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+          "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
           "item": [
             {
               "name": "List officers",
@@ -2045,37 +2045,32 @@
                   "query": [
                     {
                       "key": "level",
-                      "value": "L1",
-                      "disabled": false
+                      "value": "L1"
                     },
                     {
                       "key": "department",
-                      "value": "MoA",
-                      "disabled": false
+                      "value": "MoA"
                     },
                     {
                       "key": "status",
-                      "value": "Active",
-                      "disabled": false
+                      "value": "Active"
                     },
                     {
                       "key": "page",
-                      "value": "1",
-                      "disabled": false
+                      "value": "1"
                     },
                     {
                       "key": "page_size",
-                      "value": "20",
-                      "disabled": false
+                      "value": "20"
                     }
                   ]
                 },
-                "description": "Filter by level (L1/L2), department, status, or search text q. Paginated with page and page_size."
+                "description": "Filter by level (L1/L2), department, status, or search text q. Paginated with page and page_size; the pagination block is at the top level of the response."
               },
               "response": []
             },
             {
-              "name": "Create officer (L1)",
+              "name": "Create officer (L2)",
               "event": [
                 {
                   "listen": "test",
@@ -2112,16 +2107,16 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Nodal (L1) officer. Level cannot be changed afterwards.",
+                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ]\n}"
+                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
                 }
               },
               "response": []
             },
             {
-              "name": "Create officer (L2)",
+              "name": "Create officer (L1)",
               "event": [
                 {
                   "listen": "test",
@@ -2154,10 +2149,10 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Senior Nodal (L2) officer. reports_to must be an L1 officer id.",
+                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. Level cannot be changed afterwards.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
+                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
                 }
               },
               "response": []
@@ -2192,7 +2187,7 @@
                     "{{officer}}"
                   ]
                 },
-                "description": "Fetch one officer profile."
+                "description": "Fetch one officer by email."
               },
               "response": []
             },
@@ -2231,7 +2226,7 @@
                     "{{officer}}"
                   ]
                 },
-                "description": "Partial update. service_categories replaces the whole list. Send phone, region or reports_to as null to clear them. level is rejected.",
+                "description": "Partial update. service_categories replaces the whole list and re-seats the officer on those desks. Send phone, region or reports_to as null to clear them. level and email are rejected.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"designation\": \"Chief Nodal Officer\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Credit\"\n  ]\n}"
@@ -2274,7 +2269,7 @@
                     "{{officer}}"
                   ]
                 },
-                "description": "Deactivation is a status update: Active, On Leave or Inactive.",
+                "description": "Deactivation is a status update: Active, On Leave or Inactive. On Leave skips auto-routing; Inactive also retires the officer's desk rows.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"status\": \"Inactive\"\n}"

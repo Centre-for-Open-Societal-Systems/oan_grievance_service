@@ -6,6 +6,7 @@ Where a rule matches, the grievance is assigned and the status advances to Assig
 Where none matches, it stays Submitted and sits in the nodal officer's manual queue.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +17,11 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import sla
+
+UNBOUNDED = 999999999
+DESK = "Grievance RBAC Assignment"
+OFFICER_ROW = "Grievance RBAC Assignment Officer"
+UNAVAILABLE_STATUSES = ("On Leave", "Inactive")
 
 MATCH_FIELDS = (
 	("category_scope", "service_category"),
@@ -87,25 +93,53 @@ def _score_desk(desk, case_area, case_lft, case_rgt):
 	if not area_match:
 		return False, 999999999, 0
 
-	specificity = 0
-	if desk.get("category_scope"):
-		specificity += 1
-	if desk.get("grievance_type_scope"):
-		specificity += 1
-	if desk.get("service_provider_scope"):
-		specificity += 1
-	if has_area_constraint:
-		specificity += 1
+	return True, area_span, _specificity(desk, has_area_constraint)
 
-	return True, area_span, specificity
+
+def _specificity(desk, has_area_constraint):
+	"""Number of constrained dimensions on a desk, counting the area when an officer row sets one."""
+	fields = ("category_scope", "grievance_type_scope", "service_provider_scope")
+	return sum(1 for field in fields if desk.get(field)) + (1 if has_area_constraint else 0)
+
+
+def _desk_area_fits(desk_names, case_area, case_lft, case_rgt):
+	"""Best area fit per desk as {desk: (span, constrained)}, in one query.
+
+	The area lives on each officer row. A desk fits when one of its active rows covers the
+	case's area, and the narrowest covering row sets the span. A row with no area covers
+	everything. A desk nobody staffs still names its department, so it fits unconstrained.
+	"""
+	if not desk_names:
+		return {}
+	areas = defaultdict(list)
+	for row in frappe.get_all(
+		OFFICER_ROW,
+		filters={"parent": ["in", list(desk_names)], "parenttype": DESK, "active": 1},
+		fields=["parent", "administrative_area"],
+	):
+		areas[row.parent].append(row.administrative_area)
+
+	fits = {}
+	for name in desk_names:
+		if not areas[name]:
+			fits[name] = (UNBOUNDED, False)
+			continue
+		best = None
+		for area in areas[name]:
+			matched, span, constrained = _evaluate_ancestor_area(case_area, case_lft, case_rgt, area)
+			if matched and (best is None or span < best[0]):
+				best = (span, constrained)
+		if best:
+			fits[name] = best
+	return fits
 
 
 def find_matching_assignment(grievance):
 	"""Return the winning Grievance RBAC Assignment (Desk), or None.
 
-	Uses Nearest-Ancestor resolution for administrative_area_scope:
 	Matches when category, grievance type, and service provider match (or are unconstrained),
-	and administrative area is an ancestor or exact match in the tree hierarchy.
+	and one of the desk's officers covers the case's administrative area: the officer's area is
+	an ancestor of, or equal to, the case's area. Resolution is nearest-ancestor.
 	Among matching assignments:
 	1. Narrowest tree span (rgt - lft) = deepest / nearest ancestor
 	2. Specificity count (number of constrained matching dimensions)
@@ -129,7 +163,6 @@ def find_matching_assignment(grievance):
 			"category_scope",
 			"grievance_type_scope",
 			"service_provider_scope",
-			"administrative_area_scope",
 			"routing_strategy",
 			"reassignment_requires_approval",
 			"creation",
@@ -137,6 +170,7 @@ def find_matching_assignment(grievance):
 	)
 
 	candidates = []
+	scoped = []
 	for a in assignments:
 		matched = True
 
@@ -153,15 +187,15 @@ def find_matching_assignment(grievance):
 			if constraint != doc_val:
 				matched = False
 				break
-		if not matched:
-			continue
+		if matched:
+			scoped.append(a)
 
-		area_match, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
-		if not area_match:
-			continue
-
-		# Candidate tuple: (area_span, -specificity, assignment)
-		candidates.append((area_span, -specificity, a))
+	fits = _desk_area_fits([a.name for a in scoped], case_area, case_lft, case_rgt)
+	for a in scoped:
+		if a.name in fits:
+			area_span, constrained = fits[a.name]
+			# Candidate tuple: (area_span, -specificity, assignment)
+			candidates.append((area_span, -_specificity(a, constrained), a))
 
 	if not candidates:
 		return None
@@ -188,7 +222,7 @@ def officer_desks(grievance, department, officer):
 			"p.category_scope",
 			"p.grievance_type_scope",
 			"p.service_provider_scope",
-			"p.administrative_area_scope",
+			"c.administrative_area AS administrative_area_scope",
 			"p.routing_strategy",
 			"p.reassignment_requires_approval",
 		],
@@ -236,31 +270,74 @@ def department_desks(grievance, department):
 			"category_scope",
 			"grievance_type_scope",
 			"service_provider_scope",
-			"administrative_area_scope",
 			"routing_strategy",
 			"reassignment_requires_approval",
 		],
 	)
 
+	fits = _desk_area_fits([a.name for a in assignments], case_area, case_lft, case_rgt)
 	candidates = []
 	for a in assignments:
-		if a.get("department_scope") and a.get("department_scope") != department:
-			continue
-		matched, area_span, specificity = _score_desk(a, case_area, case_lft, case_rgt)
-		if not matched:
-			continue
-		candidates.append((area_span, -specificity, a))
+		if a.name in fits:
+			area_span, constrained = fits[a.name]
+			candidates.append((area_span, -_specificity(a, constrained), a))
 
 	candidates.sort(key=lambda row: (row[0], row[1]))
 	return [row[2] for row in candidates]
 
 
-def pick_officer_by_strategy(assignment_doc):
-	"""Pick an officer from the assignment's child officers based on routing_strategy."""
+def _covering_case(officers, grievance):
+	"""The officers whose area covers the grievance's area, narrowest first.
+
+	Only the nearest enclosing area is kept, so a woreda officer is picked over a region
+	officer for a case in that woreda. An officer with no area covers everything and is the
+	widest fit. Without a grievance there is no area to match and every officer stays.
+	"""
+	if grievance is None:
+		return officers
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	fitting = []
+	for officer in officers:
+		matched, span, _constrained = _evaluate_ancestor_area(
+			case_area, case_lft, case_rgt, getattr(officer, "administrative_area", None)
+		)
+		if matched:
+			fitting.append((span, officer))
+	if not fitting:
+		return []
+	narrowest = min(span for span, _officer in fitting)
+	return [officer for span, officer in fitting if span == narrowest]
+
+
+def _available(officers):
+	"""Drop officers an admin has marked On Leave or Inactive, so they get no new cases."""
+	if not officers or not frappe.get_meta("User").has_field("grievance_officer_status"):
+		return officers
+	away = set(
+		frappe.get_all(
+			"User",
+			filters={
+				"name": ["in", [o.user for o in officers]],
+				"grievance_officer_status": ["in", UNAVAILABLE_STATUSES],
+			},
+			pluck="name",
+		)
+	)
+	return [o for o in officers if o.user not in away]
+
+
+def pick_officer_by_strategy(assignment_doc, grievance=None):
+	"""Pick an officer from the assignment's child officers based on routing_strategy.
+
+	Pass the grievance to restrict the pool to officers whose area covers it.
+	"""
 	if not assignment_doc.get("officers"):
 		return None
 
-	active_officers = [o for o in assignment_doc.officers if getattr(o, "active", 1)]
+	# Availability first: an officer on leave must not hide the next-nearest one.
+	active_officers = _covering_case(
+		_available([o for o in assignment_doc.officers if getattr(o, "active", 1)]), grievance
+	)
 	if not active_officers:
 		return None
 
@@ -337,7 +414,7 @@ def apply_routing(grievance, commit_status=True):
 
 	assignment = find_matching_assignment(grievance)
 	doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name) if assignment else None
-	officer_user = pick_officer_by_strategy(doc) if doc else None
+	officer_user = pick_officer_by_strategy(doc, grievance) if doc else None
 
 	if not doc or not doc.department_scope:
 		if hasattr(grievance, "db_set"):

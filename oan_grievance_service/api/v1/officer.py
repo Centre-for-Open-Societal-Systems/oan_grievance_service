@@ -3,12 +3,12 @@
 
 """Officer management for the Administration Nodal Officers (L1) and Senior Officers (L2) tabs.
 
-L1 and L2 officers are one entity told apart by `level`. Officers are not hard-deleted:
-deactivate one by PATCHing `status` to Inactive. Performance metrics (assigned, resolved,
-average time, resolution rate) are not part of this resource; the statistics API serves them.
+An officer is a User placed on category desks through Grievance RBAC Assignment Officer
+rows, so what an admin edits here is what routing, permissions and escalation read. The
+officer id is the User id, which is the officer's email.
 
-Handlers stay thin. Field and link checks live in the profile's `validate()` and the
-workflow lives in `services/officer.py`.
+Officers are not deleted: set `status` to Inactive. Performance metrics (assigned, resolved,
+average time, resolution rate) are served by the statistics API, not by this resource.
 """
 
 from typing import Literal
@@ -17,16 +17,17 @@ import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
+	PageParams,
 	api_doc,
 	handle_api_errors,
+	page_meta,
 	require_role,
 	success_response,
 	validate_email_string,
 	validate_request,
 )
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
-from oan_grievance_service.api.v1._pagination import PageParams, page_meta
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import officer as service
 
@@ -37,10 +38,15 @@ Level = Literal["L1", "L2"]
 Status = Literal["Active", "On Leave", "Inactive"]
 
 
+def normalize_email(value: str) -> str:
+	"""The one place an officer's email is validated and canonicalised. The User id is this value."""
+	return validate_email_string(value.strip()).lower()
+
+
 class OfficerRecord(BaseModel):
 	name: str
 	full_name: str
-	designation: str
+	designation: str | None = None
 	level: Level
 	department: str
 	email: str
@@ -51,7 +57,6 @@ class OfficerRecord(BaseModel):
 	service_categories: list[str]
 	reports_to: str | None = None
 	reports_to_name: str | None = None
-	user: str | None = None
 
 
 class OfficerData(BaseModel):
@@ -60,7 +65,6 @@ class OfficerData(BaseModel):
 
 class OfficerListData(BaseModel):
 	officers: list[OfficerRecord]
-	pagination: dict
 
 
 class OfficerRef(Body):
@@ -73,34 +77,30 @@ class CreateOfficer(Body):
 	level: Level
 	department: NonBlank
 	email: NonBlank
+	service_categories: list[NonBlank] = Field(min_length=1)
 	phone: str | None = None
 	region: str | None = None
 	status: Status = "Active"
-	service_categories: list[NonBlank] | None = None
 	reports_to: str | None = None
-	user: str | None = None
 
-	_email = field_validator("email")(validate_email_string)
-	_blank = field_validator("phone", "region", "reports_to", "user", mode="before")(blank_to_none)
+	_email = field_validator("email")(normalize_email)
+	_blank = field_validator("phone", "region", "reports_to", mode="before")(blank_to_none)
 
 
 class UpdateOfficer(Body):
-	"""Partial update. Omitted fields stay as they are. `level` is fixed once created."""
+	"""Partial update. Omitted fields stay as they are. `level` and `email` are fixed once created."""
 
 	officer: NonBlank
 	full_name: NonBlank = None
 	designation: NonBlank = None
 	department: NonBlank = None
-	email: NonBlank = None
 	phone: str | None = None
 	region: str | None = None
 	status: Status = None
-	service_categories: list[NonBlank] = None
+	service_categories: list[NonBlank] = Field(default=None, min_length=1)
 	reports_to: str | None = None
-	user: str | None = None
 
-	_email = field_validator("email")(validate_email_string)
-	_blank = field_validator("phone", "region", "reports_to", "user", mode="before")(blank_to_none)
+	_blank = field_validator("phone", "region", "reports_to", mode="before")(blank_to_none)
 
 
 class ListOfficers(PageParams, Body):
@@ -122,7 +122,7 @@ class ListOfficers(PageParams, Body):
 @api_doc(
 	summary="List officers",
 	description="Admin list of L1 and L2 officers, filterable by level, department and status. "
-	+ "q matches name, email or id.",
+	+ "q matches name or email.",
 	tags=["Administration"],
 	response_model=OfficerListData,
 )
@@ -135,27 +135,24 @@ def list_officers(
 	page_size: int | str = 20,
 	**kwargs,
 ):
-	"""List officer profiles, newest first.
+	"""List officers by name.
 
 	Numeric parameters also accept str: frappe checks annotations before validate_request
 	runs, and a bare int would turn a bad value into its own type error.
 	"""
 	params = PageParams(page=page, page_size=page_size)
-	filters = service.list_filters(level=level, department=department, status=status)
-	or_filters = service.search_filters(q)
-	rows = frappe.get_all(
-		service.DOCTYPE,
-		filters=filters,
-		or_filters=or_filters,
-		fields=service.FIELDS,
-		order_by="modified desc, name desc",
-		offset=params.start,
-		limit=params.page_size,
+	ids, total = service.list_officers(
+		level=level,
+		department=department,
+		status=status,
+		q=q,
+		start=params.start,
+		page_size=params.page_size,
 	)
-	total = service.count(filters, or_filters)
 	return success_response(
-		data={"officers": service.records(rows), "pagination": page_meta(params, total)},
+		data={"officers": service.records(ids)},
 		message=_("Officers retrieved"),
+		pagination=page_meta(total, params.page, params.page_size),
 	)
 
 
@@ -166,16 +163,13 @@ def list_officers(
 @validate_request(OfficerRef)
 @api_doc(
 	summary="Get an officer",
-	description="One L1 or L2 officer profile.",
+	description="One L1 or L2 officer. The id is the officer's email.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
 def get_officer(officer: str, **kwargs):
-	"""Return one officer profile."""
-	return success_response(
-		data={"officer": service.record(service.get_profile(officer).name)},
-		message=_("Officer retrieved"),
-	)
+	"""Return one officer."""
+	return success_response(data={"officer": service.record(officer)}, message=_("Officer retrieved"))
 
 
 @route("", methods=("POST",), summary="Create an officer")
@@ -185,7 +179,9 @@ def get_officer(officer: str, **kwargs):
 @validate_request(CreateOfficer)
 @api_doc(
 	summary="Create an officer",
-	description="Create an L1 or L2 officer profile. reports_to is only for an L2 and must name an L1.",
+	description="Make a login an L1 or L2 officer on the category desks of a department. "
+	+ "The login is created when the email is new. Every service category must already have a "
+	+ "category assignment for the department. reports_to is an L2 officer and is only for an L1.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -195,29 +191,27 @@ def create_officer(
 	level: str,
 	department: str,
 	email: str,
+	service_categories: list,
 	phone: str | None = None,
 	region: str | None = None,
 	status: str = "Active",
-	service_categories: list | None = None,
 	reports_to: str | None = None,
-	user: str | None = None,
 	**kwargs,
 ):
-	"""Create an officer profile."""
-	doc = service.create(
+	"""Create an officer."""
+	user_id = service.create(
 		full_name=full_name,
 		designation=designation,
 		level=level,
 		department=department,
 		email=email,
+		service_categories=service_categories,
 		phone=phone,
 		region=region,
 		status=status,
-		service_categories=service_categories,
 		reports_to=reports_to,
-		user=user,
 	)
-	return success_response(data={"officer": service.record(doc.name)}, message=_("Officer created"))
+	return success_response(data={"officer": service.record(user_id)}, message=_("Officer created"))
 
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer")
@@ -227,16 +221,15 @@ def create_officer(
 @validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
-	description="Change contact details, department, region, status, service categories or supervisor. "
-	+ "Set status to Inactive to deactivate. service_categories replaces the whole list. "
-	+ "The level is fixed once created.",
+	description="Change name, designation, phone, department, region, status, service categories or "
+	+ "supervisor. Set status to Inactive to deactivate: the officer's desk rows are retired too. "
+	+ "service_categories replaces the whole list. level and email are fixed once created.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
 def update_officer(officer: str, **kwargs):
 	"""Update an officer. `kwargs` holds only the fields the client sent."""
-	doc = service.get_profile(officer)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	service.update(doc, kwargs)
-	return success_response(data={"officer": service.record(doc.name)}, message=_("Officer updated"))
+	service.update(officer, kwargs)
+	return success_response(data={"officer": service.record(officer)}, message=_("Officer updated"))

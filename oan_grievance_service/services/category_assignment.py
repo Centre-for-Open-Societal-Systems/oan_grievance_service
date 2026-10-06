@@ -27,7 +27,6 @@ def desk_filters(**extra) -> dict:
 	"""Filters that select category-only desks. Extra keys narrow or override them."""
 	return {
 		"category_scope": ["is", "set"],
-		"administrative_area_scope": ["is", "not set"],
 		"grievance_type_scope": ["is", "not set"],
 		"service_provider_scope": ["is", "not set"],
 		**extra,

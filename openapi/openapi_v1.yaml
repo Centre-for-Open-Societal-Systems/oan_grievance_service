@@ -3624,7 +3624,7 @@ paths:
       tags:
       - Administration
       summary: List officers
-      description: 'List officer profiles, newest first.
+      description: 'List officers by name.
 
 
         Numeric parameters also accept str: frappe checks annotations before validate_request
@@ -3674,7 +3674,7 @@ paths:
       tags:
       - Administration
       summary: Create an officer
-      description: Create an officer profile.
+      description: Create an officer.
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -3727,7 +3727,7 @@ paths:
       tags:
       - Administration
       summary: Get an officer
-      description: Return one officer profile.
+      description: Return one officer.
       operationId: get_api_v1_officers_officer
       responses:
         '200':

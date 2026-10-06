@@ -353,18 +353,19 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": dept,
 				"category_scope": self.cat_a,
-				"administrative_area_scope": area,
 				"active": 1,
 				"effective_from": "2026-01-01",
 				"officers": [
 					{
 						"user": "nodal_worker@example.com",
+						"administrative_area": area,
 						"role_level": "nodal_officer",
 						"is_primary": 1,
 						"active": 1,
 					},
 					{
 						"user": "head_worker@example.com",
+						"administrative_area": area,
 						"role_level": "department_head",
 						"is_primary": 1,
 						"active": 1,

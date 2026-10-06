@@ -1,47 +1,50 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""Officer management: create, read, update and list L1 / L2 officer profiles.
+"""Officer management over the existing User and Grievance RBAC Assignment Officer model.
 
-Field checks (email, region tier, who an L2 may report to) live in the profile's own
-`validate()`. This module resolves client identifiers to canonical doc names, guards
-uniqueness, and projects rows to API records. Officers are never deleted: `status`
-carries Active / On Leave / Inactive, so history that points at an officer survives.
+There is no officer record of its own. An officer is a User with Grievance RBAC Assignment
+Officer rows, one on each category desk they staff, so routing, permissions and escalation
+read exactly what an admin edits here:
+
+- the person (name, email, phone, designation, availability) is the User;
+- the level (L1 Nodal, L2 Senior Nodal) is the row's role level;
+- the service categories are the category desks the officer sits on;
+- the region and the supervisor (`reports_to`) are on the officer's rows.
+
+An officer is never deleted. Status carries Active, On Leave and Inactive: On Leave keeps the
+desk rows but auto-routing skips the officer, and Inactive also retires the rows.
 """
 
 from collections import defaultdict
+from types import SimpleNamespace
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Coalesce, Count
 
+from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.resolvers import (
 	resolve_administrative_area,
 	resolve_department,
 	resolve_service_category,
 )
 
-DOCTYPE = "Grievance Officer Profile"
-CATEGORY_DOCTYPE = "Grievance Officer Service Category"
-FIELDS = [
+DESK = category_assignment.DOCTYPE
+ROW = "Grievance RBAC Assignment Officer"
+OFFICER_ROLE = "Grievance Officer"
+LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
+CODE_LEVELS = {code: level for level, code in LEVEL_CODES.items()}
+DEFAULT_STATUS = "Active"
+USER_FIELDS = [
 	"name",
 	"full_name",
-	"designation",
-	"level",
-	"department",
 	"email",
 	"phone",
-	"region",
-	"status",
-	"reports_to",
-	"user",
+	"grievance_designation",
+	"grievance_officer_status",
 ]
-
-
-def get_profile(name: str):
-	"""The officer profile with this id, or DoesNotExistError."""
-	if not name or not frappe.db.exists(DOCTYPE, name):
-		frappe.throw(_("Officer '{0}' was not found.").format(name), frappe.DoesNotExistError)
-	return frappe.get_doc(DOCTYPE, name)
 
 
 def create(
@@ -51,70 +54,228 @@ def create(
 	level: str,
 	department: str,
 	email: str,
+	service_categories: list[str],
 	phone: str | None = None,
 	region: str | None = None,
-	status: str = "Active",
-	service_categories: list[str] | None = None,
+	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
-	user: str | None = None,
-):
-	"""Insert a profile. Returns the document."""
-	values = {
-		"full_name": full_name,
-		"designation": designation,
-		"level": level,
-		"email": email,
-		"phone": phone,
-		"status": status,
-		"user": user,
-		**_resolved(
-			department=department,
-			region=region,
-			service_categories=service_categories or [],
-			reports_to=reports_to,
-		),
+) -> str:
+	"""Make `email` an officer on the category desks of `department`. Returns the user id.
+
+	An existing login with no desk rows is promoted, so an admin can staff someone who
+	already has an account. A login that is already an officer is rejected.
+	"""
+	desks = _category_desks(resolve_department(department), service_categories)
+	if _rows([email]):
+		frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
+	placement = _placement(level, status)
+	placement["administrative_area"] = _resolve_region(region)
+	placement["reports_to"] = _resolve_supervisor(reports_to, level)
+
+	user = _new_or_existing_user(email)
+	_write_user(user, {"full_name": full_name, "designation": designation, "phone": phone, "status": status})
+	for desk in desks:
+		_save_desk(desk.name, user.name, placement)
+	return user.name
+
+
+def update(user_id: str, changes: dict) -> str:
+	"""Apply a partial update. `department` and `service_categories` re-seat the officer on desks."""
+	current = _current(user_id)
+	changes = dict(changes)
+	person = {
+		key: changes.pop(key) for key in ("full_name", "designation", "phone", "status") if key in changes
 	}
-	_check_unique(values)
-	categories = values.pop("service_categories")
-	doc = frappe.get_doc(
-		{
-			"doctype": DOCTYPE,
-			**values,
-			"service_categories": [{"service_category": name} for name in categories],
-		}
+	if person:
+		_write_user(frappe.get_doc("User", user_id), person)
+
+	status = person.get("status") or current.status
+	row_changes = {"active": 0 if status == "Inactive" else 1}
+	if "region" in changes:
+		row_changes["administrative_area"] = _resolve_region(changes["region"])
+	if "reports_to" in changes:
+		row_changes["reports_to"] = _resolve_supervisor(changes["reports_to"], current.level)
+
+	department = resolve_department(changes["department"]) if "department" in changes else current.department
+	desks = _category_desks(department, changes.get("service_categories", current.categories))
+	target = {desk.name for desk in desks}
+	for name in current.desks - target:
+		_save_desk(name, user_id, None)
+	for name in sorted(target):
+		_save_desk(name, user_id, row_changes, on_new=_placement(current.level, status))
+	return user_id
+
+
+def list_officers(*, level=None, department=None, status=None, q=None, start=0, page_size=20):
+	"""One page of officer ids and the total, filtered and counted in SQL."""
+	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
+	query = (
+		frappe.qb.from_(row)
+		.join(desk)
+		.on(desk.name == row.parent)
+		.join(user)
+		.on(user.name == row.user)
+		.where(row.parenttype == DESK)
+		.where(row.role_level.isin([LEVEL_CODES[level]] if level else list(CODE_LEVELS)))
 	)
-	doc.insert()
-	return doc
+	if department:
+		query = query.where(desk.department_scope == resolve_department(department))
+	if status:
+		query = query.where(Coalesce(user.grievance_officer_status, DEFAULT_STATUS) == status)
+	if q:
+		like = f"%{q.strip()}%"
+		query = query.where(user.full_name.like(like) | user.email.like(like))
+
+	total = query.select(Count(user.name).distinct()).run()[0][0]
+	ids = (
+		query.select(user.name, user.full_name)
+		.distinct()
+		.orderby(user.full_name)
+		.orderby(user.name)
+		.limit(page_size)
+		.offset(start)
+		.run()
+	)
+	return [name for name, _full_name in ids], total
 
 
-def update(doc, changes: dict):
-	"""Apply a partial update. `service_categories` replaces the whole list."""
-	values = dict(changes)
-	resolvable = {"department", "region", "service_categories", "reports_to"} & values.keys()
-	values.update(_resolved(**{key: values[key] for key in resolvable}))
-	_check_unique(values, exclude=doc.name)
-	categories = values.pop("service_categories", None)
-	doc.update(values)
-	if categories is not None:
-		doc.set("service_categories", [{"service_category": name} for name in categories])
-	doc.save()
-	return doc
+def records(user_ids: list[str]) -> list[dict]:
+	"""API records for officers, in the order given, with a fixed number of queries."""
+	if not user_ids:
+		return []
+	rows = _rows(user_ids)
+	by_user = defaultdict(list)
+	for row in rows:
+		by_user[row.user].append(row)
 
-
-def _resolved(**raw) -> dict:
-	"""Canonical doc names for whichever identifiers were given. Blank means "clear it"."""
-	out = {}
-	if "department" in raw:
-		out["department"] = resolve_department(raw["department"])
-	if "region" in raw:
-		out["region"] = _resolve_region(raw["region"])
-	if "service_categories" in raw:
-		out["service_categories"] = list(
-			dict.fromkeys(resolve_service_category(value) for value in raw["service_categories"])
+	supervisors = {row.reports_to for row in rows if row.reports_to}
+	people = {
+		person.name: person
+		for person in frappe.get_all(
+			"User", filters={"name": ["in", list(set(user_ids) | supervisors)]}, fields=USER_FIELDS
 		)
-	if "reports_to" in raw:
-		out["reports_to"] = get_profile(raw["reports_to"]).name if raw["reports_to"] else None
-	return out
+	}
+	area_names = {
+		area.name: area.area_name
+		for area in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={
+				"name": ["in", list({row.administrative_area for row in rows if row.administrative_area})]
+			},
+			fields=["name", "area_name"],
+		)
+	}
+
+	records = []
+	for user_id in user_ids:
+		person, own = people.get(user_id), by_user[user_id]
+		if not person or not own:
+			continue
+		top = max(own, key=lambda row: row.level_order)
+		region = next((row.administrative_area for row in own if row.administrative_area), None)
+		supervisor = next((row.reports_to for row in own if row.reports_to), None)
+		records.append(
+			{
+				"name": person.name,
+				"full_name": person.full_name,
+				"designation": person.grievance_designation,
+				"level": CODE_LEVELS[top.role_level],
+				"department": top.department_scope,
+				"email": person.email,
+				"phone": person.phone,
+				"region": region,
+				"region_name": area_names.get(region),
+				"status": person.grievance_officer_status or DEFAULT_STATUS,
+				"service_categories": sorted({row.category_scope for row in own if row.category_scope}),
+				"reports_to": supervisor,
+				"reports_to_name": people[supervisor].full_name if supervisor in people else None,
+			}
+		)
+	return records
+
+
+def record(user_id: str) -> dict:
+	"""One officer as an API record, or DoesNotExistError."""
+	found = records([user_id])
+	if not found:
+		_not_found(user_id)
+	return found[0]
+
+
+def _current(user_id: str) -> SimpleNamespace:
+	"""What an officer is today, read from their desk rows."""
+	rows = _rows([user_id])
+	if not rows:
+		_not_found(user_id)
+	return SimpleNamespace(
+		level=CODE_LEVELS[max(rows, key=lambda row: row.level_order).role_level],
+		department=rows[0].department_scope,
+		categories=sorted({row.category_scope for row in rows}),
+		desks={row.parent for row in rows},
+		status=frappe.db.get_value("User", user_id, "grievance_officer_status") or DEFAULT_STATUS,
+	)
+
+
+def _not_found(user_id: str):
+	frappe.throw(_("Officer '{0}' was not found.").format(user_id), frappe.DoesNotExistError)
+
+
+def _rows(user_ids: list[str]) -> list:
+	"""Every officer row of `user_ids` on a category desk, with its desk's scope and level order."""
+	row, desk, level = DocType(ROW), DocType(DESK), DocType("Grievance Role Level")
+	return (
+		frappe.qb.from_(row)
+		.join(desk)
+		.on(desk.name == row.parent)
+		.join(level)
+		.on(level.name == row.role_level)
+		.where(row.parenttype == DESK)
+		.where(row.user.isin(user_ids))
+		.where(row.role_level.isin(list(CODE_LEVELS)))
+		.select(
+			row.user,
+			row.parent,
+			row.role_level,
+			row.administrative_area,
+			row.reports_to,
+			row.active,
+			desk.department_scope,
+			desk.category_scope,
+			level.level_order,
+		)
+		.orderby(row.parent)
+		.run(as_dict=True)
+	)
+
+
+def _category_desks(department: str, categories: list[str]) -> list:
+	"""The category-only desk of `department` for each category. Every one must exist."""
+	if not categories:
+		frappe.throw(_("An officer needs at least one service category."), frappe.ValidationError)
+	names = list(dict.fromkeys(resolve_service_category(value) for value in categories))
+	desks = frappe.get_all(
+		DESK,
+		filters=category_assignment.desk_filters(department_scope=department, category_scope=["in", names]),
+		fields=["name", "category_scope", "department_scope"],
+	)
+	missing = set(names) - {desk.category_scope for desk in desks}
+	if missing:
+		frappe.throw(
+			_("{0} has no category assignment for: {1}. Create it first.").format(
+				department, ", ".join(sorted(missing))
+			),
+			frappe.ValidationError,
+		)
+	return desks
+
+
+def _placement(level: str, status: str) -> dict:
+	"""Officer-row fields that follow from the level and status."""
+	return {
+		"role_level": LEVEL_CODES[level],
+		"is_primary": 1 if level == "L1" else 0,
+		"active": 0 if status == "Inactive" else 1,
+	}
 
 
 def _resolve_region(value: str | None) -> str | None:
@@ -126,91 +287,62 @@ def _resolve_region(value: str | None) -> str | None:
 	return name
 
 
-def _check_unique(values: dict, exclude: str | None = None):
-	"""One profile per email and per login. Checked here so a clash is a 400, not a database error."""
-	if values.get("email"):
-		values["email"] = values["email"].strip().lower()
-	for field, label in (("email", _("Email")), ("user", _("User account"))):
-		if not values.get(field):
-			continue
-		clash = frappe.db.exists(DOCTYPE, {field: values[field], "name": ["!=", exclude or ""]})
-		if clash:
-			frappe.throw(
-				_("{0} {1} already belongs to officer {2}.").format(label, values[field], clash),
-				frappe.ValidationError,
-			)
-
-
-def list_filters(*, level=None, department=None, status=None) -> dict:
-	"""Filters for `frappe.get_all`."""
-	filters = {}
-	if level:
-		filters["level"] = level
-	if department:
-		filters["department"] = resolve_department(department)
-	if status:
-		filters["status"] = status
-	return filters
-
-
-def search_filters(q: str | None) -> list | None:
-	"""`or_filters` matching name, email or id, or None when there is no search text."""
-	if not q:
+def _resolve_supervisor(user_id: str | None, level: str) -> str | None:
+	"""Only an L1 reports to someone, and that someone is an L2 officer: escalation climbs to them."""
+	if not user_id:
 		return None
-	like = f"%{q.strip()}%"
-	return [
-		[DOCTYPE, "full_name", "like", like],
-		[DOCTYPE, "email", "like", like],
-		[DOCTYPE, "name", "like", like],
-	]
+	if level != "L1":
+		frappe.throw(_("Only an L1 officer reports to an L2 officer."), frappe.ValidationError)
+	if not frappe.db.exists(ROW, {"user": user_id, "parenttype": DESK, "role_level": LEVEL_CODES["L2"]}):
+		frappe.throw(_("{0} is not an L2 officer.").format(user_id), frappe.ValidationError)
+	return user_id
 
 
-def count(filters: dict, or_filters: list | None) -> int:
-	"""Matching profiles, counted in SQL."""
-	return frappe.get_all(
-		DOCTYPE, filters=filters, or_filters=or_filters, fields=[{"COUNT": "*", "as": "total"}]
-	)[0].total
+def _new_or_existing_user(email: str):
+	if frappe.db.exists("User", email):
+		return frappe.get_doc("User", email)
+	user = frappe.get_doc(
+		{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
+	)
+	user.insert(ignore_permissions=True)
+	return user
 
 
-def records(rows: list) -> list[dict]:
-	"""Project profile rows to API records with one query each for categories, regions and supervisors."""
-	if not rows:
-		return []
-	categories = defaultdict(list)
-	for row in frappe.get_all(
-		CATEGORY_DOCTYPE,
-		filters={"parent": ["in", [row.name for row in rows]], "parenttype": DOCTYPE},
-		fields=["parent", "service_category"],
-		order_by="parent, idx",
+def _write_user(user, fields: dict):
+	"""Set the person-level fields that were given and make sure the User holds the officer role."""
+	if "full_name" in fields:
+		user.first_name, user.last_name = fields["full_name"], ""
+	for key, field in (
+		("designation", "grievance_designation"),
+		("phone", "phone"),
+		("status", "grievance_officer_status"),
 	):
-		categories[row.parent].append(row.service_category)
-	region_names = {
-		area.name: area.area_name
-		for area in frappe.get_all(
-			"Grievance Administrative Area",
-			filters={"name": ["in", list({row.region for row in rows if row.region})]},
-			fields=["name", "area_name"],
-		)
-	}
-	supervisors = {
-		profile.name: profile.full_name
-		for profile in frappe.get_all(
-			DOCTYPE,
-			filters={"name": ["in", list({row.reports_to for row in rows if row.reports_to})]},
-			fields=["name", "full_name"],
-		)
-	}
-	return [
-		{
-			**{field: row.get(field) or None for field in FIELDS},
-			"region_name": region_names.get(row.region),
-			"reports_to_name": supervisors.get(row.reports_to),
-			"service_categories": categories[row.name],
-		}
-		for row in rows
-	]
+		if key in fields:
+			user.set(field, fields[key])
+	if OFFICER_ROLE not in {role.role for role in user.roles}:
+		user.append("roles", {"role": OFFICER_ROLE})
+	user.save(ignore_permissions=True)
 
 
-def record(name: str) -> dict:
-	"""One profile as an API record."""
-	return records(frappe.get_all(DOCTYPE, filters={"name": name}, fields=FIELDS))[0]
+def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):
+	"""Put `user_id` on a desk with `values`, or take them off when `values` is None.
+
+	`on_new` fills the fields of a row that did not exist yet. The desk is locked so two
+	admins editing the same desk are serialised, and its own validation runs on save.
+	"""
+	desk = frappe.get_doc(DESK, desk_name, for_update=True)
+	mine = next((row for row in desk.officers if row.user == user_id), None)
+	if values is None:
+		if mine:
+			if len(desk.officers) == 1:
+				frappe.throw(
+					_("{0} would be left without officers. Assign another officer first.").format(desk_name),
+					frappe.ValidationError,
+				)
+			desk.remove(mine)
+	elif mine:
+		mine.update(values)
+	else:
+		desk.append("officers", {"user": user_id, **(on_new or {}), **values})
+	desk.assigned_by = frappe.session.user
+	desk.save()
