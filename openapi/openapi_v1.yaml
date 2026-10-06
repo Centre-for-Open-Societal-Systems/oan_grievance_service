@@ -3619,6 +3619,220 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/officers:
+    get:
+      tags:
+      - Administration
+      summary: List officers
+      description: 'List officers by name.
+
+
+        Numeric parameters also accept str: frappe checks annotations before validate_request
+
+        runs, and a bare int would turn a bad value into its own type error.'
+      operationId: get_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create an officer
+      description: Create an officer.
+      operationId: post_api_v1_officers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.create_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOfficer'
+  /api/v1/officers/{officer}:
+    get:
+      tags:
+      - Administration
+      summary: Get an officer
+      description: Return one officer.
+      operationId: get_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.get_officer
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update an officer
+      description: Update an officer. `kwargs` holds only the fields the client sent.
+      operationId: patch_api_v1_officers_officer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.update_officer
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOfficer'
   /api/v1/submitters/options:
     get:
       tags:

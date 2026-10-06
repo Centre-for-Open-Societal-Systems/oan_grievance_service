@@ -476,7 +476,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"assignment_name": f"Empty Scope {frappe.generate_hash(length=6)}",
 				"active": 1,
 				"effective_from": frappe.utils.today(),
-				"administrative_area_scope": None,
 				"department_scope": None,
 				"category_scope": None,
 				"officers": [

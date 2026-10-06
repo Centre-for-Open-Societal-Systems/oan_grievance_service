@@ -20,6 +20,7 @@ Endpoints
     v1.administrative_area.get_areas   the location cascade and search
 
     v1.category_assignment          category-to-department routing rules
+    v1.officer                      L1 / L2 officer profiles (/api/v1/officers)
 
     v1.attachment.submit_document   upload evidence (POST /api/v1/grievances/<g>/attachments)
     v1.attachment.get_attachments   list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)
