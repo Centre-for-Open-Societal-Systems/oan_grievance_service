@@ -1688,7 +1688,7 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administrative Areas"
 	if path.startswith("/api/v1/drafts"):
 		return "Grievance Drafts"
-	if path.startswith(("/api/v1/category-assignments", "/api/v1/officer-statistics")):
+	if path.startswith(("/api/v1/category-assignments", "/api/v1/officers/statistics")):
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"

@@ -1424,13 +1424,13 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: get-api-v1-officer-statistics
+  - name: get-api-v1-officers-statistics
     methods:
     - GET
     paths:
-    - ~/api/v1/officer-statistics$
+    - ~/api/v1/officers/statistics$
     strip_path: false
-    regex_priority: 3
+    regex_priority: 4
     tags:
     - oan
     - grievance

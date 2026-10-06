@@ -27,7 +27,7 @@ from oan_grievance_service.api.v1._schemas import Body, blank_to_none
 from oan_grievance_service.services import officer_statistics as service
 from oan_grievance_service.services.resolvers import resolve_department
 
-route = prefixed("/api/v1/officer-statistics")
+route = prefixed("/api/v1/officers")
 
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
@@ -57,7 +57,7 @@ class ListOfficerStatistics(PageParams, Body):
 	_blank = field_validator("level", "department", mode="before")(blank_to_none)
 
 
-@route("", methods=("GET",), summary="List officer statistics")
+@route("/statistics", methods=("GET",), summary="List officer statistics")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
