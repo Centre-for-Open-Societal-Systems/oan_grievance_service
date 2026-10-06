@@ -471,7 +471,7 @@ def submit_draft(
 	)
 	from oan_grievance_service.services import lifecycle, notifications, routing
 
-	lifecycle.transition(doc, "Submit")
+	lifecycle.transition(doc, "Submit", reason="Grievance submitted")
 
 	body_text = (doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})"
 	timeline_entry = GrievanceTimeline.record(

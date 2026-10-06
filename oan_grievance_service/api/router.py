@@ -92,6 +92,7 @@ def _register() -> None:
 		officer,
 		officer_statistics,
 		profile,
+		response_config,
 		submitter,
 	)
 

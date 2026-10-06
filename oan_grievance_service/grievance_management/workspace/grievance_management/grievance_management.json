@@ -16,7 +16,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Case Management",
-   "link_count": 5,
+   "link_count": 4,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -27,16 +27,6 @@
    "label": "Grievance",
    "link_count": 0,
    "link_to": "Grievance",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Grievance Response",
-   "link_count": 0,
-   "link_to": "Grievance Response",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -268,7 +258,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-04 17:50:30.551946",
+ "modified": "2026-10-04 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Management",
@@ -283,12 +273,6 @@
    "doc_view": "",
    "label": "All Grievances",
    "link_to": "Grievance",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "Responses",
-   "link_to": "Grievance Response",
    "type": "DocType"
   },
   {

@@ -114,6 +114,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_a,
 				"sla_days": 5,
+				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
 				"auto_escalation_threshold": 100,
 				"active": 1,
@@ -155,7 +156,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		g.db_set("creation", created_time, update_modified=False)
 		g.reload()
 
-		lifecycle.transition(g, "Assign")
+		lifecycle.transition(g, "Assign", reason="Assigned to department officer")
 		g.reload()
 
 		self.assertEqual(get_datetime(g.sla_start_at), created_time)
@@ -175,7 +176,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		g.db_set("creation", created_time, update_modified=False)
 		g.reload()
 
-		lifecycle.transition(g, "Assign")
+		lifecycle.transition(g, "Assign", reason="Assigned to department officer")
 		g.reload()
 		self.assertEqual(g.sla_days, 5)
 
@@ -327,6 +328,19 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		)
 		self.assertTrue(len(timeline_entries) > 0)
 		self.assertIn("Case escalated", timeline_entries[0].body)
+
+		# Verify that with next_escalation_at as None, escalate_breached does not pick it up again
+		from oan_grievance_service import tasks
+
+		tasks.escalate_breached()
+		g.reload()
+		self.assertIsNone(g.next_escalation_at)
+		timeline_entries_after = frappe.get_all(
+			"Grievance Timeline",
+			filters={"grievance": g.name, "entry_type": "escalation"},
+			fields=["body"],
+		)
+		self.assertEqual(len(timeline_entries_after), len(timeline_entries))
 
 	def test_higher_authority_skips_unstaffed_intermediate_rung(self):
 		"""higher_authority_of skips an unstaffed intermediate rung to find the next higher officer."""

@@ -246,7 +246,8 @@ def _create_or_update_submitter_profile(
 	allow_guest=True,
 	summary="Dropdown options and reference data for submitters",
 )
-@frappe.whitelist(allow_guest=True)  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+# nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
+@frappe.whitelist(allow_guest=True)
 @handle_api_errors
 def options(
 	search_country: str | None = None,
