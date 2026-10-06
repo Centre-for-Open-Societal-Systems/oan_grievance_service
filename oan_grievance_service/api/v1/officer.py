@@ -11,7 +11,7 @@ Officers are not deleted: set `status` to Inactive. Performance metrics (assigne
 average time, resolution rate) are served by the statistics API, not by this resource.
 
 An officer who is given a temporary password at creation, or one reissued here, cannot sign in
-until they replace it through `POST /api/v1/auth/set-initial-password`. The mechanism lives in
+until they replace it through `POST /api/v1/auth/password/initial`. The mechanism lives in
 oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
@@ -229,7 +229,7 @@ def get_officer(officer: str, **kwargs):
 	+ "The login is created when the email is new. Every service category must already have a "
 	+ "category assignment for the department. reports_to is an L2 officer and is only for an L1. "
 	+ "temporary_password is required: the officer signs in with it only to replace it through "
-	+ "set-initial-password. It is applied to a new login only. An email that already has a login keeps "
+	+ "/api/v1/auth/password/initial. It is applied to a new login only. An email that already has a login keeps "
 	+ "its own password and the message says so.",
 	tags=["Administration"],
 	response_model=OfficerData,
@@ -292,7 +292,7 @@ def update_officer(officer: str, **kwargs):
 	return success_response(data={"officer": service.record(officer)}, message=_("Officer updated"))
 
 
-@route("/<officer>/temporary-password", methods=("POST",), summary="Issue a new temporary password")
+@route("/<officer>/password-resets", methods=("POST",), summary="Issue a new temporary password")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -301,7 +301,7 @@ def update_officer(officer: str, **kwargs):
 	summary="Issue a new temporary password",
 	description="Set a new temporary password on an officer who cannot sign in, for example after a "
 	+ "forgotten password. The officer's current sessions end at once and they must replace the "
-	+ "password through set-initial-password before signing in. Not available for an account that "
+	+ "password through /api/v1/auth/password/initial before signing in. Not available for an account that "
 	+ "itself holds an admin role.",
 	tags=["Administration"],
 	response_model=OfficerData,

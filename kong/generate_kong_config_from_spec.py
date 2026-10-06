@@ -113,7 +113,7 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/officers"): "officer-core",
 	("GET", "/api/v1/officers/{officer}"): "officer-core",
 	("PATCH", "/api/v1/officers/{officer}"): "officer-core",
-	("POST", "/api/v1/officers/{officer}/temporary-password"): "officer-core",
+	("POST", "/api/v1/officers/{officer}/password-resets"): "officer-core",
 	("GET", "/api/v1/response-templates"): "officer-core",
 	("POST", "/api/v1/response-templates"): "officer-core",
 	("GET", "/api/v1/response-templates/{template}"): "officer-core",

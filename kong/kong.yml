@@ -1544,11 +1544,11 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
-  - name: post-api-v1-officers-officer-temporary-password
+  - name: post-api-v1-officers-officer-password-resets
     methods:
     - POST
     paths:
-    - ~/api/v1/officers/(?<officer>[^/]+)/temporary-password$
+    - ~/api/v1/officers/(?<officer>[^/]+)/password-resets$
     strip_path: false
     regex_priority: 5
     tags:

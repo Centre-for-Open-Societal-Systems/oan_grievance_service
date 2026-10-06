@@ -4114,13 +4114,13 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateOfficer'
-  /api/v1/officers/{officer}/temporary-password:
+  /api/v1/officers/{officer}/password-resets:
     post:
       tags:
       - Administration
       summary: Issue a new temporary password
       description: Reissue a temporary password to an officer. The officer must already exist.
-      operationId: post_api_v1_officers_officer_temporary_password
+      operationId: post_api_v1_officers_officer_password_resets
       responses:
         '200':
           description: Success

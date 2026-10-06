@@ -206,7 +206,7 @@ Add a required "Temporary password" field to the Add modal. The admin types it a
 
 ## 7. Issue a new temporary password
 
-`POST /api/v1/officers/{officer}/temporary-password`
+`POST /api/v1/officers/{officer}/password-resets`
 
 For an officer who forgot their password, or who never used the temporary one they were given.
 
@@ -226,7 +226,7 @@ Returns 200 with `data.officer`, where `must_change_password` is now `true`. Rul
 
 This is the officer's screen, not the admin's. It calls the auth service and needs no token.
 
-`POST /api/v1/auth/set-initial-password`
+`POST /api/v1/auth/password/initial`
 
 ```json
 {
@@ -295,19 +295,19 @@ Returns 200 with `message: "Officer updated"` and the updated `data.officer`. Us
 
 ## 11. Suggested screen wiring
 
-| Screen part                        | Call                                                                                      |
-| :--------------------------------- | :---------------------------------------------------------------------------------------- |
-| Nodal Officers tab (L1)            | `GET /officers?level=L1&page=…` and the status and department filters                     |
-| Senior Officers tab (L2)           | `GET /officers?level=L2&page=…`                                                           |
-| Search box                         | Add `q`. Debounce, and reset `page` to 1                                                  |
-| Officer card                       | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge               |
-| Add modal                          | `POST /officers`. On success, add the returned `officer` or refetch                       |
-| Edit modal                         | `PATCH /officers/{id}` with only the changed fields                                       |
-| Deactivate and On Leave actions    | `PATCH /officers/{id}` with `status`                                                      |
-| "Issue new temporary password"     | `POST /officers/{id}/temporary-password`. Show it when the officer cannot sign in         |
-| Awaiting first sign-in badge       | `officer.must_change_password` is `true`                                                  |
-| Officer's "Set your password" page | `POST /auth/set-initial-password`, opened when sign-in returns `PASSWORD_CHANGE_REQUIRED` |
-| L2 card "N officers report to me"  | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id           |
+| Screen part                        | Call                                                                                  |
+| :--------------------------------- | :------------------------------------------------------------------------------------ |
+| Nodal Officers tab (L1)            | `GET /officers?level=L1&page=…` and the status and department filters                 |
+| Senior Officers tab (L2)           | `GET /officers?level=L2&page=…`                                                       |
+| Search box                         | Add `q`. Debounce, and reset `page` to 1                                              |
+| Officer card                       | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge           |
+| Add modal                          | `POST /officers`. On success, add the returned `officer` or refetch                   |
+| Edit modal                         | `PATCH /officers/{id}` with only the changed fields                                   |
+| Deactivate and On Leave actions    | `PATCH /officers/{id}` with `status`                                                  |
+| "Issue new temporary password"     | `POST /officers/{id}/password-resets`. Show it when the officer cannot sign in        |
+| Awaiting first sign-in badge       | `officer.must_change_password` is `true`                                              |
+| Officer's "Set your password" page | `POST /auth/password/initial`, opened when sign-in returns `PASSWORD_CHANGE_REQUIRED` |
+| L2 card "N officers report to me"  | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id       |
 
 ## 12. Not available yet
 

@@ -2174,7 +2174,7 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/set-initial-password. An email that already has a login keeps its own password.",
+                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/password/initial. An email that already has a login keeps its own password.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -2248,7 +2248,7 @@
                   }
                 ],
                 "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/temporary-password",
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
                   "host": [
                     "{{base_url}}"
                   ],
@@ -2257,10 +2257,10 @@
                     "v1",
                     "officers",
                     "{{officer}}",
-                    "temporary-password"
+                    "password-resets"
                   ]
                 },
-                "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/set-initial-password before signing in. Refused for an account that holds an admin role.",
+                "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"

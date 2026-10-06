@@ -73,7 +73,7 @@ def create(
 	already has an account. A login that is already an officer is rejected.
 
 	`temporary_password` is required, so a new officer always has a way in: they can use it
-	just long enough to replace it (`oan_auth_service`'s set-initial-password). It is applied
+	just long enough to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). It is applied
 	to a new login only. An existing login keeps the password its owner already knows, because
 	replacing it with one the admin typed would let the admin take the account over. The caller
 	tells the admin when that happened.

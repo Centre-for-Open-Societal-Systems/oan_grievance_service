@@ -454,7 +454,7 @@ class TestOfficerManagement(FrappeTestCase):
 		officer = self._create(temporary_password="Temp5678")
 		self.assertTrue(officer["must_change_password"])
 		self.assertEqual(frappe.db.get_value("User", officer["name"], MUST_CHANGE_PASSWORD_FIELD), 1)
-		# The password really exists: it is what set-initial-password will verify.
+		# The password really exists: it is what /api/v1/auth/password/initial will verify.
 		self.assertEqual(check_password(officer["name"], "Temp5678"), officer["name"])
 		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["must_change_password"], True)
 
