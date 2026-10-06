@@ -89,6 +89,7 @@ def _register() -> None:
 		charts,
 		draft,
 		grievance,
+		officer,
 		officer_statistics,
 		profile,
 		submitter,

@@ -1668,6 +1668,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.charts",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
+		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",
 		"oan_grievance_service.api.v1.profile",
 		"oan_grievance_service.api.v1.submitter",
@@ -1688,7 +1689,7 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administrative Areas"
 	if path.startswith("/api/v1/drafts"):
 		return "Grievance Drafts"
-	if path.startswith(("/api/v1/category-assignments", "/api/v1/officers/statistics")):
+	if path.startswith(("/api/v1/category-assignments", "/api/v1/officers")):
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"

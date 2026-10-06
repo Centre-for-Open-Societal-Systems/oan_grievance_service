@@ -260,7 +260,7 @@ def resolve(grievance, department, officer=None, actor=None, category=None, grie
 
 		if not chosen_officer:
 			desk_doc = frappe.get_doc("Grievance RBAC Assignment", candidate_desks[0].get("name"))
-			chosen_officer = pick_officer_by_strategy(desk_doc)
+			chosen_officer = pick_officer_by_strategy(desk_doc, grievance)
 			if not chosen_officer:
 				frappe.throw(_("No active officer; name one."), frappe.ValidationError, title=_("No Officer"))
 
