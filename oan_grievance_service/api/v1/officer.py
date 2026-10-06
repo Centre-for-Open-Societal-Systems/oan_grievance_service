@@ -43,6 +43,16 @@ def normalize_email(value: str) -> str:
 	return validate_email_string(value.strip()).lower()
 
 
+class OfficerAssignment(BaseModel):
+	assignment: str
+	service_category: str | None = None
+	department: str | None = None
+	level: Level
+	region: str | None = None
+	active: bool
+	on_leave: bool
+
+
 class OfficerRecord(BaseModel):
 	name: str
 	full_name: str
@@ -57,6 +67,7 @@ class OfficerRecord(BaseModel):
 	service_categories: list[str]
 	reports_to: str | None = None
 	reports_to_name: str | None = None
+	assignments: list[OfficerAssignment]
 
 
 class OfficerData(BaseModel):
@@ -88,9 +99,10 @@ class CreateOfficer(Body):
 
 
 class UpdateOfficer(Body):
-	"""Partial update. Omitted fields stay as they are. `level` and `email` are fixed once created."""
+	"""Partial update. Omitted fields stay as they are. `email` is fixed once created."""
 
 	officer: NonBlank
+	level: Level = None
 	full_name: NonBlank = None
 	designation: NonBlank = None
 	department: NonBlank = None
@@ -109,9 +121,13 @@ class ListOfficers(PageParams, Body):
 	level: Level | None = None
 	department: str | None = None
 	status: Status | None = None
+	service_category: str | None = None
+	region: str | None = None
 	q: str | None = None
 
-	_blank = field_validator("level", "department", "status", "q", mode="before")(blank_to_none)
+	_blank = field_validator(
+		"level", "department", "status", "service_category", "region", "q", mode="before"
+	)(blank_to_none)
 
 
 @route("", methods=("GET",), summary="List officers")
@@ -121,8 +137,8 @@ class ListOfficers(PageParams, Body):
 @validate_request(ListOfficers)
 @api_doc(
 	summary="List officers",
-	description="Admin list of L1 and L2 officers, filterable by level, department and status. "
-	+ "q matches name or email.",
+	description="Admin list of L1 and L2 officers, filterable by level, department, status, service "
+	+ "category and region. region matches an officer's area exactly. q matches name or email.",
 	tags=["Administration"],
 	response_model=OfficerListData,
 )
@@ -130,6 +146,8 @@ def list_officers(
 	level: str | None = None,
 	department: str | None = None,
 	status: str | None = None,
+	service_category: str | None = None,
+	region: str | None = None,
 	q: str | None = None,
 	page: int | str = 1,
 	page_size: int | str = 20,
@@ -145,6 +163,8 @@ def list_officers(
 		level=level,
 		department=department,
 		status=status,
+		service_category=service_category,
+		region=region,
 		q=q,
 		start=params.start,
 		page_size=params.page_size,
@@ -163,7 +183,8 @@ def list_officers(
 @validate_request(OfficerRef)
 @api_doc(
 	summary="Get an officer",
-	description="One L1 or L2 officer. The id is the officer's email.",
+	description="One L1 or L2 officer with the desks (RBAC assignments) they sit on. The id is the "
+	+ "officer's email.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -221,9 +242,10 @@ def create_officer(
 @validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
-	description="Change name, designation, phone, department, region, status, service categories or "
-	+ "supervisor. Set status to Inactive to deactivate: the officer's desk rows are retired too. "
-	+ "service_categories replaces the whole list. level and email are fixed once created.",
+	description="Change name, designation, phone, level, department, region, status, service categories "
+	+ "or supervisor. Set status to Inactive to deactivate: the officer's desk rows are retired too. "
+	+ "service_categories replaces the whole list. Changing level clears the officer's supervisor, and "
+	+ "an L2 with L1 officers reporting to them cannot change level. email is fixed once created.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )

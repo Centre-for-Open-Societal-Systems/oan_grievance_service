@@ -268,14 +268,45 @@ class TestOfficerManagement(FrappeTestCase):
 			missing = create_officer(**{k: v for k, v in base.items() if k != "service_categories"})
 			self.assertEqual(missing["code"], "VALIDATION_ERROR")
 
-	def test_level_and_email_are_fixed_and_empty_update_is_rejected(self):
+	def test_email_is_fixed_and_empty_update_is_rejected(self):
 		officer = self._create()
 		with _keep_transaction():
-			for field, value in (("level", "L2"), ("email", "other@example.com"), ("nonsense", 1)):
+			for field, value in (("email", "other@example.com"), ("nonsense", 1)):
 				result = update_officer(officer["name"], **{field: value})
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 				self.assertIn(field, result["details"])
 			self.assertEqual(update_officer(officer["name"])["code"], "VALIDATION_ERROR")
+
+	def test_level_can_change_and_follows_the_ladder(self):
+		l2 = self._create("stg430-l2@example.com", level="L2")
+		l1 = self._create("stg430-l1@example.com", reports_to=l2["name"])
+
+		with _keep_transaction():
+			blocked = update_officer(l2["name"], level="L1")
+			self.assertEqual(blocked["code"], "VALIDATION_ERROR", msg=blocked)
+			self.assertEqual(get_officer(l2["name"])["data"]["officer"]["level"], "L2")
+
+		promoted = update_officer(l1["name"], level="L2")["data"]["officer"]
+		self.assertEqual(promoted["level"], "L2")
+		self.assertIsNone(promoted["reports_to"])
+		row = self._rows(l1["name"])[0]
+		self.assertEqual((row.role_level, row.is_primary), ("senior_nodal_officer", 0))
+
+		demoted = update_officer(l1["name"], level="L1", reports_to=l2["name"])["data"]["officer"]
+		self.assertEqual((demoted["level"], demoted["reports_to"]), ("L1", l2["name"]))
+		self.assertEqual(self._rows(l1["name"])[0].is_primary, 1)
+
+	def test_detail_reports_the_desks_the_officer_sits_on(self):
+		area = a_leaf_area()
+		officer = self._create(service_categories=[self.inputs, self.credit], region=area)
+		assignments = get_officer(officer["name"])["data"]["officer"]["assignments"]
+		self.assertEqual({a["service_category"] for a in assignments}, {self.inputs, self.credit})
+		for entry in assignments:
+			self.assertTrue(frappe.db.exists("Grievance RBAC Assignment", entry["assignment"]))
+			self.assertEqual(
+				(entry["department"], entry["level"], entry["region"], entry["active"], entry["on_leave"]),
+				(self.department, "L1", area, True, False),
+			)
 
 	def test_partial_update_changes_only_what_was_sent(self):
 		officer = self._create()
@@ -319,6 +350,20 @@ class TestOfficerManagement(FrappeTestCase):
 		self.assertGreaterEqual(page["pagination"]["total_count"], 2)
 		self.assertTrue(page["pagination"]["has_next"])
 
+	def test_list_filters_by_scope(self):
+		area = a_leaf_area()
+		in_scope = self._create("stg430-scope@example.com", service_categories=[self.credit], region=area)
+		elsewhere = self._create("stg430-else@example.com", service_categories=[self.inputs])
+
+		def ids(**filters):
+			result = list_officers(page_size=100, **filters)
+			self.assertEqual(result["status"], "success", msg=result)
+			return {row["name"] for row in result["data"]["officers"]}
+
+		self.assertIn(in_scope["name"], ids(service_category=self.credit))
+		self.assertNotIn(elsewhere["name"], ids(service_category=self.credit))
+		self.assertEqual(ids(region=area, q="stg430-"), {in_scope["name"]})
+
 	def test_bad_filter_values_are_validation_errors(self):
 		with _keep_transaction():
 			for bad in (
@@ -327,6 +372,8 @@ class TestOfficerManagement(FrappeTestCase):
 				{"page_size": 0},
 				{"bogus": 1},
 				{"department": "Nope"},
+				{"service_category": "Nope"},
+				{"region": "Nowhere"},
 			):
 				self.assertEqual(list_officers(**bad)["code"], "VALIDATION_ERROR", msg=bad)
 

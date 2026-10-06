@@ -84,16 +84,19 @@ def update(user_id: str, changes: dict) -> str:
 	"""Apply a partial update. `department` and `service_categories` re-seat the officer on desks."""
 	current = _current(user_id)
 	changes = dict(changes)
+	level = changes.pop("level", current.level)
 	status = changes.pop("status", None)
 	person = {key: changes.pop(key) for key in ("full_name", "designation", "phone") if key in changes}
 	if person:
 		_write_user(frappe.get_doc("User", user_id), person)
 
 	row_changes = _availability(status) if status else {}
+	if level != current.level:
+		row_changes.update(_change_level(user_id, current.level, level))
 	if "region" in changes:
 		row_changes["administrative_area"] = _resolve_region(changes["region"])
 	if "reports_to" in changes:
-		row_changes["reports_to"] = _resolve_supervisor(changes["reports_to"], current.level)
+		row_changes["reports_to"] = _resolve_supervisor(changes["reports_to"], level)
 
 	department = resolve_department(changes["department"]) if "department" in changes else current.department
 	desks = _category_desks(department, changes.get("service_categories", current.categories))
@@ -101,11 +104,21 @@ def update(user_id: str, changes: dict) -> str:
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
-		_save_desk(name, user_id, row_changes, on_new=_placement(current.level, status or current.status))
+		_save_desk(name, user_id, row_changes, on_new=_placement(level, status or current.status))
 	return user_id
 
 
-def list_officers(*, level=None, department=None, status=None, q=None, start=0, page_size=20):
+def list_officers(
+	*,
+	level=None,
+	department=None,
+	status=None,
+	service_category=None,
+	region=None,
+	q=None,
+	start=0,
+	page_size=20,
+):
 	"""One page of officer ids and the total, filtered and counted in SQL."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	query = (
@@ -119,6 +132,10 @@ def list_officers(*, level=None, department=None, status=None, q=None, start=0, 
 	)
 	if department:
 		query = query.where(desk.department_scope == resolve_department(department))
+	if service_category:
+		query = query.where(desk.category_scope == resolve_service_category(service_category))
+	if region:
+		query = query.where(row.administrative_area == _resolve_region(region))
 	if status:
 		query = query.where(_status_filter(row, status))
 	if q:
@@ -188,9 +205,23 @@ def records(user_ids: list[str]) -> list[dict]:
 				"service_categories": sorted({row.category_scope for row in own if row.category_scope}),
 				"reports_to": supervisor,
 				"reports_to_name": people[supervisor].full_name if supervisor in people else None,
+				"assignments": [_assignment(row) for row in own],
 			}
 		)
 	return records
+
+
+def _assignment(row) -> dict:
+	"""One desk the officer sits on: the RBAC assignment the officer detail reports."""
+	return {
+		"assignment": row.parent,
+		"service_category": row.category_scope,
+		"department": row.department_scope,
+		"level": CODE_LEVELS[row.role_level],
+		"region": row.administrative_area,
+		"active": bool(row.active),
+		"on_leave": bool(row.on_leave),
+	}
 
 
 def record(user_id: str) -> dict:
@@ -301,6 +332,20 @@ def _placement(level: str, status: str) -> dict:
 		"is_primary": 1 if level == "L1" else 0,
 		**_availability(status),
 	}
+
+
+def _change_level(user_id: str, old: str, new: str) -> dict:
+	"""Row fields for moving an officer between L1 and L2.
+
+	Only an L1 reports to an L2, so the move clears the officer's own supervisor, and an L2
+	cannot step down while L1 officers still report to them: escalation would climb to an L1.
+	"""
+	if old == "L2" and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK}):
+		frappe.throw(
+			_("{0} cannot change level while other officers report to them.").format(user_id),
+			frappe.ValidationError,
+		)
+	return {"role_level": LEVEL_CODES[new], "is_primary": 1 if new == "L1" else 0, "reports_to": None}
 
 
 def _resolve_region(value: str | None) -> str | None:
