@@ -4114,6 +4114,88 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateOfficer'
+  /api/v1/officers/statistics:
+    get:
+      tags:
+      - Administration
+      summary: List officer statistics
+      description: Page of officer statistics, filterable by level (L1/L2) and department.
+      operationId: get_api_v1_officers_statistics
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      security:
+      - BearerAuth: []
   /api/v1/response-templates:
     get:
       tags:

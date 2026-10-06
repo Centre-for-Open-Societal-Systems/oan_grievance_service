@@ -1494,6 +1494,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.officer",
+		"oan_grievance_service.api.v1.officer_statistics",
 		"oan_grievance_service.api.v1.profile",
 		"oan_grievance_service.api.v1.response_config",
 		"oan_grievance_service.api.v1.submitter",

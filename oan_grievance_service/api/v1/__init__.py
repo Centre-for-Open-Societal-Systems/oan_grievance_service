@@ -21,6 +21,7 @@ Endpoints
 
     v1.category_assignment          category-to-department routing rules
     v1.officer                      L1 / L2 officer profiles (/api/v1/officers)
+    v1.officer_statistics           live L1/L2 officer performance figures
 
     v1.attachment.submit_document   upload evidence (POST /api/v1/grievances/<g>/attachments)
     v1.attachment.get_attachments   list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)

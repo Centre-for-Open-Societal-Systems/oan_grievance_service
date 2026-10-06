@@ -118,6 +118,7 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/response-templates/{template}"): "officer-core",
 	("PATCH", "/api/v1/response-templates/{template}"): "officer-core",
 	("DELETE", "/api/v1/response-templates/{template}"): "officer-core",
+	("GET", "/api/v1/officers/statistics"): "officer-core",
 	("GET", "/api/v1/charts"): "officer-core",
 	**{
 		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"
