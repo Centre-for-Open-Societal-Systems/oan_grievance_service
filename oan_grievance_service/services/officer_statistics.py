@@ -16,6 +16,9 @@ Grievance per page of officers:
 """
 
 import frappe
+from frappe.query_builder import Case, CustomFunction
+from frappe.query_builder.functions import Avg, Count, Max, Sum
+from pypika.terms import LiteralValue
 
 from oan_grievance_service.services import constants as C
 
@@ -27,43 +30,38 @@ LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
 LEVEL_BY_CODE = {code: level for level, code in LEVEL_CODES.items()}
 
 
-def _roster_query(level: str | None, department: str | None) -> tuple[str, dict]:
-	"""FROM/WHERE for distinct (user, role_level) pairs staffing an active desk."""
+def _roster(level: str | None, department: str | None):
+	"""Query over officer rows on active desks, joined to the user for the name."""
+	Officer = frappe.qb.DocType(OFFICER_ROW)
+	Desk = frappe.qb.DocType(DESK)
+	User = frappe.qb.DocType("User")
 	codes = [LEVEL_CODES[level]] if level else list(LEVEL_CODES.values())
-	values = {"codes": codes}
-	department_clause = ""
+	query = (
+		frappe.qb.from_(Officer)
+		.join(Desk)
+		.on((Desk.name == Officer.parent) & (Officer.parenttype == DESK))
+		.left_join(User)
+		.on(User.name == Officer.user)
+		.where((Officer.active == 1) & (Desk.active == 1) & Officer.role_level.isin(codes))
+	)
 	if department:
-		department_clause = "AND desk.department_scope = %(department)s"
-		values["department"] = department
-	sql = f"""
-		FROM `tab{OFFICER_ROW}` officer
-		JOIN `tab{DESK}` desk ON desk.name = officer.parent AND officer.parenttype = %(desk)s
-		LEFT JOIN `tabUser` user ON user.name = officer.user
-		WHERE officer.active = 1 AND desk.active = 1
-			AND officer.role_level IN %(codes)s
-			{department_clause}
-	"""
-	values["desk"] = DESK
-	return sql, values
+		query = query.where(Desk.department_scope == department)
+	return query, Officer, User
 
 
 def list_officers(*, level: str | None, department: str | None, start: int, limit: int):
 	"""One page of officers and the total, ordered by name then user id."""
-	sql, values = _roster_query(level, department)
-	total = frappe.db.sql(
-		f"SELECT COUNT(*) FROM (SELECT officer.user, officer.role_level {sql} "
-		"GROUP BY officer.user, officer.role_level) pairs",
-		values,
-	)[0][0]
-	rows = frappe.db.sql(
-		f"""SELECT officer.user AS user, officer.role_level AS role_level,
-			MAX(user.full_name) AS full_name
-		{sql}
-		GROUP BY officer.user, officer.role_level
-		ORDER BY MAX(user.full_name), officer.user
-		LIMIT %(limit)s OFFSET %(start)s""",
-		{**values, "limit": limit, "start": start},
-		as_dict=True,
+	query, Officer, User = _roster(level, department)
+	pairs = query.select(Officer.user, Officer.role_level).groupby(Officer.user, Officer.role_level)
+	total = frappe.qb.from_(pairs.as_("pairs")).select(Count("*")).run()[0][0]
+	rows = (
+		query.select(Officer.user, Officer.role_level, Max(User.full_name).as_("full_name"))
+		.groupby(Officer.user, Officer.role_level)
+		.orderby(Max(User.full_name))
+		.orderby(Officer.user)
+		.limit(limit)
+		.offset(start)
+		.run(as_dict=True)
 	)
 	return rows, total
 
@@ -72,19 +70,22 @@ def statistics_for(users: list[str]) -> dict[str, dict]:
 	"""assigned, resolved and average resolution hours for each user, in one query."""
 	if not users:
 		return {}
-	rows = frappe.db.sql(
-		"""
-		SELECT assigned_to AS user,
-			COUNT(*) AS assigned,
-			SUM(workflow_state IN %(resolved)s) AS resolved,
-			AVG(CASE WHEN workflow_state IN %(resolved)s AND resolved_at IS NOT NULL
-				THEN TIMESTAMPDIFF(SECOND, creation, resolved_at) END) / 3600 AS avg_hours
-		FROM `tabGrievance`
-		WHERE docstatus = 1 AND assigned_to IN %(users)s
-		GROUP BY assigned_to
-		""",
-		{"users": users, "resolved": list(C.RESOLVED_STATES)},
-		as_dict=True,
+	G = frappe.qb.DocType("Grievance")
+	is_resolved = G.workflow_state.isin(list(C.RESOLVED_STATES))
+	seconds = CustomFunction("TIMESTAMPDIFF", ["unit", "start", "end"])(
+		LiteralValue("SECOND"), G.creation, G.resolved_at
+	)
+	rows = (
+		frappe.qb.from_(G)
+		.select(
+			G.assigned_to.as_("user"),
+			Count("*").as_("assigned"),
+			Sum(Case().when(is_resolved, 1).else_(0)).as_("resolved"),
+			(Avg(Case().when(is_resolved & G.resolved_at.notnull(), seconds)) / 3600).as_("avg_hours"),
+		)
+		.where((G.docstatus == 1) & G.assigned_to.isin(users))
+		.groupby(G.assigned_to)
+		.run(as_dict=True)
 	)
 	return {row.user: row for row in rows}
 
