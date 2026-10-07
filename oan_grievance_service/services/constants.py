@@ -67,8 +67,8 @@ ROLE_ADMIN = "Grievance Admin"
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # Oversight: reads grievances, officer statistics and the administration data, and
-# changes nothing. Holding it forbids every write, whatever other role the user also
-# holds (permissions.is_read_only), so it is never granted on a mutating endpoint.
+# changes nothing. It holds read-only DocPerms and is never listed on a mutating
+# endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
 
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})

@@ -34,7 +34,6 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
-from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import officer as service
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 
@@ -223,7 +222,6 @@ def get_officer(officer: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(CreateOfficer)
 @api_doc(
 	summary="Create an officer",
@@ -276,7 +274,6 @@ def create_officer(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
@@ -299,7 +296,6 @@ def update_officer(officer: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(ResetTemporaryPassword)
 @api_doc(
 	summary="Issue a new temporary password",

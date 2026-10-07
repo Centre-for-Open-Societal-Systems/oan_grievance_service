@@ -28,7 +28,6 @@ from oan_auth_service.api.utils import (
 from pydantic import Field, field_validator, model_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
-from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import response_body
 
 route = prefixed("/api/v1/response-templates")
@@ -273,7 +272,6 @@ def get_response_template(template: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(CreateResponseTemplateRequest)
 def create_response_template(
 	title: str,
@@ -316,7 +314,6 @@ def create_response_template(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(UpdateResponseTemplateRequest, exclude_unset=True)
 def update_response_template(template: str, **kwargs):
 	"""Change a template's text, scope, workflow action or active flag. Edits are tracked."""
@@ -342,7 +339,6 @@ def update_response_template(template: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
-@forbid_read_only
 @validate_request(TemplateRef)
 def deactivate_response_template(template: str, **kwargs):
 	"""Retire a template. Same as PATCH with is_active false; repeating it is a no-op."""

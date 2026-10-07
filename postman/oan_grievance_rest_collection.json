@@ -2435,7 +2435,7 @@
         },
         {
           "name": "Review Officer (read-only)",
-          "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call, even when the account also holds an admin or officer role.",
+          "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call.",
           "item": [
             {
               "name": "R1. List grievances",
@@ -2821,7 +2821,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments"]
                 },
-                "description": "Create a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Create a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"sla_days\": 14\n}"
@@ -2865,7 +2865,7 @@
                     "{{category_assignment}}"
                   ]
                 },
-                "description": "Edit a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Edit a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"sla_days\": 10\n}"
@@ -2904,7 +2904,7 @@
                     "{{category_assignment}}"
                   ]
                 },
-                "description": "Deactivate a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role."
+                "description": "Deactivate a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED."
               },
               "response": []
             },
@@ -2939,7 +2939,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "officers"]
                 },
-                "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -2978,7 +2978,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "officers", "{{officer}}"]
                 },
-                "description": "Edit an officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Edit an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"designation\": \"Chief Nodal Officer\"\n}"
@@ -3017,7 +3017,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "officers", "{{officer}}", "password-resets"]
                 },
-                "description": "Reissue an officer's temporary password. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Reissue an officer's temporary password. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -3056,7 +3056,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "grievances", "{{ticket_number}}", "action"]
                 },
-                "description": "Take a workflow action such as Resolve. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Take a workflow action such as Resolve. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"action\": \"Resolve\",\n  \"reason\": \"Fixed.\"\n}"
@@ -3101,7 +3101,7 @@
                     "reassign"
                   ]
                 },
-                "description": "Assign or reassign a department or officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Assign or reassign a department or officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"target_department\": \"MoA\"\n}"
@@ -3140,7 +3140,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "grievances", "{{ticket_number}}", "message"]
                 },
-                "description": "Post a message or note. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "description": "Post a message or note. A Review Officer is refused with 403 PERMISSION_DENIED.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"body\": \"A note.\"\n}"

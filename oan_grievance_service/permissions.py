@@ -7,8 +7,8 @@ category - applied as a permission query condition, so it filters list views, re
 and the API uniformly rather than being re-checked per screen.
 
 A fourth role, Grievance Review Officer, is read-only oversight: it reads cases, officer
-statistics and administration data and is refused every write (`is_read_only`,
-`forbid_read_only`).
+statistics and administration data. It holds no write DocPerm and is left out of every
+mutating endpoint's `require_role` list, so Frappe's role permissions refuse it.
 
 Seniority is deliberately absent from the role list. The former L1 / L2 / Department
 Head roles were rungs of a hierarchy, not distinct capabilities, and are replaced by
@@ -33,10 +33,7 @@ What does not belong here:
   rather than inspecting `frappe.get_roles()` itself, so each rule has one copy.
 """
 
-from functools import wraps
-
 import frappe
-from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
@@ -63,9 +60,6 @@ GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_SUBMITTER)
 # Administrators see all regions, departments and categories.
 UNRESTRICTED_ROLES = {ROLE_ADMIN, "System Manager", "Administrator"}
 
-# Frappe permission types that change data. A read-only user is refused every one.
-WRITE_PTYPES = frozenset({"write", "create", "delete", "submit", "cancel", "amend"})
-
 
 def session_user(user=None):
 	"""The signed-in user, or None for Guest / unauthenticated sessions."""
@@ -81,45 +75,6 @@ def is_staff(user=None):
 def is_unrestricted(user=None):
 	"""Administrators, who see every region, department and category."""
 	return bool(set(frappe.get_roles(user or frappe.session.user)) & UNRESTRICTED_ROLES)
-
-
-def is_read_only(user=None):
-	"""Whether `user` holds the Review Officer role, which never writes.
-
-	The role wins over any other the user also holds: a reviewer who is later made an
-	officer is still refused every mutation until the Review Officer role is removed.
-	The built-in Administrator account is exempt, because Frappe reports it as holding
-	every role.
-	"""
-	user = user or frappe.session.user
-	if user == "Administrator":
-		return False
-	return ROLE_REVIEW_OFFICER in frappe.get_roles(user)
-
-
-def forbid_read_only(fn):
-	"""Refuse the Review Officer on the endpoint it decorates.
-
-	Every endpoint that creates, edits, deletes, assigns or resolves carries this, so
-	the refusal does not rest on the role missing from an allow-list that someone may
-	widen later. Place it directly under `@require_role`.
-	"""
-
-	@wraps(fn)
-	def wrapper(*args, **kwargs):
-		if is_read_only():
-			frappe.throw(
-				_("The {0} role has read-only access and cannot perform this action.").format(
-					ROLE_REVIEW_OFFICER
-				),
-				frappe.PermissionError,
-			)
-		return fn(*args, **kwargs)
-
-	# Read back by the route audit in tests/test_review_officer.py. `wraps` carries it
-	# outward through every decorator stacked above this one.
-	wrapper.forbids_read_only = True
-	return wrapper
 
 
 def can_see_identity(grievance, user=None):
@@ -224,9 +179,6 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	"""Per-document check. Mirrors the list conditions for a single record."""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
-
-	if ptype in WRITE_PTYPES and is_read_only(user):
-		return False
 
 	if roles & UNRESTRICTED_ROLES:
 		return True

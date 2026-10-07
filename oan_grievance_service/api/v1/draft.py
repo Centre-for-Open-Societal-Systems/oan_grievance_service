@@ -21,7 +21,6 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, model_validator
 
 from oan_grievance_service import permissions
-from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import constants as C
 
 DRAFT_LIFETIME_DAYS = 30
@@ -111,7 +110,6 @@ class SaveDraftRequest(BaseModel):
 @validate_request(SaveDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-@forbid_read_only
 def save(
 	client_submission_uuid: str | None = None,
 	client_uuid: str | None = None,
@@ -304,7 +302,6 @@ class SubmitDraftRequest(BaseModel):
 @validate_request(SubmitDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-@forbid_read_only
 def submit_draft(
 	client_submission_uuid: str,
 	consent_given: int | bool = 1,
@@ -541,7 +538,6 @@ class DiscardDraftRequest(BaseModel):
 @validate_request(DiscardDraftRequest)
 @handle_api_errors
 @require_role(ALLOWED_DRAFT_ROLES)
-@forbid_read_only
 def discard(client_submission_uuid: str):
 	"""Delete a draft the submitter abandoned."""
 	session_user = permissions.session_user()

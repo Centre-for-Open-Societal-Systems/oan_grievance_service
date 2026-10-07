@@ -41,7 +41,6 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
-from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import audit, identity, lifecycle, response_body, routing, sla
 from oan_grievance_service.services import constants as C
 
@@ -750,7 +749,6 @@ def _current_state(doc, extra=None):
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def submit(**kwargs):
 	"""Submit a grievance in one request using the current draft flow."""
 	from oan_grievance_service.api.v1 import draft
@@ -880,7 +878,6 @@ _ACTION_ENTRY_TYPES = {
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def action(
 	ticket_number: str,
 	action: str,
@@ -1049,7 +1046,6 @@ def _ensure_department(doc):
 @validate_request(GrievanceFeedbackRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def feedback(
 	ticket_number: str,
 	rating: int,
@@ -1285,7 +1281,6 @@ def timeline(
 @validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def message(ticket_number: str, body: str, is_internal: bool | str | None = None, **kwargs):
 	"""Post to the case thread: a public message, or an internal note when staff send
 	`is_internal`. Files sent as multipart attach to the new entry.
@@ -1375,7 +1370,6 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 @validate_request(ReassignGrievanceRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
-@forbid_read_only
 def reassign(
 	ticket_number: str,
 	target_department: str,
@@ -1424,7 +1418,6 @@ def reassign(
 @validate_request(DeferSLARequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
-@forbid_read_only
 def defer_sla(
 	ticket_number: str,
 	additional_days: int,

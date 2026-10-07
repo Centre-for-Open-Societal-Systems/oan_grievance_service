@@ -152,7 +152,6 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_CLEAN,
 	SCAN_PENDING,
 )
-from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import audit, scanning, sla
 
 from .grievance import ALLOWED_GRIEVANCE_READ_ROLES, ALLOWED_GRIEVANCE_ROLES
@@ -334,7 +333,6 @@ class SubmitDocumentsRequest(BaseModel):
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def submit_documents(
 	ticket_number: str | None = None,
 	grievance: str | None = None,
@@ -494,7 +492,6 @@ def _servable(attachment: str):
 @frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-@forbid_read_only
 def delete(attachment_id: str | None = None, attachment: str | None = None):
 	"""Remove an attachment the submitter added by mistake.
 

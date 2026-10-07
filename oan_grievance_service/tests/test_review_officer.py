@@ -45,12 +45,6 @@ class TestReviewOfficer(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self.l1 = _user("stg434-l1@example.com", "Tigist Alemu")
 		self.reviewer = _user("stg434-reviewer@example.com", "Rahel Review", role=C.ROLE_REVIEW_OFFICER)
-		self.reviewer_admin = _roles_user(
-			"stg434-rev-admin@example.com", C.ROLE_REVIEW_OFFICER, "Grievance Admin"
-		)
-		self.reviewer_officer = _roles_user(
-			"stg434-rev-officer@example.com", C.ROLE_REVIEW_OFFICER, "Grievance Officer"
-		)
 		self.category = _category("STG434 Inputs", "Z43")
 		_role_level("nodal_officer", 10)
 		_role_level("senior_nodal_officer", 20)
@@ -128,28 +122,12 @@ class TestReviewOfficer(FrappeTestCase):
 			for result in self._case_writes(case.ticket_number):
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 
-	def test_review_officer_wins_over_an_admin_role(self):
-		frappe.set_user(self.reviewer_admin)
-		with _keep_transaction():
-			for result in self._admin_writes():
-				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
-		self.assertEqual(frappe.db.get_value("Grievance RBAC Assignment", self.assignment, "active"), 1)
-		self.assertEqual(list_assignments()["status"], "success")
-
-	def test_review_officer_wins_over_an_officer_role(self):
-		case = self._case()
-		frappe.set_user(self.reviewer_officer)
-		with _keep_transaction():
-			for result in self._case_writes(case.ticket_number):
-				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
-
 	def test_grievance_documents_are_readable_but_never_writable(self):
 		case = self._case()
 		draft_case = self._case(workflow_state=C.STATE_DRAFT)
-		for user in (self.reviewer, self.reviewer_admin, self.reviewer_officer):
-			self.assertTrue(permissions.has_grievance_permission(case, "read", user))
-			for ptype in ("write", "create", "delete", "submit", "cancel"):
-				self.assertFalse(permissions.has_grievance_permission(case, ptype, user), msg=ptype)
+		self.assertTrue(permissions.has_grievance_permission(case, "read", self.reviewer))
+		for ptype in ("write", "create", "delete", "submit", "cancel"):
+			self.assertFalse(permissions.has_grievance_permission(case, ptype, self.reviewer), msg=ptype)
 		# Someone's unsent draft is not part of oversight.
 		self.assertFalse(permissions.has_grievance_permission(draft_case, "read", self.reviewer))
 
@@ -158,16 +136,41 @@ class TestReviewOfficer(FrappeTestCase):
 			permissions.grievance_query_conditions(self.reviewer), "(`tabGrievance`.docstatus != 0)"
 		)
 
-	def test_the_administrator_account_is_not_read_only(self):
-		self.assertFalse(permissions.is_read_only("Administrator"))
-		self.assertTrue(permissions.is_read_only(self.reviewer))
-		self.assertFalse(permissions.is_read_only(self.l1))
+	def test_frappe_permissions_refuse_a_write_without_any_role_check_of_ours(self):
+		department = frappe.db.get_value("Grievance Department", {}, "name")
+		self.assertTrue(frappe.has_permission("Grievance Department", "read", user=self.reviewer))
+		for ptype in ("write", "create", "delete"):
+			self.assertFalse(frappe.has_permission("Grievance Department", ptype, user=self.reviewer))
+		frappe.set_user(self.reviewer)
+		doc = frappe.get_doc("Grievance Department", department)
+		doc.dept_name = f"{doc.dept_name} edited"
+		with self.assertRaises(frappe.PermissionError):
+			doc.save()
 
-	def test_every_mutating_route_forbids_the_review_officer(self):
-		"""A new POST, PATCH or DELETE that forgets `@forbid_read_only` fails here."""
+	def test_a_change_request_cannot_be_decided_by_a_reviewer(self):
+		case = self._case()
+		# An admin's own request is applied at once, so raise it as an officer to keep it pending.
+		frappe.set_user(self.l1)
+		request = change_request.raise_change_request(
+			frappe.get_doc("Grievance", case.name), "Move department", {"assigned_dept": self.department}
+		)
+		self.assertEqual(request.status, "Pending")
+		frappe.set_user(self.reviewer)
+		with _keep_transaction():
+			result = change_request.decide(request.name, decision="Approved")
+		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+		self.assertEqual(frappe.db.get_value("Grievance Change Request", request.name, "status"), "Pending")
+
+	def test_no_mutating_route_lists_the_review_officer(self):
+		"""A POST, PATCH or DELETE that names the role in `require_role` fails here.
+
+		A mutating route with no `require_role` at all must be one of the two below, whose
+		own checks are named in the comments; a new one fails until it is gated or listed.
+		"""
 		ensure_routes_registered()
 		read_methods = {"GET", "HEAD", "OPTIONS"}
-		missing = []
+		ungated = set()
+		listed = []
 		checked = 0
 		for rule in _rules:
 			route = getattr(rule.endpoint, "_route", None)
@@ -177,12 +180,22 @@ class TestReviewOfficer(FrappeTestCase):
 			if set(route["methods"]) <= read_methods:
 				continue
 			checked += 1
-			if not getattr(fn, "forbids_read_only", False):
-				missing.append(
-					f"{'/'.join(route['methods'])} {route['path']} ({fn.__module__}.{fn.__name__})"
-				)
+			roles = _require_role_list(fn)
+			if roles is None:
+				ungated.add(f"{fn.__module__.rsplit('.', 1)[-1]}.{fn.__name__}")
+			elif C.ROLE_REVIEW_OFFICER in roles:
+				listed.append(f"{'/'.join(route['methods'])} {route['path']}")
 		self.assertGreater(checked, 20)
-		self.assertEqual(missing, [], msg="Mutating routes that do not refuse the Review Officer")
+		self.assertEqual(listed, [])
+		self.assertEqual(
+			ungated,
+			{
+				# The controller's check_decider refuses anyone but the approver or an admin.
+				"change_request.decide",
+				# Writes only the caller's own Submitter Profile.
+				"submitter.register_submitter",
+			},
+		)
 
 	def _admin_writes(self):
 		return (
@@ -215,21 +228,14 @@ class TestReviewOfficer(FrappeTestCase):
 			attachment.delete(attachment_id="none"),
 			draft.discard(client_submission_uuid="00000000-0000-4000-8000-000000000000"),
 			submitter.unblock_submitter("none"),
-			change_request.decide("none", decision="approved"),
 		)
 
 
-def _roles_user(email, *roles):
-	if frappe.db.exists("User", email):
-		return email
-	frappe.get_doc(
-		{
-			"doctype": "User",
-			"email": email,
-			"first_name": email.split("@")[0],
-			"enabled": 1,
-			"send_welcome_email": 0,
-			"roles": [{"role": role} for role in roles],
-		}
-	).insert(ignore_permissions=True)
-	return email
+def _require_role_list(fn):
+	"""The role list a route's `require_role` was given, or None when it has none."""
+	while fn is not None:
+		code = getattr(fn, "__code__", None)
+		if code and "roles" in code.co_freevars:
+			return fn.__closure__[code.co_freevars.index("roles")].cell_contents
+		fn = getattr(fn, "__wrapped__", None)
+	return None
