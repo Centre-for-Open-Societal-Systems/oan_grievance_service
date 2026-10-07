@@ -1343,6 +1343,17 @@ def timeline(
 	history_map = _history_details_for(
 		{e["ref_docname"] for e in entries if e.get("ref_doctype") == "Grievance Status History"}
 	)
+	officer_users = {e.get("author_user") for e in entries if is_staff and e.get("author_user")}
+	user_names = {}
+	if officer_users:
+		user_names = {
+			row.name: (row.full_name or row.name)
+			for row in frappe.get_all(
+				"User",
+				filters={"name": ["in", list(officer_users)]},
+				fields=["name", "full_name"],
+			)
+		}
 	dept_response_counter = 0
 	for entry in entries:
 		hist = history_map.get(entry.get("ref_docname")) or {}
@@ -1409,11 +1420,7 @@ def timeline(
 		if is_staff:
 			if author_type == "officer":
 				officer_user = entry.get("author_user")
-				author_name = (
-					frappe.db.get_value("User", officer_user, "full_name") or officer_user
-					if officer_user
-					else None
-				)
+				author_name = user_names.get(officer_user) or officer_user if officer_user else None
 			elif author_type == "submitter":
 				author_name = masked_name
 		else:
