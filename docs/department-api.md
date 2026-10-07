@@ -17,23 +17,23 @@ The department list in `GET /api/v1/grievances/options` stays as it is. It is th
 
 ## 2. Conventions
 
-| Item         | Value                                                                    |
-| :----------- | :----------------------------------------------------------------------- |
-| Base URL     | `{base_url}/api/v1`                                                      |
-| Auth         | `Authorization: Bearer <access_token>` from `POST /api/v1/auth/login`    |
-| Role         | Grievance Admin, System Manager or Administrator. Others get 403         |
-| Content type | `Content-Type: application/json` for `POST` and `PATCH`                  |
-| Department id | The department name. Put it through `encodeURIComponent` in a path      |
+| Item          | Value                                                                 |
+| :------------ | :-------------------------------------------------------------------- |
+| Base URL      | `{base_url}/api/v1`                                                   |
+| Auth          | `Authorization: Bearer <access_token>` from `POST /api/v1/auth/login` |
+| Role          | Grievance Admin, System Manager or Administrator. Others get 403      |
+| Content type  | `Content-Type: application/json` for `POST` and `PATCH`               |
+| Department id | The department name. Put it through `encodeURIComponent` in a path    |
 
 Responses use the same success and error envelopes as the officer API (see `docs/officer-management-api.md`, section 2). List responses add a top-level `pagination` block next to `data`.
 
-| HTTP | `code`              | When                                                                                         |
-| :--- | :------------------ | :------------------------------------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR`  | A bad field, an unknown field, or a rule broken. `details` maps field name to message        |
-| 401  | none                | Missing or expired token                                                                     |
-| 403  | `PERMISSION_DENIED` | The signed-in user is not an admin                                                           |
-| 404  | `NOT_FOUND`         | No department with that id                                                                   |
-| 409  | `DUPLICATE_ENTRY`   | The department name, or its short name, is already taken                                     |
+| HTTP | `code`              | When                                                                                  |
+| :--- | :------------------ | :------------------------------------------------------------------------------------ |
+| 400  | `VALIDATION_ERROR`  | A bad field, an unknown field, or a rule broken. `details` maps field name to message |
+| 401  | none                | Missing or expired token                                                              |
+| 403  | `PERMISSION_DENIED` | The signed-in user is not an admin                                                    |
+| 404  | `NOT_FOUND`         | No department with that id                                                            |
+| 409  | `DUPLICATE_ENTRY`   | The department name, or its short name, is already taken                              |
 
 For field errors, show `details[field]` next to that input. For rule errors (`details` is empty or the field is not on screen), show `message`.
 
@@ -61,13 +61,13 @@ For field errors, show `details[field]` next to that input. For rule errors (`de
 
 `GET /api/v1/departments`
 
-| Query param   | Type               | Notes                                                                      |
-| :------------ | :----------------- | :------------------------------------------------------------------------- |
-| `active`      | boolean            | `true` for live departments, `false` for retired ones. Omit for both       |
-| `head_of_dept`| string             | User id of the head                                                        |
-| `q`           | string             | Searches name, short name and email                                        |
-| `page`        | integer, 1 or more | Default 1                                                                  |
-| `page_size`   | integer, 1 to 100  | Default 20                                                                 |
+| Query param    | Type               | Notes                                                                |
+| :------------- | :----------------- | :------------------------------------------------------------------- |
+| `active`       | boolean            | `true` for live departments, `false` for retired ones. Omit for both |
+| `head_of_dept` | string             | User id of the head                                                  |
+| `q`            | string             | Searches name, short name and email                                  |
+| `page`         | integer, 1 or more | Default 1                                                            |
+| `page_size`    | integer, 1 to 100  | Default 20                                                           |
 
 Unknown params and bad values return 400. A blank value is treated as not set. Results are sorted by name. Retired departments are included unless `active=true` is sent.
 
@@ -129,14 +129,14 @@ Send only the fields that change. An omitted field stays as it is.
 { "head_of_dept": "new.head@example.com" }
 ```
 
-| Field              | Notes                                                                                                |
-| :----------------- | :--------------------------------------------------------------------------------------------------- |
-| `email_account`    | Valid email. Cannot be null                                                                          |
-| `short_name`       | Null or blank clears it. Must stay unique                                                            |
-| `phone`            | Null or blank clears it                                                                              |
-| `head_of_dept`     | Assigns or reassigns the head. Null or blank clears it                                               |
-| `active`           | `false` retires the department (section 8). `true` brings it back                                    |
-| `l1_role_level`, `l2_role_level`, `routing_strategy` | Null or blank clears them                                          |
+| Field                                                | Notes                                                             |
+| :--------------------------------------------------- | :---------------------------------------------------------------- |
+| `email_account`                                      | Valid email. Cannot be null                                       |
+| `short_name`                                         | Null or blank clears it. Must stay unique                         |
+| `phone`                                              | Null or blank clears it                                           |
+| `head_of_dept`                                       | Assigns or reassigns the head. Null or blank clears it            |
+| `active`                                             | `false` retires the department (section 8). `true` brings it back |
+| `l1_role_level`, `l2_role_level`, `routing_strategy` | Null or blank clears them                                         |
 
 `department_name` is not editable: sending it returns 400, as does any field not listed here. An empty body returns 400 "No fields to update."
 
@@ -156,28 +156,28 @@ Retiring does not touch the department's category assignments or officer desks. 
 
 ## 9. Rules that produce a 400 or 409
 
-| Rule                                                              | Status |
-| :---------------------------------------------------------------- | :----- |
-| Name, email or another required field missing or blank            | 400    |
-| `email_account` is not a valid email address                      | 400    |
-| `head_of_dept` is unknown, disabled, or not an officer or admin   | 400    |
-| `routing_strategy` or a role level that does not exist            | 400    |
-| An unknown field, or `department_name` on update                  | 400    |
-| Retiring a department that has open cases                         | 400    |
-| A department with that name already exists                        | 409    |
-| The short name belongs to another department                      | 409    |
+| Rule                                                            | Status |
+| :-------------------------------------------------------------- | :----- |
+| Name, email or another required field missing or blank          | 400    |
+| `email_account` is not a valid email address                    | 400    |
+| `head_of_dept` is unknown, disabled, or not an officer or admin | 400    |
+| `routing_strategy` or a role level that does not exist          | 400    |
+| An unknown field, or `department_name` on update                | 400    |
+| Retiring a department that has open cases                       | 400    |
+| A department with that name already exists                      | 409    |
+| The short name belongs to another department                    | 409    |
 
 ## 10. Suggested screen wiring
 
-| Screen                                  | Call                                                                              |
-| :-------------------------------------- | :-------------------------------------------------------------------------------- |
-| Departments table                       | `GET /api/v1/departments?page=&page_size=&q=`, with an Active/Retired toggle on `active` |
-| Add department modal                    | `POST /api/v1/departments`. Show 409 as "A department with this name already exists" |
-| Edit department modal                   | `PATCH /api/v1/departments/{department_id}` with only the changed fields           |
-| Head of department picker               | `GET /api/v1/officers?status=Active`, then send the officer's `name` as `head_of_dept` |
-| Retire button                           | `DELETE /api/v1/departments/{department_id}`. Show `message` on 400                |
-| Nodal Officer department dropdown       | `GET /api/v1/departments?active=true&page_size=100`, in place of the hardcoded list. Use `department_id` as the value |
-| Category Assignments department picker  | The same call. Send `department_id` as `department`                               |
+| Screen                                 | Call                                                                                                                  |
+| :------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| Departments table                      | `GET /api/v1/departments?page=&page_size=&q=`, with an Active/Retired toggle on `active`                              |
+| Add department modal                   | `POST /api/v1/departments`. Show 409 as "A department with this name already exists"                                  |
+| Edit department modal                  | `PATCH /api/v1/departments/{department_id}` with only the changed fields                                              |
+| Head of department picker              | `GET /api/v1/officers?status=Active`, then send the officer's `name` as `head_of_dept`                                |
+| Retire button                          | `DELETE /api/v1/departments/{department_id}`. Show `message` on 400                                                   |
+| Nodal Officer department dropdown      | `GET /api/v1/departments?active=true&page_size=100`, in place of the hardcoded list. Use `department_id` as the value |
+| Category Assignments department picker | The same call. Send `department_id` as `department`                                                                   |
 
 ## 11. Not available yet
 
