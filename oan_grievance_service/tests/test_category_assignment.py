@@ -407,6 +407,20 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(result["status"], "success")
 		self.assertEqual(result["data"]["pagination"]["total_count"], 1)
 
+	def test_grievance_admin_can_write(self):
+		admin = _user("stg433-admin@example.com", "Selam Writer", role="Grievance Admin")
+		frappe.set_user(admin)
+		created = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			sla_days=6,
+		)
+		self.assertEqual(created["status"], "success", msg=created)
+		name = created["data"]["assignment"]["name"]
+		self.assertEqual(update_assignment(name, sla_days=4)["status"], "success")
+		self.assertEqual(deactivate_assignment(name)["status"], "success")
+
 	def test_guest_cannot_manage_assignments(self):
 		name = self._assignment()
 		frappe.set_user("Guest")
