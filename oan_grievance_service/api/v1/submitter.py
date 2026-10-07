@@ -27,6 +27,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	split_dedupe_key,
 )
+from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services.constants import STAFF_ROLES
 from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
@@ -304,6 +305,7 @@ def options(
 @frappe.whitelist()
 @validate_request(RegisterSubmitterRequest)
 @handle_api_errors
+@forbid_read_only
 def register_submitter(
 	submitter_type: str = "Individual Farmer",
 	submitter_name: str | None = None,
@@ -399,6 +401,7 @@ def register_submitter(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
+@forbid_read_only
 def unblock_submitter(profile_id: str, **kwargs):
 	"""Unblock a submitter profile, allowing them to file grievances."""
 	if not frappe.db.exists("Grievance Submitter Profile", profile_id):
@@ -429,6 +432,7 @@ def unblock_submitter(profile_id: str, **kwargs):
 @validate_request(BlockSubmitterRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
+@forbid_read_only
 def block_submitter(profile_id: str, reason: str, **kwargs):
 	"""Block a submitter profile, preventing new grievance submissions."""
 	if not frappe.db.exists("Grievance Submitter Profile", profile_id):

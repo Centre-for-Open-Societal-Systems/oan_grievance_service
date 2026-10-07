@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "bf085058-1f56-4563-a5e4-007519dff627",
     "name": "OAN Grievance Service REST API",
-    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, draft save/resume, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, reopen flows, and category-assignment admin CRUD.",
+    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, draft save/resume, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, reopen flows, category-assignment admin CRUD, and the read-only Review Officer role.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -2427,6 +2427,723 @@
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"status\": \"Inactive\"\n}"
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Review Officer (read-only)",
+          "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call, even when the account also holds an admin or officer role.",
+          "item": [
+            {
+              "name": "R1. List grievances",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns a page of grievances\", function () {",
+                      "    pm.expect(pm.response.json().data.items).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&sort_order=desc",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "grievances"],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    },
+                    {
+                      "key": "sort_order",
+                      "value": "desc"
+                    }
+                  ]
+                },
+                "description": "Every filed grievance, never drafts. Same filters, paging and sorting as the officer list."
+              },
+              "response": []
+            },
+            {
+              "name": "R2. Grievance status summary",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns cards\", function () {",
+                      "    pm.expect(pm.response.json().data.cards).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/summary",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "grievances", "summary"]
+                },
+                "description": "KPI cards over every filed grievance."
+              },
+              "response": []
+            },
+            {
+              "name": "R3. Grievance options (departments)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns departments\", function () {",
+                      "    pm.expect(pm.response.json().data.departments).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/options",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "grievances", "options"]
+                },
+                "description": "Departments, statuses, categories, types and channels. Officer lists are not included for this role."
+              },
+              "response": []
+            },
+            {
+              "name": "R4. Get grievance timeline",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grievances",
+                    "{{ticket_number}}",
+                    "timeline"
+                  ]
+                },
+                "description": "Public timeline entries of one grievance. Internal notes are not shown to this role."
+              },
+              "response": []
+            },
+            {
+              "name": "R5. List category assignments",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns an assignment page\", function () {",
+                      "    pm.expect(pm.response.json().data.assignments).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/category-assignments",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "category-assignments"]
+                },
+                "description": "Read-only view of the category-to-department routing rules."
+              },
+              "response": []
+            },
+            {
+              "name": "R6. List Nodal Officers (L1)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns officers\", function () {",
+                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers?level=L1&page=1&page_size=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers"],
+                  "query": [
+                    {
+                      "key": "level",
+                      "value": "L1"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Nodal Officers. Use level=L2 for Senior Nodal Officers."
+              },
+              "response": []
+            },
+            {
+              "name": "R7. List Senior Nodal Officers (L2)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns officers\", function () {",
+                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers?level=L2&page=1&page_size=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers"],
+                  "query": [
+                    {
+                      "key": "level",
+                      "value": "L2"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Senior Nodal Officers."
+              },
+              "response": []
+            },
+            {
+              "name": "R8. Get officer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers", "{{officer}}"]
+                },
+                "description": "One officer profile."
+              },
+              "response": []
+            },
+            {
+              "name": "R9. Officer statistics",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "pm.test(\"Returns a success envelope\", function () {",
+                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                      "});",
+                      "pm.test(\"Returns officer statistics\", function () {",
+                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/statistics?level=L1&page=1&page_size=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers", "statistics"],
+                  "query": [
+                    {
+                      "key": "level",
+                      "value": "L1"
+                    },
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "page_size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Assigned, resolved, average resolution time and resolution rate per L1/L2 officer."
+              },
+              "response": []
+            },
+            {
+              "name": "W1. Create category assignment (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/category-assignments",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "category-assignments"]
+                },
+                "description": "Create a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"sla_days\": 14\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W2. Update category assignment (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "category-assignments",
+                    "{{category_assignment}}"
+                  ]
+                },
+                "description": "Edit a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"sla_days\": 10\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W3. Deactivate category assignment (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "category-assignments",
+                    "{{category_assignment}}"
+                  ]
+                },
+                "description": "Deactivate a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role."
+              },
+              "response": []
+            },
+            {
+              "name": "W4. Create officer (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers"]
+                },
+                "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W5. Update officer (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers", "{{officer}}"]
+                },
+                "description": "Edit an officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"designation\": \"Chief Nodal Officer\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W6. Issue temporary password (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "officers", "{{officer}}", "password-resets"]
+                },
+                "description": "Reissue an officer's temporary password. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W7. Resolve grievance (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "grievances", "{{ticket_number}}", "action"]
+                },
+                "description": "Take a workflow action such as Resolve. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"action\": \"Resolve\",\n  \"reason\": \"Fixed.\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W8. Reassign grievance (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grievances",
+                    "{{ticket_number}}",
+                    "reassign"
+                  ]
+                },
+                "description": "Assign or reassign a department or officer. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_department\": \"MoA\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "W9. Post timeline message (refused)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 403\", function () {",
+                      "    pm.response.to.have.status(403);",
+                      "});",
+                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "grievances", "{{ticket_number}}", "message"]
+                },
+                "description": "Post a message or note. A Review Officer is refused with 403 PERMISSION_DENIED, even when the account also holds an admin or officer role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"body\": \"A note.\"\n}"
                 }
               },
               "response": []

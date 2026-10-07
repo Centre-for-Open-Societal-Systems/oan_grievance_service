@@ -34,11 +34,12 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import officer as service
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 
 route = prefixed("/api/v1/officers")
 
-ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 Level = Literal["L1", "L2"]
 Status = Literal["Active", "On Leave", "Inactive"]
 
@@ -158,7 +159,7 @@ class ListOfficers(PageParams, Body):
 @route("", methods=("GET",), summary="List officers")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficers)
 @api_doc(
 	summary="List officers",
@@ -204,7 +205,7 @@ def list_officers(
 @route("/<officer>", methods=("GET",), summary="Get an officer")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(OfficerRef)
 @api_doc(
 	summary="Get an officer",
@@ -222,6 +223,7 @@ def get_officer(officer: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(CreateOfficer)
 @api_doc(
 	summary="Create an officer",
@@ -274,6 +276,7 @@ def create_officer(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
@@ -296,6 +299,7 @@ def update_officer(officer: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(ResetTemporaryPassword)
 @api_doc(
 	summary="Issue a new temporary password",

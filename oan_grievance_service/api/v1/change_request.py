@@ -17,7 +17,7 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field
 
-from oan_grievance_service.permissions import is_unrestricted
+from oan_grievance_service.permissions import forbid_read_only, is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 
 DOCTYPE = "Grievance Change Request"
@@ -282,6 +282,7 @@ def get_request(name: str, **kwargs):
 @frappe.whitelist()
 @validate_request(DecideChangeRequest)
 @handle_api_errors
+@forbid_read_only
 def decide(name: str, decision: str, note: str | None = None, **kwargs):
 	"""Rule on a request. Only the person it is pending with, or an admin, may decide."""
 	if not frappe.db.exists(DOCTYPE, name):

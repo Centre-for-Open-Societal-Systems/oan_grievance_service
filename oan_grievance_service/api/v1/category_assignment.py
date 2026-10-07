@@ -33,12 +33,13 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import category_assignment as service
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1/category-assignments")
 
-ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy", "active"]
 
 
@@ -166,7 +167,7 @@ SLA_NOTE = (
 @route("", methods=("GET",), summary="List category assignments")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListCategoryAssignments)
 @api_doc(
 	summary="List category assignments",
@@ -216,7 +217,7 @@ def list_assignments(
 @route("/<assignment>", methods=("GET",), summary="Get a category assignment")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(AssignmentRef)
 @api_doc(
 	summary="Get a category assignment",
@@ -236,6 +237,7 @@ def get_assignment(assignment: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(CreateCategoryAssignment)
 @api_doc(
 	summary="Create a category assignment",
@@ -275,6 +277,7 @@ def create_assignment(
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(UpdateCategoryAssignment, exclude_unset=True)
 @api_doc(
 	summary="Update a category assignment",
@@ -300,6 +303,7 @@ def update_assignment(assignment: str, **kwargs):
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
+@forbid_read_only
 @validate_request(AssignmentRef)
 @api_doc(
 	summary="Deactivate a category assignment",

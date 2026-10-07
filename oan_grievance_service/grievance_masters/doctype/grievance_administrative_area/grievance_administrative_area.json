@@ -151,7 +151,7 @@
  "index_web_pages_for_search": 1,
  "is_tree": 1,
  "links": [],
- "modified": "2026-09-09 12:00:00.000000",
+ "modified": "2026-10-07 10:00:07.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Administrative Area",
@@ -218,6 +218,21 @@
    "share": 1,
    "submit": 0,
    "write": 0
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
   }
  ],
  "row_format": "Dynamic",

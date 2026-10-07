@@ -451,6 +451,10 @@ cases you may touch comes from Grievance RBAC Assignment scope, and seniority co
 from position in the reporting chain, which is why there is no role per rung. Submitter
 covers every filing actor, distinguished by `submitter_type` rather than by role.
 
+A fourth role, Grievance Review Officer, is read-only oversight. It reads grievances,
+officer statistics and administration data and is refused every mutating call, even when
+the account also holds another role.
+
 ### Application layers
 
 | Path               | Holds                                                                                                             |

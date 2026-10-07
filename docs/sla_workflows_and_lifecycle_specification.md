@@ -253,6 +253,13 @@ for you_; it never answers _which cases you may touch_.
 | `Grievance Officer`   | Every case-working officer at every rung                                                                             | Read and work assigned cases, file structured responses, request deferrals, approve within their chain |
 | `Grievance Admin`     | Platform administrator                                                                                               | Taxonomy, routing rules, SLA policy, holiday calendars, thresholds                                     |
 
+A fourth role, `Grievance Review Officer`, is read-only oversight and not a working
+capability: it reads every filed grievance, officer statistics, departments, category
+assignments and the Nodal (L1) and Senior Nodal (L2) officers, and is refused every
+create, edit, delete, assign and resolve call. It wins over any other role the same
+account holds, so a reviewer who is also an officer or admin still cannot write. It sees no
+submitter identity on an anonymous case and no internal notes.
+
 **Seniority is not a role.** The former `L1 Nodal Officer`, `L2 Senior Nodal Officer`
 and `Department Head` roles are replaced by position in the reporting chain. This is the
 single change that keeps the role list at three no matter how many rungs the

@@ -66,8 +66,16 @@ ROLE_ADMIN = "Grievance Admin"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
+# Oversight: reads grievances, officer statistics and the administration data, and
+# changes nothing. Holding it forbids every write, whatever other role the user also
+# holds (permissions.is_read_only), so it is never granted on a mutating endpoint.
+ROLE_REVIEW_OFFICER = "Grievance Review Officer"
 
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
+ADMIN_ROLES = [ROLE_ADMIN, "System Manager", "Administrator"]
+# Admin endpoints that only read: the Review Officer joins the admins here and nowhere
+# on a POST, PATCH or DELETE.
+ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 ALLOWED_GRIEVANCE_ROLES = [
 	ROLE_SUBMITTER,
 	ROLE_OFFICER,
@@ -75,3 +83,4 @@ ALLOWED_GRIEVANCE_ROLES = [
 	"System Manager",
 	"Administrator",
 ]
+ALLOWED_GRIEVANCE_READ_ROLES = [*ALLOWED_GRIEVANCE_ROLES, ROLE_REVIEW_OFFICER]

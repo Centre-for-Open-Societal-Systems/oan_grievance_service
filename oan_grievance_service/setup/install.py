@@ -26,6 +26,7 @@ ROLES = [
 	("Grievance Officer", 0),
 	("Grievance Admin", 0),
 	("Grievance Dashboard Reader", 0),
+	(C.ROLE_REVIEW_OFFICER, 0),
 ]
 
 # The Grievance Workflow: a native Frappe Workflow record, rebuilt from

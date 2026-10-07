@@ -152,9 +152,10 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_CLEAN,
 	SCAN_PENDING,
 )
+from oan_grievance_service.permissions import forbid_read_only
 from oan_grievance_service.services import audit, scanning, sla
 
-from .grievance import ALLOWED_GRIEVANCE_ROLES
+from .grievance import ALLOWED_GRIEVANCE_READ_ROLES, ALLOWED_GRIEVANCE_ROLES
 
 route = prefixed("/api/v1/attachments")
 
@@ -333,6 +334,7 @@ class SubmitDocumentsRequest(BaseModel):
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
+@forbid_read_only
 def submit_documents(
 	ticket_number: str | None = None,
 	grievance: str | None = None,
@@ -360,7 +362,7 @@ def submit_documents(
 @route("", methods=("GET",), summary="List attachments for a grievance")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
 	"""List the evidence on a case, with each file's scan verdict.
 
@@ -400,7 +402,7 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 @route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def view(
 	attachment_id: str | None = None,
 	attachment: str | None = None,
@@ -445,7 +447,7 @@ def view(
 @route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def download(attachment_id: str | None = None, attachment: str | None = None):
 	"""Metadata for one attachment, but only once it has been scanned clean.
 
@@ -492,6 +494,7 @@ def _servable(attachment: str):
 @frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
+@forbid_read_only
 def delete(attachment_id: str | None = None, attachment: str | None = None):
 	"""Remove an attachment the submitter added by mistake.
 
