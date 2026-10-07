@@ -1940,7 +1940,7 @@
         },
         {
           "name": "Category Assignments",
-          "description": "STG-404 admin CRUD for one routing rule per service category. Requires a Grievance Admin bearer token.",
+          "description": "STG-404 admin CRUD for category routing rules: one rule per department and service category. Requires a Grievance Admin or System Manager bearer token.",
           "item": [
             {
               "name": "List category assignments",
@@ -1978,7 +1978,7 @@
                     {"key": "page_size", "value": "20", "disabled": true}
                   ]
                 },
-                "description": "List rules. Optional query: service_category, department, active, page, page_size. Pagination is in the top-level pagination block."
+                "description": "List rules. Optional query: service_category, department, active, page, page_size. Newest first. The page info (page, page_size, total_count, total_pages, has_next, has_prev) is in data.pagination. Unknown query parameters return 400."
               },
               "response": []
             },
@@ -2015,7 +2015,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments"]
                 },
-                "description": "Create the rule for one department and service category. Creates the routing desk and sets the category SLA row."
+                "description": "Create the rule for one department and service category: a category-only routing desk plus the category SLA row. Required: service_category, department, l1_officer, sla_days. One rule per department and category, inactive ones included. sla_days and auto_escalate belong to the category, so departments serving the same category share them."
               },
               "response": []
             },
@@ -2049,7 +2049,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
                 },
-                "description": "Partial update. Service category cannot be changed. Send l2_officer null to clear it."
+                "description": "Partial update. Service category cannot be changed. Send l2_officer null to clear it. Changing sla_days or auto_escalate changes the category SLA row for every department serving it."
               },
               "response": []
             },
@@ -2063,7 +2063,7 @@
                   "host": ["{{base_url}}"],
                   "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
                 },
-                "description": "Deactivate the rule, its routing desk, and the category SLA row. The record is kept."
+                "description": "Deactivate the rule: its routing desk is marked inactive and kept for audit. The category SLA row is not changed. Same as PATCH with active false; repeating the call changes nothing."
               },
               "response": []
             }
