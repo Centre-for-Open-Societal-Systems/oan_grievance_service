@@ -672,17 +672,30 @@ data(
 		{
 			"name": S(nullable=True, description="Timeline entry identifier"),
 			"entry_type": S(
-				example="status_change",
-				description="Event classification (status_change, note, message, attachment)",
+				example="dept_response",
+				description="Event classification (dept_response, note, message, submission, status_change)",
+			),
+			"response_number": I(
+				nullable=True,
+				example=1,
+				description="Sequential count of department response on the grievance e.g. 1, 2",
+			),
+			"action": S(
+				nullable=True, description="Workflow action behind a status change or response entry"
+			),
+			"action_taken": S(nullable=True, description="Specific operational action taken by department"),
+			"resolution_summary": S(
+				nullable=True, description="Summary of resolution and next steps for citizen"
 			),
 			"from_status": S(nullable=True),
 			"to_status": S(nullable=True),
 			"author_role": S(nullable=True, description="Role of the actor e.g. Woreda Officer or Submitter"),
 			"author_type": S(nullable=True, enum=["submitter", "officer", "system"]),
+			"author_name": S(
+				nullable=True, description="Full name of actor when visible (e.g. for staff oversight)"
+			),
 			"body": S(nullable=True, description="Timeline message or description text"),
-			"body_parts": {**REF("ResponseParts"), "nullable": True},
 			"is_internal": B(description="Whether visible only to staff"),
-			"action": S(nullable=True, description="Workflow action behind a status change entry"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
 			"created_on": S(format="date-time", nullable=True),
 			"creation": S(format="date-time", nullable=True),
@@ -697,11 +710,7 @@ data(
 	OBJ(
 		{
 			"name": S(nullable=True),
-			"mobile": S(nullable=True),
 			"contact_mobile": S(nullable=True),
-			"country_code": S(nullable=True),
-			"phone_number": S(nullable=True),
-			"email": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"submitter_type": S(nullable=True),
 			"is_anonymous": B(),

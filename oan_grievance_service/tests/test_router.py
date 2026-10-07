@@ -353,25 +353,61 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(tl_data["data"]["ticket_number"], tn.display(ticket_number))
 		self.assertIn("attachments", tl_data["data"])
 
-		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/message
+		# 3. Add message as Officer via POST /api/v1/grievances/<ticket_number>/message
 		frappe.set_user("Administrator")
 		req_note = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
 			method="POST",
-			data={"body": "Officer reviewing case via REST", "is_internal": True},
+			data={"body": "Officer reviewing case via REST", "is_internal": False},
 		)
 		res_note = frappe.api.handle(req_note)
 		self.assertEqual(res_note.status_code, 200)
 		note_data = json.loads(res_note.get_data(as_text=True))
 		self.assertEqual(note_data["status"], "success")
 
-		# 4. View Timeline via GET /api/v1/grievances/<ticket_number>/timeline
+		# 4. View Timeline as Submitter via GET /api/v1/grievances/<ticket_number>/timeline
+		frappe.set_user(self.farmer_user.name)
 		req_tl = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
 		res_tl = frappe.api.handle(req_tl)
 		self.assertEqual(res_tl.status_code, 200)
 		tl_data = json.loads(res_tl.get_data(as_text=True))
 		self.assertEqual(tl_data["status"], "success")
-		self.assertTrue(len(tl_data["data"]["timeline"]) > 0)
+		timeline_entries = tl_data["data"]["timeline"]
+		self.assertTrue(len(timeline_entries) > 0)
+
+		# Verify chronological ASC order
+		timestamps = [e["created_on"] for e in timeline_entries]
+		self.assertEqual(timestamps, sorted(timestamps))
+
+		for entry in timeline_entries:
+			self.assertNotIn("tags", entry)
+			self.assertNotIn("author_user", entry)
+			self.assertNotIn("ref_docname", entry)
+			self.assertNotIn("ref_doctype", entry)
+			self.assertNotIn("body_parts", entry)
+			if entry.get("author_type") == "officer":
+				# Submitter cannot see officer name: key must be completely omitted
+				self.assertNotIn("author_name", entry)
+				self.assertTrue(bool(entry.get("author_role")))
+			elif entry.get("author_type") == "submitter":
+				# Submitter can see their own name
+				self.assertIn("author_name", entry)
+		self.assertIsNone(tl_data["data"]["assignment"]["assigned_to"])
+
+		# 5. View Timeline as Staff: officer author_name is visible, author_user is excluded
+		frappe.set_user("Administrator")
+		req_tl_admin = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
+		res_tl_admin = frappe.api.handle(req_tl_admin)
+		tl_admin_data = json.loads(res_tl_admin.get_data(as_text=True))
+		admin_entries = tl_admin_data["data"]["timeline"]
+		officer_entry = next((e for e in admin_entries if e.get("author_type") == "officer"), None)
+		self.assertIsNotNone(officer_entry)
+		self.assertNotIn("author_user", officer_entry)
+		self.assertIn("author_name", officer_entry)
+		self.assertEqual(officer_entry["author_name"], "Administrator")
+		self.assertEqual(officer_entry["entry_type"], "dept_response")
+		self.assertEqual(officer_entry["response_number"], 1)
+		self.assertNotIn("ref_docname", officer_entry)
 
 	def test_unified_action_rest_endpoint(self):
 		"""Test POST /api/v1/grievances/<ticket_number>/action for workflow moves."""
@@ -434,7 +470,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			data={"action": "Start Work"},
 		)
 		res_action = frappe.api.handle(req_action)
-		self.assertEqual(res_action.status_code, 200)
+		self.assertEqual(res_action.status_code, 200, res_action.get_data(as_text=True))
 		action_data = json.loads(res_action.get_data(as_text=True))
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
@@ -721,7 +757,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			data={"action": "Request More Info", "reason": "Please provide proof of purchase."},
 		)
 		res_req_info = frappe.api.handle(req_req_info)
-		self.assertEqual(res_req_info.status_code, 200)
+		self.assertEqual(res_req_info.status_code, 200, res_req_info.get_data(as_text=True))
 		info_req_data = json.loads(res_req_info.get_data(as_text=True))
 		self.assertEqual(info_req_data["data"]["status"], "More Info Needed")
 

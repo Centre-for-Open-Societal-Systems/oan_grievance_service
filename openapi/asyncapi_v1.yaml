@@ -22,11 +22,10 @@ info:
       `io("wss://grievance.openagrinet.org/<site>", ...)`.
     - Authenticate with the same access token as the REST API. A native client may
       send `Authorization: Bearer <token>`. A browser cannot set headers on a
-      WebSocket, so it passes the token as the `access_token` query parameter
-      (`query: { access_token: token }`). Query strings can reach access logs, so
-      use a short-lived token.
-    - The token is checked once, at the handshake. When it expires the socket stays
-      open; reconnect with a fresh token after refreshing it.
+      WebSocket, so it connects through a same-origin gateway (e.g. `oan_grievance_ui`'s
+      port 3001) that reads the secure cookie and injects the `Bearer` header upstream.
+    - The token is checked once, at the handshake. The gateway will forcibly close the
+      socket when the token expires; reconnect with a fresh token.
   contact:
     name: COSS - Centre for Open Societal Systems
 
@@ -129,11 +128,6 @@ components:
       name: Authorization
       in: header
       description: "`Bearer <access token>`, the token issued by oan_auth_service."
-    QueryToken:
-      type: httpApiKey
-      name: access_token
-      in: query
-      description: The same access token, for browsers. Accepted only through the gateway.
 
   messages:
     AttachmentScanned:

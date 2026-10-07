@@ -289,6 +289,25 @@ def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> li
 	return results
 
 
+def _resolve_case_name(grievance: str | None) -> str | None:
+	"""Resolve a grievance identifier (name, formatted or flat ticket number, UUID) to case name."""
+	if not grievance:
+		return None
+	name = str(grievance).strip()
+	if frappe.db.exists("Grievance", name):
+		return name
+	from oan_grievance_service.services import ticket_number as tn
+
+	normalized = tn.normalize(name)
+	if frappe.db.exists("Grievance", normalized):
+		return normalized
+	return (
+		frappe.db.get_value("Grievance", {"ticket_number": normalized}, "name")
+		or frappe.db.get_value("Grievance", {"ticket_number": name}, "name")
+		or frappe.db.get_value("Grievance", {"client_submission_uuid": name}, "name")
+	)
+
+
 class SubmitDocumentsRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
@@ -316,9 +335,7 @@ class SubmitDocumentsRequest(BaseModel):
 				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
 			)
 		# The identifier may be a ticket number, so count against the resolved case name.
-		case_name = case_id
-		if not frappe.db.exists("Grievance", case_name):
-			case_name = frappe.db.get_value("Grievance", {"ticket_number": case_id}, "name") or case_id
+		case_name = _resolve_case_name(case_id) or case_id
 		existing_count = frappe.db.count("Grievance Attachment", {"grievance": case_name})
 		if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_CASE:
 			raise ValueError(
@@ -525,12 +542,7 @@ def _case_for_read(grievance):
 	"""The grievance, if this user may read it. Raises otherwise."""
 	from oan_grievance_service.permissions import has_grievance_permission
 
-	name = grievance
-	if not frappe.db.exists("Grievance", name):
-		name = frappe.db.get_value("Grievance", {"ticket_number": grievance}, "name") or frappe.db.get_value(
-			"Grievance", {"client_submission_uuid": grievance}, "name"
-		)
-
+	name = _resolve_case_name(grievance)
 	if not name or not frappe.db.exists("Grievance", name):
 		frappe.throw(_("No such grievance."), frappe.DoesNotExistError, title=_("Not Found"))
 

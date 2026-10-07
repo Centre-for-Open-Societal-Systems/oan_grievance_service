@@ -5851,8 +5851,25 @@ components:
           description: Timeline entry identifier
         entry_type:
           type: string
-          example: status_change
-          description: Event classification (status_change, note, message, attachment)
+          example: dept_response
+          description: Event classification (dept_response, note, message, submission, status_change)
+        response_number:
+          type: integer
+          nullable: true
+          example: 1
+          description: Sequential count of department response on the grievance e.g. 1, 2
+        action:
+          type: string
+          nullable: true
+          description: Workflow action behind a status change or response entry
+        action_taken:
+          type: string
+          nullable: true
+          description: Specific operational action taken by department
+        resolution_summary:
+          type: string
+          nullable: true
+          description: Summary of resolution and next steps for citizen
         from_status:
           type: string
           nullable: true
@@ -5870,20 +5887,17 @@ components:
           - submitter
           - officer
           - system
+        author_name:
+          type: string
+          nullable: true
+          description: Full name of actor when visible (e.g. for staff oversight)
         body:
           type: string
           nullable: true
           description: Timeline message or description text
-        body_parts:
-          $ref: '#/components/schemas/ResponseParts'
-          nullable: true
         is_internal:
           type: boolean
           description: Whether visible only to staff
-        action:
-          type: string
-          nullable: true
-          description: Workflow action behind a status change entry
         attachments:
           type: array
           items:
@@ -5906,19 +5920,7 @@ components:
         name:
           type: string
           nullable: true
-        mobile:
-          type: string
-          nullable: true
         contact_mobile:
-          type: string
-          nullable: true
-        country_code:
-          type: string
-          nullable: true
-        phone_number:
-          type: string
-          nullable: true
-        email:
           type: string
           nullable: true
         contact_email:
