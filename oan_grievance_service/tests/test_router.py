@@ -312,6 +312,43 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(data_admin["status"], "success")
 		self.assertNotIn("grievance", data_admin["data"].get("profiles", {}))
 
+	def test_timeline_pagination(self):
+		"""Test timeline cursor pagination works for multiple pages without breaking."""
+		import json
+
+		import frappe
+		import frappe.api
+
+		from oan_grievance_service.api.v1.grievance import message
+
+		# 1. Create a grievance
+		doc = self.a_grievance()
+		frappe.set_user("Administrator")
+		ticket_number = doc.ticket_number or doc.name
+
+		# 2. Add multiple messages to create timeline entries
+		for i in range(5):
+			message(ticket_number=ticket_number, body=f"Message {i}")
+
+		# 3. Fetch first page with limit=2
+		req1 = self.make_test_request(f"/api/v1/grievances/{ticket_number}/timeline?limit=2", method="GET")
+		res1 = frappe.api.handle(req1)
+		self.assertEqual(res1.status_code, 200)
+		data1 = json.loads(res1.get_data(as_text=True))["data"]
+		self.assertTrue(data1["has_more"])
+		self.assertIsNotNone(data1["next_cursor"])
+		self.assertEqual(len(data1["timeline"]), 2)
+
+		# 4. Fetch second page with cursor
+		cursor = data1["next_cursor"]
+		req2 = self.make_test_request(
+			f"/api/v1/grievances/{ticket_number}/timeline?limit=2&cursor={cursor}", method="GET"
+		)
+		res2 = frappe.api.handle(req2)
+		self.assertEqual(res2.status_code, 200)
+		data2 = json.loads(res2.get_data(as_text=True))["data"]
+		self.assertEqual(len(data2["timeline"]), 2)
+
 	def test_grievance_submission_tracking_and_timeline_rest_flow(self):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""
 		import uuid

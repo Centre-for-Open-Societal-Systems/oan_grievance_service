@@ -12,6 +12,7 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
+	from_tz_aware_iso,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -1363,45 +1364,51 @@ def timeline(
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
-	filters = {"grievance": doc.name}
+	page_limit = max(1, min(int(limit), 100))
+	timeline_dt = frappe.qb.DocType("Grievance Timeline")
+
+	query = (
+		frappe.qb.from_(timeline_dt)
+		.select(
+			timeline_dt.name,
+			timeline_dt.entry_type,
+			timeline_dt.is_internal,
+			timeline_dt.body,
+			timeline_dt.author_user,
+			timeline_dt.author_submitter,
+			timeline_dt.ref_doctype,
+			timeline_dt.ref_docname,
+			timeline_dt.created_on,
+		)
+		.where(timeline_dt.grievance == doc.name)
+	)
 
 	if not is_staff:
-		filters["is_internal"] = 0
+		query = query.where(timeline_dt.is_internal == 0)
 	elif is_internal is not None:
-		filters["is_internal"] = 1 if str(is_internal).lower() in ("1", "true", "yes") else 0
+		query = query.where(
+			timeline_dt.is_internal == (1 if str(is_internal).lower() in ("1", "true", "yes") else 0)
+		)
 
-	or_filters = None
 	if cursor:
 		try:
-			cursor_ts, cursor_name = cursor.split("|", 1)
-			# Descending pagination (newest first)
-			or_filters = [
-				["created_on", "<", cursor_ts],
-				["created_on", "=", cursor_ts, "name", "<", cursor_name],
-			]
+			cursor_ts_raw, cursor_name = cursor.split("|", 1)
+			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
+			query = query.where(
+				(timeline_dt.created_on < cursor_ts)
+				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name < cursor_name))
+			)
 		except ValueError:
 			# Fallback for old cursor format
-			filters["created_on"] = ["<", cursor]
+			cursor_ts = from_tz_aware_iso(cursor)
+			query = query.where(timeline_dt.created_on < cursor_ts)
 
-	page_limit = max(1, min(int(limit), 100))
-	entries = frappe.get_all(
-		"Grievance Timeline",
-		filters=filters,
-		or_filters=or_filters,
-		fields=[
-			"name",
-			"entry_type",
-			"is_internal",
-			"body",
-			"author_user",
-			"author_submitter",
-			"ref_doctype",
-			"ref_docname",
-			"created_on",
-		],
-		order_by="created_on desc, name desc",
-		limit=page_limit + 1,
+	query = (
+		query.orderby(timeline_dt.created_on, order=frappe.qb.desc)
+		.orderby(timeline_dt.name, order=frappe.qb.desc)
+		.limit(page_limit + 1)
 	)
+	entries = query.run(as_dict=True)
 
 	has_more = len(entries) > page_limit
 	if has_more:
