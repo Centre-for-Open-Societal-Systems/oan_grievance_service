@@ -13,7 +13,7 @@ from oan_grievance_service.api.v1.category_assignment import (
 	list_assignments,
 	update_assignment,
 )
-from oan_grievance_service.api.v1.officer import get_officer, list_officers
+from oan_grievance_service.api.v1.officer import get_officer, list_officers, reset_temporary_password
 from oan_grievance_service.services import constants as C
 
 
@@ -456,6 +456,10 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		with _keep_transaction():
 			self.assertEqual(list_officers()["code"], "PERMISSION_DENIED")
 			self.assertEqual(get_officer(self.l1)["code"], "PERMISSION_DENIED")
+			self.assertEqual(
+				reset_temporary_password(self.l1, temporary_password="Temp1234")["code"],
+				"PERMISSION_DENIED",
+			)
 
 	def test_category_admin_cannot_write_scoped_desks_directly(self):
 		admin = _user("stg433-cat-direct@example.com", "Hana Direct", role=C.ROLE_CATEGORY_ADMIN)
