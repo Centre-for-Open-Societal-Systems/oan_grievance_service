@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     options {
-        // Six Deployments are updated together; two overlapping runs would fight over them.
+        // Six Deployments are updated together; two overlapping runs of the same branch would fight over them.
         disableConcurrentBuilds()
         // Heavy build (frappe_docker layered image, node + bench build for 3 apps)
         timeout(time: 90, unit: 'MINUTES')
@@ -14,7 +14,6 @@ pipeline {
         IMAGE_REGISTRY    = '379220350808.dkr.ecr.ap-south-1.amazonaws.com'   // matches image_registry in inventory/group_vars/all/main.yml
         IMAGE_NAME        = 'oan-frappe'   // matches frappe_image_repo; must exist as an ECR repository first
         RKE2_NODE         = '13.233.56.204'
-        K8S_NAMESPACE     = 'develop'
         // All six Deployments run the SAME oan-frappe image with different commands:
         //   backend      -> gunicorn frappe.app:application
         //   frontend     -> nginx-entrypoint.sh
@@ -25,7 +24,12 @@ pipeline {
         DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short'
         // frappe_docker build definition. Pin to a tag or commit here for reproducible builds.
         FRAPPE_DOCKER_REF = 'main'
-        VERIFY_URL        = 'https://grievance-backend-dev.oanstaging.com/api/method/ping'
+        // Run `bench migrate` in the backend pod after the new image has rolled out.
+        // Set to 'false' to skip it (schema changes then have to be migrated by hand).
+        RUN_MIGRATE       = 'true'
+        // Per-branch target (namespace, site, public URL) is chosen in the Checkout stage:
+        //   develop -> namespace develop,  image tag develop-<build>-<sha>
+        //   staging -> namespace staging,  image tag staging-<build>-<sha>
     }
 
     stages {
@@ -34,22 +38,45 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Immutable, traceable tag: develop-<build number>-<short sha of THIS repo>.
+                    // Which environment this branch deploys to. Anything else (e.g. PR builds) only gets
+                    // this stage; the build/push/deploy stages below are skipped for it.
+                    def targets = [
+                        develop: [
+                            namespace: 'develop',
+                            site:      'develop.grievance.test',
+                            verifyUrl: 'https://grievance-backend-dev.oanstaging.com/api/method/ping'
+                        ],
+                        staging: [
+                            namespace: 'staging',
+                            site:      'staging.grievance.test',
+                            // CONFIRM: the public backend host of the staging ingress
+                            verifyUrl: 'https://grievance-backend-staging.oanstaging.com/api/method/ping'
+                        ]
+                    ]
+                    def target = targets[env.BRANCH_NAME]
+                    env.TARGET_ENV    = target ? env.BRANCH_NAME : 'develop'
+                    def t = target ?: targets.develop
+                    env.K8S_NAMESPACE = t.namespace
+                    env.SITE_NAME     = t.site
+                    env.VERIFY_URL    = t.verifyUrl
+
+                    // Immutable, traceable tag: <env>-<build number>-<short sha of THIS repo>.
                     // (The image also carries oan_auth_service HEAD, which this sha does not cover.)
                     def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
-                    env.IMAGE_TAG_BUILD = "develop-${env.BUILD_NUMBER}-${sha}"
+                    env.IMAGE_TAG_BUILD = "${env.TARGET_ENV}-${env.BUILD_NUMBER}-${sha}"
                     env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG_BUILD}"
+                    echo "Branch ${env.BRANCH_NAME} -> namespace ${env.K8S_NAMESPACE}, image ${env.FULL_IMAGE}"
                 }
             }
         }
 
         stage('Prepare apps.json') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 script {
                     // Only the EXTRA apps go here: frappe itself is installed from FRAPPE_PATH /
                     // FRAPPE_BRANCH in the build step. Both OAN apps are pinned to the branch being
-                    // built, so the image carries current develop HEAD of BOTH apps.
+                    // built (develop or staging), so the image carries that branch's HEAD of BOTH apps.
                     // Written as plain text: groovy.json.JsonOutput is blocked by the Jenkins
                     // script sandbox ("Scripts not permitted to use staticMethod ...").
                     def branch = env.BRANCH_NAME
@@ -64,7 +91,7 @@ pipeline {
         }
 
         stage('Build image') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 // frappe_docker's own layered Containerfile is the build definition; this repo
                 // only supplies the apps.json branch pins above.
@@ -87,7 +114,7 @@ pipeline {
                         --build-arg FRAPPE_BRANCH=version-16 \
                         --file images/layered/Containerfile \
                         -t "$FULL_IMAGE" \
-                        -t "$IMAGE_REGISTRY/$IMAGE_NAME:develop" \
+                        -t "$IMAGE_REGISTRY/$IMAGE_NAME:$TARGET_ENV" \
                         .
 
                     # Never push or deploy an image that is missing the OAN apps
@@ -97,7 +124,7 @@ pipeline {
         }
 
         stage('Push image') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -107,14 +134,14 @@ pipeline {
                         aws ecr get-login-password --region "$AWS_REGION" \
                             | docker login --username AWS --password-stdin "$IMAGE_REGISTRY"
                         docker push "$FULL_IMAGE"
-                        docker push "$IMAGE_REGISTRY/$IMAGE_NAME:develop"
+                        docker push "$IMAGE_REGISTRY/$IMAGE_NAME:$TARGET_ENV"
                     '''
                 }
             }
         }
 
-        stage('Deploy to develop (kubectl)') {
-            when { branch 'develop' }
+        stage('Deploy (kubectl)') {
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 withCredentials([sshUserPrivateKey(
                     credentialsId: 'grievance-dev-ssh-key',   // grievance.pem
@@ -126,9 +153,11 @@ pipeline {
                     // already updated by this run are rolled back.
                     sh '''
 ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@$RKE2_NODE" \
-    bash -s -- "$DEPLOYMENTS" "$FULL_IMAGE" "$K8S_NAMESPACE" <<'ENDSSH'
+    bash -s -- "$(echo "$DEPLOYMENTS" | tr ' ' ',')" "$FULL_IMAGE" "$K8S_NAMESPACE" <<'ENDSSH'
 set -euo pipefail
-DEPLOYMENTS="$1"; IMAGE="$2"; NS="$3"
+# ssh joins its arguments into one string and the remote shell re-splits it, so the list
+# of Deployments travels comma-separated and is split here.
+DEPLOYMENTS="$(echo "$1" | tr ',' ' ')"; IMAGE="$2"; NS="$3"
 # Non-interactive SSH sessions do not load the login PATH; RKE2 keeps kubectl in its own bin dir
 export PATH="$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin:/snap/bin"
 export KUBECONFIG="$HOME/.kube/config"
@@ -162,8 +191,38 @@ ENDSSH
             }
         }
 
+        stage('Migrate') {
+            when {
+                allOf {
+                    anyOf { branch 'develop'; branch 'staging' }
+                    expression { env.RUN_MIGRATE == 'true' }
+                }
+            }
+            steps {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'grievance-dev-ssh-key',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    // Runs against the NEW backend pod, so schema changes shipped in this image are applied.
+                    // A migration cannot be undone by the image rollback above; a failure here fails the build.
+                    sh '''
+ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@$RKE2_NODE" \
+    bash -s -- "$K8S_NAMESPACE" "$SITE_NAME" <<'ENDSSH'
+set -euo pipefail
+NS="$1"; SITE="$2"
+export PATH="$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin:/snap/bin"
+export KUBECONFIG="$HOME/.kube/config"
+echo "bench migrate on $SITE ($NS)"
+kubectl exec -n "$NS" deploy/backend -- bench --site "$SITE" migrate
+ENDSSH
+                    '''
+                }
+            }
+        }
+
         stage('Verify') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 sh '''
                     for i in $(seq 1 20); do
@@ -181,7 +240,7 @@ ENDSSH
 
     post {
         failure {
-            echo 'oan-frappe develop deploy failed. Check the stage logs above, and `kubectl get deployment -n develop -o wide` for any Deployment still on a different image.'
+            echo "oan-frappe ${env.BRANCH_NAME} deploy failed. Check the stage logs above, and 'kubectl get deployment -n ${env.K8S_NAMESPACE} -o wide' for any Deployment still on a different image."
         }
     }
 }
