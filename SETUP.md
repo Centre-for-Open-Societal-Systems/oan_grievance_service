@@ -451,13 +451,6 @@ cases you may touch comes from Grievance RBAC Assignment scope, and seniority co
 from position in the reporting chain, which is why there is no role per rung. Submitter
 covers every filing actor, distinguished by `submitter_type` rather than by role.
 
-Two further roles are scoped, not part of the escalation model. Grievance Dashboard Reader
-is the dashboards' machine user. Grievance Category Admin manages category-to-department
-routing rules (`/api/v1/category-assignments`) and the SLA window on those rules, and
-nothing else; Grievance Admin and System Manager can do the same. Assign it on the User
-form or through `register_user` by a System Manager. It is never self-registrable unless
-named in `jwt_self_registerable_roles`.
-
 ### Application layers
 
 | Path               | Holds                                                                                                             |

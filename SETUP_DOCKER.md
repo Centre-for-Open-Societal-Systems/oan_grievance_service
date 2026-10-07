@@ -222,7 +222,7 @@ docker compose -p oan_grievance exec backend bench --site $SITE migrate
 The `migrate` command executes seeders that provision:
 
 - 21,028 Ethiopian Administrative Area tree nodes.
-- Roles: `Grievance Submitter`, `Grievance Officer`, `Grievance Admin`, `Grievance Dashboard Reader`, `Grievance Category Admin`.
+- Roles: `Grievance Submitter`, `Grievance Officer`, `Grievance Admin`.
 - Role Levels: `nodal_officer`, `senior_nodal_officer`, `department_head`.
 - Service categories, submission channels, and Appendix C notifications.
 

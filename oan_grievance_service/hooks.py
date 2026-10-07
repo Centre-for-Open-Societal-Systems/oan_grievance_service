@@ -46,7 +46,6 @@ permission_query_conditions = {
 has_permission = {
 	"Grievance": "oan_grievance_service.permissions.has_grievance_permission",
 	"Grievance Response Template": "oan_grievance_service.permissions.has_response_template_permission",
-	"Grievance RBAC Assignment": "oan_grievance_service.permissions.has_rbac_assignment_permission",
 	# Core's File resolves a private file's permission against whatever it is
 	# attached to, so this is what stops /private/files/<name> serving an unscanned
 	# object behind download()'s back.

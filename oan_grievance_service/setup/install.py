@@ -26,15 +26,7 @@ ROLES = [
 	("Grievance Officer", 0),
 	("Grievance Admin", 0),
 	("Grievance Dashboard Reader", 0),
-	("Grievance Category Admin", 0),
 ]
-
-# Syncing a doctype's permissions creates any role it names that does not exist yet, with
-# Frappe's default desk_access of 1, and that runs before seed_roles. A role that holds a
-# DocPerm is therefore already there when seeded, so desk_access is set again here. Only
-# roles added after the no-Desk decision are listed: changing it on a role that users
-# already hold flips their user type.
-DESK_ACCESS_RECONCILED = {"Grievance Category Admin"}
 
 # The Grievance Workflow: a native Frappe Workflow record, rebuilt from
 # these tables on every migrate so they are the one place the lifecycle is written
@@ -629,20 +621,10 @@ def seed_region_ticket_codes():
 	return made
 
 
-def _reconcile_desk_access(role, desk_access):
-	if frappe.db.get_value("Role", role, "desk_access") == desk_access:
-		return
-	doc = frappe.get_doc("Role", role)
-	doc.desk_access = desk_access
-	doc.save(ignore_permissions=True)
-
-
 def seed_roles():
 	made = []
 	for role, desk_access in ROLES:
 		if frappe.db.exists("Role", role):
-			if role in DESK_ACCESS_RECONCILED:
-				_reconcile_desk_access(role, desk_access)
 			continue
 		frappe.get_doc({"doctype": "Role", "role_name": role, "desk_access": desk_access}).insert(
 			ignore_permissions=True

@@ -66,13 +66,8 @@ ROLE_ADMIN = "Grievance Admin"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
-# Manages category-to-department routing rules (the Category Assignments admin tab) and
-# nothing else. It is a scope, not a seniority: Grievance Admin, System Manager and
-# Administrator keep access to the same endpoints, so nobody has to hold two roles.
-ROLE_CATEGORY_ADMIN = "Grievance Category Admin"
 
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
-CATEGORY_ASSIGNMENT_ROLES = [ROLE_CATEGORY_ADMIN, ROLE_ADMIN, "System Manager", "Administrator"]
 ALLOWED_GRIEVANCE_ROLES = [
 	ROLE_SUBMITTER,
 	ROLE_OFFICER,

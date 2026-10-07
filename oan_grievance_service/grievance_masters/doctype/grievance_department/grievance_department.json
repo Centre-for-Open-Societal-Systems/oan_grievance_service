@@ -83,20 +83,13 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-06 15:00:00.000000",
+ "modified": "2026-09-03 18:15:02.435558",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Department",
  "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
-  {
-   "role": "Grievance Category Admin",
-   "read": 1,
-   "write": 0,
-   "create": 0,
-   "delete": 0
-  },
   {
    "role": "Grievance Admin",
    "read": 1,

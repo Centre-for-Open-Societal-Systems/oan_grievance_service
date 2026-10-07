@@ -34,11 +34,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import category_assignment as service
-from oan_grievance_service.services.constants import CATEGORY_ASSIGNMENT_ROLES
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1/category-assignments")
 
+ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy", "active"]
 
 
@@ -166,7 +166,7 @@ SLA_NOTE = (
 @route("", methods=("GET",), summary="List category assignments")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(CATEGORY_ASSIGNMENT_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(ListCategoryAssignments)
 @api_doc(
 	summary="List category assignments",
@@ -184,8 +184,6 @@ def list_assignments(
 	**kwargs,
 ):
 	"""List category-only RBAC desks for the admin tab.
-
-	Requires Grievance Category Admin, Grievance Admin, or System Manager.
 
 	Numeric and boolean parameters also accept str: frappe checks annotations before
 	validate_request runs, and a bare int would turn a bad value into its own type error.
@@ -218,7 +216,7 @@ def list_assignments(
 @route("/<assignment>", methods=("GET",), summary="Get a category assignment")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(CATEGORY_ASSIGNMENT_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(AssignmentRef)
 @api_doc(
 	summary="Get a category assignment",
@@ -227,10 +225,7 @@ def list_assignments(
 	response_model=CategoryAssignmentData,
 )
 def get_assignment(assignment: str, **kwargs):
-	"""Return one category-only RBAC assignment.
-
-	Requires Grievance Category Admin, Grievance Admin, or System Manager.
-	"""
+	"""Return one category-only RBAC assignment."""
 	return success_response(
 		data={"assignment": _record(service.get_desk(assignment).name)},
 		message=_("Category assignment retrieved"),
@@ -240,7 +235,7 @@ def get_assignment(assignment: str, **kwargs):
 @route("", methods=("POST",), summary="Create a category assignment")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(CATEGORY_ASSIGNMENT_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(CreateCategoryAssignment)
 @api_doc(
 	summary="Create a category assignment",
@@ -260,10 +255,7 @@ def create_assignment(
 	active: bool | str = True,
 	**kwargs,
 ):
-	"""Create a category-only RBAC desk and set the category's SLA.
-
-	Requires Grievance Category Admin, Grievance Admin, or System Manager.
-	"""
+	"""Create a category-only RBAC desk and set the category's SLA."""
 	desk = service.create(
 		service_category=service_category,
 		department=department,
@@ -282,7 +274,7 @@ def create_assignment(
 @route("/<assignment>", methods=("PATCH",), summary="Update a category assignment")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(CATEGORY_ASSIGNMENT_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(UpdateCategoryAssignment, exclude_unset=True)
 @api_doc(
 	summary="Update a category assignment",
@@ -293,10 +285,7 @@ def create_assignment(
 	response_model=CategoryAssignmentData,
 )
 def update_assignment(assignment: str, **kwargs):
-	"""Update a category-only RBAC desk. `kwargs` holds only the fields the client sent.
-
-	Requires Grievance Category Admin, Grievance Admin, or System Manager.
-	"""
+	"""Update a category-only RBAC desk. `kwargs` holds only the fields the client sent."""
 	desk = service.get_desk(assignment)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
@@ -310,7 +299,7 @@ def update_assignment(assignment: str, **kwargs):
 @route("/<assignment>", methods=("DELETE",), summary="Deactivate a category assignment")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(CATEGORY_ASSIGNMENT_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(AssignmentRef)
 @api_doc(
 	summary="Deactivate a category assignment",
@@ -319,10 +308,7 @@ def update_assignment(assignment: str, **kwargs):
 	response_model=CategoryAssignmentData,
 )
 def deactivate_assignment(assignment: str, **kwargs):
-	"""Deactivate a category-only RBAC desk. Repeating the call is a no-op.
-
-	Requires Grievance Category Admin, Grievance Admin, or System Manager.
-	"""
+	"""Deactivate a category-only RBAC desk. Repeating the call is a no-op."""
 	desk = service.get_desk(assignment)
 	service.update(desk, {"active": False})
 	return success_response(
