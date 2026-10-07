@@ -20,6 +20,7 @@ Endpoints
     v1.administrative_area.get_areas   the location cascade and search
 
     v1.category_assignment          category-to-department routing rules
+    v1.department                   departments and their head (/api/v1/departments)
     v1.officer                      L1 / L2 officer profiles (/api/v1/officers)
     v1.officer_statistics           live L1/L2 officer performance figures
 

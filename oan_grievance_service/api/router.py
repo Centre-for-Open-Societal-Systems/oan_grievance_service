@@ -87,6 +87,7 @@ def _register() -> None:
 		category_assignment,
 		change_request,
 		charts,
+		department,
 		draft,
 		grievance,
 		officer,

@@ -1122,6 +1122,60 @@ data(
 )
 
 
+# Departments (Administration)
+data(
+	"Department",
+	OBJ(
+		{
+			"department_id": S(
+				example="Ministry of Agriculture",
+				description="Department id: the department name, fixed once created. "
+				+ "Same value as department_id in the grievance options",
+			),
+			"department_name": S(example="Ministry of Agriculture"),
+			"short_name": S(nullable=True, example="MoA", description="Acronym; also accepted as an id"),
+			"email_account": S(
+				format="email", description="The mailbox the department is notified at, lowercase"
+			),
+			"phone": S(nullable=True, description="Switchboard or duty phone number"),
+			"head_of_dept": S(
+				nullable=True,
+				example="head@example.com",
+				description="User id (email) of the department head. Reached by the Dept Head "
+				+ "recipient role when no desk covering the case holds the department head level",
+			),
+			"head_of_dept_name": S(nullable=True, description="Display name of the department head"),
+			"active": B(description="False once the department has been retired"),
+			"l1_role_level": S(
+				nullable=True,
+				description="Role level given to the primary officer of this department's category assignments",
+			),
+			"l2_role_level": S(
+				nullable=True,
+				description="Role level given to the senior officer of this department's category assignments",
+			),
+			"routing_strategy": S(
+				nullable=True,
+				enum=["Primary First", "Round Robin", "Least Loaded"],
+				description="How the department's category desks pick an officer. Null leaves the desk strategy unchanged.",
+			),
+		},
+		required=["department_id", "department_name", "email_account", "active"],
+		description="A department as administrators manage it",
+	),
+)
+
+data(
+	"DepartmentData",
+	OBJ({"department": REF("Department")}, required=["department"], description="One department"),
+)
+
+data(
+	"DepartmentListData",
+	OBJ({"departments": ARR(REF("Department"))}, required=["departments"]),
+)
+
+
 # Response templates (Administration)
 data(
 	"AdminResponseTemplate",
@@ -1272,6 +1326,8 @@ ENVELOPES = {
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
 	),
+	"DepartmentResponse": make_envelope("DepartmentData", description="Department response"),
+	"DepartmentListResponse": make_envelope("DepartmentListData", description="Department list response"),
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
@@ -1491,6 +1547,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.category_assignment",
 		"oan_grievance_service.api.v1.change_request",
 		"oan_grievance_service.api.v1.charts",
+		"oan_grievance_service.api.v1.department",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.officer",
@@ -1515,7 +1572,14 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administrative Areas"
 	if path.startswith("/api/v1/drafts"):
 		return "Grievance Drafts"
-	if path.startswith(("/api/v1/category-assignments", "/api/v1/officers", "/api/v1/response-templates")):
+	if path.startswith(
+		(
+			"/api/v1/category-assignments",
+			"/api/v1/departments",
+			"/api/v1/officers",
+			"/api/v1/response-templates",
+		)
+	):
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"
@@ -1578,6 +1642,11 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"create_assignment": "CategoryAssignmentResponse",
 		"update_assignment": "CategoryAssignmentResponse",
 		"deactivate_assignment": "CategoryAssignmentResponse",
+		"list_departments": "DepartmentListResponse",
+		"get_department": "DepartmentResponse",
+		"create_department": "DepartmentResponse",
+		"update_department": "DepartmentResponse",
+		"deactivate_department": "DepartmentResponse",
 		"list_response_templates": "AdminResponseTemplateListResponse",
 		"get_response_template": "AdminResponseTemplateResponse",
 		"create_response_template": "AdminResponseTemplateResponse",
@@ -1788,7 +1857,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			},
 			{
 				"name": "Administration",
-				"description": "Category-to-department routing rules, and the response templates officers respond with",
+				"description": "Departments and their heads, category-to-department routing rules, and the response templates officers respond with",
 			},
 			{
 				"name": "Dashboard Charts",

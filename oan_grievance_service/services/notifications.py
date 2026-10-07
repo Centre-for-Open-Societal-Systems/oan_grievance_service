@@ -156,6 +156,13 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		if officer:
 			return officer
 
+	# The head named on the department itself (Administration > Departments) covers the
+	# case when no desk for this department and area holds the department head level.
+	if recipient_role == RECIPIENT_DEPARTMENT_HEAD:
+		head = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "head_of_dept")
+		if head:
+			return head
+
 	# email_account is a Data field holding a mailbox, not a User link. Every
 	# Department Officer event is email-only, which is what makes
 	# that safe: there is no mobile number to look up for a bare address.

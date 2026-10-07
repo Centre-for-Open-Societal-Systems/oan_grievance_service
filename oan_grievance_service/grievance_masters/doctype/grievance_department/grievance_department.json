@@ -11,6 +11,7 @@
   "short_name",
   "email_account",
   "phone",
+  "head_of_dept",
   "active",
   "sec_routing",
   "l1_role_level",
@@ -48,6 +49,13 @@
    "label": "Phone"
   },
   {
+   "description": "Escalation and Dept Head notifications go to this officer when no desk covering the case holds the department head level.",
+   "fieldname": "head_of_dept",
+   "fieldtype": "Link",
+   "label": "Head of Department",
+   "options": "User"
+  },
+  {
    "default": "1",
    "fieldname": "active",
    "fieldtype": "Check",
@@ -83,7 +91,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-03 18:15:02.435558",
+ "modified": "2026-10-07 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Department",

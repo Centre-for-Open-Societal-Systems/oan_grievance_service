@@ -2070,6 +2070,201 @@
           ]
         },
         {
+          "name": "Departments",
+          "description": "STG-424 admin CRUD for departments and their head. The department id is its name, fixed once created, and is the same department_id that GET /api/v1/grievances/options returns. Requires a Grievance Admin, System Manager or Administrator token.",
+          "item": [
+            {
+              "name": "List departments",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments?active=true&q=Agri&page=1&page_size=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments"]
+                },
+                "description": "List departments by name, including retired ones. Filter by active, head_of_dept or q (name, short name or email)."
+              },
+              "response": []
+            },
+            {
+              "name": "Create department",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments"]
+                },
+                "description": "Create a department with the email account it is notified at. head_of_dept is optional and must be an enabled Grievance Officer or Grievance Admin. l1_role_level is needed before a category assignment can name the department.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"department_name\": \"Ministry of Agriculture\",\n  \"short_name\": \"MoA\",\n  \"email_account\": \"moa@example.com\",\n  \"phone\": \"+251111234567\",\n  \"head_of_dept\": \"head@example.com\",\n  \"l1_role_level\": \"nodal_officer\",\n  \"l2_role_level\": \"senior_nodal_officer\",\n  \"routing_strategy\": \"Primary First\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Get department",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments/{{department}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments", "{{department}}"]
+                },
+                "description": "Fetch one department by id (its name)."
+              },
+              "response": []
+            },
+            {
+              "name": "Update department",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments/{{department}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments", "{{department}}"]
+                },
+                "description": "Change the email account, short name, phone, routing preferences or active flag. department_name is fixed once created.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email_account\": \"moa-grievance@example.com\",\n  \"phone\": \"+251111234568\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Assign or reassign department head",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments/{{department}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments", "{{department}}"]
+                },
+                "description": "Set head_of_dept to an enabled Grievance Officer or Grievance Admin, or to null to clear it. The head is the Dept Head recipient of SLA-breach escalation notifications when no desk covering the case holds the department head level.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"head_of_dept\": \"new.head@example.com\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Retire department",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/departments/{{department}}",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "departments", "{{department}}"]
+                },
+                "description": "Mark the department inactive so it drops out of the grievance options. The record stays. Refused while the department has open cases. Same as PATCH with active false."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
           "name": "Officers",
           "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
           "item": [
