@@ -921,6 +921,74 @@ def _actions_for(history_names):
 	)
 
 
+def _get_response_numbers(doc_name, up_to_name=None):
+	public_entries = frappe.get_all(
+		"Grievance Timeline",
+		filters={"grievance": doc_name, "is_internal": 0},
+		fields=[
+			"name",
+			"entry_type",
+			"author_user",
+			"author_submitter",
+			"body",
+			"ref_doctype",
+			"ref_docname",
+		],
+		order_by="created_on asc, name asc",
+	)
+
+	if not public_entries:
+		return {}
+
+	history_refs = {
+		e["ref_docname"] for e in public_entries if e.get("ref_doctype") == "Grievance Status History"
+	}
+	history_map = _history_details_for(history_refs) if history_refs else {}
+
+	submitter_type = frappe.db.get_value("Grievance", doc_name, "submitter_type")
+
+	response_numbers = {}
+	count = 1
+	for e in public_entries:
+		a_type, _ = resolve_timeline_author(e.get("author_submitter"), e.get("author_user"), submitter_type)
+		e_type = e.get("entry_type")
+		if a_type == "officer" and e_type in (
+			"status_change",
+			"response",
+			"dept_response",
+			"info_request",
+			"rejection",
+			"message",
+		):
+			e_type = "dept_response"
+
+		body = e.get("body")
+		parts = response_body.split(body) if body else None
+
+		action_val = None
+		if e.get("ref_docname"):
+			hist = history_map.get(e.get("ref_docname"))
+			if hist:
+				action_val = hist.get("action")
+
+		if (
+			e_type == "dept_response"
+			and not body
+			and not parts
+			and action_val in ("In Progress", "Start Work")
+		):
+			e_type = "status_change"
+
+		if e_type == "dept_response":
+			response_numbers[e["name"]] = count
+			count += 1
+
+		if up_to_name and e["name"] == up_to_name:
+			break
+
+	return response_numbers
+
+
 def _format_timeline_event(entry, doc, from_status=None, to_status=None, context=None):
 	if not entry:
 		return None
@@ -1003,20 +1071,10 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 	}
 
 	if entry_type == "dept_response":
-		prior_count = frappe.db.count(
-			"Grievance Timeline",
-			filters={
-				"grievance": doc.name,
-				"is_internal": 0,
-				"name": ["<=", entry_name],
-				"entry_type": [
-					"in",
-					["dept_response", "response", "status_change", "info_request", "rejection", "message"],
-				],
-				"body": ["is", "set"],
-			},
-		)
-		result["response_number"] = prior_count or 1
+		response_numbers = context.get("response_numbers")
+		if response_numbers is None:
+			response_numbers = _get_response_numbers(doc.name, up_to_name=entry_name)
+		result["response_number"] = response_numbers.get(entry_name) or 1
 
 	if action_val:
 		result["action"] = action_val
@@ -1377,6 +1435,7 @@ def timeline(
 		"history_map": history_map,
 		"user_names": user_names,
 		"history_fetched": True,
+		"response_numbers": _get_response_numbers(doc.name),
 	}
 
 	formatted_entries = []
