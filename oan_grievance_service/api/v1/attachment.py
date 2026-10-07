@@ -154,7 +154,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 )
 from oan_grievance_service.services import audit, scanning, sla
 
-from .grievance import ALLOWED_GRIEVANCE_ROLES
+from .grievance import ALLOWED_GRIEVANCE_READ_ROLES, ALLOWED_GRIEVANCE_ROLES
 
 route = prefixed("/api/v1/attachments")
 
@@ -360,7 +360,7 @@ def submit_documents(
 @route("", methods=("GET",), summary="List attachments for a grievance")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
 	"""List the evidence on a case, with each file's scan verdict.
 
@@ -400,7 +400,7 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 @route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def view(
 	attachment_id: str | None = None,
 	attachment: str | None = None,
@@ -445,7 +445,7 @@ def view(
 @route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def download(attachment_id: str | None = None, attachment: str | None = None):
 	"""Metadata for one attachment, but only once it has been scanned clean.
 

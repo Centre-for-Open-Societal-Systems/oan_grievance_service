@@ -199,6 +199,7 @@ class DeferSLARequest(BaseModel):
 
 
 ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
+ALLOWED_GRIEVANCE_READ_ROLES = C.ALLOWED_GRIEVANCE_READ_ROLES
 STAFF_ROLES = C.STAFF_ROLES
 
 # Columns the server derives on submission. Accepting any of these from the caller
@@ -373,7 +374,7 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 @frappe.whitelist()
 @validate_request(ListGrievancesRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def list_grievances(
 	page: int = 1,
 	page_size: int = 20,
@@ -1101,7 +1102,7 @@ def feedback(
 @route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def timeline(
 	ticket_number: str,
 	is_internal: bool | str | None = None,
@@ -1519,7 +1520,7 @@ def _load(ticket_number, ptype="read"):
 @route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
@@ -1537,7 +1538,7 @@ def summary():
 @route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
 def options(
 	service_category: str | None = None,
 	category: str | None = None,

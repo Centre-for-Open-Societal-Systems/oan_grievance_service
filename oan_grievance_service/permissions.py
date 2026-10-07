@@ -6,6 +6,10 @@ answered by the Grievance RBAC Assignment records for the user - region, departm
 category - applied as a permission query condition, so it filters list views, reports
 and the API uniformly rather than being re-checked per screen.
 
+A fourth role, Grievance Review Officer, is read-only oversight: it reads cases, officer
+statistics and administration data. It holds no write DocPerm and is left out of every
+mutating endpoint's `require_role` list, so Frappe's role permissions refuse it.
+
 Seniority is deliberately absent from the role list. The former L1 / L2 / Department
 Head roles were rungs of a hierarchy, not distinct capabilities, and are replaced by
 position in the reporting chain. See
@@ -46,6 +50,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
 	ROLE_OFFICER,
+	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
 	STAFF_ROLES,
 )
@@ -100,6 +105,7 @@ def grievance_query_conditions(user=None):
 	- Submitters only see their own cases and assisted submissions.
 	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
 	- Admins see all cases.
+	- Review Officers see every case that has left Draft.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -108,6 +114,10 @@ def grievance_query_conditions(user=None):
 		return ""
 
 	clauses = []
+
+	# Oversight reads every filed case but never someone's unsent draft.
+	if ROLE_REVIEW_OFFICER in roles:
+		clauses.append("`tabGrievance`.docstatus != 0")
 
 	# A submitter reaches their own cases, and the assisted submissions they
 	# filed on someone else's behalf. Both arms belong to the one Submitter role.
@@ -171,6 +181,9 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	roles = set(frappe.get_roles(user))
 
 	if roles & UNRESTRICTED_ROLES:
+		return True
+
+	if ROLE_REVIEW_OFFICER in roles and ptype == "read" and int(doc.get("docstatus") or 0) != 0:
 		return True
 
 	if ROLE_SUBMITTER in roles:

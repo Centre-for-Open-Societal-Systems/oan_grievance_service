@@ -27,6 +27,8 @@ Performance numbers (Assigned, Resolved, Avg Time, Resolution Rate) are **not** 
 | Content type | `Content-Type: application/json` for `POST` and `PATCH`                  |
 | Officer id   | The email. Put it through `encodeURIComponent` before using it in a path |
 
+The Grievance Review Officer role is read-only. It may call the `GET` endpoints in this guide and gets 403 on every `POST`, `PATCH` and `DELETE`.
+
 ### Success envelope
 
 ```json

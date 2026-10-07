@@ -25,11 +25,10 @@ from pydantic import BaseModel, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, blank_to_none
 from oan_grievance_service.services import officer_statistics as service
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES
 from oan_grievance_service.services.resolvers import resolve_department
 
 route = prefixed("/api/v1/officers")
-
-ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
 
 class OfficerStatisticsRecord(BaseModel):
@@ -60,7 +59,7 @@ class ListOfficerStatistics(PageParams, Body):
 @route("/statistics", methods=("GET",), summary="List officer statistics")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficerStatistics)
 @api_doc(
 	summary="List officer statistics",

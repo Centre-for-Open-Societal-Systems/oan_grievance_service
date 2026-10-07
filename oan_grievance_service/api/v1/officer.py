@@ -35,10 +35,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import officer as service
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 
 route = prefixed("/api/v1/officers")
 
-ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 Level = Literal["L1", "L2"]
 Status = Literal["Active", "On Leave", "Inactive"]
 
@@ -158,7 +158,7 @@ class ListOfficers(PageParams, Body):
 @route("", methods=("GET",), summary="List officers")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficers)
 @api_doc(
 	summary="List officers",
@@ -204,7 +204,7 @@ def list_officers(
 @route("/<officer>", methods=("GET",), summary="Get an officer")
 @frappe.whitelist()
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(OfficerRef)
 @api_doc(
 	summary="Get an officer",
