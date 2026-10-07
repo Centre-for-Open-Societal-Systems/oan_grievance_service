@@ -513,7 +513,6 @@ data(
 			"contact_mobile": S(nullable=True),
 			"country_code": S(example="+251", nullable=True),
 			"phone_number": S(example="911887766", nullable=True),
-			"phone": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"administrative_area": S(nullable=True),
 			"administrative_unit": S(nullable=True),
@@ -588,8 +587,6 @@ data(
 			"administrative_unit": S(nullable=True),
 			"submitter_name": S(example="Abebe Bikila"),
 			"contact_mobile": S(example="+251911887766", nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"assigned_officer": S(nullable=True),
 			"sla_target_date": S(format="date-time", nullable=True),
@@ -637,8 +634,6 @@ data(
 			"submitter": S(nullable=True),
 			"submitter_name": S(),
 			"contact_mobile": S(nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"is_anonymous": I(enum=[0, 1]),
 			"assigned_officer": S(nullable=True),
@@ -692,7 +687,6 @@ data(
 			"resolution_summary": S(
 				nullable=True, description="Summary of resolution and next steps for citizen"
 			),
-			"body_parts": {**REF("ResponseParts"), "nullable": True},
 			"from_status": S(nullable=True),
 			"to_status": S(nullable=True),
 			"author_role": S(nullable=True, description="Role of the actor e.g. Woreda Officer or Submitter"),
@@ -717,9 +711,6 @@ data(
 		{
 			"name": S(nullable=True),
 			"contact_mobile": S(nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
-			"phone": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"submitter_type": S(nullable=True),
 			"is_anonymous": B(),

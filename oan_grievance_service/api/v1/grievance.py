@@ -649,9 +649,6 @@ def list_grievances(
 		"submitter",
 		"submitter_name",
 		"contact_mobile",
-		"country_code",
-		"phone_number",
-		"phone",
 		"contact_email",
 		"is_anonymous",
 		"administrative_area",
@@ -718,6 +715,9 @@ def list_grievances(
 		show_id = permissions.can_see_identity(item)
 		contact = identity.mask_contact(item, show_identity=show_id)
 		item.update(contact)
+		item.pop("country_code", None)
+		item.pop("phone_number", None)
+		item.pop("phone", None)
 		if not show_id:
 			item["submitter_name"] = _("Anonymous Submitter")
 
@@ -1023,11 +1023,9 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 	if parts:
 		result["action_taken"] = parts.get("action_taken")
 		result["resolution_summary"] = parts.get("resolution_summary")
-		result["body_parts"] = parts
 	else:
 		result["action_taken"] = None
 		result["resolution_summary"] = None
-		result["body_parts"] = None
 	if author_name:
 		result["author_name"] = author_name
 
@@ -1476,9 +1474,6 @@ def timeline(
 			"submitter": {
 				"name": masked_name,
 				"contact_mobile": contact["contact_mobile"],
-				"country_code": contact.get("country_code"),
-				"phone_number": contact.get("phone_number"),
-				"phone": contact.get("phone"),
 				"contact_email": contact["contact_email"],
 				"submitter_type": doc.submitter_type,
 				"is_anonymous": bool(doc.is_anonymous),
