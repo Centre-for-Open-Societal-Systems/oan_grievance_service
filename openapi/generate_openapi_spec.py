@@ -579,6 +579,11 @@ data(
 			),
 			"service_category": S(example="Inputs"),
 			"grievance_type": S(example="Fertilizer Shortage"),
+			"grievance_type_name": S(
+				example="Fertilizer Shortage",
+				nullable=True,
+				description="Display name for the grievance type",
+			),
 			"administrative_area": S(example="kebele-ET140108101008"),
 			"administrative_unit": S(nullable=True),
 			"submitter_name": S(example="Abebe Bikila"),
@@ -687,6 +692,7 @@ data(
 			"resolution_summary": S(
 				nullable=True, description="Summary of resolution and next steps for citizen"
 			),
+			"body_parts": {**REF("ResponseParts"), "nullable": True},
 			"from_status": S(nullable=True),
 			"to_status": S(nullable=True),
 			"author_role": S(nullable=True, description="Role of the actor e.g. Woreda Officer or Submitter"),
@@ -711,6 +717,9 @@ data(
 		{
 			"name": S(nullable=True),
 			"contact_mobile": S(nullable=True),
+			"country_code": S(example="+251", nullable=True),
+			"phone_number": S(example="911887766", nullable=True),
+			"phone": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"submitter_type": S(nullable=True),
 			"is_anonymous": B(),
@@ -728,7 +737,17 @@ data(
 			"ticket_number": S(example="ET14IN000012026"),
 			"status": S(example="Under Investigation"),
 			"escalated": B(),
-			"summary": OBJ({"description": S(nullable=True), "desired_outcome": S(nullable=True)}),
+			"summary": OBJ(
+				{
+					"description": S(nullable=True),
+					"desired_outcome": S(nullable=True),
+					"service_category": S(nullable=True),
+					"grievance_type_id": S(nullable=True),
+					"grievance_type_name": S(nullable=True),
+					"administrative_area": S(nullable=True),
+				},
+				additionalProperties=True,
+			),
 			"sla": OBJ(
 				{
 					"sla_due_date": S(format="date-time", nullable=True),

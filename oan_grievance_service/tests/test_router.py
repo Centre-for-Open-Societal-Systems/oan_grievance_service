@@ -375,16 +375,15 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		timeline_entries = tl_data["data"]["timeline"]
 		self.assertTrue(len(timeline_entries) > 0)
 
-		# Verify chronological ASC order
+		# Verify chronological DESC order
 		timestamps = [e["created_on"] for e in timeline_entries]
-		self.assertEqual(timestamps, sorted(timestamps))
+		self.assertEqual(timestamps, sorted(timestamps, reverse=True))
 
 		for entry in timeline_entries:
 			self.assertNotIn("tags", entry)
 			self.assertNotIn("author_user", entry)
 			self.assertNotIn("ref_docname", entry)
 			self.assertNotIn("ref_doctype", entry)
-			self.assertNotIn("body_parts", entry)
 			if entry.get("author_type") == "officer":
 				# Submitter cannot see officer name: key must be completely omitted
 				self.assertNotIn("author_name", entry)

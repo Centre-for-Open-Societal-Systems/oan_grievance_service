@@ -63,6 +63,22 @@ def raise_change_request(grievance, subject, changes, reason=None):
 	).insert(ignore_permissions=True)
 
 
+def get_pending_request(grievance_name: str, fieldnames: list[str]) -> str | None:
+	"""Return the name of the most recent pending change request for the given fields."""
+	pending = frappe.get_all(
+		"Grievance Change Request",
+		filters={"grievance": grievance_name, "status": "Pending"},
+		order_by="creation desc",
+		pluck="name",
+	)
+	for req in pending:
+		if frappe.db.exists(
+			"Grievance Change Request Item", {"parent": req, "fieldname": ["in", fieldnames]}
+		):
+			return req
+	return None
+
+
 def serialize(req):
 	ticket_num = frappe.db.get_value("Grievance", req.grievance, "ticket_number") if req.grievance else None
 	return {
@@ -91,6 +107,25 @@ def serialize(req):
 				"note": r.note,
 			}
 			for r in getattr(req, "approvals", [])
+		],
+	}
+
+
+def serialize_public(req):
+	ticket_num = frappe.db.get_value("Grievance", req.grievance, "ticket_number") if req.grievance else None
+	return {
+		"name": req.name,
+		"ticket_number": tn.display(ticket_num),
+		"subject": req.subject,
+		"reason": req.reason,
+		"status": req.status,
+		"requested_at": to_tz_aware_iso(req.requested_at),
+		"decided_at": to_tz_aware_iso(req.decided_at),
+		# Only include changes that are safe to expose (e.g. SLA dates), not internal assignments
+		"changes": [
+			{"fieldname": r.fieldname, "old_value": r.old_value, "new_value": r.new_value}
+			for r in getattr(req, "changes", [])
+			if r.fieldname not in ("assigned_to", "assigned_dept")
 		],
 	}
 

@@ -5719,6 +5719,11 @@ components:
         grievance_type:
           type: string
           example: Fertilizer Shortage
+        grievance_type_name:
+          type: string
+          example: Fertilizer Shortage
+          nullable: true
+          description: Display name for the grievance type
         administrative_area:
           type: string
           example: kebele-ET140108101008
@@ -5931,6 +5936,9 @@ components:
           type: string
           nullable: true
           description: Summary of resolution and next steps for citizen
+        body_parts:
+          $ref: '#/components/schemas/ResponseParts'
+          nullable: true
         from_status:
           type: string
           nullable: true
@@ -5984,6 +5992,17 @@ components:
         contact_mobile:
           type: string
           nullable: true
+        country_code:
+          type: string
+          example: '+251'
+          nullable: true
+        phone_number:
+          type: string
+          example: '911887766'
+          nullable: true
+        phone:
+          type: string
+          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -6018,6 +6037,19 @@ components:
             desired_outcome:
               type: string
               nullable: true
+            service_category:
+              type: string
+              nullable: true
+            grievance_type_id:
+              type: string
+              nullable: true
+            grievance_type_name:
+              type: string
+              nullable: true
+            administrative_area:
+              type: string
+              nullable: true
+          additionalProperties: true
         sla:
           type: object
           properties:

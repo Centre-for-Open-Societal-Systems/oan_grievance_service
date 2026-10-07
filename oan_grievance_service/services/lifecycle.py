@@ -100,11 +100,6 @@ def actions_available(grievance):
 	from oan_grievance_service import permissions
 	from oan_grievance_service.services import identity, sla
 
-	user = frappe.session.user
-	if permissions.is_staff(user) and not permissions.is_unrestricted(user):
-		if grievance.assigned_to and grievance.assigned_to != user:
-			return []
-
 	transitions = get_transitions(grievance)
 	if transitions and not identity.is_reachable(grievance):
 		waiting = sla.states_in_category(sla.PAUSED)
