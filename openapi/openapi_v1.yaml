@@ -4178,6 +4178,66 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateOfficer'
+  /api/v1/officers/{officer}/password-resets:
+    post:
+      tags:
+      - Administration
+      summary: Issue a new temporary password
+      description: Reissue a temporary password to an officer. The officer must already exist.
+      operationId: post_api_v1_officers_officer_password_resets
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: officer
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Officer identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.reset_temporary_password
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetTemporaryPassword'
   /api/v1/officers/statistics:
     get:
       tags:
@@ -7178,6 +7238,9 @@ components:
             type: string
           minItems: 1
           type: array
+        temporary_password:
+          maxLength: 128
+          type: string
         phone:
           type: string
           default: null
@@ -7204,6 +7267,7 @@ components:
       - department
       - email
       - service_categories
+      - temporary_password
       type: object
     UpdateOfficer:
       additionalProperties: false
@@ -7247,6 +7311,15 @@ components:
           type: string
           default: null
           nullable: true
+      type: object
+    ResetTemporaryPassword:
+      additionalProperties: false
+      properties:
+        temporary_password:
+          maxLength: 128
+          type: string
+      required:
+      - temporary_password
       type: object
     CreateResponseTemplateRequest:
       additionalProperties: false

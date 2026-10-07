@@ -2174,10 +2174,10 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new.",
+                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/password/initial. An email that already has a login keeps its own password.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
+                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
                 }
               },
               "response": []
@@ -2216,10 +2216,54 @@
                     "officers"
                   ]
                 },
-                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1.",
+                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. temporary_password is required and is applied to a new login only.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
+                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "Issue temporary password",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Status code is 200\", function () {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "officers",
+                    "{{officer}}",
+                    "password-resets"
+                  ]
+                },
+                "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
                 }
               },
               "response": []
