@@ -513,7 +513,6 @@ data(
 			"contact_mobile": S(nullable=True),
 			"country_code": S(example="+251", nullable=True),
 			"phone_number": S(example="911887766", nullable=True),
-			"phone": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"administrative_area": S(nullable=True),
 			"administrative_unit": S(nullable=True),
@@ -579,12 +578,15 @@ data(
 			),
 			"service_category": S(example="Inputs"),
 			"grievance_type": S(example="Fertilizer Shortage"),
+			"grievance_type_name": S(
+				example="Fertilizer Shortage",
+				nullable=True,
+				description="Display name for the grievance type",
+			),
 			"administrative_area": S(example="kebele-ET140108101008"),
 			"administrative_unit": S(nullable=True),
 			"submitter_name": S(example="Abebe Bikila"),
 			"contact_mobile": S(example="+251911887766", nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"assigned_officer": S(nullable=True),
 			"sla_target_date": S(format="date-time", nullable=True),
@@ -632,8 +634,6 @@ data(
 			"submitter": S(nullable=True),
 			"submitter_name": S(),
 			"contact_mobile": S(nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"is_anonymous": I(enum=[0, 1]),
 			"assigned_officer": S(nullable=True),
@@ -672,17 +672,30 @@ data(
 		{
 			"name": S(nullable=True, description="Timeline entry identifier"),
 			"entry_type": S(
-				example="status_change",
-				description="Event classification (status_change, note, message, attachment)",
+				example="dept_response",
+				description="Event classification (dept_response, note, message, submission, status_change)",
+			),
+			"response_number": I(
+				nullable=True,
+				example=1,
+				description="Sequential count of department response on the grievance e.g. 1, 2",
+			),
+			"action": S(
+				nullable=True, description="Workflow action behind a status change or response entry"
+			),
+			"action_taken": S(nullable=True, description="Specific operational action taken by department"),
+			"resolution_summary": S(
+				nullable=True, description="Summary of resolution and next steps for citizen"
 			),
 			"from_status": S(nullable=True),
 			"to_status": S(nullable=True),
 			"author_role": S(nullable=True, description="Role of the actor e.g. Woreda Officer or Submitter"),
 			"author_type": S(nullable=True, enum=["submitter", "officer", "system"]),
+			"author_name": S(
+				nullable=True, description="Full name of actor when visible (e.g. for staff oversight)"
+			),
 			"body": S(nullable=True, description="Timeline message or description text"),
-			"body_parts": {**REF("ResponseParts"), "nullable": True},
 			"is_internal": B(description="Whether visible only to staff"),
-			"action": S(nullable=True, description="Workflow action behind a status change entry"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
 			"created_on": S(format="date-time", nullable=True),
 			"creation": S(format="date-time", nullable=True),
@@ -697,11 +710,7 @@ data(
 	OBJ(
 		{
 			"name": S(nullable=True),
-			"mobile": S(nullable=True),
 			"contact_mobile": S(nullable=True),
-			"country_code": S(nullable=True),
-			"phone_number": S(nullable=True),
-			"email": S(nullable=True),
 			"contact_email": S(nullable=True),
 			"submitter_type": S(nullable=True),
 			"is_anonymous": B(),
@@ -719,7 +728,34 @@ data(
 			"ticket_number": S(example="ET14IN000012026"),
 			"status": S(example="Under Investigation"),
 			"escalated": B(),
-			"summary": OBJ({"description": S(nullable=True), "desired_outcome": S(nullable=True)}),
+			"summary": OBJ(
+				{
+					"description": S(nullable=True),
+					"desired_outcome": S(nullable=True),
+					"service_category": S(nullable=True),
+					"grievance_type_id": S(nullable=True),
+					"grievance_type_name": S(nullable=True),
+					"administrative_area": S(nullable=True),
+				},
+				additionalProperties=True,
+			),
+			"sla": OBJ(
+				{
+					"sla_due_date": S(format="date-time", nullable=True),
+					"active_deferral_request": {
+						"oneOf": [REF("ChangeRequestData"), REF("PublicChangeRequestData")],
+						"nullable": True,
+					},
+				}
+			),
+			"assignment": OBJ(
+				{
+					"department": S(nullable=True),
+					"assigned_to": S(nullable=True),
+					"routed_automatically": B(),
+					"active_reassignment_request": {**REF("ChangeRequestData"), "nullable": True},
+				}
+			),
 			"submitter": REF("TimelineSubmitterDetail"),
 			"timeline": ARR(REF("TimelineEventItem")),
 		},
@@ -946,6 +982,26 @@ data(
 		},
 		required=["action", "user"],
 		description="Change request approval audit step",
+	),
+)
+
+data(
+	"PublicChangeRequestData",
+	OBJ(
+		{
+			"status": S(
+				example="Pending",
+				enum=["Pending", "Approved", "Rejected"],
+				description="Change request status",
+			),
+			"approved_due_date": S(
+				format="date-time",
+				nullable=True,
+				description="Approved new SLA due date (null if pending or rejected)",
+			),
+		},
+		required=["status"],
+		description="Public change request snapshot for non-staff citizens",
 	),
 )
 
@@ -1562,6 +1618,8 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"message": "GrievanceMessageResponse",
 		"reassign": "GrievanceChangeResponse",
 		"defer_sla": "GrievanceChangeResponse",
+		"decide_deferral": "ChangeRequestResponse",
+		"decide_reassignment": "ChangeRequestResponse",
 		"anonymity_decision": "GrievanceChangeResponse",
 		"summary": "GrievanceStatusSummaryResponse",
 		"options": "SubmitterOptionsResponse" if "submitters" in path else "GrievanceOptionsResponse",

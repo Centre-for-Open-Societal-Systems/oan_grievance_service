@@ -12,6 +12,7 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
+	from_tz_aware_iso,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -50,6 +51,8 @@ from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_grievance_type
 
 route = prefixed("/api/v1/grievances")
+
+ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
 
 
 class SubmitGrievanceRequest(GrievanceSubmissionPayload):
@@ -169,6 +172,63 @@ class PostMessageRequest(BaseModel):
 	is_internal: bool | str | None = Field(
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
+	client_message_id: str | None = Field(
+		None, description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions."
+	)
+
+
+class DecideDeferralRequest(BaseModel):
+	decision: str = Field(..., description="Approved or Rejected")
+	note: str | None = None
+
+
+@route(
+	"/<ticket_number>/defer-sla/decide",
+	methods=("POST",),
+	summary="Approve or reject a pending SLA deferral request",
+)
+@frappe.whitelist()
+@validate_request(DecideDeferralRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def decide_deferral(ticket_number: str, decision: str, note: str | None = None, **kwargs):
+	"""Approve or reject a pending SLA deferral request for this grievance."""
+	doc = _load(ticket_number, ptype="write")
+	from oan_grievance_service.api.v1.change_request import decide as cr_decide
+	from oan_grievance_service.api.v1.change_request import get_pending_request
+
+	request_name = get_pending_request(doc.name, ["sla_due_date"])
+	if not request_name:
+		frappe.throw(_("No pending deferral request found for this grievance."), frappe.DoesNotExistError)
+
+	return cr_decide(name=request_name, decision=decision, note=note)
+
+
+class DecideReassignmentRequest(BaseModel):
+	decision: str = Field(..., description="Approved or Rejected")
+	note: str | None = None
+
+
+@route(
+	"/<ticket_number>/reassign/decide",
+	methods=("POST",),
+	summary="Approve or reject a pending reassignment request",
+)
+@frappe.whitelist()
+@validate_request(DecideReassignmentRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def decide_reassignment(ticket_number: str, decision: str, note: str | None = None, **kwargs):
+	"""Approve or reject a pending reassignment request for this grievance."""
+	doc = _load(ticket_number, ptype="write")
+	from oan_grievance_service.api.v1.change_request import decide as cr_decide
+	from oan_grievance_service.api.v1.change_request import get_pending_request
+
+	request_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
+	if not request_name:
+		frappe.throw(_("No pending reassignment request found for this grievance."), frappe.DoesNotExistError)
+
+	return cr_decide(name=request_name, decision=decision, note=note)
 
 
 class ResponseTemplatesRequest(BaseModel):
@@ -448,7 +508,11 @@ def list_grievances(
 		raw = next((val for val in candidates if val is not None), None)
 		vals = parse_multi_value(raw)
 		if vals:
-			filters.append([fieldname, "in", vals])
+			if fieldname == "grievance_type":
+				resolved_vals = [resolve_grievance_type(v) or v for v in vals]
+				filters.append([fieldname, "in", resolved_vals])
+			else:
+				filters.append([fieldname, "in", vals])
 
 	if assigned_to:
 		target_user = frappe.session.user if assigned_to == "me" else assigned_to
@@ -634,6 +698,19 @@ def list_grievances(
 		loc = format_administrative_location(h)
 		area_cache[area_id] = {"hierarchy": h, "location": loc}
 
+	unique_types = {item.get("grievance_type") for item in items if item.get("grievance_type")}
+	type_names = {}
+	if unique_types:
+		type_names = dict(
+			frappe.get_all(
+				"Grievance Type",
+				filters={"name": ["in", list(unique_types)]},
+				fields=["name", "type_name"],
+				as_list=True,
+			)
+		)
+
+	is_staff = permissions.is_staff(frappe.session.user)
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
 		state_deadline = item.pop("state_deadline", None)
@@ -641,19 +718,30 @@ def list_grievances(
 
 		show_id = permissions.can_see_identity(item)
 		contact = identity.mask_contact(item, show_identity=show_id)
-		item.update(contact)
+		item["contact_mobile"] = contact["contact_mobile"]
+		item["contact_email"] = contact["contact_email"]
+		item["can_request_more_info"] = contact["can_request_more_info"]
 		if not show_id:
 			item["submitter_name"] = _("Anonymous Submitter")
 
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
+		if not is_staff:
+			item["assigned_to"] = None
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
 		# but exposed formatted to clients as ticket_number.
 		item["ticket_number"] = tn.display(item.get("ticket_number"))
 		area_info = area_cache.get(item.get("administrative_area"))
 		item["location"] = area_info["location"] if area_info else None
 		item["administrative_hierarchy"] = area_info["hierarchy"] if area_info else None
+
+		raw_type = item.get("grievance_type")
+		resolved_type_name = type_names.get(raw_type, raw_type)
+		item["grievance_type_id"] = raw_type
+		item["grievance_type_name"] = resolved_type_name
+		# Keep grievance_type as the ID for compatibility with filters
+		item["grievance_type"] = raw_type
 
 	audit.record_access(audit.ACTION_VIEW_LIST)
 
@@ -693,6 +781,8 @@ ACTION_CODES = {
 	"Refer Onward": "refer_onward",
 	"Request More Info": "request_more_info",
 	"Submitter Reply": "submitter_reply",
+	"In Progress": "in_progress",
+	"Start Work": "in_progress",
 }
 
 ACTIONS_REQUIRING_RATING = {"Close Case"}
@@ -700,6 +790,9 @@ ACTIONS_REQUIRING_RATING = {"Close Case"}
 
 def _get_available_actions_for_user(doc):
 	"""List actions available to the current user on this grievance with localized labels."""
+	if not permissions.has_grievance_permission(doc, "write"):
+		return []
+
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
@@ -709,6 +802,8 @@ def _get_available_actions_for_user(doc):
 		if act == "Reject" and not is_staff:
 			continue
 		if act == "Assign":
+			continue
+		if act == "Start Work":
 			continue
 		result.append(
 			{
@@ -730,10 +825,12 @@ def _current_state(doc, extra=None):
 	them and the shape cannot drift between them. `extra` carries the fields only
 	one endpoint has a reason to report.
 	"""
+	user = frappe.session.user
+	is_staff = permissions.is_staff(user)
 	state = {
 		"status": doc.status,
 		"escalated": bool(doc.escalated),
-		"assigned_to": doc.assigned_to,
+		"assigned_to": doc.assigned_to if is_staff else None,
 		"department": doc.assigned_dept,
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
@@ -806,6 +903,18 @@ def resolve_timeline_author(
 	return "system", "System"
 
 
+def _history_details_for(history_names):
+	"""The status history details keyed by row name."""
+	if not history_names:
+		return {}
+	records = frappe.get_all(
+		"Grievance Status History",
+		filters={"name": ["in", list(history_names)]},
+		fields=["name", "action", "from_status", "to_status", "changed_by"],
+	)
+	return {r["name"]: r for r in records}
+
+
 def _actions_for(history_names):
 	"""The workflow action each status history row was taken under, keyed by row name."""
 	if not history_names:
@@ -820,45 +929,173 @@ def _actions_for(history_names):
 	)
 
 
-def _format_timeline_event(entry, doc, from_status=None, to_status=None):
+def _get_response_numbers(doc_name, up_to_name=None):
+	public_entries = frappe.get_all(
+		"Grievance Timeline",
+		filters={"grievance": doc_name, "is_internal": 0},
+		fields=[
+			"name",
+			"entry_type",
+			"author_user",
+			"author_submitter",
+			"body",
+			"ref_doctype",
+			"ref_docname",
+		],
+		order_by="created_on asc, name asc",
+	)
+
+	if not public_entries:
+		return {}
+
+	history_refs = {
+		e["ref_docname"] for e in public_entries if e.get("ref_doctype") == "Grievance Status History"
+	}
+	history_map = _history_details_for(history_refs) if history_refs else {}
+
+	submitter_type = frappe.db.get_value("Grievance", doc_name, "submitter_type")
+
+	response_numbers = {}
+	count = 1
+	for e in public_entries:
+		a_type, _ = resolve_timeline_author(e.get("author_submitter"), e.get("author_user"), submitter_type)
+		e_type = e.get("entry_type")
+		if a_type == "officer" and e_type in (
+			"status_change",
+			"response",
+			"dept_response",
+			"info_request",
+			"rejection",
+			"message",
+		):
+			e_type = "dept_response"
+
+		body = e.get("body")
+		parts = response_body.split(body) if body else None
+
+		action_val = None
+		if e.get("ref_docname"):
+			hist = history_map.get(e.get("ref_docname"))
+			if hist:
+				action_val = hist.get("action")
+
+		if (
+			e_type == "dept_response"
+			and not body
+			and not parts
+			and action_val in ("In Progress", "Start Work")
+		):
+			e_type = "status_change"
+
+		if e_type == "dept_response":
+			response_numbers[e["name"]] = count
+			count += 1
+
+		if up_to_name and e["name"] == up_to_name:
+			break
+
+	return response_numbers
+
+
+def _format_timeline_event(entry, doc, from_status=None, to_status=None, context=None):
 	if not entry:
 		return None
-	author_submitter = (
-		getattr(entry, "author_submitter", None)
-		if hasattr(entry, "author_submitter")
-		else entry.get("author_submitter")
-	)
-	author_user = (
-		getattr(entry, "author_user", None) if hasattr(entry, "author_user") else entry.get("author_user")
-	)
+	context = context or {}
+	history_map = context.get("history_map", {})
+	user_names = context.get("user_names", {})
+
+	is_dict = isinstance(entry, dict)
+
+	def get_field(f, d=None):
+		return entry.get(f, d) if is_dict else getattr(entry, f, d)
+
+	author_submitter = get_field("author_submitter")
+	author_user = get_field("author_user")
 	author_type, author_role = resolve_timeline_author(author_submitter, author_user, doc.submitter_type)
 
-	created_val = (
-		getattr(entry, "created_on", None) if hasattr(entry, "created_on") else entry.get("created_on")
-	)
-	body = getattr(entry, "body", None) if hasattr(entry, "body") else entry.get("body")
+	user = frappe.session.user
+	is_staff = permissions.is_staff(user)
 
-	return {
-		"id": getattr(entry, "name", None) if hasattr(entry, "name") else entry.get("name"),
-		"entry_type": getattr(entry, "entry_type", None)
-		if hasattr(entry, "entry_type")
-		else entry.get("entry_type"),
+	ref_name = get_field("ref_docname")
+	if ref_name and not history_map and not context.get("history_fetched"):
+		history_map = _history_details_for([ref_name])
+
+	hist = history_map.get(ref_name) or {}
+	action_val = hist.get("action")
+	from_status_val = from_status or hist.get("from_status")
+	to_status_val = to_status or hist.get("to_status")
+
+	author_name = None
+	if is_staff:
+		if author_type == "officer" and author_user:
+			author_name = (
+				user_names.get(author_user)
+				or frappe.db.get_value("User", author_user, "full_name")
+				or author_user
+			)
+		elif author_type == "submitter":
+			show_id = permissions.can_see_identity(doc)
+			author_name = doc.submitter_name if show_id else _("Anonymous Submitter")
+	else:
+		if author_type == "submitter":
+			author_name = doc.submitter_name
+
+	created_val = get_field("created_on")
+	body = get_field("body")
+	entry_type = get_field("entry_type")
+	is_internal = bool(get_field("is_internal", False))
+	entry_name = get_field("name")
+
+	if (
+		author_type == "officer"
+		and not is_internal
+		and entry_type
+		in ("status_change", "response", "dept_response", "info_request", "rejection", "message")
+	):
+		entry_type = "dept_response"
+
+	parts = response_body.split(body)
+
+	if (
+		entry_type == "dept_response"
+		and not body
+		and not parts
+		and action_val in ("In Progress", "Start Work")
+	):
+		entry_type = "status_change"
+
+	result = {
+		"id": entry_name,
+		"name": entry_name,
+		"entry_type": entry_type,
 		"body": body,
-		"body_parts": response_body.split(body),
-		"is_internal": bool(
-			getattr(entry, "is_internal", False)
-			if hasattr(entry, "is_internal")
-			else entry.get("is_internal")
-		),
+		"is_internal": is_internal,
 		"author_role": author_role,
 		"author_type": author_type,
-		"from_status": from_status,
-		"to_status": to_status or doc.status,
 		"created_on": to_tz_aware_iso(created_val),
-		"action": _actions_for([entry.get("ref_docname")] if entry.get("ref_docname") else []).get(
-			entry.get("ref_docname")
-		),
+		# Explicitly include null values for backward compatibility
+		"from_status": from_status_val,
+		"to_status": to_status_val,
 	}
+
+	if entry_type == "dept_response":
+		response_numbers = context.get("response_numbers")
+		if response_numbers is None:
+			response_numbers = _get_response_numbers(doc.name, up_to_name=entry_name)
+		result["response_number"] = response_numbers.get(entry_name) or 1
+
+	if action_val:
+		result["action"] = action_val
+	if parts:
+		result["action_taken"] = parts.get("action_taken")
+		result["resolution_summary"] = parts.get("resolution_summary")
+	else:
+		result["action_taken"] = None
+		result["resolution_summary"] = None
+	if author_name:
+		result["author_name"] = author_name
+
+	return result
 
 
 # The timeline entry an action writes, where it is not a plain status change.
@@ -870,6 +1107,8 @@ _ACTION_ENTRY_TYPES = {
 	"Resolve": "response",
 	"Partially Resolve": "response",
 	"Refer Onward": "response",
+	"In Progress": "response",
+	"Start Work": "response",
 }
 
 
@@ -914,6 +1153,10 @@ def action(
 	is_staff = permissions.is_staff(user)
 
 	matching_action = next((a for a in lifecycle.actions_available(doc) if a.lower() == action.lower()), None)
+	if not matching_action and action.lower() == "start work":
+		matching_action = next(
+			(a for a in lifecycle.actions_available(doc) if a.lower() == "in progress"), None
+		)
 	if not matching_action:
 		frappe.throw(
 			_("Action '{0}' is not available for this grievance in status '{1}'.").format(action, doc.status),
@@ -947,7 +1190,10 @@ def action(
 			title=_("Action Not Permitted"),
 		)
 
-	if matching_action == "Start Work":
+	if matching_action in ("Start Work", "In Progress") or (
+		doc.workflow_state == C.STATE_ASSIGNED
+		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
+	):
 		_ensure_department(doc)
 
 	# Submitter closing the case accepts and confirms the resolution.
@@ -962,9 +1208,13 @@ def action(
 
 		notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
 
+	entry_type_override = _ACTION_ENTRY_TYPES.get(matching_action, "status_change")
+	if matching_action in ("Start Work", "In Progress") and not reason:
+		entry_type_override = "status_change"
+
 	timeline_entry = GrievanceTimeline.record(
 		grievance=doc.name,
-		entry_type=_ACTION_ENTRY_TYPES.get(matching_action, "status_change"),
+		entry_type=entry_type_override,
 		is_internal=False,
 		body=reason or _("Action: {0}").format(matching_action),
 		author_user=user if is_staff else None,
@@ -1004,6 +1254,12 @@ def action(
 	attachments = store_uploads(doc, prepared, timeline_entry=timeline_entry.name) if prepared else []
 
 	doc.reload()
+	frappe.publish_realtime(
+		"timeline_updated",
+		{"grievance": doc.name, "ticket_number": doc.ticket_number},
+		room=f"doc:Grievance:{doc.name}",
+		after_commit=True,
+	)
 	current_state = _current_state(doc)
 	return success_response(
 		data={
@@ -1106,7 +1362,7 @@ def feedback(
 def timeline(
 	ticket_number: str,
 	is_internal: bool | str | None = None,
-	limit: int | str = 20,
+	limit: int | str = 50,
 	cursor: str | None = None,
 ):
 	"""Retrieve chronological unified conversation, activity timeline, and thread summary for a grievance.
@@ -1121,58 +1377,101 @@ def timeline(
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
-	filters = {"grievance": doc.name}
+	page_limit = max(1, min(int(limit), 100))
+	timeline_dt = frappe.qb.DocType("Grievance Timeline")
+
+	query = (
+		frappe.qb.from_(timeline_dt)
+		.select(
+			timeline_dt.name,
+			timeline_dt.entry_type,
+			timeline_dt.is_internal,
+			timeline_dt.body,
+			timeline_dt.author_user,
+			timeline_dt.author_submitter,
+			timeline_dt.ref_doctype,
+			timeline_dt.ref_docname,
+			timeline_dt.created_on,
+		)
+		.where(timeline_dt.grievance == doc.name)
+	)
 
 	if not is_staff:
-		filters["is_internal"] = 0
+		query = query.where(timeline_dt.is_internal == 0)
 	elif is_internal is not None:
-		filters["is_internal"] = 1 if str(is_internal).lower() in ("1", "true", "yes") else 0
+		query = query.where(
+			timeline_dt.is_internal == (1 if str(is_internal).lower() in ("1", "true", "yes") else 0)
+		)
 
 	if cursor:
-		filters["created_on"] = ["<", cursor]
+		cursor = cursor.strip()
+		if " " in cursor and "+" not in cursor:
+			import re
 
-	page_limit = max(1, min(int(limit), 100))
-	entries = frappe.get_all(
-		"Grievance Timeline",
-		filters=filters,
-		fields=[
-			"name",
-			"entry_type",
-			"is_internal",
-			"body",
-			"author_user",
-			"author_submitter",
-			"ref_doctype",
-			"ref_docname",
-			"created_on",
-		],
-		order_by="created_on desc, name desc",
-		limit=page_limit + 1,
+			cursor = re.sub(r" (\d{2}:\d{2})([|]|$)", r"+\1\2", cursor)
+
+		try:
+			cursor_ts_raw, cursor_name = cursor.split("|", 1)
+			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
+			query = query.where(
+				(timeline_dt.created_on > cursor_ts)
+				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
+			)
+		except ValueError:
+			# Fallback for old cursor format
+			cursor_ts = from_tz_aware_iso(cursor)
+			query = query.where(timeline_dt.created_on > cursor_ts)
+
+	query = (
+		query.orderby(timeline_dt.created_on, order=frappe.qb.asc)
+		.orderby(timeline_dt.name, order=frappe.qb.asc)
+		.limit(page_limit + 1)
 	)
+	entries = query.run(as_dict=True)
 
 	has_more = len(entries) > page_limit
 	if has_more:
 		entries = entries[:page_limit]
 
-	next_cursor = to_tz_aware_iso(entries[-1]["created_on"]) if (has_more and entries) else None
+	if has_more and entries:
+		last = entries[-1]
+		next_cursor = f"{to_tz_aware_iso(last['created_on'])}|{last['name']}"
+	else:
+		next_cursor = None
 
 	show_identity = permissions.can_see_identity(doc)
 	contact = identity.mask_contact(doc, show_identity=show_identity)
 	masked_name = doc.submitter_name if show_identity else _("Anonymous Submitter")
 
-	actions = _actions_for(
+	history_map = _history_details_for(
 		{e["ref_docname"] for e in entries if e.get("ref_doctype") == "Grievance Status History"}
 	)
+	officer_users = {e.get("author_user") for e in entries if is_staff and e.get("author_user")}
+	user_names = {}
+	if officer_users:
+		user_names = {
+			row.name: (row.full_name or row.name)
+			for row in frappe.get_all(
+				"User",
+				filters={"name": ["in", list(officer_users)]},
+				fields=["name", "full_name"],
+			)
+		}
+	context = {
+		"history_map": history_map,
+		"user_names": user_names,
+		"history_fetched": True,
+		"response_numbers": _get_response_numbers(doc.name),
+	}
+
+	formatted_entries = []
 	for entry in entries:
-		entry["action"] = actions.get(entry.get("ref_docname"))
-		entry["is_internal"] = bool(entry.get("is_internal"))
-		author_type, author_role = resolve_timeline_author(
-			entry.get("author_submitter"), entry.get("author_user"), doc.submitter_type
-		)
-		entry["author_type"] = author_type
-		entry["author_role"] = author_role
-		entry["created_on"] = to_tz_aware_iso(entry.get("created_on"))
-		entry["body_parts"] = response_body.split(entry.get("body"))
+		fmt = _format_timeline_event(entry, doc, context=context)
+		if not fmt:
+			continue
+		formatted_entries.append(fmt)
+
+	entries = formatted_entries
 
 	# Only scanned evidence is listed. Files attached straight to the case used
 	# to be shown beside these rows without a verdict; the
@@ -1207,6 +1506,27 @@ def timeline(
 	for entry in entries:
 		entry["attachments"] = attachments_by_timeline.get(entry["name"], [])
 
+	from oan_grievance_service.api.v1.change_request import get_pending_request
+	from oan_grievance_service.api.v1.change_request import serialize as serialize_cr
+	from oan_grievance_service.api.v1.change_request import serialize_public as serialize_cr_public
+
+	deferral_req_name = get_pending_request(doc.name, ["sla_due_date"])
+	reassign_req_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
+
+	active_deferral_request = None
+	active_reassignment_request = None
+
+	if deferral_req_name:
+		req_doc = frappe.get_doc("Grievance Change Request", deferral_req_name)
+		if is_staff:
+			active_deferral_request = serialize_cr(req_doc)
+		else:
+			active_deferral_request = serialize_cr_public(req_doc)
+
+	if reassign_req_name and is_staff:
+		req_doc = frappe.get_doc("Grievance Change Request", reassign_req_name)
+		active_reassignment_request = serialize_cr(req_doc)
+
 	from oan_grievance_service.api.v1.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
@@ -1214,6 +1534,9 @@ def timeline(
 
 	area_hierarchy = get_administrative_hierarchy(doc.administrative_area)
 	location_str = format_administrative_location(area_hierarchy)
+	grievance_type_name = (
+		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
+	)
 
 	return success_response(
 		data={
@@ -1225,7 +1548,8 @@ def timeline(
 				"description": doc.description,
 				"desired_outcome": doc.desired_outcome,
 				"service_category": doc.service_category,
-				"grievance_type": doc.grievance_type,
+				"grievance_type_id": doc.grievance_type,
+				"grievance_type_name": grievance_type_name or doc.grievance_type,
 				"administrative_area": doc.administrative_area,
 				"administrative_hierarchy": area_hierarchy,
 				"location": location_str,
@@ -1234,11 +1558,7 @@ def timeline(
 			},
 			"submitter": {
 				"name": masked_name,
-				"mobile": contact["contact_mobile"],
 				"contact_mobile": contact["contact_mobile"],
-				"country_code": contact["country_code"],
-				"phone_number": contact["phone_number"],
-				"email": contact["contact_email"],
 				"contact_email": contact["contact_email"],
 				"submitter_type": doc.submitter_type,
 				"is_anonymous": bool(doc.is_anonymous),
@@ -1246,20 +1566,22 @@ def timeline(
 			},
 			"sla": {
 				"sla_days": doc.sla_days,
-				"sla_start_at": doc.sla_start_at,
-				"sla_due_date": doc.sla_due_date,
+				"sla_start_at": to_tz_aware_iso(doc.sla_start_at),
+				"sla_due_date": to_tz_aware_iso(doc.sla_due_date),
 				"sla_consumed_percent": sla.consumed_percent(doc),
-				"next_escalation_at": doc.next_escalation_at,
+				"next_escalation_at": to_tz_aware_iso(doc.next_escalation_at),
 				# Kept under its old name for existing clients: the confirmation window is
 				# the Resolved state's timer.
-				"confirmation_deadline": doc.state_deadline
+				"confirmation_deadline": to_tz_aware_iso(doc.state_deadline)
 				if doc.workflow_state == C.STATE_RESOLVED
 				else None,
+				"active_deferral_request": active_deferral_request,
 			},
 			"assignment": {
 				"department": doc.assigned_dept,
-				"assigned_to": doc.assigned_to,
+				"assigned_to": doc.assigned_to if is_staff else None,
 				"routed_automatically": bool(doc.routed_automatically),
+				"active_reassignment_request": active_reassignment_request if is_staff else None,
 			},
 			"available_actions": _get_available_actions_for_user(doc),
 			"can_request_more_info": contact["can_request_more_info"],
@@ -1281,7 +1603,13 @@ def timeline(
 @validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def message(ticket_number: str, body: str, is_internal: bool | str | None = None, **kwargs):
+def message(
+	ticket_number: str,
+	body: str,
+	is_internal: bool | str | None = None,
+	client_message_id: str | None = None,
+	**kwargs,
+):
 	"""Post to the case thread: a public message, or an internal note when staff send
 	`is_internal`. Files sent as multipart attach to the new entry.
 
@@ -1299,6 +1627,7 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 	if internal and not is_staff:
 		frappe.throw(_("Only staff members can post internal notes."), frappe.PermissionError)
 
+	client_msg_id = client_message_id or kwargs.get("client_message_id")
 	prepared = prepare_uploads(doc.name)
 	entry = GrievanceTimeline.record(
 		grievance=doc.name,
@@ -1307,8 +1636,16 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 		body=body,
 		author_user=user if is_staff else None,
 		author_submitter=doc.submitter if not is_staff else None,
+		client_message_id=client_msg_id,
 	)
 	attachments = store_uploads(doc, prepared, timeline_entry=entry.name) if prepared else []
+
+	frappe.publish_realtime(
+		"timeline_updated",
+		{"grievance": doc.name, "ticket_number": doc.ticket_number},
+		room=f"doc:Grievance:{doc.name}",
+		after_commit=True,
+	)
 
 	return success_response(
 		data={
@@ -1317,7 +1654,7 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 			"entry_type": entry.entry_type,
 			"is_internal": bool(entry.is_internal),
 			"author_type": "officer" if is_staff else "submitter",
-			"created_on": entry.created_on,
+			"created_on": to_tz_aware_iso(entry.created_on),
 			"status": doc.status,
 			"attachments": attachments,
 		},

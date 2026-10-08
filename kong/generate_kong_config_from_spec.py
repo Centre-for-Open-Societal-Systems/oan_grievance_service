@@ -90,7 +90,9 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/grievances/{ticket_number}/feedback"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/message"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/reassign"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/reassign/decide"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/defer-sla"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/defer-sla/decide"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
 	("GET", "/api/v1/grievances/{ticket_number}/response-templates"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
@@ -346,11 +348,12 @@ def build_socket_service():
 	header against frappe.realtime.get_user_info, and refuses any handshake whose
 	Origin host differs from its Host. Neither suits a gateway: a browser cannot set
 	headers on a WebSocket, and a native app sends no Origin. So Kong takes the JWT
-	from the header or the `access_token` query parameter, verifies it, and hands it
-	on as a header, and it states the Origin itself. Rewriting Origin is safe only
-	because the jwt plugin runs first and the Cookie header is dropped: no request
-	reaches Node on ambient browser credentials, which is the attack the Origin
-	check exists to stop.
+	from the header, verifies it, and hands it on, and it states the Origin itself.
+	(For browsers, the `oan_grievance_ui` realtime gateway translates the cookie to the
+	Authorization header before it reaches Kong).
+	Rewriting Origin is safe only because the jwt plugin runs first and the Cookie header
+	is dropped: no request reaches Node on ambient browser credentials, which is the attack
+	the Origin check exists to stop.
 	"""
 	return {
 		"name": "oan-grievance-realtime-v1",
@@ -402,7 +405,6 @@ def build_socket_service():
 							"claims_to_verify": ["exp"],
 							"key_claim_name": "iss",
 							"header_names": ["Authorization"],
-							"uri_param_names": ["access_token"],
 						},
 					},
 					{
@@ -415,7 +417,6 @@ def build_socket_service():
 							"add": {
 								"headers": [
 									"Origin:https://$(headers.host)",
-									"Authorization:Bearer $(query_params.access_token)",
 									f"X-Frappe-Site-Name:{FRAPPE_SITE_NAME}",
 								]
 							},

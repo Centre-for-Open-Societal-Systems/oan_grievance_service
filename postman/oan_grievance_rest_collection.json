@@ -984,7 +984,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Save Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first \u2014 Save Draft requires authentication.\");",
                   "}",
                   "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
                   "if (!uuid) {",
@@ -1046,8 +1046,14 @@
             },
             "url": {
               "raw": "{{base_url}}/api/v1/drafts",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts"
+              ]
             },
             "description": "Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'. Optional 'validate' boolean performs validation without committing if errors exist."
           },
@@ -1062,7 +1068,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first \u2014 Get Draft requires authentication.\");",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1110,8 +1116,14 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/v1/drafts",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts"
+              ]
             },
             "description": "Returns the authenticated user's latest (and only active) unsubmitted grievance draft. 404 when the caller has no saved draft."
           },
@@ -1192,8 +1204,15 @@
             },
             "url": {
               "raw": "{{base_url}}/api/v1/drafts/submit",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts", "submit"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts",
+                "submit"
+              ]
             },
             "description": "Formally submits a saved grievance draft, generating ticket number and transitioning state to Submitted."
           },
@@ -1243,8 +1262,14 @@
             },
             "url": {
               "raw": "{{base_url}}/api/v1/drafts",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "drafts"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts"
+              ]
             },
             "description": "Deletes an unsubmitted draft and associated temporary files."
           },
@@ -1287,8 +1312,14 @@
             },
             "url": {
               "raw": "{{base_url}}/api/v1/attachments",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "attachments"]
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments"
+              ]
             },
             "description": "Upload one or more supporting documents against a grievance or draft."
           },
@@ -1311,8 +1342,14 @@
             "header": [],
             "url": {
               "raw": "{{base_url}}/api/v1/attachments?grievance={{ticket_number}}",
-              "host": ["{{base_url}}"],
-              "path": ["api", "v1", "attachments"],
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments"
+              ],
               "query": [
                 {
                   "key": "grievance",
@@ -1326,21 +1363,811 @@
         }
       ]
     },
+    {
+      "name": "8. Track Grievance",
+      "event": [
         {
-          "name": "8. Track Grievance",
-          "event": [
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
+              "if (!ticket) {",
+              "    console.warn(\"[Pre-request] 'ticket_number' is empty. Run 'Submit Grievance' first or set ticket_number in variables.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Tracking summary contains ticket and SLA metrics\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.expect(data).to.have.property(\"ticket_number\");",
+              "    pm.expect(data).to.have.property(\"status\");",
+              "    pm.expect(data).to.have.property(\"sla_due_date\");",
+              "    pm.expect(data).to.have.property(\"sla_consumed_percent\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}"
+          ]
+        },
+        "description": "Submitter-facing tracking lookup for the portal, mobile app, and IVR. Returns current status, assigned department, SLA deadline, consumed SLA percentage, and confirmation window."
+      },
+      "response": []
+    },
+    {
+      "name": "9. Reply to More Info Request",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
+              "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+              "",
+              "if (!ticket) {",
+              "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
+              "}",
+              "if (!token) {",
+              "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "pm.test(\"Reply acknowledged with ticket number\", function () {",
+              "    pm.expect(data).to.have.property(\"ticket_number\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Additional fertilizer receipt voucher reference is VR-2026-9912 attached for verification.\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reply",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "reply"
+          ]
+        },
+        "description": "FSD Appendix C: Allows the submitter to answer a 'More Information Needed' request from the handling officer."
+      },
+      "response": []
+    },
+    {
+      "name": "9a. Post Timeline Message",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "pm.test(\"Timeline message recorded successfully\", function () {",
+              "    pm.expect(data).to.have.property(\"entry_type\");",
+              "    pm.expect(data.entry_type).to.eql(\"message\");",
+              "    pm.expect(data.is_internal).to.be.false;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Following up on the voucher disbursement status.\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "message"
+          ]
+        },
+        "description": "Posts a public conversation message onto the grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "9c. Add Note (Staff Only)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 or 403\", function () {",
+              "    pm.expect([200, 403]).to.include(pm.response.code);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    var jsonData = pm.response.json();",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.test(\"Note confirmed on timeline\", function () {",
+              "        pm.expect(data).to.have.property(\"ticket_number\");",
+              "        pm.expect(data).to.have.property(\"timeline_id\");",
+              "        pm.expect(data.entry_type).to.eql(\"Note\");",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"body\": \"Officer verified voucher discrepancy with local union supervisor.\",\n    \"is_internal\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/note",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "note"
+          ]
+        },
+        "description": "Staff-only endpoint (Officer/Admin) to add an internal or public note to the unified grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "9b. Get Grievance Timeline",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "pm.test(\"Timeline retrieved with entries list\", function () {",
+              "    pm.expect(data).to.have.property(\"ticket_number\");",
+              "    pm.expect(data).to.have.property(\"timeline\");",
+              "    pm.expect(Array.isArray(data.timeline)).to.be.true;",
+              "    pm.expect(data.timeline.length).to.be.above(0);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "timeline"
+          ]
+        },
+        "description": "Retrieves the unified conversation and activity timeline for the grievance."
+      },
+      "response": []
+    },
+    {
+      "name": "9e. Get Response Templates (Staff Only)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 or 403\", function () {",
+              "    pm.expect([200, 403]).to.include(pm.response.code);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    var jsonData = pm.response.json();",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.test(\"Rendered templates returned\", function () {",
+              "        pm.expect(Array.isArray(data.items)).to.be.true;",
+              "        data.items.forEach(function (t) {",
+              "            pm.expect(t).to.have.property(\"template\");",
+              "            pm.expect(t).to.have.property(\"reason\");",
+              "            pm.expect(t).to.have.property(\"reason_parts\");",
+              "        });",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "response-templates"
+          ],
+          "query": [
             {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
-                  "if (!ticket) {",
-                  "    console.warn(\"[Pre-request] 'ticket_number' is empty. Run 'Submit Grievance' first or set ticket_number in variables.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
+              "key": "action",
+              "value": "Resolve"
             },
+            {
+              "key": "service_category",
+              "value": "Inputs",
+              "disabled": true
+            }
+          ]
+        },
+        "description": "Lists active response templates for the workflow action that fit the grievance's department and category, most specific first, rendered with the grievance's details. Pass the chosen template ID as `template` when posting the response."
+      },
+      "response": []
+    },
+    {
+      "name": "9f. Defer SLA",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"additional_days\": 5,\n    \"reason\": \"Need more time\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "defer-sla"
+          ]
+        },
+        "description": "Posts a public conversation message onto the grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "9g. Decide Deferral",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "defer-sla/decide"
+          ]
+        },
+        "description": "Posts a public conversation message onto the grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "9h. Reassign",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"target_department\": \"Legal\",\n    \"reason\": \"Wrong dept\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "reassign"
+          ]
+        },
+        "description": "Posts a public conversation message onto the grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "9i. Decide Reassignment",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "reassign/decide"
+          ]
+        },
+        "description": "Posts a public conversation message onto the grievance timeline."
+      },
+      "response": []
+    },
+    {
+      "name": "10. Escalate Grievance",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
+              "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+              "",
+              "if (!ticket) {",
+              "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
+              "}",
+              "if (!token) {",
+              "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 or 400 (validates SLA window)\", function () {",
+              "    pm.expect([200, 400]).to.include(pm.response.code);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "if (pm.response.code === 200) {",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.test(\"Escalation response confirmed\", function () {",
+              "        pm.expect(data).to.have.property(\"ticket_number\");",
+              "        pm.expect(data).to.have.property(\"escalated\");",
+              "        pm.expect(data.escalated).to.be.true;",
+              "    });",
+              "} else {",
+              "    var envelope = jsonData.message || jsonData;",
+              "    pm.test(\"Returns validation error for premature escalation\", function () {",
+              "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"SLA window elapsed without preliminary response or status update from the department.\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/escalate",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "escalate"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "11. Close Case (confirm resolution)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
+              "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+              "",
+              "if (!ticket) {",
+              "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
+              "}",
+              "if (!token) {",
+              "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 or 400 (requires Resolved state)\", function () {",
+              "    pm.expect([200, 400]).to.include(pm.response.code);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "if (pm.response.code === 200) {",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.test(\"Grievance status marked Closed\", function () {",
+              "        pm.expect(data).to.have.property(\"ticket_number\");",
+              "        pm.expect(data.status).to.eql(\"Closed\");",
+              "    });",
+              "} else {",
+              "    var envelope = jsonData.message || jsonData;",
+              "    pm.test(\"Returns validation error when not in Resolved state\", function () {",
+              "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "action"
+          ]
+        },
+        "description": "FSD 3.6 / UC-03: The submitter accepts the resolution with the Close Case action, moving the case from Resolved to Closed. An optional 1-5 rating and comments are recorded as feedback; ratings can also be sent later through /feedback."
+      },
+      "response": []
+    },
+    {
+      "name": "12. Reopen Grievance",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
+              "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
+              "",
+              "if (!ticket) {",
+              "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
+              "}",
+              "if (!token) {",
+              "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 or 400 (requires reopenable state)\", function () {",
+              "    pm.expect([200, 400]).to.include(pm.response.code);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "if (pm.response.code === 200) {",
+              "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
+              "    pm.test(\"Reopen returned valid status\", function () {",
+              "        pm.expect(data).to.have.property(\"ticket_number\");",
+              "        pm.expect(data).to.have.property(\"status\");",
+              "    });",
+              "} else {",
+              "    var envelope = jsonData.message || jsonData;",
+              "    pm.test(\"Returns validation error when not in reopenable state\", function () {",
+              "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"action\": \"Reopen\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "grievances",
+            "{{ticket_number}}",
+            "action"
+          ]
+        },
+        "description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."
+      },
+      "response": []
+    },
+    {
+      "name": "13. Logout (Cleanup)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "var refreshToken = pm.environment.get(\"refresh_token\") || pm.collectionVariables.get(\"refresh_token\");",
+              "if (!refreshToken) {",
+              "    console.warn(\"[Pre-request] 'refresh_token' is empty.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.collectionVariables.set(\"access_token\", \"\");",
+              "pm.collectionVariables.set(\"refresh_token\", \"\");",
+              "if (pm.environment.name) {",
+              "    pm.environment.set(\"access_token\", \"\");",
+              "    pm.environment.set(\"refresh_token\", \"\");",
+              "}",
+              "console.log(\"[Post-response] Cleared access_token and refresh_token.\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/auth/logout",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "logout"
+          ]
+        },
+        "description": "Revokes the supplied refresh token row from storage and clears local token variables."
+      },
+      "response": []
+    },
+    {
+      "name": "Category Assignments",
+      "description": "STG-404 admin CRUD for category routing rules: one rule per department and service category. Requires a Grievance Admin or System Manager bearer token.",
+      "item": [
+        {
+          "name": "List category assignments",
+          "event": [
             {
               "listen": "test",
               "script": {
@@ -1348,14 +2175,11 @@
                   "pm.test(\"Status code is 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
-                  "pm.test(\"Tracking summary contains ticket and SLA metrics\", function () {",
-                  "    var jsonData = pm.response.json();",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.expect(data).to.have.property(\"ticket_number\");",
-                  "    pm.expect(data).to.have.property(\"status\");",
-                  "    pm.expect(data).to.have.property(\"sla_due_date\");",
-                  "    pm.expect(data).to.have.property(\"sla_consumed_percent\");",
+                  "pm.test(\"Returns an assignment page\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.assignments).to.be.an(\"array\");",
+                  "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1366,90 +2190,49 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}",
+              "raw": "{{base_url}}/api/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "grievances",
-                "{{ticket_number}}"
-              ]
-            },
-            "description": "Submitter-facing tracking lookup for the portal, mobile app, and IVR. Returns current status, assigned department, SLA deadline, consumed SLA percentage, and confirmation window."
-          },
-          "response": []
-        },
-        {
-          "name": "9. Reply to More Info Request",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "",
-                  "if (!ticket) {",
-                  "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
-                  "}",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Reply acknowledged with ticket number\", function () {",
-                  "    pm.expect(data).to.have.property(\"ticket_number\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Additional fertilizer receipt voucher reference is VR-2026-9912 attached for verification.\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reply",
-              "host": [
-                "{{base_url}}"
+                "category-assignments"
               ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "reply"
+              "query": [
+                {
+                  "key": "service_category",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "department",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
               ]
             },
-            "description": "FSD Appendix C: Allows the submitter to answer a 'More Information Needed' request from the handling officer."
+            "description": "List rules. Optional query: service_category, department, active, page, page_size. Newest first. The page info (page, page_size, total_count, total_pages, has_next, has_prev) is in data.pagination. Unknown query parameters return 400."
           },
           "response": []
         },
         {
-          "name": "9a. Post Timeline Message",
+          "name": "Create category assignment",
           "event": [
             {
               "listen": "test",
@@ -1458,67 +2241,9 @@
                   "pm.test(\"Status code is 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Timeline message recorded successfully\", function () {",
-                  "    pm.expect(data).to.have.property(\"entry_type\");",
-                  "    pm.expect(data.entry_type).to.eql(\"message\");",
-                  "    pm.expect(data.is_internal).to.be.false;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Following up on the voucher disbursement status.\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "message"
-              ]
-            },
-            "description": "Posts a public conversation message onto the grievance timeline."
-          },
-          "response": []
-        },
-        {
-          "name": "9c. Add Note (Staff Only)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200 or 403\", function () {",
-                  "    pm.expect([200, 403]).to.include(pm.response.code);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Note confirmed on timeline\", function () {",
-                  "        pm.expect(data).to.have.property(\"ticket_number\");",
-                  "        pm.expect(data).to.have.property(\"timeline_id\");",
-                  "        pm.expect(data.entry_type).to.eql(\"Note\");",
-                  "    });",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.assignment) {",
+                  "    pm.collectionVariables.set(\"category_assignment\", body.data.assignment.name);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1535,27 +2260,103 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"body\": \"Officer verified voucher discrepancy with local union supervisor.\",\n    \"is_internal\": true\n}"
+              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"l2_officer\": \"l2.officer@example.com\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/note",
+              "raw": "{{base_url}}/api/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "note"
+                "category-assignments"
               ]
             },
-            "description": "Staff-only endpoint (Officer/Admin) to add an internal or public note to the unified grievance timeline."
+            "description": "Create the rule for one department and service category: a category-only routing desk plus the category SLA row. Required: service_category, department, l1_officer, sla_days. One rule per department and category, inactive ones included. sla_days and auto_escalate belong to the category, so departments serving the same category share them."
           },
           "response": []
         },
         {
-          "name": "9b. Get Grievance Timeline",
+          "name": "Get category assignment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments",
+                "{{category_assignment}}"
+              ]
+            },
+            "description": "Fetch one rule by its Grievance RBAC Assignment id, for example GR-RBAC-00001."
+          },
+          "response": []
+        },
+        {
+          "name": "Update category assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sla_days\": 10\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments",
+                "{{category_assignment}}"
+              ]
+            },
+            "description": "Partial update. Service category cannot be changed. Send l2_officer null to clear it. Changing sla_days or auto_escalate changes the category SLA row for every department serving it."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate category assignment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments",
+                "{{category_assignment}}"
+              ]
+            },
+            "description": "Deactivate the rule: its routing desk is marked inactive and kept for audit. The category SLA row is not changed. Same as PATCH with active false; repeating the call changes nothing."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Service Categories & Grievance Types",
+      "description": "STG-406 admin CRUD for the service categories and grievance types the submission wizard, category assignments and response templates share. Requires a Grievance Admin or System Manager bearer token for writes; Grievance Review Officer may read. Records are retired, never deleted.",
+      "item": [
+        {
+          "name": "List service categories",
           "event": [
             {
               "listen": "test",
@@ -1564,14 +2365,999 @@
                   "pm.test(\"Status code is 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Timeline retrieved with entries list\", function () {",
-                  "    pm.expect(data).to.have.property(\"ticket_number\");",
-                  "    pm.expect(data).to.have.property(\"timeline\");",
-                  "    pm.expect(Array.isArray(data.timeline)).to.be.true;",
-                  "    pm.expect(data.timeline.length).to.be.above(0);",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.service_categories).to.be.an(\"array\");",
+                  "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories?is_active=1&search=&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories"
+              ],
+              "query": [
+                {
+                  "key": "is_active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List categories in display order, active and inactive. Optional query: is_active, search (name or code), page, page_size. Each record counts the active types, assignments and templates that refer to it. Unknown query parameters return 400. Grievance Review Officer may call this."
+          },
+          "response": []
+        },
+        {
+          "name": "Create service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.service_category) {",
+                  "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories"
+              ]
+            },
+            "description": "Create a category. Required: category_name, code. The code is the 3-character ticket segment, in the ticket alphabet (no I, L, O or U), and unique. sort_order is optional and defaults to the end of the list; is_active defaults to true. is_default (default false) true makes this the category unclassified cases fall to and clears the flag on the previous default; it needs is_active true. Duplicate name or code returns 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_name\": \"Infrastructure\",\n  \"code\": \"007\",\n  \"sort_order\": 7,\n  \"is_active\": true,\n  \"is_default\": false\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "One category, by name or ticket code. 404 when unknown."
+          },
+          "response": []
+        },
+        {
+          "name": "Update service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.service_category) {",
+                  "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Partial update of category_name, code, sort_order, is_active or is_default. Renaming keeps every grievance, type, routing rule, SLA row and template linked. The code cannot change once tickets exist (code_locked). Setting is_active false also deactivates its types, and is refused for the default category. is_default true makes this the default (the previous default loses the flag); false is refused because exactly one category must be the default.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sort_order\": 3\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Make service category the default",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.service_category.is_default).to.eql(true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_default\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Make this the default category: the one cases with no category (an IVR call or email that named none, a draft saved without a choice) are filed under. The previous default loses the flag, and the new default gets an active catch-all Other type if it has none. The category must be active. Send the same request for another category to move the default; is_default false is refused."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Retire the category and its types (refused for the default category: make another the default first). Nothing is deleted: grievances keep them and the submission dropdowns stop offering them. Routing rules and templates already set up on the category stay active for open cases. Same as PATCH with is_active false; repeating the call changes nothing."
+          },
+          "response": []
+        },
+        {
+          "name": "List grievance types",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.grievance_types).to.be.an(\"array\");",
+                  "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types?service_category=Inputs&is_active=1&search=&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types"
+              ],
+              "query": [
+                {
+                  "key": "service_category",
+                  "value": "Inputs",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List types by category and name, active and inactive. Optional query: service_category (name or code), is_active, search (text in the type name), page, page_size. Unknown query parameters return 400. Grievance Review Officer may call this."
+          },
+          "response": []
+        },
+        {
+          "name": "Create grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.grievance_type) {",
+                  "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types"
+              ]
+            },
+            "description": "Create a type under an active category. Required: service_category (name or code), type_name. The name is unique within the category (the same name under another category is allowed). Duplicate returns 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "One type, by grievance_type_id. 404 when unknown."
+          },
+          "response": []
+        },
+        {
+          "name": "Update grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.grievance_type) {",
+                  "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "Partial update of type_name or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "Retire the type. Grievances keep it and the submission dropdowns stop offering it. Same as PATCH with is_active false; repeating the call changes nothing."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Officers",
+      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+      "item": [
+        {
+          "name": "List officers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?level=L1&department=MoA&status=Active&service_category=Inputs&region=Oromia&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "department",
+                  "value": "MoA"
+                },
+                {
+                  "key": "status",
+                  "value": "Active"
+                },
+                {
+                  "key": "service_category",
+                  "value": "Inputs"
+                },
+                {
+                  "key": "region",
+                  "value": "Oromia"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Filter by level (L1/L2), department, status, service_category, region (exact area), or search text q. Paginated with page and page_size; the pagination block is at the top level of the response."
+          },
+          "response": []
+        },
+        {
+          "name": "Create officer (L2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.officer) {",
+                  "    pm.collectionVariables.set(\"officer\", body.data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/password/initial. An email that already has a login keeps its own password.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create officer (L1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. temporary_password is required and is applied to a new login only.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Issue temporary password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}",
+                "password-resets"
+              ]
+            },
+            "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "Fetch one officer by email, with the desks (RBAC assignments) they sit on."
+          },
+          "response": []
+        },
+        {
+          "name": "Change officer level",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "Move an officer between L1 and L2. The move clears their supervisor, and an L2 with L1 officers reporting to them cannot change level.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"level\": \"L2\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "Partial update. service_categories replaces the whole list and re-seats the officer on those desks. Send phone, region or reports_to as null to clear them. email is rejected.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"designation\": \"Chief Nodal Officer\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Credit\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "Deactivation is a status update: Active, On Leave or Inactive. On Leave skips auto-routing; Inactive also retires the officer's desk rows.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Review Officer (read-only)",
+      "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call.",
+      "item": [
+        {
+          "name": "R1. List grievances",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns a page of grievances\", function () {",
+                  "    pm.expect(pm.response.json().data.items).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&sort_order=desc",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort_order",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "Every filed grievance, never drafts. Same filters, paging and sorting as the officer list."
+          },
+          "response": []
+        },
+        {
+          "name": "R2. Grievance status summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns cards\", function () {",
+                  "    pm.expect(pm.response.json().data.cards).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/summary",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "summary"
+              ]
+            },
+            "description": "KPI cards over every filed grievance."
+          },
+          "response": []
+        },
+        {
+          "name": "R3. Grievance options (departments)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns departments\", function () {",
+                  "    pm.expect(pm.response.json().data.departments).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "options"
+              ]
+            },
+            "description": "Departments, statuses, categories, types and channels. Officer lists are not included for this role."
+          },
+          "response": []
+        },
+        {
+          "name": "R4. Get grievance timeline",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1594,33 +3380,26 @@
                 "timeline"
               ]
             },
-            "description": "Retrieves the unified conversation and activity timeline for the grievance."
+            "description": "Public timeline entries of one grievance. Internal notes are not shown to this role."
           },
           "response": []
         },
         {
-          "name": "9e. Get Response Templates (Staff Only)",
+          "name": "R5. List category assignments",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status code is 200 or 403\", function () {",
-                  "    pm.expect([200, 403]).to.include(pm.response.code);",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Rendered templates returned\", function () {",
-                  "        pm.expect(Array.isArray(data.items)).to.be.true;",
-                  "        data.items.forEach(function (t) {",
-                  "            pm.expect(t).to.have.property(\"template\");",
-                  "            pm.expect(t).to.have.property(\"reason\");",
-                  "            pm.expect(t).to.have.property(\"reason_parts\");",
-                  "        });",
-                  "    });",
-                  "}"
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns an assignment page\", function () {",
+                  "    pm.expect(pm.response.json().data.assignments).to.be.an(\"array\");",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -1630,273 +3409,23 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
+              "raw": "{{base_url}}/api/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "response-templates"
-              ],
-              "query": [
-                {
-                  "key": "action",
-                  "value": "Resolve"
-                },
-                {
-                  "key": "service_category",
-                  "value": "Inputs",
-                  "disabled": true
-                }
+                "category-assignments"
               ]
             },
-            "description": "Lists active response templates for the workflow action that fit the grievance's department and category, most specific first, rendered with the grievance's details. Pass the chosen template ID as `template` when posting the response."
+            "description": "Read-only view of the category-to-department routing rules."
           },
           "response": []
         },
         {
-          "name": "10. Escalate Grievance",
+          "name": "R6. List Nodal Officers (L1)",
           "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "",
-                  "if (!ticket) {",
-                  "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
-                  "}",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200 or 400 (validates SLA window)\", function () {",
-                  "    pm.expect([200, 400]).to.include(pm.response.code);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Escalation response confirmed\", function () {",
-                  "        pm.expect(data).to.have.property(\"ticket_number\");",
-                  "        pm.expect(data).to.have.property(\"escalated\");",
-                  "        pm.expect(data.escalated).to.be.true;",
-                  "    });",
-                  "} else {",
-                  "    var envelope = jsonData.message || jsonData;",
-                  "    pm.test(\"Returns validation error for premature escalation\", function () {",
-                  "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"SLA window elapsed without preliminary response or status update from the department.\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/escalate",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "escalate"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "11. Close Case (confirm resolution)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "",
-                  "if (!ticket) {",
-                  "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
-                  "}",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200 or 400 (requires Resolved state)\", function () {",
-                  "    pm.expect([200, 400]).to.include(pm.response.code);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Grievance status marked Closed\", function () {",
-                  "        pm.expect(data).to.have.property(\"ticket_number\");",
-                  "        pm.expect(data.status).to.eql(\"Closed\");",
-                  "    });",
-                  "} else {",
-                  "    var envelope = jsonData.message || jsonData;",
-                  "    pm.test(\"Returns validation error when not in Resolved state\", function () {",
-                  "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "action"
-              ]
-            },
-            "description": "FSD 3.6 / UC-03: The submitter accepts the resolution with the Close Case action, moving the case from Resolved to Closed. An optional 1-5 rating and comments are recorded as feedback; ratings can also be sent later through /feedback."
-          },
-          "response": []
-        },
-        {
-          "name": "12. Reopen Grievance",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var ticket = pm.environment.get(\"ticket_number\") || pm.collectionVariables.get(\"ticket_number\");",
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "",
-                  "if (!ticket) {",
-                  "    console.warn(\"[Pre-request] 'ticket_number' is empty.\");",
-                  "}",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200 or 400 (requires reopenable state)\", function () {",
-                  "    pm.expect([200, 400]).to.include(pm.response.code);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Reopen returned valid status\", function () {",
-                  "        pm.expect(data).to.have.property(\"ticket_number\");",
-                  "        pm.expect(data).to.have.property(\"status\");",
-                  "    });",
-                  "} else {",
-                  "    var envelope = jsonData.message || jsonData;",
-                  "    pm.test(\"Returns validation error when not in reopenable state\", function () {",
-                  "        pm.expect(envelope.code).to.eql(\"VALIDATION_ERROR\");",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"action\": \"Reopen\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "grievances",
-                "{{ticket_number}}",
-                "action"
-              ]
-            },
-            "description": "FSD 3.6: Reopens a resolved grievance within the confirmation window with a mandatory reason."
-          },
-          "response": []
-        },
-        {
-          "name": "13. Logout (Cleanup)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var refreshToken = pm.environment.get(\"refresh_token\") || pm.collectionVariables.get(\"refresh_token\");",
-                  "if (!refreshToken) {",
-                  "    console.warn(\"[Pre-request] 'refresh_token' is empty.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
             {
               "listen": "test",
               "script": {
@@ -1904,23 +3433,212 @@
                   "pm.test(\"Status code is 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
-                  "pm.collectionVariables.set(\"access_token\", \"\");",
-                  "pm.collectionVariables.set(\"refresh_token\", \"\");",
-                  "if (pm.environment.name) {",
-                  "    pm.environment.set(\"access_token\", \"\");",
-                  "    pm.environment.set(\"refresh_token\", \"\");",
-                  "}",
-                  "console.log(\"[Post-response] Cleared access_token and refresh_token.\");"
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns officers\", function () {",
+                  "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
             }
           ],
           "request": {
-            "auth": {
-              "type": "noauth"
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?level=L1&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
             },
+            "description": "Nodal Officers. Use level=L2 for Senior Nodal Officers."
+          },
+          "response": []
+        },
+        {
+          "name": "R7. List Senior Nodal Officers (L2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns officers\", function () {",
+                  "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?level=L2&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L2"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Senior Nodal Officers."
+          },
+          "response": []
+        },
+        {
+          "name": "R8. Get officer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "One officer profile."
+          },
+          "response": []
+        },
+        {
+          "name": "R9. Officer statistics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a success envelope\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql(\"success\");",
+                  "});",
+                  "pm.test(\"Returns officer statistics\", function () {",
+                  "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/statistics?level=L1&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "statistics"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Assigned, resolved, average resolution time and resolution rate per L1/L2 officer."
+          },
+          "response": []
+        },
+        {
+          "name": "W1. Create category assignment (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
             "method": "POST",
             "header": [
               {
@@ -1928,1731 +3646,388 @@
                 "value": "application/json"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
-            },
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/logout",
+              "raw": "{{base_url}}/api/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "auth",
-                "logout"
+                "category-assignments"
               ]
             },
-            "description": "Revokes the supplied refresh token row from storage and clears local token variables."
+            "description": "Create a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"sla_days\": 14\n}"
+            }
           },
           "response": []
         },
         {
-          "name": "Category Assignments",
-          "description": "STG-404 admin CRUD for category routing rules: one rule per department and service category. Requires a Grievance Admin or System Manager bearer token.",
-          "item": [
+          "name": "W2. Update category assignment (refused)",
+          "event": [
             {
-              "name": "List category assignments",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns an assignment page\", function () {",
-                      "    var body = pm.response.json();",
-                      "    pm.expect(body.status).to.eql(\"success\");",
-                      "    pm.expect(body.data.assignments).to.be.an(\"array\");",
-                      "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments"],
-                  "query": [
-                    {"key": "service_category", "value": "", "disabled": true},
-                    {"key": "department", "value": "", "disabled": true},
-                    {"key": "active", "value": "1", "disabled": true},
-                    {"key": "page", "value": "1", "disabled": true},
-                    {"key": "page_size", "value": "20", "disabled": true}
-                  ]
-                },
-                "description": "List rules. Optional query: service_category, department, active, page, page_size. Newest first. The page info (page, page_size, total_count, total_pages, has_next, has_prev) is in data.pagination. Unknown query parameters return 400."
-              },
-              "response": []
-            },
-            {
-              "name": "Create category assignment",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.assignment) {",
-                      "    pm.collectionVariables.set(\"category_assignment\", body.data.assignment.name);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {"key": "Content-Type", "value": "application/json"}
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
                 ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"l2_officer\": \"l2.officer@example.com\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true\n}"
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments"]
-                },
-                "description": "Create the rule for one department and service category: a category-only routing desk plus the category SLA row. Required: service_category, department, l1_officer, sla_days. One rule per department and category, inactive ones included. sla_days and auto_escalate belong to the category, so departments serving the same category share them."
-              },
-              "response": []
-            },
-            {
-              "name": "Get category assignment",
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
-                },
-                "description": "Fetch one rule by its Grievance RBAC Assignment id, for example GR-RBAC-00001."
-              },
-              "response": []
-            },
-            {
-              "name": "Update category assignment",
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {"key": "Content-Type", "value": "application/json"}
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"sla_days\": 10\n}"
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
-                },
-                "description": "Partial update. Service category cannot be changed. Send l2_officer null to clear it. Changing sla_days or auto_escalate changes the category SLA row for every department serving it."
-              },
-              "response": []
-            },
-            {
-              "name": "Deactivate category assignment",
-              "request": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments", "{{category_assignment}}"]
-                },
-                "description": "Deactivate the rule: its routing desk is marked inactive and kept for audit. The category SLA row is not changed. Same as PATCH with active false; repeating the call changes nothing."
-              },
-              "response": []
+                "type": "text/javascript"
+              }
             }
-          ]
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments",
+                "{{category_assignment}}"
+              ]
+            },
+            "description": "Edit a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sla_days\": 10\n}"
+            }
+          },
+          "response": []
         },
         {
-          "name": "Service Categories & Grievance Types",
-          "description": "STG-406 admin CRUD for the service categories and grievance types the submission wizard, category assignments and response templates share. Requires a Grievance Admin or System Manager bearer token for writes; Grievance Review Officer may read. Records are retired, never deleted.",
-          "item": [
+          "name": "W3. Deactivate category assignment (refused)",
+          "event": [
             {
-              "name": "List service categories",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "pm.expect(body.data.service_categories).to.be.an(\"array\");",
-                      "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories?is_active=1&search=&page=1&page_size=20",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories"
-                  ],
-                  "query": [
-                    {
-                      "key": "is_active",
-                      "value": "1",
-                      "disabled": true
-                    },
-                    {
-                      "key": "search",
-                      "value": "",
-                      "disabled": true
-                    },
-                    {
-                      "key": "page",
-                      "value": "1",
-                      "disabled": true
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20",
-                      "disabled": true
-                    }
-                  ]
-                },
-                "description": "List categories in display order, active and inactive. Optional query: is_active, search (name or code), page, page_size. Each record counts the active types, assignments and templates that refer to it. Unknown query parameters return 400. Grievance Review Officer may call this."
-              },
-              "response": []
-            },
-            {
-              "name": "Create service category",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.service_category) {",
-                      "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
                 ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories"
-                  ]
-                },
-                "description": "Create a category. Required: category_name, code. The code is the 3-character ticket segment, in the ticket alphabet (no I, L, O or U), and unique. sort_order is optional and defaults to the end of the list; is_active defaults to true. is_default (default false) true makes this the category unclassified cases fall to and clears the flag on the previous default; it needs is_active true. Duplicate name or code returns 409.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"category_name\": \"Infrastructure\",\n  \"code\": \"007\",\n  \"sort_order\": 7,\n  \"is_active\": true,\n  \"is_default\": false\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Get service category",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories",
-                    "{{taxonomy_category}}"
-                  ]
-                },
-                "description": "One category, by name or ticket code. 404 when unknown."
-              },
-              "response": []
-            },
-            {
-              "name": "Update service category",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.service_category) {",
-                      "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories",
-                    "{{taxonomy_category}}"
-                  ]
-                },
-                "description": "Partial update of category_name, code, sort_order, is_active or is_default. Renaming keeps every grievance, type, routing rule, SLA row and template linked. The code cannot change once tickets exist (code_locked). Setting is_active false also deactivates its types, and is refused for the default category. is_default true makes this the default (the previous default loses the flag); false is refused because exactly one category must be the default.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"sort_order\": 3\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Make service category the default",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "pm.expect(body.data.service_category.is_default).to.eql(true);"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"is_default\": true\n}"
-                },
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories",
-                    "{{taxonomy_category}}"
-                  ]
-                },
-                "description": "Make this the default category: the one cases with no category (an IVR call or email that named none, a draft saved without a choice) are filed under. The previous default loses the flag, and the new default gets an active catch-all Other type if it has none. The category must be active. Send the same request for another category to move the default; is_default false is refused."
-              },
-              "response": []
-            },
-            {
-              "name": "Deactivate service category",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "service-categories",
-                    "{{taxonomy_category}}"
-                  ]
-                },
-                "description": "Retire the category and its types (refused for the default category: make another the default first). Nothing is deleted: grievances keep them and the submission dropdowns stop offering them. Routing rules and templates already set up on the category stay active for open cases. Same as PATCH with is_active false; repeating the call changes nothing."
-              },
-              "response": []
-            },
-            {
-              "name": "List grievance types",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "pm.expect(body.data.grievance_types).to.be.an(\"array\");",
-                      "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievance-types?service_category=Inputs&is_active=1&search=&page=1&page_size=20",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievance-types"
-                  ],
-                  "query": [
-                    {
-                      "key": "service_category",
-                      "value": "Inputs",
-                      "disabled": true
-                    },
-                    {
-                      "key": "is_active",
-                      "value": "1",
-                      "disabled": true
-                    },
-                    {
-                      "key": "search",
-                      "value": "",
-                      "disabled": true
-                    },
-                    {
-                      "key": "page",
-                      "value": "1",
-                      "disabled": true
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20",
-                      "disabled": true
-                    }
-                  ]
-                },
-                "description": "List types by category and name, active and inactive. Optional query: service_category (name or code), is_active, search (text in the type name), page, page_size. Unknown query parameters return 400. Grievance Review Officer may call this."
-              },
-              "response": []
-            },
-            {
-              "name": "Create grievance type",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.grievance_type) {",
-                      "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievance-types",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievance-types"
-                  ]
-                },
-                "description": "Create a type under an active category. Required: service_category (name or code), type_name. The name is unique within the category (the same name under another category is allowed). Duplicate returns 409.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Get grievance type",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievance-types",
-                    "{{taxonomy_grievance_type}}"
-                  ]
-                },
-                "description": "One type, by grievance_type_id. 404 when unknown."
-              },
-              "response": []
-            },
-            {
-              "name": "Update grievance type",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.grievance_type) {",
-                      "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievance-types",
-                    "{{taxonomy_grievance_type}}"
-                  ]
-                },
-                "description": "Partial update of type_name or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Deactivate grievance type",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievance-types",
-                    "{{taxonomy_grievance_type}}"
-                  ]
-                },
-                "description": "Retire the type. Grievances keep it and the submission dropdowns stop offering it. Same as PATCH with is_active false; repeating the call changes nothing."
-              },
-              "response": []
+                "type": "text/javascript"
+              }
             }
-          ]
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments",
+                "{{category_assignment}}"
+              ]
+            },
+            "description": "Deactivate a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED."
+          },
+          "response": []
         },
         {
-          "name": "Officers",
-          "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
-          "item": [
+          "name": "W4. Create officer (refused)",
+          "event": [
             {
-              "name": "List officers",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers?level=L1&department=MoA&status=Active&service_category=Inputs&region=Oromia&page=1&page_size=20",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers"
-                  ],
-                  "query": [
-                    {
-                      "key": "level",
-                      "value": "L1"
-                    },
-                    {
-                      "key": "department",
-                      "value": "MoA"
-                    },
-                    {
-                      "key": "status",
-                      "value": "Active"
-                    },
-                    {
-                      "key": "service_category",
-                      "value": "Inputs"
-                    },
-                    {
-                      "key": "region",
-                      "value": "Oromia"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20"
-                    }
-                  ]
-                },
-                "description": "Filter by level (L1/L2), department, status, service_category, region (exact area), or search text q. Paginated with page and page_size; the pagination block is at the top level of the response."
-              },
-              "response": []
-            },
-            {
-              "name": "Create officer (L2)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "var body = pm.response.json();",
-                      "if (body.data && body.data.officer) {",
-                      "    pm.collectionVariables.set(\"officer\", body.data.officer.name);",
-                      "}"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
                 ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers"
-                  ]
-                },
-                "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/password/initial. An email that already has a login keeps its own password.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Create officer (L1)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers"
-                  ]
-                },
-                "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. temporary_password is required and is applied to a new login only.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\",\n  \"temporary_password\": \"Welcome2026\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Issue temporary password",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers",
-                    "{{officer}}",
-                    "password-resets"
-                  ]
-                },
-                "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Get officer",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers",
-                    "{{officer}}"
-                  ]
-                },
-                "description": "Fetch one officer by email, with the desks (RBAC assignments) they sit on."
-              },
-              "response": []
-            },
-            {
-              "name": "Change officer level",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers",
-                    "{{officer}}"
-                  ]
-                },
-                "description": "Move an officer between L1 and L2. The move clears their supervisor, and an L2 with L1 officers reporting to them cannot change level.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"level\": \"L2\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Update officer",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers",
-                    "{{officer}}"
-                  ]
-                },
-                "description": "Partial update. service_categories replaces the whole list and re-seats the officer on those desks. Send phone, region or reports_to as null to clear them. email is rejected.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"designation\": \"Chief Nodal Officer\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Credit\"\n  ]\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "Deactivate officer",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": [
-                    "{{base_url}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "officers",
-                    "{{officer}}"
-                  ]
-                },
-                "description": "Deactivation is a status update: Active, On Leave or Inactive. On Leave skips auto-routing; Inactive also retires the officer's desk rows.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"status\": \"Inactive\"\n}"
-                }
-              },
-              "response": []
+                "type": "text/javascript"
+              }
             }
-          ]
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
         },
         {
-          "name": "Review Officer (read-only)",
-          "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call.",
-          "item": [
+          "name": "W5. Update officer (refused)",
+          "event": [
             {
-              "name": "R1. List grievances",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns a page of grievances\", function () {",
-                      "    pm.expect(pm.response.json().data.items).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&sort_order=desc",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "grievances"],
-                  "query": [
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20"
-                    },
-                    {
-                      "key": "sort_order",
-                      "value": "desc"
-                    }
-                  ]
-                },
-                "description": "Every filed grievance, never drafts. Same filters, paging and sorting as the officer list."
-              },
-              "response": []
-            },
-            {
-              "name": "R2. Grievance status summary",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns cards\", function () {",
-                      "    pm.expect(pm.response.json().data.cards).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/summary",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "grievances", "summary"]
-                },
-                "description": "KPI cards over every filed grievance."
-              },
-              "response": []
-            },
-            {
-              "name": "R3. Grievance options (departments)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns departments\", function () {",
-                      "    pm.expect(pm.response.json().data.departments).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/options",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "grievances", "options"]
-                },
-                "description": "Departments, statuses, categories, types and channels. Officer lists are not included for this role."
-              },
-              "response": []
-            },
-            {
-              "name": "R4. Get grievance timeline",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
-                  "host": ["{{base_url}}"],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievances",
-                    "{{ticket_number}}",
-                    "timeline"
-                  ]
-                },
-                "description": "Public timeline entries of one grievance. Internal notes are not shown to this role."
-              },
-              "response": []
-            },
-            {
-              "name": "R5. List category assignments",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns an assignment page\", function () {",
-                      "    pm.expect(pm.response.json().data.assignments).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments"]
-                },
-                "description": "Read-only view of the category-to-department routing rules."
-              },
-              "response": []
-            },
-            {
-              "name": "R6. List Nodal Officers (L1)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns officers\", function () {",
-                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers?level=L1&page=1&page_size=20",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers"],
-                  "query": [
-                    {
-                      "key": "level",
-                      "value": "L1"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20"
-                    }
-                  ]
-                },
-                "description": "Nodal Officers. Use level=L2 for Senior Nodal Officers."
-              },
-              "response": []
-            },
-            {
-              "name": "R7. List Senior Nodal Officers (L2)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns officers\", function () {",
-                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers?level=L2&page=1&page_size=20",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers"],
-                  "query": [
-                    {
-                      "key": "level",
-                      "value": "L2"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20"
-                    }
-                  ]
-                },
-                "description": "Senior Nodal Officers."
-              },
-              "response": []
-            },
-            {
-              "name": "R8. Get officer",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers", "{{officer}}"]
-                },
-                "description": "One officer profile."
-              },
-              "response": []
-            },
-            {
-              "name": "R9. Officer statistics",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 200\", function () {",
-                      "    pm.response.to.have.status(200);",
-                      "});",
-                      "pm.test(\"Returns a success envelope\", function () {",
-                      "    pm.expect(pm.response.json().status).to.eql(\"success\");",
-                      "});",
-                      "pm.test(\"Returns officer statistics\", function () {",
-                      "    pm.expect(pm.response.json().data.officers).to.be.an(\"array\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/statistics?level=L1&page=1&page_size=20",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers", "statistics"],
-                  "query": [
-                    {
-                      "key": "level",
-                      "value": "L1"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "page_size",
-                      "value": "20"
-                    }
-                  ]
-                },
-                "description": "Assigned, resolved, average resolution time and resolution rate per L1/L2 officer."
-              },
-              "response": []
-            },
-            {
-              "name": "W1. Create category assignment (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
                 ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "category-assignments"]
-                },
-                "description": "Create a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"sla_days\": 14\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W2. Update category assignment (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
-                  "host": ["{{base_url}}"],
-                  "path": [
-                    "api",
-                    "v1",
-                    "category-assignments",
-                    "{{category_assignment}}"
-                  ]
-                },
-                "description": "Edit a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"sla_days\": 10\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W3. Deactivate category assignment (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
-                  "host": ["{{base_url}}"],
-                  "path": [
-                    "api",
-                    "v1",
-                    "category-assignments",
-                    "{{category_assignment}}"
-                  ]
-                },
-                "description": "Deactivate a routing rule. A Review Officer is refused with 403 PERMISSION_DENIED."
-              },
-              "response": []
-            },
-            {
-              "name": "W4. Create officer (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers"]
-                },
-                "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W5. Update officer (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "PATCH",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers", "{{officer}}"]
-                },
-                "description": "Edit an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"designation\": \"Chief Nodal Officer\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W6. Issue temporary password (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "officers", "{{officer}}", "password-resets"]
-                },
-                "description": "Reissue an officer's temporary password. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W7. Resolve grievance (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "grievances", "{{ticket_number}}", "action"]
-                },
-                "description": "Take a workflow action such as Resolve. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"action\": \"Resolve\",\n  \"reason\": \"Fixed.\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W8. Reassign grievance (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
-                  "host": ["{{base_url}}"],
-                  "path": [
-                    "api",
-                    "v1",
-                    "grievances",
-                    "{{ticket_number}}",
-                    "reassign"
-                  ]
-                },
-                "description": "Assign or reassign a department or officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"target_department\": \"MoA\"\n}"
-                }
-              },
-              "response": []
-            },
-            {
-              "name": "W9. Post timeline message (refused)",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "exec": [
-                      "pm.test(\"Status code is 403\", function () {",
-                      "    pm.response.to.have.status(403);",
-                      "});",
-                      "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
-                      "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
-                      "});"
-                    ],
-                    "type": "text/javascript"
-                  }
-                }
-              ],
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
-                  "host": ["{{base_url}}"],
-                  "path": ["api", "v1", "grievances", "{{ticket_number}}", "message"]
-                },
-                "description": "Post a message or note. A Review Officer is refused with 403 PERMISSION_DENIED.",
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"body\": \"A note.\"\n}"
-                }
-              },
-              "response": []
+                "type": "text/javascript"
+              }
             }
-          ]
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}"
+              ]
+            },
+            "description": "Edit an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"designation\": \"Chief Nodal Officer\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W6. Issue temporary password (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{officer}}",
+                "password-resets"
+              ]
+            },
+            "description": "Reissue an officer's temporary password. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W7. Resolve grievance (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "description": "Take a workflow action such as Resolve. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"reason\": \"Fixed.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W8. Reassign grievance (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "reassign"
+              ]
+            },
+            "description": "Assign or reassign a department or officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target_department\": \"MoA\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W9. Post timeline message (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "message"
+              ]
+            },
+            "description": "Post a message or note. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"A note.\"\n}"
+            }
+          },
+          "response": []
         }
       ]
     }
+  ]
+}

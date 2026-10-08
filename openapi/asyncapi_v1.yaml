@@ -22,11 +22,10 @@ info:
       `io("wss://grievance.openagrinet.org/<site>", ...)`.
     - Authenticate with the same access token as the REST API. A native client may
       send `Authorization: Bearer <token>`. A browser cannot set headers on a
-      WebSocket, so it passes the token as the `access_token` query parameter
-      (`query: { access_token: token }`). Query strings can reach access logs, so
-      use a short-lived token.
-    - The token is checked once, at the handshake. When it expires the socket stays
-      open; reconnect with a fresh token after refreshing it.
+      WebSocket, so it connects through a same-origin gateway (e.g. `oan_grievance_ui`'s
+      port 3001) that reads the secure cookie and injects the `Bearer` header upstream.
+    - The token is checked once, at the handshake. The gateway will forcibly close the
+      socket when the token expires; reconnect with a fresh token.
   contact:
     name: COSS - Centre for Open Societal Systems
 
@@ -40,7 +39,6 @@ servers:
     description: Production gateway. Kong verifies the JWT before the handshake.
     security:
       - $ref: "#/components/securitySchemes/BearerAuth"
-      - $ref: "#/components/securitySchemes/QueryToken"
   local:
     host: localhost:9000
     pathname: /socket.io/
@@ -76,6 +74,8 @@ channels:
     messages:
       attachmentScanned:
         $ref: "#/components/messages/AttachmentScanned"
+      timelineUpdated:
+        $ref: "#/components/messages/TimelineUpdated"
       docSubscribe:
         $ref: "#/components/messages/DocSubscribe"
       docUnsubscribe:
@@ -106,6 +106,14 @@ operations:
     messages:
       - $ref: "#/channels/grievanceRoom/messages/attachmentScanned"
 
+  receiveTimelineUpdated:
+    action: receive
+    channel:
+      $ref: "#/channels/grievanceRoom"
+    summary: A new message, internal note, or workflow event was added to the timeline.
+    messages:
+      - $ref: "#/channels/grievanceRoom/messages/timelineUpdated"
+
   subscribeGrievance:
     action: send
     channel:
@@ -129,11 +137,6 @@ components:
       name: Authorization
       in: header
       description: "`Bearer <access token>`, the token issued by oan_auth_service."
-    QueryToken:
-      type: httpApiKey
-      name: access_token
-      in: query
-      description: The same access token, for browsers. Accepted only through the gateway.
 
   messages:
     AttachmentScanned:
@@ -172,6 +175,24 @@ components:
         the System Notification channel does. Carries no payload.
       payload:
         type: "null"
+
+    TimelineUpdated:
+      name: timeline_updated
+      title: Timeline updated signal
+      summary: |
+        Sent when a new message, internal note, or workflow action is added to
+        the grievance. Clients viewing this case should refetch the timeline.
+      payload:
+        type: object
+        required: [grievance]
+        additionalProperties: true
+        properties:
+          grievance:
+            type: string
+            description: Grievance document name.
+          ticket_number:
+            type: string
+            description: Formatted ticket number.
 
     DocSubscribe:
       name: doc_subscribe

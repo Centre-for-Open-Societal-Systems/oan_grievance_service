@@ -345,6 +345,15 @@ Wired in `hooks.py`, all defined in `tasks.py`. They require
 | Daily     | `auto_close_expired`       | Closes cases whose confirmation window lapsed      |
 | Daily     | `purge_expired_drafts`     | Clears abandoned submission drafts                 |
 
+### 4.5 Realtime / Socket.IO
+
+The backend emits socket.io events (e.g. `attachment_scanned`) on port `9000`.
+To connect a local frontend (e.g., `oan_grievance_ui`), you cannot connect a browser
+directly to port `9000` because WebSockets cannot set the `Authorization: Bearer`
+header required by the backend. Instead, run the realtime gateway provided in the frontend
+repo (which translates the cookie into a Bearer token) and point the frontend at the
+gateway on port `3001`. The gateway will proxy connections to `ws://localhost:9000`.
+
 ---
 
 ## 5. Running the dev server

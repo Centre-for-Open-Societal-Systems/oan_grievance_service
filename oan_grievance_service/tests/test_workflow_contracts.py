@@ -234,6 +234,33 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 		self.assertEqual(row.to_status, "More Info Needed")
 		self.assertFalse(sent)
 
+	def test_direct_transition_from_assigned_to_in_progress(self):
+		doc = self._saved()
+		doc.db_set("assigned_dept", a_department(), update_modified=False)
+		lifecycle.transition(doc, "Assign")
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
+		row = lifecycle.transition(doc, "In Progress")
+		self.assertEqual(self._state()["workflow_state"], "In Progress")
+		self.assertEqual(row.action, "In Progress")
+
+	def test_direct_transition_from_assigned_to_request_more_info(self):
+		doc = self._saved()
+		doc.db_set("assigned_dept", a_department(), update_modified=False)
+		lifecycle.transition(doc, "Assign")
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
+		row = lifecycle.transition(doc, "Request More Info", reason="Need clarification.")
+		self.assertEqual(self._state()["workflow_state"], "More Info Needed")
+		self.assertEqual(row.to_status, "More Info Needed")
+
+	def test_direct_transition_from_assigned_to_resolved(self):
+		doc = self._saved()
+		doc.db_set("assigned_dept", a_department(), update_modified=False)
+		lifecycle.transition(doc, "Assign")
+		self.assertEqual(self._state()["workflow_state"], "Assigned")
+		row = lifecycle.transition(doc, "Resolve", reason="Issue investigated and fixed.")
+		self.assertEqual(self._state()["workflow_state"], "Resolved")
+		self.assertEqual(row.to_status, "Resolved")
+
 
 class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 	def test_a_rejection_without_a_reason_is_refused_and_rolled_back(self):
