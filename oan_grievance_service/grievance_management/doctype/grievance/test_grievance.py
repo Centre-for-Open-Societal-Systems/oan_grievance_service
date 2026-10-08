@@ -572,6 +572,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		return user.name
 
 	def _profile(self, user, name, mobile):
+		existing = frappe.db.get_value("Grievance Submitter Profile", {"contact_mobile": mobile}, "name")
+		if existing:
+			frappe.delete_doc("Grievance Submitter Profile", existing, force=True, ignore_permissions=True)
 		profile = frappe.get_doc(
 			{
 				"doctype": "Grievance Submitter Profile",
@@ -936,5 +939,5 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		tl_res = grievance.timeline(anon_case.ticket_number or anon_case.name)
 		self.assertEqual(tl_res["status"], "success")
 		self.assertEqual(tl_res["data"]["submitter"]["name"], "Anonymous Submitter")
-		self.assertIsNone(tl_res["data"]["submitter"]["mobile"])
-		self.assertIsNone(tl_res["data"]["submitter"]["email"])
+		self.assertIsNone(tl_res["data"]["submitter"]["contact_mobile"])
+		self.assertIsNone(tl_res["data"]["submitter"]["contact_email"])

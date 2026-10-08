@@ -16,6 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1 import attachment
 from oan_grievance_service.services import scanning
+from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_grievance
 
 WINDOWS_EXECUTABLE = b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00"
@@ -142,6 +143,22 @@ class TestUploadGate(AttachmentAPITestCase):
 		result = attachment.submit_documents(grievance="")
 		self.assertEqual(result["status"], "error")
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
+
+	def test_upload_with_formatted_ticket_number_is_accepted(self):
+		"""Uploading using a grouped/hyphenated ticket number (e.g. B-003-000D-0) resolves correctly."""
+		formatted_ticket = tn.display(self.grievance.ticket_number or self.grievance.name)
+		frappe.local.request = _Request(_Upload("evidence.jpg", _jpeg()))
+		result = attachment.submit_documents(ticket_number=formatted_ticket)
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(len(result["data"]), 1)
+
+	def test_get_attachments_with_formatted_ticket_number(self):
+		"""Listing attachments using a formatted ticket number resolves the case correctly."""
+		formatted_ticket = tn.display(self.grievance.ticket_number or self.grievance.name)
+		self._send("sample.jpg", _jpeg())
+		result = attachment.get_attachments(ticket_number=formatted_ticket)
+		self.assertEqual(result["status"], "success")
+		self.assertGreaterEqual(len(result["data"]), 1)
 
 
 class TestLocationMetadataIsStripped(AttachmentAPITestCase):

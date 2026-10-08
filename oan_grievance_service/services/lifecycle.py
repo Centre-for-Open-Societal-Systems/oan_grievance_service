@@ -102,5 +102,7 @@ def actions_available(grievance):
 	if transitions and not identity.is_reachable(grievance):
 		waiting = sla.states_in_category(sla.PAUSED)
 		transitions = [row for row in transitions if row["next_state"] not in waiting]
-	# One transition row per allowed role: a user holding two of them sees each action once.
-	return list(dict.fromkeys(row["action"] for row in transitions))
+	actions = list(dict.fromkeys(row["action"] for row in transitions))
+	if "In Progress" in actions and "Start Work" in actions:
+		actions.remove("Start Work")
+	return actions

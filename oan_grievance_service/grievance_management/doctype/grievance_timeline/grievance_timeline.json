@@ -18,7 +18,8 @@
   "body",
   "sec_ref",
   "ref_doctype",
-  "ref_docname"
+  "ref_docname",
+  "client_message_id"
  ],
  "fields": [
   {
@@ -100,6 +101,13 @@
    "fieldtype": "Dynamic Link",
    "label": "Reference DocName",
    "options": "ref_doctype"
+  },
+  {
+   "fieldname": "client_message_id",
+   "fieldtype": "Data",
+   "label": "Client Message ID",
+   "length": 64,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,

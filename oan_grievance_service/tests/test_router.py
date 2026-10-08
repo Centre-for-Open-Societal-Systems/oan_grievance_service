@@ -312,6 +312,96 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(data_admin["status"], "success")
 		self.assertNotIn("grievance", data_admin["data"].get("profiles", {}))
 
+	def test_timeline_pagination(self):
+		"""Test timeline cursor pagination works for multiple pages without breaking."""
+		import json
+
+		import frappe
+		import frappe.api
+
+		from oan_grievance_service.api.v1.grievance import message
+		from oan_grievance_service.tests.fixtures import a_grievance
+
+		# 1. Create a grievance
+		doc = a_grievance()
+		frappe.set_user("Administrator")
+		ticket_number = doc.ticket_number or doc.name
+
+		# 2. Add multiple messages to create timeline entries
+		for i in range(5):
+			message(ticket_number=ticket_number, body=f"Message {i}")
+
+		# 3. Fetch first page with limit=2
+		req1 = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline?limit=2", method="GET")
+		res1 = frappe.api.handle(req1)
+		self.assertEqual(res1.status_code, 200)
+		data1 = json.loads(res1.get_data(as_text=True))["data"]
+		self.assertTrue(data1["has_more"])
+		self.assertIsNotNone(data1["next_cursor"])
+		self.assertEqual(len(data1["timeline"]), 2)
+
+		# 4. Fetch second page with cursor
+		import urllib.parse
+
+		cursor = data1["next_cursor"]
+		req2 = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/timeline?limit=2&cursor={urllib.parse.quote(cursor)}",
+			method="GET",
+		)
+		res2 = frappe.api.handle(req2)
+		self.assertEqual(res2.status_code, 200)
+		data2 = json.loads(res2.get_data(as_text=True))["data"]
+		self.assertEqual(len(data2["timeline"]), 2)
+
+		# 5. Verify timeline entries are in ASC (chronological) order
+		self.assertLessEqual(data1["timeline"][0]["created_on"], data1["timeline"][1]["created_on"])
+		page1_ids = {e["name"] for e in data1["timeline"]}
+		page2_ids = {e["name"] for e in data2["timeline"]}
+		self.assertTrue(page1_ids.isdisjoint(page2_ids))
+		self.assertLessEqual(data1["timeline"][-1]["created_on"], data2["timeline"][0]["created_on"])
+
+	def test_message_idempotency(self):
+		"""Test that sending client_message_id prevents duplicate message insertion."""
+		import json
+		import uuid
+
+		import frappe
+		import frappe.api
+
+		from oan_grievance_service.tests.fixtures import a_grievance
+
+		doc = a_grievance()
+		frappe.set_user("Administrator")
+		ticket_number = doc.ticket_number or doc.name
+
+		client_msg_id = f"client-msg-{uuid.uuid4()}"
+		payload = {
+			"body": "First message attempt",
+			"client_message_id": client_msg_id,
+		}
+
+		# Send message 1st time
+		req1 = make_test_request(f"/api/v1/grievances/{ticket_number}/message", method="POST", data=payload)
+		res1 = frappe.api.handle(req1)
+		self.assertEqual(res1.status_code, 200)
+		data1 = json.loads(res1.get_data(as_text=True))["data"]
+		entry1_name = data1["name"]
+
+		# Send message 2nd time with exact same client_message_id
+		req2 = make_test_request(f"/api/v1/grievances/{ticket_number}/message", method="POST", data=payload)
+		res2 = frappe.api.handle(req2)
+		self.assertEqual(res2.status_code, 200)
+		data2 = json.loads(res2.get_data(as_text=True))["data"]
+		entry2_name = data2["name"]
+
+		# Must return the same existing record, not create a duplicate
+		self.assertEqual(entry1_name, entry2_name)
+		total_matching = frappe.db.count(
+			"Grievance Timeline",
+			filters={"grievance": doc.name, "client_message_id": client_msg_id},
+		)
+		self.assertEqual(total_matching, 1)
+
 	def test_grievance_submission_tracking_and_timeline_rest_flow(self):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""
 		import uuid
@@ -353,25 +443,60 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(tl_data["data"]["ticket_number"], tn.display(ticket_number))
 		self.assertIn("attachments", tl_data["data"])
 
-		# 3. Add note as Officer via POST /api/v1/grievances/<ticket_number>/message
+		# 3. Add message as Officer via POST /api/v1/grievances/<ticket_number>/message
 		frappe.set_user("Administrator")
 		req_note = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/message",
 			method="POST",
-			data={"body": "Officer reviewing case via REST", "is_internal": True},
+			data={"body": "Officer reviewing case via REST", "is_internal": False},
 		)
 		res_note = frappe.api.handle(req_note)
 		self.assertEqual(res_note.status_code, 200)
 		note_data = json.loads(res_note.get_data(as_text=True))
 		self.assertEqual(note_data["status"], "success")
 
-		# 4. View Timeline via GET /api/v1/grievances/<ticket_number>/timeline
+		# 4. View Timeline as Submitter via GET /api/v1/grievances/<ticket_number>/timeline
+		frappe.set_user(self.farmer_user.name)
 		req_tl = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
 		res_tl = frappe.api.handle(req_tl)
 		self.assertEqual(res_tl.status_code, 200)
 		tl_data = json.loads(res_tl.get_data(as_text=True))
 		self.assertEqual(tl_data["status"], "success")
-		self.assertTrue(len(tl_data["data"]["timeline"]) > 0)
+		timeline_entries = tl_data["data"]["timeline"]
+		self.assertTrue(len(timeline_entries) > 0)
+
+		# Verify chronological ASC order
+		timestamps = [e["created_on"] for e in timeline_entries]
+		self.assertEqual(timestamps, sorted(timestamps))
+
+		for entry in timeline_entries:
+			self.assertNotIn("tags", entry)
+			self.assertNotIn("author_user", entry)
+			self.assertNotIn("ref_docname", entry)
+			self.assertNotIn("ref_doctype", entry)
+			if entry.get("author_type") == "officer":
+				# Submitter cannot see officer name: key must be completely omitted
+				self.assertNotIn("author_name", entry)
+				self.assertTrue(bool(entry.get("author_role")))
+			elif entry.get("author_type") == "submitter":
+				# Submitter can see their own name
+				self.assertIn("author_name", entry)
+		self.assertIsNone(tl_data["data"]["assignment"]["assigned_to"])
+
+		# 5. View Timeline as Staff: officer author_name is visible, author_user is excluded
+		frappe.set_user("Administrator")
+		req_tl_admin = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
+		res_tl_admin = frappe.api.handle(req_tl_admin)
+		tl_admin_data = json.loads(res_tl_admin.get_data(as_text=True))
+		admin_entries = tl_admin_data["data"]["timeline"]
+		officer_entry = next((e for e in admin_entries if e.get("author_type") == "officer"), None)
+		self.assertIsNotNone(officer_entry)
+		self.assertNotIn("author_user", officer_entry)
+		self.assertIn("author_name", officer_entry)
+		self.assertEqual(officer_entry["author_name"], "Administrator")
+		self.assertEqual(officer_entry["entry_type"], "dept_response")
+		self.assertEqual(officer_entry["response_number"], 1)
+		self.assertNotIn("ref_docname", officer_entry)
 
 	def test_unified_action_rest_endpoint(self):
 		"""Test POST /api/v1/grievances/<ticket_number>/action for workflow moves."""
@@ -434,7 +559,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			data={"action": "Start Work"},
 		)
 		res_action = frappe.api.handle(req_action)
-		self.assertEqual(res_action.status_code, 200)
+		self.assertEqual(res_action.status_code, 200, res_action.get_data(as_text=True))
 		action_data = json.loads(res_action.get_data(as_text=True))
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
@@ -548,6 +673,36 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		self.assertEqual(res_res_twopart.status_code, 200)
 		body_res_twopart = json.loads(res_res_twopart.get_data(as_text=True))
 		self.assertEqual(body_res_twopart["data"]["status"], "Resolved")
+
+	def test_available_actions_gated_by_write_permission(self):
+		"""Verify available_actions is empty for users lacking write permission on the case."""
+		from oan_grievance_service.api.v1.grievance import _get_available_actions_for_user
+		from oan_grievance_service.tests.fixtures import a_grievance
+
+		doc = a_grievance()
+
+		# Administrator has write permission -> available_actions has entries
+		frappe.set_user("Administrator")
+		req_admin = make_test_request(f"/api/v1/grievances/{doc.ticket_number}/timeline", method="GET")
+		res_admin = frappe.api.handle(req_admin)
+		self.assertEqual(res_admin.status_code, 200)
+		data_admin = json.loads(res_admin.get_data(as_text=True))["data"]
+		self.assertTrue(len(data_admin["available_actions"]) > 0)
+		self.assertTrue(len(_get_available_actions_for_user(doc)) > 0)
+
+		# User without write permission -> available_actions must be empty []
+		other_user = "unauthorized_viewer@test.org"
+		if not frappe.db.exists("User", other_user):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": other_user,
+					"first_name": "Other User",
+					"roles": [{"role": "Grievance Submitter"}],
+				}
+			).insert(ignore_permissions=True)
+		frappe.set_user(other_user)
+		self.assertEqual(_get_available_actions_for_user(doc), [])
 
 	def test_reassign_and_defer_endpoints(self):
 		"""Test direct REST APIs for reassignment and deferral, and verify submitted anonymous case."""
@@ -666,6 +821,34 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		# 4. Anonymity check: anonymous case was submitted as anonymous directly
 		self.assertTrue(doc_case.is_anonymous)
 
+		# 5. Verify serialize_public does not leak subject, reason, or unapproved dates to citizens
+		frappe.set_user(self.farmer_user.name)
+		req_tl_citizen = make_test_request(f"/api/v1/grievances/{ticket_number}/timeline", method="GET")
+		res_tl_citizen = frappe.api.handle(req_tl_citizen)
+		self.assertEqual(res_tl_citizen.status_code, 200)
+		tl_citizen_data = json.loads(res_tl_citizen.get_data(as_text=True))["data"]
+		pub_deferral = tl_citizen_data["sla"]["active_deferral_request"]
+		if pub_deferral:
+			self.assertEqual(pub_deferral["status"], "Pending")
+			self.assertIsNone(pub_deferral.get("approved_due_date"))
+			self.assertNotIn("subject", pub_deferral)
+			self.assertNotIn("reason", pub_deferral)
+			self.assertNotIn("name", pub_deferral)
+			self.assertNotIn("requested_at", pub_deferral)
+			self.assertNotIn("decided_at", pub_deferral)
+			self.assertNotIn("changes", pub_deferral)
+
+		# 6. Verify _current_state masks assigned_to for non-staff and reveals it for staff
+		from oan_grievance_service.api.v1.grievance import _current_state
+
+		frappe.set_user(self.farmer_user.name)
+		state_citizen = _current_state(doc_case)
+		self.assertIsNone(state_citizen["assigned_to"])
+
+		frappe.set_user("Administrator")
+		state_staff = _current_state(doc_case)
+		self.assertEqual(state_staff["assigned_to"], doc_case.assigned_to)
+
 	def test_unified_message_and_department_response_endpoint(self):
 		"""Test unified POST /api/v1/grievances/<ticket>/message for notes, messages, info requests, and department responses."""
 		import uuid
@@ -721,7 +904,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			data={"action": "Request More Info", "reason": "Please provide proof of purchase."},
 		)
 		res_req_info = frappe.api.handle(req_req_info)
-		self.assertEqual(res_req_info.status_code, 200)
+		self.assertEqual(res_req_info.status_code, 200, res_req_info.get_data(as_text=True))
 		info_req_data = json.loads(res_req_info.get_data(as_text=True))
 		self.assertEqual(info_req_data["data"]["status"], "More Info Needed")
 

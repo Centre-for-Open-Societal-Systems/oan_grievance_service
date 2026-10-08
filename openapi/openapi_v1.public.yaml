@@ -270,6 +270,124 @@ paths:
           type: string
         description: Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')
       security: []
+  /api/v1/grievances/{ticket_number}/defer-sla/decide:
+    post:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Approve or reject a pending SLA deferral request
+      description: Approve or reject a pending SLA deferral request for this grievance.
+      operationId: post_api_v1_grievances_ticket_number_defer_sla_decide
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideDeferralRequest'
+  /api/v1/grievances/{ticket_number}/reassign/decide:
+    post:
+      tags:
+      - Grievance Lifecycle & Actions
+      summary: Approve or reject a pending reassignment request
+      description: Approve or reject a pending reassignment request for this grievance.
+      operationId: post_api_v1_grievances_ticket_number_reassign_decide
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequestResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideReassignmentRequest'
   /api/v1/grievances:
     get:
       tags:
@@ -5416,9 +5534,6 @@ components:
           type: string
           example: '911887766'
           nullable: true
-        phone:
-          type: string
-          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -5540,6 +5655,11 @@ components:
         grievance_type:
           type: string
           example: Fertilizer Shortage
+        grievance_type_name:
+          type: string
+          example: Fertilizer Shortage
+          nullable: true
+          description: Display name for the grievance type
         administrative_area:
           type: string
           example: kebele-ET140108101008
@@ -5552,14 +5672,6 @@ components:
         contact_mobile:
           type: string
           example: '+251911887766'
-          nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
           nullable: true
         contact_email:
           type: string
@@ -5651,14 +5763,6 @@ components:
         contact_mobile:
           type: string
           nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
-          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -5733,8 +5837,25 @@ components:
           description: Timeline entry identifier
         entry_type:
           type: string
-          example: status_change
-          description: Event classification (status_change, note, message, attachment)
+          example: dept_response
+          description: Event classification (dept_response, note, message, submission, status_change)
+        response_number:
+          type: integer
+          nullable: true
+          example: 1
+          description: Sequential count of department response on the grievance e.g. 1, 2
+        action:
+          type: string
+          nullable: true
+          description: Workflow action behind a status change or response entry
+        action_taken:
+          type: string
+          nullable: true
+          description: Specific operational action taken by department
+        resolution_summary:
+          type: string
+          nullable: true
+          description: Summary of resolution and next steps for citizen
         from_status:
           type: string
           nullable: true
@@ -5752,20 +5873,17 @@ components:
           - submitter
           - officer
           - system
+        author_name:
+          type: string
+          nullable: true
+          description: Full name of actor when visible (e.g. for staff oversight)
         body:
           type: string
           nullable: true
           description: Timeline message or description text
-        body_parts:
-          $ref: '#/components/schemas/ResponseParts'
-          nullable: true
         is_internal:
           type: boolean
           description: Whether visible only to staff
-        action:
-          type: string
-          nullable: true
-          description: Workflow action behind a status change entry
         attachments:
           type: array
           items:
@@ -5788,19 +5906,7 @@ components:
         name:
           type: string
           nullable: true
-        mobile:
-          type: string
-          nullable: true
         contact_mobile:
-          type: string
-          nullable: true
-        country_code:
-          type: string
-          nullable: true
-        phone_number:
-          type: string
-          nullable: true
-        email:
           type: string
           nullable: true
         contact_email:
@@ -5836,6 +5942,45 @@ components:
               nullable: true
             desired_outcome:
               type: string
+              nullable: true
+            service_category:
+              type: string
+              nullable: true
+            grievance_type_id:
+              type: string
+              nullable: true
+            grievance_type_name:
+              type: string
+              nullable: true
+            administrative_area:
+              type: string
+              nullable: true
+          additionalProperties: true
+        sla:
+          type: object
+          properties:
+            sla_due_date:
+              type: string
+              format: date-time
+              nullable: true
+            active_deferral_request:
+              oneOf:
+              - $ref: '#/components/schemas/ChangeRequestData'
+              - $ref: '#/components/schemas/PublicChangeRequestData'
+              nullable: true
+        assignment:
+          type: object
+          properties:
+            department:
+              type: string
+              nullable: true
+            assigned_to:
+              type: string
+              nullable: true
+            routed_automatically:
+              type: boolean
+            active_reassignment_request:
+              $ref: '#/components/schemas/ChangeRequestData'
               nullable: true
         submitter:
           $ref: '#/components/schemas/TimelineSubmitterDetail'
@@ -6213,6 +6358,25 @@ components:
       - action
       - user
       description: Change request approval audit step
+    PublicChangeRequestData:
+      type: object
+      properties:
+        status:
+          type: string
+          example: Pending
+          enum:
+          - Pending
+          - Approved
+          - Rejected
+          description: Change request status
+        approved_due_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Approved new SLA due date (null if pending or rejected)
+      required:
+      - status
+      description: Public change request snapshot for non-staff citizens
     ChangeRequestData:
       type: object
       properties:
@@ -6591,6 +6755,30 @@ components:
           $ref: '#/components/schemas/DashboardChartRow'
         nullable: true
       description: Rows per requested chart id; null for a chart that failed (see meta.errors)
+    DecideDeferralRequest:
+      properties:
+        decision:
+          description: Approved or Rejected
+          type: string
+        note:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - decision
+      type: object
+    DecideReassignmentRequest:
+      properties:
+        decision:
+          description: Approved or Rejected
+          type: string
+        note:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - decision
+      type: object
     SubmitGrievanceRequest:
       additionalProperties: true
       description: Request body for the one-step submission endpoint.
@@ -6773,6 +6961,11 @@ components:
           - type: string
           default: null
           description: Hide from the submitter (staff only). Defaults to a public message.
+          nullable: true
+        client_message_id:
+          type: string
+          default: null
+          description: Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.
           nullable: true
         files:
           type: array
