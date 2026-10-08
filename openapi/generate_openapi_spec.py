@@ -742,7 +742,10 @@ data(
 			"sla": OBJ(
 				{
 					"sla_due_date": S(format="date-time", nullable=True),
-					"active_deferral_request": {**REF("ChangeRequestData"), "nullable": True},
+					"active_deferral_request": {
+						"oneOf": [REF("ChangeRequestData"), REF("PublicChangeRequestData")],
+						"nullable": True,
+					},
 				}
 			),
 			"assignment": OBJ(
@@ -979,6 +982,26 @@ data(
 		},
 		required=["action", "user"],
 		description="Change request approval audit step",
+	),
+)
+
+data(
+	"PublicChangeRequestData",
+	OBJ(
+		{
+			"status": S(
+				example="Pending",
+				enum=["Pending", "Approved", "Rejected"],
+				description="Change request status",
+			),
+			"approved_due_date": S(
+				format="date-time",
+				nullable=True,
+				description="Approved new SLA due date (null if pending or rejected)",
+			),
+		},
+		required=["status"],
+		description="Public change request snapshot for non-staff citizens",
 	),
 )
 

@@ -5534,9 +5534,6 @@ components:
           type: string
           example: '911887766'
           nullable: true
-        phone:
-          type: string
-          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -5676,14 +5673,6 @@ components:
           type: string
           example: '+251911887766'
           nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
-          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -5773,14 +5762,6 @@ components:
           type: string
         contact_mobile:
           type: string
-          nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
           nullable: true
         contact_email:
           type: string
@@ -5875,9 +5856,6 @@ components:
           type: string
           nullable: true
           description: Summary of resolution and next steps for citizen
-        body_parts:
-          $ref: '#/components/schemas/ResponseParts'
-          nullable: true
         from_status:
           type: string
           nullable: true
@@ -5929,17 +5907,6 @@ components:
           type: string
           nullable: true
         contact_mobile:
-          type: string
-          nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
-          nullable: true
-        phone:
           type: string
           nullable: true
         contact_email:
@@ -5997,7 +5964,9 @@ components:
               format: date-time
               nullable: true
             active_deferral_request:
-              $ref: '#/components/schemas/ChangeRequestData'
+              oneOf:
+              - $ref: '#/components/schemas/ChangeRequestData'
+              - $ref: '#/components/schemas/PublicChangeRequestData'
               nullable: true
         assignment:
           type: object
@@ -6389,6 +6358,25 @@ components:
       - action
       - user
       description: Change request approval audit step
+    PublicChangeRequestData:
+      type: object
+      properties:
+        status:
+          type: string
+          example: Pending
+          enum:
+          - Pending
+          - Approved
+          - Rejected
+          description: Change request status
+        approved_due_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: Approved new SLA due date (null if pending or rejected)
+      required:
+      - status
+      description: Public change request snapshot for non-staff citizens
     ChangeRequestData:
       type: object
       properties:
@@ -6973,6 +6961,11 @@ components:
           - type: string
           default: null
           description: Hide from the submitter (staff only). Defaults to a public message.
+          nullable: true
+        client_message_id:
+          type: string
+          default: null
+          description: Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.
           nullable: true
         files:
           type: array

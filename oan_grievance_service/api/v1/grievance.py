@@ -172,6 +172,9 @@ class PostMessageRequest(BaseModel):
 	is_internal: bool | str | None = Field(
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
+	client_message_id: str | None = Field(
+		None, description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions."
+	)
 
 
 class DecideDeferralRequest(BaseModel):
@@ -715,10 +718,9 @@ def list_grievances(
 
 		show_id = permissions.can_see_identity(item)
 		contact = identity.mask_contact(item, show_identity=show_id)
-		item.update(contact)
-		item.pop("country_code", None)
-		item.pop("phone_number", None)
-		item.pop("phone", None)
+		item["contact_mobile"] = contact["contact_mobile"]
+		item["contact_email"] = contact["contact_email"]
+		item["can_request_more_info"] = contact["can_request_more_info"]
 		if not show_id:
 			item["submitter_name"] = _("Anonymous Submitter")
 
@@ -788,6 +790,9 @@ ACTIONS_REQUIRING_RATING = {"Close Case"}
 
 def _get_available_actions_for_user(doc):
 	"""List actions available to the current user on this grievance with localized labels."""
+	if not permissions.has_grievance_permission(doc, "write"):
+		return []
+
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
@@ -820,10 +825,12 @@ def _current_state(doc, extra=None):
 	them and the shape cannot drift between them. `extra` carries the fields only
 	one endpoint has a reason to report.
 	"""
+	user = frappe.session.user
+	is_staff = permissions.is_staff(user)
 	state = {
 		"status": doc.status,
 		"escalated": bool(doc.escalated),
-		"assigned_to": doc.assigned_to,
+		"assigned_to": doc.assigned_to if is_staff else None,
 		"department": doc.assigned_dept,
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
@@ -1247,6 +1254,12 @@ def action(
 	attachments = store_uploads(doc, prepared, timeline_entry=timeline_entry.name) if prepared else []
 
 	doc.reload()
+	frappe.publish_realtime(
+		"timeline_updated",
+		{"grievance": doc.name, "ticket_number": doc.ticket_number},
+		room=f"doc:Grievance:{doc.name}",
+		after_commit=True,
+	)
 	current_state = _current_state(doc)
 	return success_response(
 		data={
@@ -1349,7 +1362,7 @@ def feedback(
 def timeline(
 	ticket_number: str,
 	is_internal: bool | str | None = None,
-	limit: int | str = 20,
+	limit: int | str = 50,
 	cursor: str | None = None,
 ):
 	"""Retrieve chronological unified conversation, activity timeline, and thread summary for a grievance.
@@ -1391,6 +1404,12 @@ def timeline(
 		)
 
 	if cursor:
+		cursor = cursor.strip()
+		if " " in cursor and "+" not in cursor:
+			import re
+
+			cursor = re.sub(r" (\d{2}:\d{2})([|]|$)", r"+\1\2", cursor)
+
 		try:
 			cursor_ts_raw, cursor_name = cursor.split("|", 1)
 			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
@@ -1584,7 +1603,13 @@ def timeline(
 @validate_request(PostMessageRequest)
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def message(ticket_number: str, body: str, is_internal: bool | str | None = None, **kwargs):
+def message(
+	ticket_number: str,
+	body: str,
+	is_internal: bool | str | None = None,
+	client_message_id: str | None = None,
+	**kwargs,
+):
 	"""Post to the case thread: a public message, or an internal note when staff send
 	`is_internal`. Files sent as multipart attach to the new entry.
 
@@ -1602,6 +1627,7 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 	if internal and not is_staff:
 		frappe.throw(_("Only staff members can post internal notes."), frappe.PermissionError)
 
+	client_msg_id = client_message_id or kwargs.get("client_message_id")
 	prepared = prepare_uploads(doc.name)
 	entry = GrievanceTimeline.record(
 		grievance=doc.name,
@@ -1610,8 +1636,16 @@ def message(ticket_number: str, body: str, is_internal: bool | str | None = None
 		body=body,
 		author_user=user if is_staff else None,
 		author_submitter=doc.submitter if not is_staff else None,
+		client_message_id=client_msg_id,
 	)
 	attachments = store_uploads(doc, prepared, timeline_entry=entry.name) if prepared else []
+
+	frappe.publish_realtime(
+		"timeline_updated",
+		{"grievance": doc.name, "ticket_number": doc.ticket_number},
+		room=f"doc:Grievance:{doc.name}",
+		after_commit=True,
+	)
 
 	return success_response(
 		data={

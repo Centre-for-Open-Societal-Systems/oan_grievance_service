@@ -46,9 +46,17 @@ class GrievanceTimeline(Document):
 		ref_doctype: str | None = None,
 		ref_docname: str | None = None,
 		created_on=None,
+		client_message_id: str | None = None,
 	):
 		"""Insert an append-only timeline entry for a grievance. Returns the timeline doc."""
 		grievance_name = getattr(grievance, "name", grievance)
+
+		if client_message_id:
+			existing_name = frappe.db.get_value(
+				"Grievance Timeline", {"client_message_id": client_message_id}, "name"
+			)
+			if existing_name:
+				return frappe.get_doc("Grievance Timeline", existing_name)
 
 		return frappe.get_doc(
 			{
@@ -62,5 +70,6 @@ class GrievanceTimeline(Document):
 				"ref_doctype": ref_doctype,
 				"ref_docname": ref_docname,
 				"created_on": created_on or now_datetime(),
+				"client_message_id": client_message_id,
 			}
 		).insert(ignore_permissions=True)

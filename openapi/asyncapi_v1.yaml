@@ -39,7 +39,6 @@ servers:
     description: Production gateway. Kong verifies the JWT before the handshake.
     security:
       - $ref: "#/components/securitySchemes/BearerAuth"
-      - $ref: "#/components/securitySchemes/QueryToken"
   local:
     host: localhost:9000
     pathname: /socket.io/
@@ -75,6 +74,8 @@ channels:
     messages:
       attachmentScanned:
         $ref: "#/components/messages/AttachmentScanned"
+      timelineUpdated:
+        $ref: "#/components/messages/TimelineUpdated"
       docSubscribe:
         $ref: "#/components/messages/DocSubscribe"
       docUnsubscribe:
@@ -104,6 +105,14 @@ operations:
     summary: An attachment on the open grievance has a scan verdict.
     messages:
       - $ref: "#/channels/grievanceRoom/messages/attachmentScanned"
+
+  receiveTimelineUpdated:
+    action: receive
+    channel:
+      $ref: "#/channels/grievanceRoom"
+    summary: A new message, internal note, or workflow event was added to the timeline.
+    messages:
+      - $ref: "#/channels/grievanceRoom/messages/timelineUpdated"
 
   subscribeGrievance:
     action: send
@@ -166,6 +175,24 @@ components:
         the System Notification channel does. Carries no payload.
       payload:
         type: "null"
+
+    TimelineUpdated:
+      name: timeline_updated
+      title: Timeline updated signal
+      summary: |
+        Sent when a new message, internal note, or workflow action is added to
+        the grievance. Clients viewing this case should refetch the timeline.
+      payload:
+        type: object
+        required: [grievance]
+        additionalProperties: true
+        properties:
+          grievance:
+            type: string
+            description: Grievance document name.
+          ticket_number:
+            type: string
+            description: Formatted ticket number.
 
     DocSubscribe:
       name: doc_subscribe
