@@ -278,6 +278,27 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 			result = update_assignment(name, department=self.department)
 		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 
+	def test_options_categories_follow_the_selected_department(self):
+		from oan_grievance_service.api.v1.grievance import options
+
+		other_category = _category("STG404 Markets", "Z95")
+		other_department = _department("STG404 Markets Agency", "S405")
+		name = self._assignment()
+		self._assignment(category=other_category, department=other_department)
+
+		def categories(**params):
+			result = options(**params)
+			self.assertEqual(result["status"], "success", msg=result)
+			return {row["category_name"] for row in result["data"]["service_categories"]}
+
+		self.assertLessEqual({self.category, other_category}, categories())
+		self.assertEqual(categories(department=self.department), {self.category})
+		self.assertEqual(categories(department=other_department), {other_category})
+		self.assertEqual(categories(department="No Such Department"), set())
+
+		update_assignment(name, active=False)
+		self.assertEqual(categories(department=self.department), set())
+
 	def test_unknown_and_immutable_fields_are_rejected(self):
 		name = self._assignment()
 		with _keep_transaction():

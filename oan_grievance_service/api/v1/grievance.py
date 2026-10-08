@@ -1550,26 +1550,29 @@ def options(
 
 	Returns reference lists for case filing, management, triage, and filtering,
 	including departments, lifecycle statuses, categories, and types.
-	When `department` is provided and the caller is staff, cascades and includes
-	active officers under that department (optionally narrowed by `service_category`
-	and `administrative_area`). The caller is never listed. Submitters never receive officers.
+	When `department` is provided, `service_categories` shrinks to the categories that
+	department has an active category assignment for. When the caller is also staff, it
+	cascades and includes active officers under that department (optionally narrowed by
+	`service_category` and `administrative_area`). The caller is never listed. Submitters
+	never receive officers.
 
 	Args:
 	    service_category (str, optional): Filter grievance types & officers by service category (e.g. 'Inputs').
 	    category (str, optional): Alias for service_category.
-	    department (str, optional): Department ID to fetch assigned officers.
+	    department (str, optional): Department ID. Limits service_categories to that department's
+	        category assignments and, for staff, fetches its assigned officers.
 	    administrative_area (str, optional): Administrative area to scope officer assignments.
 
 	Returns:
 	    departments: Active grievance departments
 	    statuses: Grievance lifecycle statuses with metadata
-	    service_categories: Active service categories
+	    service_categories: Active service categories (only the department's when `department` is given)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
 	    officers: Active officers under the specified department (staff only, present only if `department` is passed)
 	"""
 	cat = service_category or category
-	service_categories = get_service_categories()
+	service_categories = get_service_categories(department=department)
 	grievance_types = get_grievance_types(service_category=cat)
 
 	data = {

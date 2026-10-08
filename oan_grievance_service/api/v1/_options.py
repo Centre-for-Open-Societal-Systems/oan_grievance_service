@@ -3,14 +3,31 @@
 import frappe
 
 from oan_grievance_service.permissions import is_staff
+from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services import constants as C
 
 
-def get_service_categories() -> list[dict]:
-	"""Retrieve active grievance service categories."""
+def get_service_categories(department: str | None = None) -> list[dict]:
+	"""Retrieve active grievance service categories.
+
+	With a `department`, only the categories that department has an active category
+	assignment for: the same pairing an officer needs before they can be placed on it.
+	An unknown department matches nothing, so the list is empty.
+	"""
+	filters = {"is_active": 1}
+	if department:
+		filters["name"] = [
+			"in",
+			frappe.get_all(
+				"Grievance RBAC Assignment",
+				filters=category_assignment.desk_filters(department_scope=str(department).strip(), active=1),
+				pluck="category_scope",
+				ignore_permissions=True,
+			),
+		]
 	return frappe.get_all(
 		"Grievance Service Category",
-		filters={"is_active": 1},
+		filters=filters,
 		fields=["name as category_name", "code", "sort_order"],
 		order_by="sort_order asc, name asc",
 		ignore_permissions=True,
