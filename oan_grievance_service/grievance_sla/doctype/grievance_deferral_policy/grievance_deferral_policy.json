@@ -8,6 +8,7 @@
  "field_order": [
   "sec_ceiling",
   "max_deferral_days",
+  "auto_escalation_threshold",
   "col_ceiling",
   "requires_supervisor_approval",
   "sec_note",
@@ -29,6 +30,14 @@
    "reqd": 1
   },
   {
+   "default": "100",
+   "description": "Share of the SLA window that must be consumed before a case escalates, for every category that does not set its own. 100 means at the deadline; 80 hands the case up while there is still time to save it.",
+   "fieldname": "auto_escalation_threshold",
+   "fieldtype": "Int",
+   "label": "Auto Escalation Threshold (%)",
+   "non_negative": 1
+  },
+  {
    "fieldname": "col_ceiling",
    "fieldtype": "Column Break"
   },
@@ -44,7 +53,7 @@
    "fieldtype": "Section Break"
   },
   {
-   "description": "These are ceilings on what a deferral may do, not an SLA window. The windows themselves are per service category on Grievance SLA Configuration.",
+   "description": "These are installation-wide settings, not an SLA window. The windows, the auto-escalate and notify-on-breach flags, and any threshold of a category's own are per service category on Grievance SLA Configuration.",
    "fieldname": "policy_note",
    "fieldtype": "Small Text",
    "label": "Note",
@@ -55,7 +64,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-11 18:05:00.000000",
+ "modified": "2026-10-08 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance Deferral Policy",

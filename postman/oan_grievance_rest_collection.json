@@ -170,6 +170,10 @@
       "key": "taxonomy_grievance_type",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "sla_configuration",
+      "value": ""
     }
   ],
   "item": [
@@ -2346,6 +2350,198 @@
               ]
             },
             "description": "Deactivate the rule: its routing desk is marked inactive and kept for audit. The category SLA row is not changed. Same as PATCH with active false; repeating the call changes nothing."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "SLA Settings",
+      "description": "STG-412 admin API for the SLA tab: the global SLA policy and the per-category SLA windows. Per-category sla_days and auto_escalate are the same values as Category Assignments. Writes need a Grievance Admin or System Manager bearer token.",
+      "item": [
+        {
+          "name": "Get global SLA policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns the policy\", function () {",
+                  "    var p = pm.response.json().data.policy;",
+                  "    pm.expect(p).to.have.property(\"max_deferral_days\");",
+                  "    pm.expect(p).to.have.property(\"auto_escalation_threshold\");",
+                  "    pm.expect(p.deferral_approval).to.be.oneOf([\"l2_approval\", \"l1_self_approve\"]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sla-policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sla-policy"
+              ]
+            },
+            "description": "Installation-wide policy: max_deferral_days, auto_escalation_threshold (percent) and deferral_approval (l2_approval or l1_self_approve)."
+          },
+          "response": []
+        },
+        {
+          "name": "Update global SLA policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Echoes the saved policy\", function () {",
+                  "    var p = pm.response.json().data.policy;",
+                  "    pm.expect(p.max_deferral_days).to.eql(30);",
+                  "    pm.expect(p.auto_escalation_threshold).to.eql(100);",
+                  "    pm.expect(p.deferral_approval).to.eql(\"l2_approval\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sla-policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sla-policy"
+              ]
+            },
+            "description": "Send any of the three fields; omitted fields stay as they are.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"deferral_approval\": \"l2_approval\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List category SLA settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns a configuration page\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.data.sla_configurations).to.be.an(\"array\");",
+                  "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
+                  "    if (body.data.sla_configurations.length) {",
+                  "        pm.collectionVariables.set(\"sla_configuration\", body.data.sla_configurations[0].name);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sla-configurations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sla-configurations"
+              ]
+            },
+            "description": "Per-category SLA window, auto-escalate and notify-on-breach flags, with the departments serving each category. Optional query: service_category, department, page, page_size. Saves the first row's id as sla_configuration."
+          },
+          "response": []
+        },
+        {
+          "name": "Update category SLA settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Echoes the saved configuration\", function () {",
+                  "    var c = pm.response.json().data.sla_configuration;",
+                  "    pm.expect(c).to.have.property(\"sla_days\");",
+                  "    pm.expect(c.notify_on_breach).to.be.a(\"boolean\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sla-configurations/{{sla_configuration}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sla-configurations",
+                "{{sla_configuration}}"
+              ]
+            },
+            "description": "Send any of sla_days, auto_escalate and notify_on_breach. The values are shared with Category Assignments for the same category. Run List category SLA settings first to set sla_configuration.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notify_on_breach\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }

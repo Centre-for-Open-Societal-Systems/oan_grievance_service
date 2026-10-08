@@ -1814,6 +1814,126 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: get-api-v1-sla-policy
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/sla-policy$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-sla-policy
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/sla-policy$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-sla-configurations
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/sla-configurations$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-sla-configurations-config
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/sla-configurations/(?<config>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
   - name: get-api-v1-submitters-options
     methods:
     - GET

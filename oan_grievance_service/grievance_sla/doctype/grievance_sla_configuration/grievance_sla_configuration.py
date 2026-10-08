@@ -11,6 +11,8 @@ class GrievanceSLAConfiguration(Document):
 		self.validate_one_active_row()
 		if self.sla_days is not None and self.sla_days <= 0:
 			frappe.throw(_("SLA Days must be greater than zero."))
+		if (self.auto_escalation_threshold or 0) > 100:
+			frappe.throw(_("Auto Escalation Threshold cannot exceed 100%."))
 		if self.first_response_hours is not None and self.first_response_hours < 0:
 			frappe.throw(_("First Response Hours cannot be negative."))
 		if self.update_cadence_hours is not None and self.update_cadence_hours < 0:
