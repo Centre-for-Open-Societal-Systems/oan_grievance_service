@@ -24,6 +24,7 @@ from oan_grievance_service.api.v1.taxonomy import (
 )
 from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
 	get_default_category,
+	rename_category,
 )
 from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
@@ -166,7 +167,7 @@ class TestTaxonomy(FrappeTestCase):
 		after = get_service_category(CATEGORY)["data"]["service_category"]
 		self.assertEqual(after["code"], CODE)
 		self.assertTrue(after["code_locked"])
-		self.assertEqual(after["grievance_count"], 1)
+		self.assertTrue(after["has_grievances"])
 		# Everything else about the category can still change.
 		self.assertEqual(update_service_category(CATEGORY, sort_order=7)["status"], "success")
 
@@ -194,6 +195,64 @@ class TestTaxonomy(FrappeTestCase):
 		with _keep_transaction():
 			taken = update_service_category("STG406 Renamed", category_name=C.FALLBACK_SERVICE_CATEGORY)
 			self.assertIn(taken["code"], ("VALIDATION_ERROR", "DUPLICATE_ENTRY"), msg=taken)
+
+	def test_rename_is_queued_and_the_record_shows_it_until_it_is_done(self):
+		category = self._category()
+		kind = self._type()
+		case = a_grievance(
+			service_category=category["category_name"], grievance_type=kind["grievance_type_id"]
+		)
+		queued = []
+		original = frappe.enqueue
+		frappe.enqueue = lambda method, **kwargs: queued.append((method, kwargs))
+		try:
+			result = update_service_category(CATEGORY, category_name="STG406 Queued", sort_order=5)
+			self.assertEqual(result["status"], "success", msg=result)
+			record = result["data"]["service_category"]
+			# The other fields were saved at once; the name has not moved yet.
+			self.assertEqual((record["category_name"], record["sort_order"]), (CATEGORY, 5))
+			self.assertEqual(record["renaming_to"], "STG406 Queued")
+			self.assertIn("in progress", result["message"])
+			self.assertEqual(len(queued), 1)
+			self.assertTrue(queued[0][1]["enqueue_after_commit"])
+			self.assertEqual(frappe.db.get_value("Grievance", case.name, "service_category"), CATEGORY)
+
+			with _keep_transaction():
+				again = update_service_category(CATEGORY, category_name="STG406 Another")
+				self.assertEqual(again["code"], "VALIDATION_ERROR", msg=again)
+				taken = update_service_category(CATEGORY, category_name=C.FALLBACK_SERVICE_CATEGORY)
+				self.assertIn(taken["code"], ("VALIDATION_ERROR", "DUPLICATE_ENTRY"), msg=taken)
+		finally:
+			frappe.enqueue = original
+
+		# The job does the move and clears the marker.
+		rename_category(CATEGORY, "STG406 Queued")
+		self.assertEqual(frappe.db.get_value("Grievance", case.name, "service_category"), "STG406 Queued")
+		done = get_service_category("STG406 Queued")["data"]["service_category"]
+		self.assertIsNone(done["renaming_to"])
+		self.assertEqual(done["sort_order"], 5)
+
+	def test_listing_never_counts_grievances(self):
+		category = self._category()
+		kind = self._type()
+		a_grievance(service_category=category["category_name"], grievance_type=kind["grievance_type_id"])
+		queries = []
+		original = frappe.db.sql
+
+		def record(query, *args, **kwargs):
+			queries.append(str(query))
+			return original(query, *args, **kwargs)
+
+		frappe.db.sql = record
+		try:
+			listed = list_service_categories(search="STG406")["data"]["service_categories"]
+			typed = list_grievance_types(search="STG406")["data"]["grievance_types"]
+		finally:
+			frappe.db.sql = original
+		self.assertTrue(listed[0]["has_grievances"])
+		self.assertTrue(typed[0]["has_grievances"])
+		counted = [q for q in queries if "tabGrievance`" in q and "count(" in q.lower()]
+		self.assertEqual(counted, [])
 
 	def test_deactivating_a_category_deactivates_its_types(self):
 		self._category()

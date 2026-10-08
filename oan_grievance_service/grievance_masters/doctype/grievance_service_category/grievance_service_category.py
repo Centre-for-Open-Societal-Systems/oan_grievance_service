@@ -146,3 +146,50 @@ def get_category(identifier: str):
 	if not name:
 		frappe.throw(_("Service category '{0}' was not found.").format(identifier), frappe.DoesNotExistError)
 	return frappe.get_doc("Grievance Service Category", name)
+
+
+RENAME_KEY = "grievance:category_rename:{}"
+RENAME_WINDOW = 3600
+
+
+def pending_rename(name: str) -> str | None:
+	"""The name a queued rename of this category is moving it to, or None."""
+	return frappe.cache().get_value(RENAME_KEY.format(name))
+
+
+def queue_rename(doc, new_name: str) -> None:
+	"""Rename a category in the background.
+
+	Frappe carries every link to the category (grievances, types, desks, SLA rows, templates)
+	by updating each of those tables, which on a busy site is too long for a web request. The
+	checks that can fail run here, so a bad name is refused at once; the job only does the move.
+	"""
+	if frappe.db.exists("Grievance Service Category", new_name):
+		frappe.throw(_("Service category '{0}' already exists.").format(new_name), frappe.DuplicateEntryError)
+	key = RENAME_KEY.format(doc.name)
+	if frappe.cache().get_value(key):
+		frappe.throw(
+			_("'{0}' is already being renamed. Wait for it to finish.").format(doc.name),
+			frappe.ValidationError,
+		)
+	frappe.cache().set_value(key, new_name, expires_in_sec=RENAME_WINDOW)
+	frappe.enqueue(
+		"oan_grievance_service.grievance_masters.doctype.grievance_service_category"
+		".grievance_service_category.rename_category",
+		queue="long",
+		timeout=RENAME_WINDOW,
+		enqueue_after_commit=True,
+		# Run inline under test, where there is no worker to pick the job up.
+		now=bool(frappe.flags.in_test),
+		old=doc.name,
+		new=new_name,
+	)
+
+
+def rename_category(old: str, new: str) -> None:
+	"""The background job behind `queue_rename`."""
+	try:
+		if frappe.db.exists("Grievance Service Category", old):
+			frappe.rename_doc("Grievance Service Category", old, new)
+	finally:
+		frappe.cache().delete_value(RENAME_KEY.format(old))

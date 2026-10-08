@@ -79,14 +79,14 @@ List responses put the page info **inside `data`**, next to the array: `data.pag
 - **Type name**: unique within its category. Two categories may both have a type called `Other`, but one category cannot have the same type twice.
 - **Deactivating a category** also deactivates all its types. Reactivating the category does **not** bring them back: reactivate each type.
 - **A type** cannot be created or reactivated while its category is inactive, and **cannot move to another category**.
-- **Renaming a category** is safe: every grievance, type, routing rule, SLA row and template follows. The ticket code does not change. Path ids that used the old name stop working, so use the name in the response afterwards.
+- **Renaming a category** is safe: every grievance, type, routing rule, SLA row and template follows, and the ticket code does not change. Because that touches many rows, the rename runs **in the background**. The `PATCH` saves the other fields at once and answers with the **old** name and `renaming_to: "<new name>"`. When the job finishes the category answers to the new name and `renaming_to` is `null`. Poll `GET /service-categories/<new name>` (it returns 404 until then), or `GET /service-categories?search=<new name>`. Another rename is refused with 400 while one is pending, and a new name already in use is refused at once with 409.
 - **Default category.** Exactly one category is the default: the one cases with no category are filed under (an IVR call or email that named none, or a draft saved without a choice). It starts as `Other`. `is_default` is `true` on that record only.
   - Make a category the default with `is_default: true` on create or `PATCH`. The previous default loses the flag automatically. The new default also gets an active catch-all type named `Other` if it has none.
   - The default is always active. It cannot be deactivated, and `is_default: false` is refused. To change it, promote another category.
   - It can be renamed. The flag stays with it.
   - Its catch-all `Other` type cannot be deactivated while the category is the default.
 - **Other screens.** The submission wizard dropdowns list active records only. A new grievance cannot be filed under an inactive category or type. Category assignments and response templates already set up on a category you deactivate stay active so open cases keep working; new ones cannot be set up on it.
-- **Warn before retiring.** Each category record counts what refers to it: `grievance_type_count` (active types), `assignment_count` (active category assignments), `response_template_count` (active templates) and `grievance_count`. Show these in a confirm dialog.
+- **Warn before retiring.** Each category record reports what refers to it: `grievance_type_count` (active types), `assignment_count` (active category assignments), `response_template_count` (active templates) and `has_grievances` (whether any grievance was filed under it). A grievance type reports `has_grievances` too. These are counts of small tables and yes/no checks for grievances, never a count of grievances, so listing stays fast on a large site. Show them in a confirm dialog.
 
 ## 4. Service categories
 
@@ -124,8 +124,9 @@ Response `200`:
         "grievance_type_count": 1,
         "assignment_count": 0,
         "response_template_count": 0,
-        "grievance_count": 0,
-        "code_locked": false
+        "has_grievances": false,
+        "code_locked": false,
+        "renaming_to": null
       }
     ],
     "pagination": {
@@ -174,8 +175,9 @@ Response `200`: `data.service_category` is the record.
       "grievance_type_count": 0,
       "assignment_count": 0,
       "response_template_count": 0,
-      "grievance_count": 0,
-      "code_locked": false
+      "has_grievances": false,
+      "code_locked": false,
+      "renaming_to": null
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -201,7 +203,7 @@ Send **only the fields that change**. An empty body returns `400` "No fields to 
 
 | Body field      | Type    | Notes                                                                                                                     |
 | :-------------- | :------ | :------------------------------------------------------------------------------------------------------------------------ |
-| `category_name` | string  | Renames the category everywhere (the default included)                                                                    |
+| `category_name` | string  | Renames the category everywhere, in the background (the default included)                                                 |
 | `code`          | string  | Rejected with 400 when `code_locked` is `true`                                                                            |
 | `sort_order`    | integer | 0 or more                                                                                                                 |
 | `is_active`     | boolean | `false` also deactivates the types. Refused for the default category                                                      |
@@ -229,8 +231,9 @@ Response `200`: the updated record under `data.service_category`, message `Servi
       "grievance_type_count": 1,
       "assignment_count": 0,
       "response_template_count": 0,
-      "grievance_count": 0,
-      "code_locked": false
+      "has_grievances": false,
+      "code_locked": false,
+      "renaming_to": null
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -262,8 +265,9 @@ Response `200`:
       "grievance_type_count": 0,
       "assignment_count": 0,
       "response_template_count": 0,
-      "grievance_count": 0,
-      "code_locked": false
+      "has_grievances": false,
+      "code_locked": false,
+      "renaming_to": null
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -306,7 +310,7 @@ Response `200`:
         "type_name": "Road access blocked",
         "service_category": "Infrastructure",
         "is_active": true,
-        "grievance_count": 0
+        "has_grievances": false
       }
     ],
     "pagination": {
@@ -349,7 +353,7 @@ Response `200`: `data.grievance_type` is the record.
       "type_name": "Road access blocked",
       "service_category": "Infrastructure",
       "is_active": true,
-      "grievance_count": 0
+      "has_grievances": false
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -392,7 +396,7 @@ Response `200`:
       "type_name": "Road access obstructed",
       "service_category": "Infrastructure",
       "is_active": true,
-      "grievance_count": 0
+      "has_grievances": false
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -502,13 +506,14 @@ export interface ServiceCategoryRecord extends ServiceCategoryOption {
   grievance_type_count: number; // active types
   assignment_count: number; // active category assignments
   response_template_count: number; // active response templates
-  grievance_count: number;
+  has_grievances: boolean;
   code_locked: boolean; // true once tickets exist: disable editing `code`
+  renaming_to: string | null; // set while a queued rename is running
 }
 
 export interface GrievanceTypeRecord extends GrievanceTypeOption {
   is_active: boolean;
-  grievance_count: number;
+  has_grievances: boolean;
 }
 
 export interface Pagination {
@@ -570,6 +575,6 @@ export interface ApiError {
 ## 8. Integration notes
 
 - The wizard dropdown calls (`/submitters/options`, `/grievances/options`) still return **active records only**. Refetch them after an admin change.
-- After a rename, take the id from the response (`category_name`) for later calls.
+- A rename is asynchronous. Keep using the old name until `renaming_to` is `null` and the new name answers.
 - `PATCH` sends only changed fields. Do not send the whole form back: an unchanged locked `code` is fine to omit, and sending a different one is an error.
 - A Postman collection (folder "Service Categories & Grievance Types") and the OpenAPI spec (`openapi/openapi_v1.yaml`) carry the same endpoints.

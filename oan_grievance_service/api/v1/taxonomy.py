@@ -34,6 +34,8 @@ from pydantic import BaseModel, Field, field_validator
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
 	get_category,
+	pending_rename,
+	queue_rename,
 )
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 from oan_grievance_service.services.resolvers import resolve_service_category
@@ -64,8 +66,9 @@ class ServiceCategoryRecord(BaseModel):
 	grievance_type_count: int
 	assignment_count: int
 	response_template_count: int
-	grievance_count: int
+	has_grievances: bool
 	code_locked: bool
+	renaming_to: str | None = None
 
 
 class ServiceCategoryData(BaseModel):
@@ -115,8 +118,8 @@ def _category_records(docs: list) -> list[dict]:
 	types = _counts(TYPE, "service_category", names, is_active=1)
 	assignments = _counts("Grievance RBAC Assignment", "category_scope", names, active=1)
 	templates = _counts("Grievance Response Template", "service_category", names, is_active=1)
-	grievances = _counts("Grievance", "service_category", names)
-	ticketed = _counts("Grievance", "service_category", names, ticket_number=["is", "set"])
+	grievances = _used("Grievance", "service_category", names)
+	ticketed = _used("Grievance", "service_category", names, ticket_number=["is", "set"])
 	return [
 		{
 			"category_name": doc.category_name,
@@ -127,8 +130,9 @@ def _category_records(docs: list) -> list[dict]:
 			"grievance_type_count": types.get(doc.name, 0),
 			"assignment_count": assignments.get(doc.name, 0),
 			"response_template_count": templates.get(doc.name, 0),
-			"grievance_count": grievances.get(doc.name, 0),
-			"code_locked": ticketed.get(doc.name, 0) > 0,
+			"has_grievances": doc.name in grievances,
+			"code_locked": doc.name in ticketed,
+			"renaming_to": pending_rename(doc.name),
 		}
 		for doc in docs
 	]
@@ -265,13 +269,18 @@ def update_service_category(category: str, **kwargs):
 	doc.update(changes)
 	doc.save()
 	if new_name and new_name != doc.name:
-		# A rename follows every link to the category, so it runs in this request's transaction:
-		# either the new name is everywhere or, on an error, nowhere.
-		frappe.rename_doc(CATEGORY, doc.name, new_name)
-		doc = frappe.get_doc(CATEGORY, new_name)
-	return success_response(
-		data={"service_category": _category_records([doc])[0]}, message=_("Service category updated")
+		# Every link to the category has to follow, which can take a while on a busy site, so the
+		# move is a background job. The record keeps its old name and shows `renaming_to` until
+		# the job is done. Where there is no worker to wait for, it has already finished.
+		queue_rename(doc, new_name)
+		if not frappe.db.exists(CATEGORY, doc.name):
+			doc = frappe.get_doc(CATEGORY, new_name)
+	message = (
+		_("Service category updated. Renaming is in progress.")
+		if pending_rename(doc.name)
+		else _("Service category updated")
 	)
+	return success_response(data={"service_category": _category_records([doc])[0]}, message=message)
 
 
 @route("/service-categories/<category>", methods=("DELETE",), summary="Deactivate a service category")
@@ -308,7 +317,7 @@ class GrievanceTypeRecord(BaseModel):
 	type_name: str
 	service_category: str
 	is_active: bool
-	grievance_count: int
+	has_grievances: bool
 
 
 class GrievanceTypeData(BaseModel):
@@ -350,14 +359,14 @@ class ListGrievanceTypes(PageParams, Body):
 
 def _type_records(docs: list) -> list[dict]:
 	"""Project types to API records, with one grouped query for the whole page's usage."""
-	grievances = _counts("Grievance", "grievance_type", [doc.name for doc in docs])
+	grievances = _used("Grievance", "grievance_type", [doc.name for doc in docs])
 	return [
 		{
 			"grievance_type_id": doc.name,
 			"type_name": doc.type_name,
 			"service_category": doc.service_category,
 			"is_active": bool(doc.is_active),
-			"grievance_count": grievances.get(doc.name, 0),
+			"has_grievances": doc.name in grievances,
 		}
 		for doc in docs
 	]
@@ -534,6 +543,15 @@ def _count(doctype: str, filters: dict, or_filters: list | None) -> int:
 		doctype, filters=filters, or_filters=or_filters, fields=[{"COUNT": "*", "as": "total"}]
 	)
 	return int(rows[0].total) if rows else 0
+
+
+def _used(doctype: str, fieldname: str, names: list[str], **filters) -> set[str]:
+	"""Which of `names` some row refers to.
+
+	One lookup that stops at the first match for each name, so what it costs follows the page and
+	not the size of the table. A count of grievances per category would read every one of them.
+	"""
+	return {name for name in names if frappe.db.exists(doctype, {fieldname: name, **filters})}
 
 
 def _counts(doctype: str, fieldname: str, names: list[str], **filters) -> dict[str, int]:

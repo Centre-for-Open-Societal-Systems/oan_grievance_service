@@ -2532,7 +2532,7 @@
                 "{{taxonomy_category}}"
               ]
             },
-            "description": "Partial update of category_name, code, sort_order, is_active or is_default. Renaming keeps every grievance, type, routing rule, SLA row and template linked. The code cannot change once tickets exist (code_locked). Setting is_active false also deactivates its types, and is refused for the default category. is_default true makes this the default (the previous default loses the flag); false is refused because exactly one category must be the default.",
+            "description": "Partial update of category_name, code, sort_order, is_active or is_default. Renaming keeps every grievance, type, routing rule, SLA row and template linked and runs in the background: the response keeps the old category_name and shows renaming_to until the job is done, then the category answers to the new name. The code cannot change once tickets exist (code_locked). Setting is_active false also deactivates its types, and is refused for the default category. is_default true makes this the default (the previous default loses the flag); false is refused because exactly one category must be the default.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"sort_order\": 3\n}"
