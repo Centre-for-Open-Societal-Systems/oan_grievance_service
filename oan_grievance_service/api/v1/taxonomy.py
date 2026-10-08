@@ -34,8 +34,7 @@ from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import taxonomy as service
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 
-category_route = prefixed("/api/v1/service-categories")
-type_route = prefixed("/api/v1/grievance-types")
+route = prefixed("/api/v1")
 
 NAME_LENGTH = 140
 
@@ -102,7 +101,7 @@ def _category_record(doc) -> dict:
 	return service.category_records([doc])[0]
 
 
-@category_route("", methods=("GET",), summary="List service categories")
+@route("/service-categories", methods=("GET",), summary="List service categories")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
@@ -139,7 +138,7 @@ def list_service_categories(
 	)
 
 
-@category_route("/<category>", methods=("GET",), summary="Get a service category")
+@route("/service-categories/<category>", methods=("GET",), summary="Get a service category")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
@@ -158,7 +157,7 @@ def get_service_category(category: str, **kwargs):
 	)
 
 
-@category_route("", methods=("POST",), summary="Create a service category")
+@route("/service-categories", methods=("POST",), summary="Create a service category")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -194,7 +193,7 @@ def create_service_category(
 	)
 
 
-@category_route("/<category>", methods=("PATCH",), summary="Update a service category")
+@route("/service-categories/<category>", methods=("PATCH",), summary="Update a service category")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -221,7 +220,7 @@ def update_service_category(category: str, **kwargs):
 	)
 
 
-@category_route("/<category>", methods=("DELETE",), summary="Deactivate a service category")
+@route("/service-categories/<category>", methods=("DELETE",), summary="Deactivate a service category")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -299,7 +298,7 @@ def _type_record(doc) -> dict:
 	return service.type_records([doc])[0]
 
 
-@type_route("", methods=("GET",), summary="List grievance types")
+@route("/grievance-types", methods=("GET",), summary="List grievance types")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
@@ -337,7 +336,7 @@ def list_grievance_types(
 	)
 
 
-@type_route("/<grievance_type>", methods=("GET",), summary="Get a grievance type")
+@route("/grievance-types/<grievance_type>", methods=("GET",), summary="Get a grievance type")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
@@ -356,7 +355,7 @@ def get_grievance_type(grievance_type: str, **kwargs):
 	)
 
 
-@type_route("", methods=("POST",), summary="Create a grievance type")
+@route("/grievance-types", methods=("POST",), summary="Create a grievance type")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -382,7 +381,7 @@ def create_grievance_type(
 	return success_response(data={"grievance_type": _type_record(doc)}, message=_("Grievance type created"))
 
 
-@type_route("/<grievance_type>", methods=("PATCH",), summary="Update a grievance type")
+@route("/grievance-types/<grievance_type>", methods=("PATCH",), summary="Update a grievance type")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
@@ -404,7 +403,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 	return success_response(data={"grievance_type": _type_record(doc)}, message=_("Grievance type updated"))
 
 
-@type_route("/<grievance_type>", methods=("DELETE",), summary="Deactivate a grievance type")
+@route("/grievance-types/<grievance_type>", methods=("DELETE",), summary="Deactivate a grievance type")
 @frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
