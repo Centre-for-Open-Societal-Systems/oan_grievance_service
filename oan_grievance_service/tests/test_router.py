@@ -353,6 +353,13 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		data2 = json.loads(res2.get_data(as_text=True))["data"]
 		self.assertEqual(len(data2["timeline"]), 2)
 
+		# 5. Verify timeline entries are in ASC (chronological) order
+		self.assertLessEqual(data1["timeline"][0]["created_on"], data1["timeline"][1]["created_on"])
+		page1_ids = {e["name"] for e in data1["timeline"]}
+		page2_ids = {e["name"] for e in data2["timeline"]}
+		self.assertTrue(page1_ids.isdisjoint(page2_ids))
+		self.assertLessEqual(data1["timeline"][-1]["created_on"], data2["timeline"][0]["created_on"])
+
 	def test_message_idempotency(self):
 		"""Test that sending client_message_id prevents duplicate message insertion."""
 		import json
@@ -458,9 +465,9 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		timeline_entries = tl_data["data"]["timeline"]
 		self.assertTrue(len(timeline_entries) > 0)
 
-		# Verify chronological DESC order
+		# Verify chronological ASC order
 		timestamps = [e["created_on"] for e in timeline_entries]
-		self.assertEqual(timestamps, sorted(timestamps, reverse=True))
+		self.assertEqual(timestamps, sorted(timestamps))
 
 		for entry in timeline_entries:
 			self.assertNotIn("tags", entry)

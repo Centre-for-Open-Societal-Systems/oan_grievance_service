@@ -1414,17 +1414,17 @@ def timeline(
 			cursor_ts_raw, cursor_name = cursor.split("|", 1)
 			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
 			query = query.where(
-				(timeline_dt.created_on < cursor_ts)
-				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name < cursor_name))
+				(timeline_dt.created_on > cursor_ts)
+				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
 			)
 		except ValueError:
 			# Fallback for old cursor format
 			cursor_ts = from_tz_aware_iso(cursor)
-			query = query.where(timeline_dt.created_on < cursor_ts)
+			query = query.where(timeline_dt.created_on > cursor_ts)
 
 	query = (
-		query.orderby(timeline_dt.created_on, order=frappe.qb.desc)
-		.orderby(timeline_dt.name, order=frappe.qb.desc)
+		query.orderby(timeline_dt.created_on, order=frappe.qb.asc)
+		.orderby(timeline_dt.name, order=frappe.qb.asc)
 		.limit(page_limit + 1)
 	)
 	entries = query.run(as_dict=True)
