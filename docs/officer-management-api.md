@@ -75,9 +75,11 @@ For field errors, show `details[field]` next to that input. For rule errors (`de
 | Form field                | Source                                                                                              |
 | :------------------------ | :-------------------------------------------------------------------------------------------------- |
 | Department                | `GET /api/v1/grievances/options` returns `departments[]` with `department_id` and `department_name` |
-| Service categories        | `GET /api/v1/grievances/options?department=<id>` returns `service_categories[]` with `category_name` and `code`, limited to the categories that department has an active category assignment for. Refetch when the department changes |
+| Service categories        | `GET /api/v1/grievances/options?department=<id>` returns `service_categories[]`                     |
 | Region                    | `GET /api/v1/administrative-areas?parent=` for the cascading area picker                            |
 | Reports to (L1 form only) | `GET /api/v1/officers?level=L2&status=Active`, then use each officer's `name` as the value          |
+
+With `department` set, `service_categories[]` holds only the categories that department has an active category assignment for, each with `category_name` and `code`. Refetch it when the department changes, and clear any selected categories.
 
 Department accepts the id, name or short name. A category accepts its name or code. `region` accepts an area id, code, path code or, for regions, the name. Send what the pickers give you, which is the id.
 
