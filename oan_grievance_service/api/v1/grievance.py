@@ -47,7 +47,11 @@ from oan_grievance_service.services import constants as C
 # Aliased: several entry points take a `ticket_number` argument, which would
 # otherwise shadow the module inside them.
 from oan_grievance_service.services import ticket_number as tn
-from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_grievance_type
+from oan_grievance_service.services.resolvers import (
+	find_department,
+	resolve_administrative_area,
+	resolve_grievance_type,
+)
 
 route = prefixed("/api/v1/grievances")
 
@@ -1572,7 +1576,10 @@ def options(
 	    officers: Active officers under the specified department (staff only, present only if `department` is passed)
 	"""
 	cat = service_category or category
-	service_categories = get_service_categories(department=department)
+	# One lookup serves both lists, so a short name works for either. An unknown department
+	# matches nothing: no categories and no officers, and no further queries.
+	department_id = find_department(department)
+	service_categories = [] if department and not department_id else get_service_categories(department_id)
 	grievance_types = get_grievance_types(service_category=cat)
 
 	data = {
@@ -1585,7 +1592,7 @@ def options(
 
 	if department and permissions.is_staff():
 		data["officers"] = get_department_officers(
-			department=department,
+			department=department_id,
 			service_category=cat,
 			administrative_area=administrative_area,
 			exclude_user=frappe.session.user,

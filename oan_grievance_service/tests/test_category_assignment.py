@@ -315,6 +315,47 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		}
 		self.assertEqual(reports_to, {extra: self.l2, self.l2: None})
 
+	def test_an_inactive_officer_does_not_block_replacing_the_l2(self):
+		gone = _user("stg404-l1b@example.com", "Hana Girma")
+		new_l2 = _user("stg404-l2b@example.com", "Almaz Worku")
+		name = self._desk_with_officers(
+			[
+				(self.l1, "nodal_officer", 1),
+				(gone, "nodal_officer", 1),
+				(self.l2, "senior_nodal_officer", 0),
+			]
+		)
+		frappe.db.set_value(
+			"Grievance RBAC Assignment Officer",
+			{"parent": name, "user": gone},
+			{"reports_to": self.l2, "active": 0},
+		)
+
+		update_assignment(name, l2_officer=new_l2)
+
+		self.assertEqual(_desk_users(name), {self.l1, gone, new_l2})
+
+	def test_the_l2_seat_follows_the_reporting_line_and_is_not_primary(self):
+		other = _user("stg404-l2b@example.com", "Almaz Worku")
+		name = self._desk_with_officers(
+			[
+				(self.l1, "nodal_officer", 1),
+				(other, "senior_nodal_officer", 1),
+				(self.l2, "senior_nodal_officer", 0),
+			]
+		)
+
+		def l2_seat():
+			return get_assignment(name)["data"]["assignment"]["l2_officer"]
+
+		# No reporting line: the one that is not primary wins over list order.
+		self.assertEqual(l2_seat(), self.l2)
+		# A reporting line wins over everything else.
+		frappe.db.set_value(
+			"Grievance RBAC Assignment Officer", {"parent": name, "user": self.l1}, "reports_to", other
+		)
+		self.assertEqual(l2_seat(), other)
+
 	def test_update_without_an_l1_officer_on_the_desk_is_rejected(self):
 		name = self._assignment()
 		frappe.db.set_value("Grievance RBAC Assignment Officer", {"parent": name}, "active", 0)
@@ -341,6 +382,11 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(categories(department="S404"), {self.category})
 		self.assertEqual(categories(department="S405"), {other_category})
 		self.assertEqual(categories(department="No Such Department"), set())
+
+		# The officers cascade resolves the same way, and an unknown department has none.
+		officers = options(department="S404")["data"]["officers"]
+		self.assertIn(self.l1, {officer["user_id"] for officer in officers})
+		self.assertEqual(options(department="No Such Department")["data"]["officers"], [])
 
 		update_assignment(name, active=False)
 		self.assertEqual(categories(department=self.department), set())

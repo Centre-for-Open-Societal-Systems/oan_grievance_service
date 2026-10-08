@@ -115,7 +115,7 @@ def _records(desks: list) -> list[dict]:
 	for row in frappe.get_all(
 		"Grievance RBAC Assignment Officer",
 		filters={"parent": ["in", [desk.name for desk in desks]], "parenttype": service.DOCTYPE},
-		fields=["parent", "user", "role_level", "is_primary", "active"],
+		fields=["parent", "user", "role_level", "is_primary", "active", "reports_to"],
 		order_by="parent, idx",
 	):
 		officers[row.parent].append(row)
