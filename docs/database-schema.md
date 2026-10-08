@@ -143,6 +143,8 @@ The specific issue within a category. Selected after the category, and filtered 
 
 ¹ Unique per `(category_id, name)`.
 
+**Shipped record (STG-406).** `Grievance Service Category` and `Grievance Type` are managed through `GET`/`POST /api/v1/service-categories`, `GET`/`PATCH`/`DELETE /api/v1/service-categories/{category}`, `GET`/`POST /api/v1/grievance-types` and `GET`/`PATCH`/`DELETE /api/v1/grievance-types/{grievance_type}`. See [taxonomy-api.md](taxonomy-api.md). The category's `code` is the 3-character Base32 ticket segment and is frozen once a ticket exists. DELETE and PATCH `is_active: false` retire a record, and retiring a category retires its types. A type cannot be created or reactivated under an inactive category and cannot change category. Exactly one category carries `is_default`: the one unclassified cases are filed under (`Other` unless an administrator names another). Promoting a category clears the flag on the previous default and gives the new one an active `Other` type. The default cannot be deactivated or unset, and its `Other` type cannot be deactivated. Routing rules and response templates already set up on a retired category stay in force for open cases; new ones cannot be created on it.
+
 ### `document_types`
 
 The supporting-documents checklist offered at submission: identification, landholding certificate, registration document, site sketch, previous correspondence, other. Made a table rather than an enum because the list is domain-specific and will differ per category once the module covers more than land and agriculture.

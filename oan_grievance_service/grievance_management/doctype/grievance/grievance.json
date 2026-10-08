@@ -292,7 +292,8 @@
    "fieldtype": "Link",
    "label": "Grievance Type",
    "options": "Grievance Type",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "col_classification",
@@ -509,7 +510,7 @@
  "is_submittable": 1,
  "links": [],
  "max_attachments": 5,
- "modified": "2026-10-07 10:00:00.000000",
+ "modified": "2026-10-09 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance",

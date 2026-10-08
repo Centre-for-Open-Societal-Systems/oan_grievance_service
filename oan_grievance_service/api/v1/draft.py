@@ -21,6 +21,10 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, model_validator
 
 from oan_grievance_service import permissions
+from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+	get_default_category,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
 
 DRAFT_LIFETIME_DAYS = 30
@@ -57,13 +61,6 @@ def _resolve_grievance_type(grievance_type, category):
 			title=_("Invalid Grievance Type"),
 		)
 	return resolved
-
-
-def _fallback_grievance_type():
-	"""The catch-all type for a draft filed under the catch-all category."""
-	return frappe.db.get_value(
-		"Grievance Type", {"type_name": C.FALLBACK_GRIEVANCE_TYPE}, "name"
-	) or frappe.db.get_value("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}, "name")
 
 
 class SaveDraftRequest(BaseModel):
@@ -210,12 +207,12 @@ def save(
 	if service_category is not None:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
+		doc.service_category = get_default_category()
 
 	if grievance_type is not None:
 		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
-	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
-		doc.grievance_type = _fallback_grievance_type()
+	elif not doc.grievance_type and doc.service_category == get_default_category():
+		doc.grievance_type = get_fallback_type(doc.service_category)
 
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
@@ -366,12 +363,12 @@ def submit_draft(
 	if service_category:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = C.FALLBACK_SERVICE_CATEGORY
+		doc.service_category = get_default_category()
 
 	if grievance_type:
 		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
-	elif not doc.grievance_type and doc.service_category == C.FALLBACK_SERVICE_CATEGORY:
-		doc.grievance_type = _fallback_grievance_type()
+	elif not doc.grievance_type and doc.service_category == get_default_category():
+		doc.grievance_type = get_fallback_type(doc.service_category)
 
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider

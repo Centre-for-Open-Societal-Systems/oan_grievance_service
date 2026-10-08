@@ -187,8 +187,30 @@ class Grievance(Document):
 				loc = ".".join(str(item) for item in err["loc"])
 				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
 			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
+		self.validate_classification_is_active()
 		self.set_administrative_area_metadata()
 		self.record_the_workflow_move()
+
+	def validate_classification_is_active(self):
+		"""A case is filed under an active category and type, the ones the wizard offers.
+
+		Checked when the case is filed (a new record, or a draft being submitted) and
+		whenever the classification is changed. A case already filed keeps its category
+		and type however they are retired afterwards, so its later moves are never blocked.
+		"""
+		filing = self.is_new() or getattr(self.flags, "in_submit", False)
+		for fieldname, doctype, label in (
+			("service_category", "Grievance Service Category", _("Service category")),
+			("grievance_type", "Grievance Type", _("Grievance type")),
+		):
+			value = self.get(fieldname)
+			if not value or not (filing or self.has_value_changed(fieldname)):
+				continue
+			if not frappe.db.get_value(doctype, value, "is_active"):
+				frappe.throw(
+					_("{0} '{1}' is no longer available. Choose an active one.").format(label, value),
+					frappe.ValidationError,
+				)
 
 	# Workflow
 	# --------

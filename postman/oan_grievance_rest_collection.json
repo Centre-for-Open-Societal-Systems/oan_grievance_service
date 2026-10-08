@@ -160,6 +160,16 @@
       "key": "search",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "taxonomy_category",
+      "value": "Infrastructure",
+      "type": "string"
+    },
+    {
+      "key": "taxonomy_grievance_type",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -2336,6 +2346,500 @@
               ]
             },
             "description": "Deactivate the rule: its routing desk is marked inactive and kept for audit. The category SLA row is not changed. Same as PATCH with active false; repeating the call changes nothing."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Service Categories & Grievance Types",
+      "description": "STG-406 admin CRUD for the service categories and grievance types the submission wizard, category assignments and response templates share. Requires a Grievance Admin or System Manager bearer token for writes; Grievance Review Officer may read. Records are retired, never deleted.",
+      "item": [
+        {
+          "name": "List service categories",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.service_categories).to.be.an(\"array\");",
+                  "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories?is_active=1&search=&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories"
+              ],
+              "query": [
+                {
+                  "key": "is_active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List categories in display order, active and inactive. Optional query: is_active, search (name or code), page, page_size. Each record counts the active types, assignments and templates that refer to it. Unknown query parameters return 400. Grievance Review Officer may call this."
+          },
+          "response": []
+        },
+        {
+          "name": "Create service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.service_category) {",
+                  "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories"
+              ]
+            },
+            "description": "Create a category. Required: category_name, code. The code is the 3-character ticket segment, in the ticket alphabet (no I, L, O or U), and unique. sort_order is optional and defaults to the end of the list; is_active defaults to true. is_default (default false) true makes this the category unclassified cases fall to and clears the flag on the previous default; it needs is_active true. Duplicate name or code returns 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_name\": \"Infrastructure\",\n  \"code\": \"007\",\n  \"sort_order\": 7,\n  \"is_active\": true,\n  \"is_default\": false\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "One category, by name or ticket code. 404 when unknown."
+          },
+          "response": []
+        },
+        {
+          "name": "Update service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.service_category) {",
+                  "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Partial update of category_name, code, sort_order, is_active or is_default. Renaming keeps every grievance, type, routing rule, SLA row and template linked and runs in the background: the response keeps the old category_name and shows renaming_to until the job is done, then the category answers to the new name. The code cannot change once tickets exist (code_locked). Setting is_active false also deactivates its types, and is refused for the default category. is_default true makes this the default (the previous default loses the flag); false is refused because exactly one category must be the default.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sort_order\": 3\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Make service category the default",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.service_category.is_default).to.eql(true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_default\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Make this the default category: the one cases with no category (an IVR call or email that named none, a draft saved without a choice) are filed under. The previous default loses the flag, and the new default gets an active catch-all Other type if it has none. The category must be active. Send the same request for another category to move the default; is_default false is refused."
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate service category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories",
+                "{{taxonomy_category}}"
+              ]
+            },
+            "description": "Retire the category and its types (refused for the default category: make another the default first). Nothing is deleted: grievances keep them and the submission dropdowns stop offering them. Routing rules and templates already set up on the category stay active for open cases. Same as PATCH with is_active false; repeating the call changes nothing."
+          },
+          "response": []
+        },
+        {
+          "name": "List grievance types",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "pm.expect(body.data.grievance_types).to.be.an(\"array\");",
+                  "pm.expect(body.data.pagination).to.have.property(\"total_count\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types?service_category=Inputs&is_active=1&search=&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types"
+              ],
+              "query": [
+                {
+                  "key": "service_category",
+                  "value": "Inputs",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List types by category and name, active and inactive. Optional query: service_category (name or code), is_active, search (text in the type name), page, page_size. Unknown query parameters return 400. Grievance Review Officer may call this."
+          },
+          "response": []
+        },
+        {
+          "name": "Create grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.grievance_type) {",
+                  "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types"
+              ]
+            },
+            "description": "Create a type under an active category. Required: service_category (name or code), type_name. The name is unique within the category (the same name under another category is allowed). Duplicate returns 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "One type, by grievance_type_id. 404 when unknown."
+          },
+          "response": []
+        },
+        {
+          "name": "Update grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.grievance_type) {",
+                  "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "Partial update of type_name or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate grievance type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types",
+                "{{taxonomy_grievance_type}}"
+              ]
+            },
+            "description": "Retire the type. Grievances keep it and the submission dropdowns stop offering it. Same as PATCH with is_active false; repeating the call changes nothing."
           },
           "response": []
         }
