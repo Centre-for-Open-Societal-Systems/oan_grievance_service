@@ -209,6 +209,75 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		after = {row.user: row.name for row in frappe.get_doc("Grievance RBAC Assignment", name).officers}
 		self.assertEqual(before, after)
 
+	def test_update_keeps_officers_outside_the_l1_and_l2_seats(self):
+		extra = _user("stg404-l1b@example.com", "Hana Girma")
+		replacement = _user("stg404-l1c@example.com", "Dawit Haile")
+		name = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=7,
+		)["data"]["assignment"]["name"]
+		desk = frappe.get_doc("Grievance RBAC Assignment", name)
+		desk.append(
+			"officers",
+			{
+				"user": extra,
+				"role_level": "nodal_officer",
+				"is_primary": 1,
+				"active": 1,
+				"reports_to": self.l2,
+			},
+		)
+		desk.save()
+
+		update_assignment(name, sla_days=9)
+		self.assertEqual(_desk_users(name), {self.l1, self.l2, extra})
+
+		update_assignment(name, l1_officer=replacement)
+		self.assertEqual(_desk_users(name), {replacement, self.l2, extra})
+		reports_to = {
+			row.user: row.reports_to for row in frappe.get_doc("Grievance RBAC Assignment", name).officers
+		}
+		self.assertEqual(reports_to[extra], self.l2)
+		self.assertEqual(reports_to[replacement], self.l2)
+
+	def test_l2_cannot_be_replaced_while_others_report_to_them(self):
+		extra = _user("stg404-l1b@example.com", "Hana Girma")
+		other_l2 = _user("stg404-l2b@example.com", "Almaz Worku")
+		name = create_assignment(
+			service_category=self.category,
+			department=self.department,
+			l1_officer=self.l1,
+			l2_officer=self.l2,
+			sla_days=7,
+		)["data"]["assignment"]["name"]
+		desk = frappe.get_doc("Grievance RBAC Assignment", name)
+		desk.append(
+			"officers",
+			{
+				"user": extra,
+				"role_level": "nodal_officer",
+				"is_primary": 1,
+				"active": 1,
+				"reports_to": self.l2,
+			},
+		)
+		desk.save()
+
+		with _keep_transaction():
+			result = update_assignment(name, l2_officer=other_l2)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertEqual(_desk_users(name), {self.l1, self.l2, extra})
+
+	def test_update_without_an_l1_officer_on_the_desk_is_rejected(self):
+		name = self._assignment()
+		frappe.db.set_value("Grievance RBAC Assignment Officer", {"parent": name}, "active", 0)
+		with _keep_transaction():
+			result = update_assignment(name, department=self.department)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
 	def test_unknown_and_immutable_fields_are_rejected(self):
 		name = self._assignment()
 		with _keep_transaction():
@@ -598,6 +667,10 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		)
 		self.assertEqual(created["status"], "success", msg=created)
 		return created["data"]["assignment"]["name"]
+
+
+def _desk_users(name) -> set[str]:
+	return {row.user for row in frappe.get_doc("Grievance RBAC Assignment", name).officers}
 
 
 def _department_strategy(department, strategy):

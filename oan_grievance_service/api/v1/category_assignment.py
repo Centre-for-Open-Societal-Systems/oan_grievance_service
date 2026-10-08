@@ -280,6 +280,8 @@ def create_assignment(
 	summary="Update a category assignment",
 	description="Change department, officers, SLA window, or the auto-escalate and active flags. "
 	+ "The service category is fixed once created. "
+	+ "Changing l1_officer or l2_officer replaces only that seat. Other officers on the desk, "
+	+ "such as those added on the Nodal Officers tab, are kept. "
 	+ SLA_NOTE,
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,

@@ -21,6 +21,8 @@ from oan_grievance_service.services.resolvers import resolve_department, resolve
 DOCTYPE = "Grievance RBAC Assignment"
 SLA_DOCTYPE = "Grievance SLA Configuration"
 SLA_ORDER = "modified desc, name desc"
+# Request fields that change the desk itself. The rest change the category's SLA row.
+DESK_FIELDS = {"department", "l1_officer", "l2_officer", "active"}
 
 
 def desk_filters(**extra) -> dict:
@@ -109,8 +111,12 @@ def update(desk, changes: dict):
 	state = {**_current_state(desk), **changes}
 	if "department" in changes:
 		state["department"] = resolve_department(changes["department"])
-	prefs = _department_prefs(state)
-	_write_desk(desk, state, prefs)
+	# An SLA-only change leaves the officer rows alone: the desk may hold more officers than
+	# the one L1 and one L2 this API shows, and they belong to the Nodal Officers tab.
+	if DESK_FIELDS & changes.keys():
+		_write_desk(desk, state, _department_prefs(state))
+	else:
+		desk.assigned_by = frappe.session.user
 	desk.save()
 	if {"sla_days", "auto_escalate"} & changes.keys():
 		_save_sla(desk.category_scope, state["sla_days"], state["auto_escalate"])
@@ -133,6 +139,8 @@ def _current_state(desk) -> dict:
 def _department_prefs(state: dict):
 	"""Check the request against itself and the department. Returns the department's routing preferences."""
 	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	if not l1:
+		frappe.throw(_("An L1 officer is required."), frappe.ValidationError)
 	if l2 and l1 == l2:
 		frappe.throw(_("L1 and L2 officers must be different users."), frappe.ValidationError)
 	prefs = frappe.db.get_value(
@@ -149,26 +157,53 @@ def _department_prefs(state: dict):
 
 
 def _write_desk(desk, state: dict, prefs):
-	"""Copy state onto the desk. Existing officer rows are updated in place."""
+	"""Copy state onto the desk. Existing officer rows are updated in place.
+
+	A desk can hold many officers, added on the Nodal Officers tab. This API names one L1 and
+	one L2, so it replaces only those two seats: an officer in neither seat is never removed.
+	"""
 	desk.department_scope = state["department"]
 	desk.assigned_by = frappe.session.user
 	desk.active = 1 if state["active"] else 0
 	if prefs.routing_strategy:
 		desk.routing_strategy = prefs.routing_strategy
+	l1, l2 = state["l1_officer"], state.get("l2_officer")
 	# `reports_to` names an officer's supervisor: escalation hands a case up to it, and an
 	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
 	# reverse. L2 is the escalation tier and has no supervisor on this desk.
-	l2 = state.get("l2_officer")
-	wanted = {state["l1_officer"]: {"role_level": prefs.l1_role_level, "is_primary": 1, "reports_to": l2}}
+	wanted = {l1: {"role_level": prefs.l1_role_level, "is_primary": 1}}
 	if l2:
 		wanted[l2] = {"role_level": prefs.l2_role_level, "is_primary": 0, "reports_to": None}
+	primary, secondary = split_officers(desk.officers)
+	vacated = {seat.user for seat in (primary, secondary) if seat and seat.user not in wanted}
+	_assert_nobody_reports_to(desk, vacated, keep=wanted)
 	for row in list(desk.officers):
-		if row.user not in wanted:
+		if row.user in vacated:
 			desk.remove(row)
 	rows = {row.user: row for row in desk.officers}
+	l2_changed = (secondary.user if secondary else None) != l2
 	for user, values in wanted.items():
-		row = rows.get(user) or desk.append("officers", {"user": user})
+		row = rows.get(user)
+		if not row:
+			row = desk.append("officers", {"user": user})
+			values = {**values, "reports_to": l2} if user == l1 else values
+		elif user == l1 and l2_changed:
+			values = {**values, "reports_to": l2}
 		row.update({**values, "active": 1})
+
+
+def _assert_nobody_reports_to(desk, users: set, keep: dict):
+	"""Refuse to vacate a seat whose officer still has others reporting to them on this desk."""
+	stranded = [
+		row.user for row in desk.officers if row.reports_to in users and row.user not in users | keep.keys()
+	]
+	if stranded:
+		frappe.throw(
+			_("Officers {0} report to an officer this change removes. Move them first.").format(
+				", ".join(stranded)
+			),
+			frappe.ValidationError,
+		)
 
 
 def _save_sla(service_category: str, sla_days: int, auto_escalate: bool):
