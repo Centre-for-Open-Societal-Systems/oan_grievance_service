@@ -115,12 +115,16 @@ def _records(desks: list) -> list[dict]:
 	for row in frappe.get_all(
 		"Grievance RBAC Assignment Officer",
 		filters={"parent": ["in", [desk.name for desk in desks]], "parenttype": service.DOCTYPE},
-		fields=["parent", "user", "role_level", "is_primary", "active"],
+		fields=["parent", "user", "role_level", "is_primary", "active", "reports_to"],
 		order_by="parent, idx",
 	):
 		officers[row.parent].append(row)
 	sla_rows = service.active_sla_rows({desk.category_scope for desk in desks})
-	splits = [service.split_officers(officers[desk.name]) for desk in desks]
+	levels = service.role_levels({desk.department_scope for desk in desks})
+	splits = [
+		service.split_officers(officers[desk.name], *levels.get(desk.department_scope, (None, None)))
+		for desk in desks
+	]
 	full_names = {
 		row.name: row.full_name
 		for row in frappe.get_all(
@@ -280,6 +284,8 @@ def create_assignment(
 	summary="Update a category assignment",
 	description="Change department, officers, SLA window, or the auto-escalate and active flags. "
 	+ "The service category is fixed once created. "
+	+ "Changing l1_officer or l2_officer replaces only that seat. Other officers on the desk, "
+	+ "such as those added on the Nodal Officers tab, are kept. "
 	+ SLA_NOTE,
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,

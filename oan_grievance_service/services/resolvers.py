@@ -59,13 +59,21 @@ def resolve_service_category(value: str) -> str:
 	return name
 
 
-def resolve_department(value: str) -> str:
-	"""Canonical Grievance Department name by id, dept_name, or short_name. Throws when none match."""
+def find_department(value: str | None) -> str | None:
+	"""Canonical Grievance Department name by id, dept_name, or short_name. None when none match."""
+	if not value:
+		return None
+	value = str(value).strip()
 	if frappe.db.exists("Grievance Department", value):
 		return value
-	name = frappe.db.get_value("Grievance Department", {"dept_name": value}, "name") or frappe.db.get_value(
+	return frappe.db.get_value("Grievance Department", {"dept_name": value}, "name") or frappe.db.get_value(
 		"Grievance Department", {"short_name": value}, "name"
 	)
+
+
+def resolve_department(value: str) -> str:
+	"""Canonical Grievance Department name by id, dept_name, or short_name. Throws when none match."""
+	name = find_department(value)
 	if not name:
 		frappe.throw(_("Department '{0}' does not exist.").format(value), frappe.ValidationError)
 	return name

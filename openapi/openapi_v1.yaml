@@ -1305,18 +1305,20 @@ paths:
       summary: Get grievance options and dropdowns
       description: "Management and lookup options for submitters, grievance officers and admins.\n\nReturns\
         \ reference lists for case filing, management, triage, and filtering,\nincluding departments,\
-        \ lifecycle statuses, categories, and types.\nWhen `department` is provided and the caller is\
-        \ staff, cascades and includes\nactive officers under that department (optionally narrowed by\
-        \ `service_category`\nand `administrative_area`). The caller is never listed. Submitters never\
-        \ receive officers.\n\nArgs:\n    service_category (str, optional): Filter grievance types & officers\
-        \ by service category (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n\
-        \    department (str, optional): Department ID to fetch assigned officers.\n    administrative_area\
+        \ lifecycle statuses, categories, and types.\nWhen `department` is provided, `service_categories`\
+        \ shrinks to the categories that\ndepartment has an active category assignment for. When the caller\
+        \ is also staff, it\ncascades and includes active officers under that department (optionally narrowed\
+        \ by\n`service_category` and `administrative_area`). The caller is never listed. Submitters\n\
+        never receive officers.\n\nArgs:\n    service_category (str, optional): Filter grievance types\
+        \ & officers by service category (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n\
+        \    department (str, optional): Department ID. Limits service_categories to that department's\n\
+        \        category assignments and, for staff, fetches its assigned officers.\n    administrative_area\
         \ (str, optional): Administrative area to scope officer assignments.\n\nReturns:\n    departments:\
         \ Active grievance departments\n    statuses: Grievance lifecycle statuses with metadata\n   \
-        \ service_categories: Active service categories\n    grievance_types: Active grievance types (optionally\
-        \ filtered by service_category)\n    submission_channels: Active intake channels\n    officers:\
-        \ Active officers under the specified department (staff only, present only if `department` is\
-        \ passed)"
+        \ service_categories: Active service categories (only the department's when `department` is given)\n\
+        \    grievance_types: Active grievance types (optionally filtered by service_category)\n    submission_channels:\
+        \ Active intake channels\n    officers: Active officers under the specified department (staff\
+        \ only, present only if `department` is passed)"
       operationId: get_api_v1_grievances_options
       responses:
         '200':
