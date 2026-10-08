@@ -4,19 +4,19 @@ Audience: frontend developers building the Administration SLA tab (STG-414). Bac
 
 Two cards on that tab are backed by two records:
 
-| Card                          | Endpoint                | Record                                                              |
-| :---------------------------- | :---------------------- | :------------------------------------------------------------------ |
-| Global SLA Policy             | `/api/v1/sla-policy`    | `Grievance Deferral Policy`, a Single (one per installation)        |
+| Card                                 | Endpoint                     | Record                                                             |
+| :----------------------------------- | :--------------------------- | :----------------------------------------------------------------- |
+| Global SLA Policy                    | `/api/v1/sla-policy`         | `Grievance Deferral Policy`, a Single (one per installation)       |
 | Per-category SLA (`SlaCategoryCard`) | `/api/v1/sla-configurations` | `Grievance SLA Configuration`, one active row per service category |
 
 ## 1. Quick reference
 
-| #   | Method  | Endpoint                               | Purpose                                | Roles                 |
-| :-- | :------ | :------------------------------------- | :------------------------------------- | :-------------------- |
-| 1   | `GET`   | `/api/v1/sla-policy`                   | Read the global SLA policy             | Admin, Review Officer |
-| 2   | `PATCH` | `/api/v1/sla-policy`                   | Update the global SLA policy           | Admin                 |
-| 3   | `GET`   | `/api/v1/sla-configurations`           | List per-category SLA settings         | Admin, Review Officer |
-| 4   | `PATCH` | `/api/v1/sla-configurations/{config}`  | Update one category's SLA settings     | Admin                 |
+| #   | Method  | Endpoint                              | Purpose                            | Roles                 |
+| :-- | :------ | :------------------------------------ | :--------------------------------- | :-------------------- |
+| 1   | `GET`   | `/api/v1/sla-policy`                  | Read the global SLA policy         | Admin, Review Officer |
+| 2   | `PATCH` | `/api/v1/sla-policy`                  | Update the global SLA policy       | Admin                 |
+| 3   | `GET`   | `/api/v1/sla-configurations`          | List per-category SLA settings     | Admin, Review Officer |
+| 4   | `PATCH` | `/api/v1/sla-configurations/{config}` | Update one category's SLA settings | Admin                 |
 
 **Admin** means Grievance Admin, System Manager or Administrator. **Review Officer** is the read-only Grievance Review Officer role. Every other role, and guests, get 403.
 
@@ -55,11 +55,11 @@ Why not a second table: routing reads that row (`sla.resolve_policy`), so any co
 
 An installation that never saved the policy returns the defaults: 30 days, 100 %, `l2_approval`.
 
-| Field                       | Type   | Meaning                                                                                              | Card control                       |
-| :-------------------------- | :----- | :--------------------------------------------------------------------------------------------------- | :--------------------------------- |
-| `max_deferral_days`         | int    | Most days any single deferral request may add to the SLA clock                                       | Max SLA Deferral (days)            |
-| `auto_escalation_threshold` | int    | Percent of the SLA window consumed before a case escalates. 100 is at the deadline                    | Auto-escalate Threshold (%)        |
-| `deferral_approval`         | string | `l2_approval`: a senior officer decides. `l1_self_approve`: the assigned officer approves their own  | Deferral Approval Policy (radios)  |
+| Field                       | Type   | Meaning                                                                                             | Card control                      |
+| :-------------------------- | :----- | :-------------------------------------------------------------------------------------------------- | :-------------------------------- |
+| `max_deferral_days`         | int    | Most days any single deferral request may add to the SLA clock                                      | Max SLA Deferral (days)           |
+| `auto_escalation_threshold` | int    | Percent of the SLA window consumed before a case escalates. 100 is at the deadline                  | Auto-escalate Threshold (%)       |
+| `deferral_approval`         | string | `l2_approval`: a senior officer decides. `l1_self_approve`: the assigned officer approves their own | Deferral Approval Policy (radios) |
 
 ### `PATCH /api/v1/sla-policy`
 
@@ -69,11 +69,11 @@ Send any of the three fields. Omitted fields stay as they are. The body must not
 { "max_deferral_days": 21, "auto_escalation_threshold": 80, "deferral_approval": "l1_self_approve" }
 ```
 
-| Field                       | Rule                                         |
-| :-------------------------- | :------------------------------------------- |
-| `max_deferral_days`         | integer, 1 or more                           |
-| `auto_escalation_threshold` | integer, 1 to 100                            |
-| `deferral_approval`         | `l2_approval` or `l1_self_approve`           |
+| Field                       | Rule                               |
+| :-------------------------- | :--------------------------------- |
+| `max_deferral_days`         | integer, 1 or more                 |
+| `auto_escalation_threshold` | integer, 1 to 100                  |
+| `deferral_approval`         | `l2_approval` or `l1_self_approve` |
 
 What a change does:
 
@@ -109,14 +109,14 @@ Query parameters, all optional: `service_category` (name or ticket code), `depar
 }
 ```
 
-| Field              | Meaning                                                                                                                                  | Card control                  |
-| :----------------- | :--------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------- |
-| `name`             | The configuration id. Use it in the `PATCH` path                                                                                         |                               |
-| `service_category` | Fixed once created                                                                                                                       | Service Category (read-only)  |
-| `departments`      | Departments with an active category assignment for this category, by name                                                                | department line               |
-| `sla_days`         | Working days from the start of the clock to the deadline                                                                                 | SLA Days                      |
-| `auto_escalate`    | `true`: a case that reaches the threshold is handed up the chain. `false`: the clock, reminders and reporting run, nobody is reassigned  | Auto-escalate on breach       |
-| `notify_on_breach` | `true`: an escalation queues the SLA breach notification. `false`: the case still escalates, the notification is not sent                | Notify on breach              |
+| Field              | Meaning                                                                                                                                 | Card control                 |
+| :----------------- | :-------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------- |
+| `name`             | The configuration id. Use it in the `PATCH` path                                                                                        |                              |
+| `service_category` | Fixed once created                                                                                                                      | Service Category (read-only) |
+| `departments`      | Departments with an active category assignment for this category, by name                                                               | department line              |
+| `sla_days`         | Working days from the start of the clock to the deadline                                                                                | SLA Days                     |
+| `auto_escalate`    | `true`: a case that reaches the threshold is handed up the chain. `false`: the clock, reminders and reporting run, nobody is reassigned | Auto-escalate on breach      |
+| `notify_on_breach` | `true`: an escalation queues the SLA breach notification. `false`: the case still escalates, the notification is not sent               | Notify on breach             |
 
 ### `PATCH /api/v1/sla-configurations/{config}`
 
