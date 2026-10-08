@@ -220,6 +220,11 @@ def category_segment(category: str | None) -> str:
 	return _validate(code, CATEGORY_WIDTH, _("Service category {0}").format(category))
 
 
+def validate_category_code(code: str, category: str) -> str:
+	"""Reject a service category code that cannot appear in a ticket number."""
+	return _validate(code, CATEGORY_WIDTH, _("Service category {0}").format(category))
+
+
 def _validate(code: str, width: int, subject: str) -> str:
 	"""Reject a configured code that cannot appear in a ticket number."""
 	if len(code) != width:

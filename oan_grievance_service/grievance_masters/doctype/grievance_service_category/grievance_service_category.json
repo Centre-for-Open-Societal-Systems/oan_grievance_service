@@ -11,7 +11,8 @@
   "code",
   "col_cat",
   "sort_order",
-  "is_active"
+  "is_active",
+  "is_default"
  ],
  "fields": [
   {
@@ -47,12 +48,19 @@
    "fieldname": "is_active",
    "fieldtype": "Check",
    "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "The category unclassified cases are filed under. Exactly one category is the default.",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Category"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-07 10:00:09.000000",
+ "modified": "2026-10-08 10:30:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Service Category",

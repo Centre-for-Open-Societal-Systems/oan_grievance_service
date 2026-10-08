@@ -94,6 +94,7 @@ def _register() -> None:
 		profile,
 		response_config,
 		submitter,
+		taxonomy,
 	)
 
 	# An unbound copy each time. On a dev hot-reload Frappe rebuilds its URL map

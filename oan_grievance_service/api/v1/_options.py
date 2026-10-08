@@ -26,7 +26,7 @@ def get_grievance_types(service_category: str | None = None) -> list[dict]:
 	return frappe.get_all(
 		"Grievance Type",
 		filters=gtype_filters,
-		fields=["name as grievance_type_id", "type_name", "service_category"],
+		fields=["name as grievance_type_id", "type_name", "code", "service_category"],
 		order_by="type_name asc",
 		ignore_permissions=True,
 	)

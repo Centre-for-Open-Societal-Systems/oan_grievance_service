@@ -768,6 +768,8 @@ def seed_categories():
 				"code": code,
 				"sort_order": order,
 				"is_active": 1,
+				# The catch-all is the default until an administrator names another.
+				"is_default": 1 if name == C.FALLBACK_SERVICE_CATEGORY else 0,
 			}
 		).insert(ignore_permissions=True)
 		made.append(name)
