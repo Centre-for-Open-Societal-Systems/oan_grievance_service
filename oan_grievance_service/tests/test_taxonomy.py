@@ -8,6 +8,9 @@ from oan_grievance_service.api.v1 import draft
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
 from oan_grievance_service.api.v1.category_assignment import create_assignment
 from oan_grievance_service.api.v1.taxonomy import (
+	CATEGORY_EDITABLE,
+	TYPE_EDITABLE,
+	_editable,
 	create_grievance_type,
 	create_service_category,
 	deactivate_grievance_type,
@@ -19,8 +22,11 @@ from oan_grievance_service.api.v1.taxonomy import (
 	update_grievance_type,
 	update_service_category,
 )
+from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+	get_default_category,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import taxonomy
 from oan_grievance_service.tests.fixtures import a_grievance
 from oan_grievance_service.tests.test_category_assignment import (
 	_department,
@@ -45,8 +51,8 @@ class TestTaxonomy(FrappeTestCase):
 		self.assertEqual(result["status"], "success", msg=result)
 		return result["data"]["service_category"]
 
-	def _type(self, category=CATEGORY, name="STG406 Late delivery", code="LATE", **extra):
-		result = create_grievance_type(service_category=category, type_name=name, code=code, **extra)
+	def _type(self, category=CATEGORY, name="STG406 Late delivery", **extra):
+		result = create_grievance_type(service_category=category, type_name=name, **extra)
 		self.assertEqual(result["status"], "success", msg=result)
 		return result["data"]["grievance_type"]
 
@@ -192,9 +198,9 @@ class TestTaxonomy(FrappeTestCase):
 	def test_deactivating_a_category_deactivates_its_types(self):
 		self._category()
 		first = self._type()
-		second = self._type(name="STG406 Wrong amount", code="AMOUNT")
+		second = self._type(name="STG406 Wrong amount")
 		self._category(name="STG406 Elsewhere", code="Q59")
-		elsewhere = self._type(category="STG406 Elsewhere", name="STG406 Late delivery", code="LATE")
+		elsewhere = self._type(category="STG406 Elsewhere", name="STG406 Late delivery")
 
 		self.assertEqual(
 			get_service_category(CATEGORY)["data"]["service_category"]["grievance_type_count"], 2
@@ -276,11 +282,11 @@ class TestTaxonomy(FrappeTestCase):
 		catch_all = frappe.db.get_value(
 			"Grievance Type",
 			{"service_category": CATEGORY, "type_name": C.FALLBACK_GRIEVANCE_TYPE},
-			["name", "code", "is_active"],
+			["name", "is_active"],
 			as_dict=True,
 		)
-		self.assertEqual((catch_all.code, catch_all.is_active), ("OTHER", 1))
-		self.assertEqual(taxonomy.fallback_type(CATEGORY), catch_all.name)
+		self.assertEqual(catch_all.is_active, 1)
+		self.assertEqual(get_fallback_type(CATEGORY), catch_all.name)
 
 		# A catch-all that had been retired is brought back when its category is promoted again.
 		_ensure_default()
@@ -292,7 +298,7 @@ class TestTaxonomy(FrappeTestCase):
 		_ensure_default()
 		self._category()
 		update_service_category(CATEGORY, is_default=True)
-		kind = taxonomy.fallback_type(CATEGORY)
+		kind = get_fallback_type(CATEGORY)
 		with _keep_transaction():
 			for result in (deactivate_grievance_type(kind), update_grievance_type(kind, is_active=False)):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
@@ -304,7 +310,7 @@ class TestTaxonomy(FrappeTestCase):
 		_ensure_default()
 		self._category()
 		update_service_category(CATEGORY, is_default=True)
-		catch_all = taxonomy.fallback_type(CATEGORY)
+		catch_all = get_fallback_type(CATEGORY)
 		saved = draft.save(
 			client_submission_uuid=frappe.generate_hash(length=20),
 			submitter_name="Test Submitter",
@@ -320,7 +326,14 @@ class TestTaxonomy(FrappeTestCase):
 		renamed = update_service_category(CATEGORY, category_name="STG406 Renamed default")
 		self.assertEqual(renamed["status"], "success", msg=renamed)
 		self.assertTrue(renamed["data"]["service_category"]["is_default"])
-		self.assertEqual(taxonomy.default_category(), "STG406 Renamed default")
+		self.assertEqual(get_default_category(), "STG406 Renamed default")
+
+	def test_patch_only_writes_the_editable_fields(self):
+		sent = {"category_name": "X", "is_default": True, "owner": "someone", "creation": "2000-01-01"}
+		self.assertEqual(_editable(sent, CATEGORY_EDITABLE), {"category_name": "X", "is_default": 1})
+		self.assertEqual(
+			_editable({"type_name": "Y", "service_category": "Z"}, TYPE_EDITABLE), {"type_name": "Y"}
+		)
 
 	# Grievance types
 	# ---------------
@@ -329,17 +342,17 @@ class TestTaxonomy(FrappeTestCase):
 		self._category()
 		created = self._type()
 		self.assertEqual(created["type_name"], "STG406 Late delivery")
-		self.assertEqual(created["code"], "LATE")
 		self.assertEqual(created["service_category"], CATEGORY)
 		self.assertTrue(created["is_active"])
+		self.assertNotIn("code", created)
 		type_id = created["grievance_type_id"]
 
-		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["code"], "LATE")
+		fetched = get_grievance_type(type_id)["data"]["grievance_type"]
+		self.assertEqual(fetched["type_name"], "STG406 Late delivery")
 
-		updated = update_grievance_type(type_id, type_name="STG406 Delayed delivery", code="delayed")
+		updated = update_grievance_type(type_id, type_name="STG406 Delayed delivery")
 		self.assertEqual(updated["status"], "success", msg=updated)
 		self.assertEqual(updated["data"]["grievance_type"]["type_name"], "STG406 Delayed delivery")
-		self.assertEqual(updated["data"]["grievance_type"]["code"], "DELAYED")
 		self.assertEqual(updated["data"]["grievance_type"]["grievance_type_id"], type_id)
 
 		deactivated = deactivate_grievance_type(type_id)
@@ -347,36 +360,36 @@ class TestTaxonomy(FrappeTestCase):
 		self.assertEqual(deactivate_grievance_type(type_id)["status"], "success")
 		self.assertTrue(update_grievance_type(type_id, is_active=True)["data"]["grievance_type"]["is_active"])
 
-	def test_type_name_and_code_are_unique_within_a_category_only(self):
+	def test_type_name_is_unique_within_a_category_only(self):
 		self._category()
 		self._category(name="STG406 Second", code="Q54")
 		first = self._type()
 		with _keep_transaction():
-			same_name = create_grievance_type(
-				service_category=CATEGORY, type_name=first["type_name"], code="X"
-			)
+			same_name = create_grievance_type(service_category=CATEGORY, type_name=first["type_name"])
 			self.assertEqual(same_name["code"], "DUPLICATE_ENTRY", msg=same_name)
-			same_code = create_grievance_type(
-				service_category=CATEGORY, type_name="STG406 Other", code="late"
-			)
-			self.assertEqual(same_code["code"], "DUPLICATE_ENTRY", msg=same_code)
-			other = self._type(name="STG406 Other", code="OTHER")
-			clash = update_grievance_type(other["grievance_type_id"], code="LATE")
+			other = self._type(name="STG406 Other")
+			clash = update_grievance_type(other["grievance_type_id"], type_name=first["type_name"])
 			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
-		# The same name and code under another category are different types.
-		elsewhere = self._type(category="STG406 Second", name=first["type_name"], code=first["code"])
+		# The same name under another category is a different type.
+		elsewhere = self._type(category="STG406 Second", name=first["type_name"])
 		self.assertNotEqual(elsewhere["grievance_type_id"], first["grievance_type_id"])
 
-	def test_type_code_format_and_unknown_category(self):
+	def test_type_request_validation_and_unknown_category(self):
 		self._category()
 		with _keep_transaction():
-			for bad in ("-LATE", "LATE DELIVERY", "LATE!", "X" * 31):
-				result = create_grievance_type(service_category=CATEGORY, type_name="STG406 Bad", code=bad)
-				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(bad, result))
-			missing = create_grievance_type(service_category="No such", type_name="STG406 Bad", code="BAD")
-			self.assertEqual(missing["code"], "VALIDATION_ERROR", msg=missing)
-			no_code = create_grievance_type(service_category=CATEGORY, type_name="STG406 Bad")
-			self.assertEqual(no_code["code"], "VALIDATION_ERROR", msg=no_code)
+			for result in (
+				create_grievance_type(service_category=CATEGORY, type_name=" "),
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 Bad", code="BAD"),
+				create_grievance_type(service_category=CATEGORY),
+				create_grievance_type(service_category="No such", type_name="STG406 Bad"),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+			kind = self._type()
+			for result in (
+				update_grievance_type(kind["grievance_type_id"], code="LATE"),
+				update_grievance_type(kind["grievance_type_id"]),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 
 	def test_category_can_be_named_by_code_when_creating_a_type(self):
 		self._category()
@@ -392,9 +405,7 @@ class TestTaxonomy(FrappeTestCase):
 			self.assertIn("service_category", moved["details"])
 
 			deactivate_service_category("STG406 Second")
-			created = create_grievance_type(
-				service_category="STG406 Second", type_name="STG406 New", code="NEW"
-			)
+			created = create_grievance_type(service_category="STG406 Second", type_name="STG406 New")
 			self.assertEqual(created["code"], "VALIDATION_ERROR", msg=created)
 			self.assertIn("inactive", created["message"] + str(created))
 
@@ -412,39 +423,38 @@ class TestTaxonomy(FrappeTestCase):
 		doc.service_category = other["category_name"]
 		self.assertRaises(frappe.ValidationError, doc.save)
 
-	def test_a_type_saved_without_a_code_is_given_one(self):
-		self._category()
-		first = frappe.get_doc(
-			{"doctype": "Grievance Type", "type_name": "Fertilizer is late!", "service_category": CATEGORY}
-		).insert()
-		second = frappe.get_doc(
-			{"doctype": "Grievance Type", "type_name": "Fertilizer, is late", "service_category": CATEGORY}
-		).insert()
-		self.assertEqual(first.code, "FERTILIZER_IS_LATE")
-		self.assertEqual(second.code, "FERTILIZER_IS_LATE_2")
-
-	def test_type_list_filters(self):
+	def test_type_list_filters_and_order(self):
 		self._category()
 		self._category(name="STG406 Second", code="Q54")
-		self._type(name="STG406 Alpha", code="ALPHA")
-		beta = self._type(name="STG406 Beta", code="BETA", is_active=False)
-		self._type(category="STG406 Second", name="STG406 Gamma", code="GAMMA")
+		self._type(name="STG406 Alpha")
+		beta = self._type(name="STG406 Beta", is_active=False)
+		self._type(category="STG406 Second", name="STG406 Alpha")
+		self._type(category="STG406 Second", name="STG406 Gamma")
 
 		in_first = list_grievance_types(service_category=CATEGORY)["data"]
 		self.assertEqual(
 			[row["type_name"] for row in in_first["grievance_types"]], ["STG406 Alpha", "STG406 Beta"]
 		)
 		by_code = list_grievance_types(service_category=CODE, is_active=True)["data"]
-		self.assertEqual([row["code"] for row in by_code["grievance_types"]], ["ALPHA"])
+		self.assertEqual([row["type_name"] for row in by_code["grievance_types"]], ["STG406 Alpha"])
 		found = list_grievance_types(search="gam")["data"]
-		self.assertEqual([row["code"] for row in found["grievance_types"]], ["GAMMA"])
+		self.assertEqual([row["type_name"] for row in found["grievance_types"]], ["STG406 Gamma"])
 		self.assertEqual(found["grievance_types"][0]["service_category"], "STG406 Second")
 		inactive = list_grievance_types(service_category=CATEGORY, is_active="0")["data"]
 		self.assertEqual(inactive["grievance_types"][0]["grievance_type_id"], beta["grievance_type_id"])
+
+		# The same name in two categories is two rows, and paging walks them without a gap or repeat.
+		seen = []
+		for number in (1, 2, 3, 4):
+			page = list_grievance_types(search="STG406", page=number, page_size=1)["data"]
+			seen += [row["grievance_type_id"] for row in page["grievance_types"]]
+		everything = list_grievance_types(search="STG406", page_size=100)["data"]["grievance_types"]
+		self.assertEqual(seen, [row["grievance_type_id"] for row in everything])
+		self.assertEqual(len(set(seen)), 4)
 		with _keep_transaction():
 			self.assertEqual(list_grievance_types(service_category="No such")["code"], "VALIDATION_ERROR")
 			self.assertEqual(get_grievance_type("GTYPE-NOPE")["code"], "NOT_FOUND")
-			self.assertEqual(update_grievance_type("GTYPE-NOPE", code="X")["code"], "NOT_FOUND")
+			self.assertEqual(update_grievance_type("GTYPE-NOPE", type_name="X")["code"], "NOT_FOUND")
 			self.assertEqual(deactivate_grievance_type("GTYPE-NOPE")["code"], "NOT_FOUND")
 
 	# Consistency with the readers of the reference data
@@ -453,7 +463,7 @@ class TestTaxonomy(FrappeTestCase):
 	def test_dropdowns_offer_only_active_categories_and_types(self):
 		self._category()
 		kind = self._type()
-		self._type(name="STG406 Retired", code="RETIRED", is_active=False)
+		self._type(name="STG406 Retired", is_active=False)
 
 		def offered():
 			categories = {row["category_name"]: row for row in get_service_categories()}
@@ -463,7 +473,6 @@ class TestTaxonomy(FrappeTestCase):
 		categories, types = offered()
 		self.assertEqual(categories[CATEGORY]["code"], CODE)
 		self.assertEqual(list(types), ["STG406 Late delivery"])
-		self.assertEqual(types["STG406 Late delivery"]["code"], "LATE")
 		self.assertEqual(types["STG406 Late delivery"]["grievance_type_id"], kind["grievance_type_id"])
 
 		deactivate_grievance_type(kind["grievance_type_id"])
@@ -484,7 +493,7 @@ class TestTaxonomy(FrappeTestCase):
 	def test_inactive_category_or_type_cannot_take_a_new_grievance(self):
 		category = self._category()["category_name"]
 		kind = self._type()["grievance_type_id"]
-		other = self._type(name="STG406 Wrong amount", code="AMOUNT")["grievance_type_id"]
+		other = self._type(name="STG406 Wrong amount")["grievance_type_id"]
 		case = a_grievance(service_category=category, grievance_type=kind).name
 
 		deactivate_grievance_type(kind)
@@ -571,7 +580,9 @@ class TestTaxonomy(FrappeTestCase):
 
 		frappe.set_user(admin)
 		self.assertEqual(self._category(name="STG406 Admin made", code="Q5A")["code"], "Q5A")
-		self.assertEqual(update_grievance_type(kind["grievance_type_id"], code="ADMIN")["status"], "success")
+		self.assertEqual(
+			update_grievance_type(kind["grievance_type_id"], type_name="Admin edit")["status"], "success"
+		)
 
 		for user, can_read in ((reviewer, True), (officer, False), ("Guest", False)):
 			frappe.set_user(user)
@@ -590,8 +601,8 @@ class TestTaxonomy(FrappeTestCase):
 					create_service_category(category_name="STG406 Refused", code="Q5B"),
 					update_service_category(CATEGORY, sort_order=3),
 					deactivate_service_category(CATEGORY),
-					create_grievance_type(service_category=CATEGORY, type_name="STG406 Refused", code="NO"),
-					update_grievance_type(kind["grievance_type_id"], code="NO"),
+					create_grievance_type(service_category=CATEGORY, type_name="STG406 Refused"),
+					update_grievance_type(kind["grievance_type_id"], type_name="Refused"),
 					deactivate_grievance_type(kind["grievance_type_id"]),
 					# A bad body must not turn a refusal into a 400.
 					create_service_category(priority=1),

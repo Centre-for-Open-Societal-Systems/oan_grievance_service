@@ -42,10 +42,14 @@ class GrievanceServiceCategory(Document):
 		"""
 		if not self.is_default or not self.has_value_changed("is_default"):
 			return
-		for name in frappe.get_all(
-			"Grievance Service Category",
-			filters={"is_default": 1, "name": ["!=", self.name]},
-			pluck="name",
+		# A locking read, so a promotion that raced this one is seen even inside our snapshot.
+		category = frappe.qb.DocType("Grievance Service Category")
+		for name in (
+			frappe.qb.from_(category)
+			.select(category.name)
+			.where((category.is_default == 1) & (category.name != self.name))
+			.for_update()
+			.run(pluck=True)
 		):
 			previous = frappe.get_doc("Grievance Service Category", name)
 			previous.flags.demoting = True
@@ -102,6 +106,10 @@ class GrievanceServiceCategory(Document):
 
 	def validate_default(self):
 		"""Exactly one category is the default: it is active, and it only stops being one when another takes over."""
+		if self.is_default and (self.is_new() or self.has_value_changed("is_default")):
+			# Serialise promotions on the current default's row: a second one waits here until
+			# the first commits, then demotes it, so two requests cannot leave two defaults.
+			frappe.db.get_value("Grievance Service Category", {"is_default": 1}, "name", for_update=True)
 		if self.is_default and not self.is_active:
 			frappe.throw(
 				_(
@@ -119,3 +127,22 @@ class GrievanceServiceCategory(Document):
 				_("Exactly one category must be the default. Make another category the default instead."),
 				frappe.ValidationError,
 			)
+
+
+def get_default_category() -> str | None:
+	"""The category unclassified cases are filed under: the one flagged default.
+
+	None when no category holds the flag. The `set_default_service_category` patch and the
+	installer make sure one does.
+	"""
+	return frappe.db.get_value("Grievance Service Category", {"is_default": 1}, "name")
+
+
+def get_category(identifier: str):
+	"""The category with this name or ticket code, or DoesNotExistError."""
+	name = frappe.db.exists("Grievance Service Category", identifier) or frappe.db.get_value(
+		"Grievance Service Category", {"code": str(identifier).strip().upper()}, "name"
+	)
+	if not name:
+		frappe.throw(_("Service category '{0}' was not found.").format(identifier), frappe.DoesNotExistError)
+	return frappe.get_doc("Grievance Service Category", name)

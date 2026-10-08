@@ -5327,7 +5327,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Matches the name or code
+        description: Matches the type name
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_grievance_types
       security:
       - BearerAuth: []
@@ -5388,7 +5388,7 @@ paths:
       tags:
       - Administration
       summary: Get a grievance type
-      description: Return one grievance type.
+      description: Return one grievance type. An unknown id is a 404.
       operationId: get_api_v1_grievance_types_grievance_type
       responses:
         '200':
@@ -8162,12 +8162,8 @@ components:
           minLength: 1
           type: string
         type_name:
-          maxLength: 140
-          minLength: 1
-          type: string
-        code:
           description: Unique within the category
-          maxLength: 30
+          maxLength: 140
           minLength: 1
           type: string
         is_active:
@@ -8176,7 +8172,6 @@ components:
       required:
       - service_category
       - type_name
-      - code
       type: object
     UpdateGrievanceType:
       additionalProperties: false
@@ -8184,10 +8179,6 @@ components:
       properties:
         type_name:
           maxLength: 140
-          minLength: 1
-          type: string
-        code:
-          maxLength: 30
           minLength: 1
           type: string
         is_active:

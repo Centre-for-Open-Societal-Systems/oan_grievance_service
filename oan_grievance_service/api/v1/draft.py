@@ -21,8 +21,11 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, model_validator
 
 from oan_grievance_service import permissions
+from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+	get_default_category,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import taxonomy
 
 DRAFT_LIFETIME_DAYS = 30
 
@@ -204,12 +207,12 @@ def save(
 	if service_category is not None:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = taxonomy.default_category()
+		doc.service_category = get_default_category()
 
 	if grievance_type is not None:
 		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
-	elif not doc.grievance_type and doc.service_category == taxonomy.default_category():
-		doc.grievance_type = taxonomy.fallback_type(doc.service_category)
+	elif not doc.grievance_type and doc.service_category == get_default_category():
+		doc.grievance_type = get_fallback_type(doc.service_category)
 
 	if associated_service_provider is not None:
 		doc.associated_service_provider = associated_service_provider
@@ -360,12 +363,12 @@ def submit_draft(
 	if service_category:
 		doc.service_category = service_category
 	elif not doc.service_category:
-		doc.service_category = taxonomy.default_category()
+		doc.service_category = get_default_category()
 
 	if grievance_type:
 		doc.grievance_type = _resolve_grievance_type(grievance_type, doc.service_category)
-	elif not doc.grievance_type and doc.service_category == taxonomy.default_category():
-		doc.grievance_type = taxonomy.fallback_type(doc.service_category)
+	elif not doc.grievance_type and doc.service_category == get_default_category():
+		doc.grievance_type = get_fallback_type(doc.service_category)
 
 	if associated_service_provider:
 		doc.associated_service_provider = associated_service_provider

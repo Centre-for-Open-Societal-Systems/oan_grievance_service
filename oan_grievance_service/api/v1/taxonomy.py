@@ -12,8 +12,9 @@ A category is identified by its name or its ticket code, a type by its id. A cat
 ticket code is frozen once tickets have been issued under it, and a type cannot move to
 another category.
 
-Handlers stay thin. Field and link checks live in each doctype's `validate()`, and
-cross-doctype work (rename, usage counts) in `services/taxonomy.py`.
+Handlers stay thin. The rules live in the doctype controllers (`validate`, `on_update`),
+so they hold for the Desk as well as the API. What is here is request shape, the list
+queries and the usage counts each record carries.
 """
 
 import frappe
@@ -31,12 +32,23 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
-from oan_grievance_service.services import taxonomy as service
+from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+	get_category,
+)
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
+from oan_grievance_service.services.resolvers import resolve_service_category
 
 route = prefixed("/api/v1")
 
+CATEGORY = "Grievance Service Category"
+TYPE = "Grievance Type"
+
 NAME_LENGTH = 140
+
+# The only fields a PATCH may write. The request schema already forbids anything else; this
+# keeps that true if a schema ever grows a field the document should not take from a client.
+CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_default")
+TYPE_EDITABLE = ("type_name", "is_active")
 
 
 # Service categories
@@ -97,8 +109,29 @@ class ListServiceCategories(PageParams, Body):
 	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
 
-def _category_record(doc) -> dict:
-	return service.category_records([doc])[0]
+def _category_records(docs: list) -> list[dict]:
+	"""Project categories to API records, with one grouped query per count for the whole page."""
+	names = [doc.name for doc in docs]
+	types = _counts(TYPE, "service_category", names, is_active=1)
+	assignments = _counts("Grievance RBAC Assignment", "category_scope", names, active=1)
+	templates = _counts("Grievance Response Template", "service_category", names, is_active=1)
+	grievances = _counts("Grievance", "service_category", names)
+	ticketed = _counts("Grievance", "service_category", names, ticket_number=["is", "set"])
+	return [
+		{
+			"category_name": doc.category_name,
+			"code": doc.code,
+			"sort_order": doc.sort_order or 0,
+			"is_active": bool(doc.is_active),
+			"is_default": bool(doc.is_default),
+			"grievance_type_count": types.get(doc.name, 0),
+			"assignment_count": assignments.get(doc.name, 0),
+			"response_template_count": templates.get(doc.name, 0),
+			"grievance_count": grievances.get(doc.name, 0),
+			"code_locked": ticketed.get(doc.name, 0) > 0,
+		}
+		for doc in docs
+	]
 
 
 @route("/service-categories", methods=("GET",), summary="List service categories")
@@ -126,13 +159,21 @@ def list_service_categories(
 	validate_request runs, and a bare int would turn a bad value into its own type error.
 	"""
 	params = PageParams(page=page, page_size=page_size)
-	rows, total = service.list_categories(
-		is_active=is_active, search=search, start=params.start, page_size=params.page_size
+	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
+	or_filters = _search(CATEGORY, search, ("category_name", "code"))
+	docs = frappe.get_all(
+		CATEGORY,
+		filters=filters,
+		or_filters=or_filters,
+		fields=["name", "category_name", "code", "sort_order", "is_active", "is_default"],
+		order_by="sort_order asc, category_name asc",
+		start=params.start,
+		limit=params.page_size,
 	)
 	return success_response(
 		data={
-			"service_categories": service.category_records(rows),
-			"pagination": page_meta(total, params.page, params.page_size),
+			"service_categories": _category_records(docs),
+			"pagination": page_meta(_count(CATEGORY, filters, or_filters), params.page, params.page_size),
 		},
 		message=_("Service categories retrieved"),
 	)
@@ -152,7 +193,7 @@ def list_service_categories(
 def get_service_category(category: str, **kwargs):
 	"""Return one service category."""
 	return success_response(
-		data={"service_category": _category_record(service.get_category(category))},
+		data={"service_category": _category_records([get_category(category)])[0]},
 		message=_("Service category retrieved"),
 	)
 
@@ -181,15 +222,21 @@ def create_service_category(
 	**kwargs,
 ):
 	"""Create a service category."""
-	doc = service.create_category(
-		category_name=category_name,
-		code=code,
-		sort_order=sort_order,
-		is_active=is_active,
-		is_default=is_default,
-	)
+	if sort_order is None:
+		top = frappe.get_all(CATEGORY, fields=[{"MAX": "sort_order", "as": "top"}])
+		sort_order = (top[0].top or 0) + 1
+	doc = frappe.get_doc(
+		{
+			"doctype": CATEGORY,
+			"category_name": category_name,
+			"code": code,
+			"sort_order": sort_order,
+			"is_active": 1 if is_active else 0,
+			"is_default": 1 if is_default else 0,
+		}
+	).insert()
 	return success_response(
-		data={"service_category": _category_record(doc)}, message=_("Service category created")
+		data={"service_category": _category_records([doc])[0]}, message=_("Service category created")
 	)
 
 
@@ -204,19 +251,26 @@ def create_service_category(
 	+ "grievance, routing rule, SLA and template linked to the category. The ticket code cannot "
 	+ "change once tickets exist. Exactly one category is the default: send is_default true to make this "
 	+ "one the default (the previous default loses the flag), and it cannot be deactivated while it "
-	+ "is. "
-	+ "Deactivating a category deactivates its types.",
+	+ "is. Deactivating a category deactivates its types.",
 	tags=["Administration"],
 	response_model=ServiceCategoryData,
 )
 def update_service_category(category: str, **kwargs):
 	"""Update a service category. `kwargs` holds only the fields the client sent."""
-	doc = service.get_category(category)
-	if not kwargs:
+	doc = get_category(category)
+	changes = _editable(kwargs, CATEGORY_EDITABLE)
+	new_name = changes.pop("category_name", None)
+	if new_name is None and not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	doc = service.update_category(doc, kwargs)
+	doc.update(changes)
+	doc.save()
+	if new_name and new_name != doc.name:
+		# A rename follows every link to the category, so it runs in this request's transaction:
+		# either the new name is everywhere or, on an error, nowhere.
+		frappe.rename_doc(CATEGORY, doc.name, new_name)
+		doc = frappe.get_doc(CATEGORY, new_name)
 	return success_response(
-		data={"service_category": _category_record(doc)}, message=_("Service category updated")
+		data={"service_category": _category_records([doc])[0]}, message=_("Service category updated")
 	)
 
 
@@ -236,9 +290,12 @@ def update_service_category(category: str, **kwargs):
 )
 def deactivate_service_category(category: str, **kwargs):
 	"""Deactivate a service category. Repeating the call is a no-op."""
-	doc = service.deactivate_category(service.get_category(category))
+	doc = get_category(category)
+	if doc.is_active:
+		doc.is_active = 0
+		doc.save()
 	return success_response(
-		data={"service_category": _category_record(doc)}, message=_("Service category deactivated")
+		data={"service_category": _category_records([doc])[0]}, message=_("Service category deactivated")
 	)
 
 
@@ -249,7 +306,6 @@ def deactivate_service_category(category: str, **kwargs):
 class GrievanceTypeRecord(BaseModel):
 	grievance_type_id: str
 	type_name: str
-	code: str
 	service_category: str
 	is_active: bool
 	grievance_count: int
@@ -270,8 +326,7 @@ class TypeRef(Body):
 
 class CreateGrievanceType(Body):
 	service_category: NonBlank = Field(description="Parent category, by name or ticket code")
-	type_name: NonBlank = Field(max_length=NAME_LENGTH)
-	code: NonBlank = Field(max_length=30, description="Unique within the category")
+	type_name: NonBlank = Field(max_length=NAME_LENGTH, description="Unique within the category")
 	is_active: bool = True
 
 
@@ -280,7 +335,6 @@ class UpdateGrievanceType(Body):
 
 	grievance_type: NonBlank
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
-	code: NonBlank = Field(None, max_length=30)
 	is_active: bool = None
 
 
@@ -289,13 +343,24 @@ class ListGrievanceTypes(PageParams, Body):
 
 	service_category: str | None = None
 	is_active: bool | None = None
-	search: str | None = Field(None, description="Matches the name or code")
+	search: str | None = Field(None, description="Matches the type name")
 
 	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
 
-def _type_record(doc) -> dict:
-	return service.type_records([doc])[0]
+def _type_records(docs: list) -> list[dict]:
+	"""Project types to API records, with one grouped query for the whole page's usage."""
+	grievances = _counts("Grievance", "grievance_type", [doc.name for doc in docs])
+	return [
+		{
+			"grievance_type_id": doc.name,
+			"type_name": doc.type_name,
+			"service_category": doc.service_category,
+			"is_active": bool(doc.is_active),
+			"grievance_count": grievances.get(doc.name, 0),
+		}
+		for doc in docs
+	]
 
 
 @route("/grievance-types", methods=("GET",), summary="List grievance types")
@@ -305,8 +370,8 @@ def _type_record(doc) -> dict:
 @validate_request(ListGrievanceTypes)
 @api_doc(
 	summary="List grievance types",
-	description="Admin list of grievance types by name, active and inactive, filterable by service "
-	+ "category, active flag and text in the name or code.",
+	description="Admin list of grievance types by category and name, active and inactive, filterable by "
+	+ "service category, active flag and text in the name.",
 	tags=["Administration"],
 	response_model=GrievanceTypeListData,
 )
@@ -320,17 +385,24 @@ def list_grievance_types(
 ):
 	"""List grievance types for the admin tab."""
 	params = PageParams(page=page, page_size=page_size)
-	rows, total = service.list_types(
-		service_category=service_category,
-		is_active=is_active,
-		search=search,
+	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
+	if service_category:
+		filters["service_category"] = resolve_service_category(service_category)
+	or_filters = _search(TYPE, search, ("type_name",))
+	docs = frappe.get_all(
+		TYPE,
+		filters=filters,
+		or_filters=or_filters,
+		fields=["name", "type_name", "service_category", "is_active"],
+		# Name alone is not unique across categories, so the id breaks ties and pages never overlap.
+		order_by="service_category asc, type_name asc, name asc",
 		start=params.start,
-		page_size=params.page_size,
+		limit=params.page_size,
 	)
 	return success_response(
 		data={
-			"grievance_types": service.type_records(rows),
-			"pagination": page_meta(total, params.page, params.page_size),
+			"grievance_types": _type_records(docs),
+			"pagination": page_meta(_count(TYPE, filters, or_filters), params.page, params.page_size),
 		},
 		message=_("Grievance types retrieved"),
 	)
@@ -348,9 +420,9 @@ def list_grievance_types(
 	response_model=GrievanceTypeData,
 )
 def get_grievance_type(grievance_type: str, **kwargs):
-	"""Return one grievance type."""
+	"""Return one grievance type. An unknown id is a 404."""
 	return success_response(
-		data={"grievance_type": _type_record(service.get_type(grievance_type))},
+		data={"grievance_type": _type_records([frappe.get_doc(TYPE, grievance_type)])[0]},
 		message=_("Grievance type retrieved"),
 	)
 
@@ -362,23 +434,29 @@ def get_grievance_type(grievance_type: str, **kwargs):
 @validate_request(CreateGrievanceType)
 @api_doc(
 	summary="Create a grievance type",
-	description="Create a type under an active service category. The name and the code are each "
-	+ "unique within the category.",
+	description="Create a type under an active service category. The name is unique within the "
+	+ "category.",
 	tags=["Administration"],
 	response_model=GrievanceTypeData,
 )
 def create_grievance_type(
 	service_category: str,
 	type_name: str,
-	code: str,
 	is_active: bool | str = True,
 	**kwargs,
 ):
 	"""Create a grievance type under a category."""
-	doc = service.create_type(
-		service_category=service_category, type_name=type_name, code=code, is_active=is_active
+	doc = frappe.get_doc(
+		{
+			"doctype": TYPE,
+			"service_category": resolve_service_category(service_category),
+			"type_name": type_name,
+			"is_active": 1 if is_active else 0,
+		}
+	).insert()
+	return success_response(
+		data={"grievance_type": _type_records([doc])[0]}, message=_("Grievance type created")
 	)
-	return success_response(data={"grievance_type": _type_record(doc)}, message=_("Grievance type created"))
 
 
 @route("/grievance-types/<grievance_type>", methods=("PATCH",), summary="Update a grievance type")
@@ -388,7 +466,7 @@ def create_grievance_type(
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
-	description="Change the name, code or active flag. The service category cannot change. A type "
+	description="Change the name or active flag. The service category cannot change. A type "
 	+ "cannot be reactivated while its category is inactive, and the catch-all Other type of the "
 	+ "default category cannot be deactivated.",
 	tags=["Administration"],
@@ -396,11 +474,15 @@ def create_grievance_type(
 )
 def update_grievance_type(grievance_type: str, **kwargs):
 	"""Update a grievance type. `kwargs` holds only the fields the client sent."""
-	doc = service.get_type(grievance_type)
-	if not kwargs:
+	doc = frappe.get_doc(TYPE, grievance_type)
+	changes = _editable(kwargs, TYPE_EDITABLE)
+	if not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	doc = service.update_type(doc, kwargs)
-	return success_response(data={"grievance_type": _type_record(doc)}, message=_("Grievance type updated"))
+	doc.update(changes)
+	doc.save()
+	return success_response(
+		data={"grievance_type": _type_records([doc])[0]}, message=_("Grievance type updated")
+	)
 
 
 @route("/grievance-types/<grievance_type>", methods=("DELETE",), summary="Deactivate a grievance type")
@@ -417,7 +499,51 @@ def update_grievance_type(grievance_type: str, **kwargs):
 )
 def deactivate_grievance_type(grievance_type: str, **kwargs):
 	"""Deactivate a grievance type. Repeating the call is a no-op."""
-	doc = service.deactivate_type(service.get_type(grievance_type))
+	doc = frappe.get_doc(TYPE, grievance_type)
+	if doc.is_active:
+		doc.is_active = 0
+		doc.save()
 	return success_response(
-		data={"grievance_type": _type_record(doc)}, message=_("Grievance type deactivated")
+		data={"grievance_type": _type_records([doc])[0]}, message=_("Grievance type deactivated")
 	)
+
+
+# Helpers
+# -------
+
+
+def _editable(sent: dict, allowed: tuple[str, ...]) -> dict:
+	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores."""
+	return {
+		fieldname: int(value) if isinstance(value, bool) else value
+		for fieldname, value in sent.items()
+		if fieldname in allowed
+	}
+
+
+def _search(doctype: str, text: str | None, fieldnames: tuple[str, ...]) -> list | None:
+	"""Match the text in any of the fields, or None when there is no text."""
+	text = (text or "").strip()
+	if not text:
+		return None
+	return [[doctype, fieldname, "like", f"%{text}%"] for fieldname in fieldnames]
+
+
+def _count(doctype: str, filters: dict, or_filters: list | None) -> int:
+	rows = frappe.get_all(
+		doctype, filters=filters, or_filters=or_filters, fields=[{"COUNT": "*", "as": "total"}]
+	)
+	return int(rows[0].total) if rows else 0
+
+
+def _counts(doctype: str, fieldname: str, names: list[str], **filters) -> dict[str, int]:
+	"""Rows per value of `fieldname` among `names`, in one grouped query."""
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		doctype,
+		filters={fieldname: ["in", names], **filters},
+		fields=[fieldname, {"COUNT": "*", "as": "total"}],
+		group_by=fieldname,
+	)
+	return {row[fieldname]: int(row.total) for row in rows}

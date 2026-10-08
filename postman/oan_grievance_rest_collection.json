@@ -2406,7 +2406,7 @@
                     }
                   ]
                 },
-                "description": "List types by name, active and inactive. Optional query: service_category (name or code), is_active, search (name or code), page, page_size. Unknown query parameters return 400. Grievance Review Officer may call this."
+                "description": "List types by category and name, active and inactive. Optional query: service_category (name or code), is_active, search (text in the type name), page, page_size. Unknown query parameters return 400. Grievance Review Officer may call this."
               },
               "response": []
             },
@@ -2448,10 +2448,10 @@
                     "grievance-types"
                   ]
                 },
-                "description": "Create a type under an active category. Required: service_category (name or code), type_name, code. Name and code are each unique within the category; the code is up to 30 letters, digits, hyphens or underscores and is stored in capitals. Duplicate returns 409.",
+                "description": "Create a type under an active category. Required: service_category (name or code), type_name. The name is unique within the category (the same name under another category is allowed). Duplicate returns 409.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\",\n  \"code\": \"LATE_DELIVERY\"\n}"
+                  "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\"\n}"
                 }
               },
               "response": []
@@ -2529,7 +2529,7 @@
                     "{{taxonomy_grievance_type}}"
                   ]
                 },
-                "description": "Partial update of type_name, code or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
+                "description": "Partial update of type_name or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\"\n}"

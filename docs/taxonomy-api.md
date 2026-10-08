@@ -76,8 +76,7 @@ List responses put the page info **inside `data`**, next to the array: `data.pag
 
 - **Nothing is deleted.** `DELETE` sets `is_active` to `false`. Grievances already filed keep their category and type.
 - **Ticket code** (category `code`): exactly 3 characters from `0-9 A-Z` without `I`, `L`, `O`, `U`. Stored in capitals, unique. It **cannot change once tickets exist** under the category. Records show `code_locked: true`: disable the field.
-- **Type code**: up to 30 letters, digits, hyphens or underscores, starting with a letter or digit. Stored in capitals. Unique **within its category** (two categories may both have `OTHER`).
-- **Type name**: unique within its category.
+- **Type name**: unique within its category. Two categories may both have a type called `Other`, but one category cannot have the same type twice.
 - **Deactivating a category** also deactivates all its types. Reactivating the category does **not** bring them back: reactivate each type.
 - **A type** cannot be created or reactivated while its category is inactive, and **cannot move to another category**.
 - **Renaming a category** is safe: every grievance, type, routing rule, SLA row and template follows. The ticket code does not change. Path ids that used the old name stop working, so use the name in the response afterwards.
@@ -86,7 +85,7 @@ List responses put the page info **inside `data`**, next to the array: `data.pag
   - The default is always active. It cannot be deactivated, and `is_default: false` is refused. To change it, promote another category.
   - It can be renamed. The flag stays with it.
   - Its catch-all `Other` type cannot be deactivated while the category is the default.
-- **Other screens.** The submission wizard dropdowns list active records only (types now include `code`). A new grievance cannot be filed under an inactive category or type. Category assignments and response templates already set up on a category you deactivate stay active so open cases keep working; new ones cannot be set up on it.
+- **Other screens.** The submission wizard dropdowns list active records only. A new grievance cannot be filed under an inactive category or type. Category assignments and response templates already set up on a category you deactivate stay active so open cases keep working; new ones cannot be set up on it.
 - **Warn before retiring.** Each category record counts what refers to it: `grievance_type_count` (active types), `assignment_count` (active category assignments), `response_template_count` (active templates) and `grievance_count`. Show these in a confirm dialog.
 
 ## 4. Service categories
@@ -280,13 +279,13 @@ To bring a category back, use `PATCH` with `{ "is_active": true }`.
 
 `GET /api/v1/grievance-types`
 
-Ordered by name. Returns active and inactive unless filtered.
+Ordered by category, then name. Returns active and inactive unless filtered.
 
 | Query              | Type    | Required | Default | Notes                                                      |
 | :----------------- | :------ | :------- | :------ | :--------------------------------------------------------- |
 | `service_category` | string  | no       | all     | Category name or ticket code. Unknown category returns 400 |
 | `is_active`        | boolean | no       | both    | `true`/`false`                                             |
-| `search`           | string  | no       |         | Text contained in the type name or code, case-insensitive  |
+| `search`           | string  | no       |         | Text contained in the type name, case-insensitive          |
 | `page`             | integer | no       | 1       | 1 or more                                                  |
 | `page_size`        | integer | no       | 20      | 1 to 100                                                   |
 
@@ -305,7 +304,6 @@ Response `200`:
       {
         "grievance_type_id": "GTYPE-02169",
         "type_name": "Road access blocked",
-        "code": "ROAD_ACCESS",
         "service_category": "Infrastructure",
         "is_active": true,
         "grievance_count": 0
@@ -329,15 +327,14 @@ Response `200`:
 
 `POST /api/v1/grievance-types`
 
-| Body field         | Type    | Required | Default | Notes                                                                   |
-| :----------------- | :------ | :------- | :------ | :---------------------------------------------------------------------- |
-| `service_category` | string  | yes      |         | Parent category, by name or ticket code. Must be active                 |
-| `type_name`        | string  | yes      |         | Up to 140 characters. Unique within the category                        |
-| `code`             | string  | yes      |         | Up to 30 characters (section 3). Unique within the category. Uppercased |
-| `is_active`        | boolean | no       | `true`  |                                                                         |
+| Body field         | Type    | Required | Default | Notes                                                   |
+| :----------------- | :------ | :------- | :------ | :------------------------------------------------------ |
+| `service_category` | string  | yes      |         | Parent category, by name or ticket code. Must be active |
+| `type_name`        | string  | yes      |         | Up to 140 characters. Unique within the category        |
+| `is_active`        | boolean | no       | `true`  |                                                         |
 
 ```json
-{ "service_category": "Infrastructure", "type_name": "Road access blocked", "code": "ROAD_ACCESS" }
+{ "service_category": "Infrastructure", "type_name": "Road access blocked" }
 ```
 
 Response `200`: `data.grievance_type` is the record.
@@ -350,7 +347,6 @@ Response `200`: `data.grievance_type` is the record.
     "grievance_type": {
       "grievance_type_id": "GTYPE-02169",
       "type_name": "Road access blocked",
-      "code": "ROAD_ACCESS",
       "service_category": "Infrastructure",
       "is_active": true,
       "grievance_count": 0
@@ -361,7 +357,7 @@ Response `200`: `data.grievance_type` is the record.
 }
 ```
 
-Errors: `409` when the name or code already exists in that category; `400` when the category does not exist or is inactive, or the code format is wrong.
+Errors: `409` when the name already exists in that category; `400` when the category does not exist or is inactive, or a field is missing or blank.
 
 ### 5.3 Get a grievance type
 
@@ -378,14 +374,13 @@ Send only the fields that change. `service_category` is **not accepted**: a type
 | Body field  | Type    | Notes                                                                                                                   |
 | :---------- | :------ | :---------------------------------------------------------------------------------------------------------------------- |
 | `type_name` | string  | Unique within the category                                                                                              |
-| `code`      | string  | Unique within the category. Uppercased                                                                                  |
 | `is_active` | boolean | `true` is refused (400) while the category is inactive. The default category's catch-all `Other` type cannot be `false` |
 
 ```json
-{ "code": "road_access_2" }
+{ "type_name": "Road access obstructed" }
 ```
 
-Response `200` (note the code comes back uppercased):
+Response `200`:
 
 ```json
 {
@@ -394,8 +389,7 @@ Response `200` (note the code comes back uppercased):
   "data": {
     "grievance_type": {
       "grievance_type_id": "GTYPE-02169",
-      "type_name": "Road access blocked",
-      "code": "ROAD_ACCESS_2",
+      "type_name": "Road access obstructed",
       "service_category": "Infrastructure",
       "is_active": true,
       "grievance_count": 0
@@ -513,7 +507,6 @@ export interface ServiceCategoryRecord extends ServiceCategoryOption {
 }
 
 export interface GrievanceTypeRecord extends GrievanceTypeOption {
-  code: string;
   is_active: boolean;
   grievance_count: number;
 }
@@ -546,13 +539,11 @@ export type UpdateServiceCategoryBody = Partial<{
 export interface CreateGrievanceTypeBody {
   service_category: string;
   type_name: string;
-  code: string;
   is_active?: boolean;
 }
 
 export type UpdateGrievanceTypeBody = Partial<{
   type_name: string;
-  code: string;
   is_active: boolean;
 }>;
 
@@ -578,8 +569,7 @@ export interface ApiError {
 
 ## 8. Integration notes
 
-- The wizard dropdown calls (`/submitters/options`, `/grievances/options`) now return `code` on each grievance type and still return **active records only**. Refetch them after an admin change.
+- The wizard dropdown calls (`/submitters/options`, `/grievances/options`) still return **active records only**. Refetch them after an admin change.
 - After a rename, take the id from the response (`category_name`) for later calls.
 - `PATCH` sends only changed fields. Do not send the whole form back: an unchanged locked `code` is fine to omit, and sending a different one is an error.
 - A Postman collection (folder "Service Categories & Grievance Types") and the OpenAPI spec (`openapi/openapi_v1.yaml`) carry the same endpoints.
-- Existing grievance types were given a code made from their name, for example `Fertilizer Shortage` became `FERTILIZER_SHORTAGE`. Admins can edit these.
