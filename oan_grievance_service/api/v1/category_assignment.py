@@ -120,7 +120,11 @@ def _records(desks: list) -> list[dict]:
 	):
 		officers[row.parent].append(row)
 	sla_rows = service.active_sla_rows({desk.category_scope for desk in desks})
-	splits = [service.split_officers(officers[desk.name]) for desk in desks]
+	levels = service.role_levels({desk.department_scope for desk in desks})
+	splits = [
+		service.split_officers(officers[desk.name], *levels.get(desk.department_scope, (None, None)))
+		for desk in desks
+	]
 	full_names = {
 		row.name: row.full_name
 		for row in frappe.get_all(

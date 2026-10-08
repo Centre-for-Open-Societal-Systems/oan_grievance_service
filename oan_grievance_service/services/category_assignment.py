@@ -45,12 +45,39 @@ def get_desk(name: str):
 	return frappe.get_doc(DOCTYPE, name)
 
 
-def split_officers(rows: list):
-	"""Primary is the active is_primary row, else the first active row. Secondary is the next non-primary."""
+def role_levels(departments) -> dict:
+	"""(L1 role level, L2 role level) for each department, in one query."""
+	departments = [name for name in departments if name]
+	if not departments:
+		return {}
+	return {
+		row.name: (row.l1_role_level, row.l2_role_level)
+		for row in frappe.get_all(
+			"Grievance Department",
+			filters={"name": ["in", departments]},
+			fields=["name", "l1_role_level", "l2_role_level"],
+		)
+	}
+
+
+def split_officers(rows: list, l1_level: str | None, l2_level: str | None):
+	"""The L1 and L2 seats of a desk, found by role level and not by position.
+
+	A desk can hold many officers, so list order says nothing about who is L2. The secondary
+	is the active officer at the department's L2 role level. The primary is an active officer
+	at its L1 role level, an is_primary one first, else the first. Anyone else is left alone.
+	"""
 	active = [row for row in rows if row.active]
-	primary = next((row for row in active if row.is_primary), active[0] if active else None)
-	secondary = next((row for row in active if row is not primary and not row.is_primary), None)
-	return primary, secondary
+	secondary = next((row for row in active if l2_level and row.role_level == l2_level), None)
+	rest = [row for row in active if row is not secondary]
+	rest.sort(key=lambda row: (row.role_level != l1_level, not row.is_primary))
+	return (rest[0] if rest else None), secondary
+
+
+def desk_seats(desk):
+	"""The (primary, secondary) officer rows of a desk, read with its department's role levels."""
+	levels = role_levels([desk.department_scope]).get(desk.department_scope, (None, None))
+	return split_officers(desk.officers, *levels)
 
 
 def active_sla_rows(categories) -> dict:
@@ -123,7 +150,7 @@ def update(desk, changes: dict):
 
 
 def _current_state(desk) -> dict:
-	primary, secondary = split_officers(desk.officers)
+	primary, secondary = desk_seats(desk)
 	sla = active_sla_rows([desk.category_scope]).get(desk.category_scope)
 	return {
 		"service_category": desk.category_scope,
@@ -162,6 +189,8 @@ def _write_desk(desk, state: dict, prefs):
 	A desk can hold many officers, added on the Nodal Officers tab. This API names one L1 and
 	one L2, so it replaces only those two seats: an officer in neither seat is never removed.
 	"""
+	# Read the seats before the department changes: the rows carry the old department's levels.
+	primary, secondary = desk_seats(desk)
 	desk.department_scope = state["department"]
 	desk.assigned_by = frappe.session.user
 	desk.active = 1 if state["active"] else 0
@@ -174,20 +203,22 @@ def _write_desk(desk, state: dict, prefs):
 	wanted = {l1: {"role_level": prefs.l1_role_level, "is_primary": 1}}
 	if l2:
 		wanted[l2] = {"role_level": prefs.l2_role_level, "is_primary": 0, "reports_to": None}
-	primary, secondary = split_officers(desk.officers)
 	vacated = {seat.user for seat in (primary, secondary) if seat and seat.user not in wanted}
 	_assert_nobody_reports_to(desk, vacated, keep=wanted)
 	for row in list(desk.officers):
 		if row.user in vacated:
 			desk.remove(row)
 	rows = {row.user: row for row in desk.officers}
+	# The L1 seat must report to the L2 seat whenever either one changes, including when the
+	# L1 seat moves to an officer who is already on the desk and may report to someone else.
+	l1_changed = (primary.user if primary else None) != l1
 	l2_changed = (secondary.user if secondary else None) != l2
 	for user, values in wanted.items():
 		row = rows.get(user)
 		if not row:
 			row = desk.append("officers", {"user": user})
 			values = {**values, "reports_to": l2} if user == l1 else values
-		elif user == l1 and l2_changed:
+		elif user == l1 and (l1_changed or l2_changed):
 			values = {**values, "reports_to": l2}
 		row.update({**values, "active": 1})
 
