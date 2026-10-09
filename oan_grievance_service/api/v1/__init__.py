@@ -26,6 +26,8 @@ Endpoints
     v1.officer_statistics           live L1/L2 officer performance figures
     v1.notification_config          FSD Appendix C notification events, read-only
                                     (/api/v1/notification-configs)
+    v1.sla_settings                 global SLA policy and per-category SLA windows
+                                    (/api/v1/sla-policy, /api/v1/sla-configurations)
 
     v1.attachment.submit_document   upload evidence (POST /api/v1/grievances/<g>/attachments)
     v1.attachment.get_attachments   list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)

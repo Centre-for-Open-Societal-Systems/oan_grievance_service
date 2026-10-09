@@ -57,6 +57,8 @@ DEFAULT_CONFIRMATION_DAYS = 7
 SLA_REMINDER_THRESHOLDS = (50, 80)
 # Global default ceiling on a single deferral.
 DEFAULT_MAX_DEFERRAL_DAYS = 30
+# Global default share of the SLA window consumed before a case escalates: at the deadline.
+DEFAULT_ESCALATION_THRESHOLD = 100
 
 
 # Canonical Frappe user roles used for API authentication and authorization.

@@ -37,6 +37,9 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
+from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+	auto_escalation_threshold,
+)
 from oan_grievance_service.services import constants as C
 
 CLOCK_START_ASSIGNMENT = "assignment"
@@ -58,6 +61,7 @@ class SLAPolicy:
 	sla_days: int
 	auto_escalate: bool
 	auto_escalation_threshold: int
+	notify_on_breach: bool = True
 	first_response_hours: int | None = None
 	update_cadence_hours: int | None = None
 	remand_execution_hours: int | None = None
@@ -146,6 +150,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 			"sla_days",
 			"auto_escalate",
 			"auto_escalation_threshold",
+			"notify_on_breach",
 			"first_response_hours",
 			"update_cadence_hours",
 			"remand_execution_hours",
@@ -161,7 +166,9 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 		name=r.name,
 		sla_days=r.sla_days or 0,
 		auto_escalate=bool(r.auto_escalate),
-		auto_escalation_threshold=r.auto_escalation_threshold or 100,
+		# The category's own threshold wins; 0 means it follows the installation-wide one.
+		auto_escalation_threshold=r.auto_escalation_threshold or auto_escalation_threshold(),
+		notify_on_breach=bool(r.notify_on_breach),
 		first_response_hours=r.first_response_hours,
 		update_cadence_hours=r.update_cadence_hours,
 		remand_execution_hours=r.remand_execution_hours,
@@ -273,7 +280,7 @@ def arm_escalation(grievance, policy=None):
 
 	start = get_datetime(grievance.sla_start_at) if grievance.sla_start_at else None
 	due = get_datetime(grievance.sla_due_date)
-	threshold = policy.auto_escalation_threshold or 100
+	threshold = policy.auto_escalation_threshold or auto_escalation_threshold()
 
 	if start and 0 < threshold < 100:
 		# Hand the case up before the deadline, while there is still time to save it.
@@ -513,8 +520,14 @@ def escalate(grievance, reason=None, reassign=True):
 
 	`escalated` stays a flag, never a status, so the lifecycle stage is untouched.
 	Returns the user the case was handed to, or None when it could not move.
+
+	The category's `notify_on_breach` decides whether the breach notification is queued.
+	The escalation, its timeline entry and the reassignment happen either way.
 	"""
 	from oan_grievance_service.services import notifications
+
+	policy = resolve_policy(grievance.service_category)
+	notify = policy.notify_on_breach if policy else True
 
 	target, level = higher_authority_of(
 		grievance.assigned_to,
@@ -543,7 +556,7 @@ def escalate(grievance, reason=None, reassign=True):
 			author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 		)
 
-		if grievance.assigned_to:
+		if notify and grievance.assigned_to:
 			notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=grievance.assigned_to)
 		return grievance.assigned_to or True
 
@@ -576,5 +589,6 @@ def escalate(grievance, reason=None, reassign=True):
 		author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 	)
 
-	notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=target)
+	if notify:
+		notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=target)
 	return target

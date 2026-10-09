@@ -4850,6 +4850,246 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.deactivate_response_template
       security:
       - BearerAuth: []
+  /api/v1/sla-policy:
+    get:
+      tags:
+      - Administration
+      summary: Get the global SLA policy
+      description: Return the installation-wide SLA policy.
+      operationId: get_api_v1_sla_policy
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.get_global_policy
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update the global SLA policy
+      description: Update the installation-wide policy. `kwargs` holds only the fields the client sent.
+      operationId: patch_api_v1_sla_policy
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_global_policy
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGlobalSlaPolicy'
+  /api/v1/sla-configurations:
+    get:
+      tags:
+      - Administration
+      summary: List per-category SLA settings
+      description: 'List the active per-category SLA configurations.
+
+
+        Numeric parameters also accept str: frappe checks annotations before validate_request
+
+        runs, and a bare int would turn a bad value into its own type error.'
+      operationId: get_api_v1_sla_configurations
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.list_sla_configurations
+      security:
+      - BearerAuth: []
+  /api/v1/sla-configurations/{config}:
+    patch:
+      tags:
+      - Administration
+      summary: Update a category's SLA settings
+      description: Update one category's SLA configuration. `kwargs` holds only the fields the client
+        sent.
+      operationId: patch_api_v1_sla_configurations_config
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: config
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Config identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_sla_configuration
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSlaConfiguration'
   /api/v1/submitters/options:
     get:
       tags:
@@ -8307,6 +8547,36 @@ components:
           default: null
           nullable: true
         is_active:
+          type: boolean
+      type: object
+    UpdateGlobalSlaPolicy:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are.
+      properties:
+        max_deferral_days:
+          description: Most days any single deferral may add to the SLA clock
+          minimum: 1
+          type: integer
+        auto_escalation_threshold:
+          description: Percent of the SLA window consumed before escalation. 100 is at the deadline
+          maximum: 100
+          minimum: 1
+          type: integer
+        requires_supervisor_approval:
+          description: 'true: a senior officer decides a deferral. false: the assigned officer may approve
+            it'
+          type: boolean
+      type: object
+    UpdateSlaConfiguration:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are.
+      properties:
+        sla_days:
+          minimum: 1
+          type: integer
+        auto_escalate:
+          type: boolean
+        notify_on_breach:
           type: boolean
       type: object
     RegisterSubmitterRequest:
