@@ -732,6 +732,8 @@ class TestDeactivation(StaffAccountCase):
 		frappe.set_user("Administrator")
 
 	def _admin_with_own_password(self):
+		# A second admin, so the one under test is not the last active Grievance Admin.
+		self._staff("Admin", f"{PREFIX}backup-admin@example.com")
 		admin = self._staff("Admin")
 		update_password(admin["name"], "TheirOwn123!")
 		frappe.db.set_value("User", admin["name"], MUST_CHANGE_PASSWORD_FIELD, 0)
@@ -741,7 +743,8 @@ class TestDeactivation(StaffAccountCase):
 		from oan_auth_service.tests.test_temporary_password import _call
 
 		user = self._admin_with_own_password()
-		update_officer(user, status="Inactive")
+		deactivated = update_officer(user, status="Inactive")
+		self.assertEqual(deactivated["status"], "success", msg=deactivated)
 		# A refused sign-in rolls the request back, so nothing is asserted on the data after it.
 		with configured_keys(), _keep_transaction():
 			status, body = _call("/api/v1/auth/login", {"usr": user, "pwd": "TheirOwn123!"})
@@ -753,7 +756,8 @@ class TestDeactivation(StaffAccountCase):
 		from oan_auth_service.tests.test_temporary_password import _call
 
 		user = self._admin_with_own_password()
-		update_officer(user, status="Inactive")
+		deactivated = update_officer(user, status="Inactive")
+		self.assertEqual(deactivated["status"], "success", msg=deactivated)
 		reactivated = update_officer(user, status="Active")
 		self.assertEqual(reactivated["data"]["officer"]["status"], "Active")
 		self.assertEqual(self._rows(user)[0].active, 1)
