@@ -3043,7 +3043,7 @@
     },
     {
       "name": "Officers",
-      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers, extended by STG-443 to Admin and Reviewer accounts through the same resource: role is Officer (the default), Admin or Reviewer. An officer is a User placed on category desks, so the id is the account's email and every service category must already have a category assignment for the department. An Admin or Reviewer sits on the inactive staff desk instead and takes no part in routing, escalation or officer statistics. An account holds one grievance role. Requires a Grievance Admin bearer token; resetting an Admin's password needs a System Manager or Administrator. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers, extended by STG-443 to Admin and Reviewer accounts through the same resource: role is Officer (the default), Admin or Reviewer. An officer is a User placed on category desks, so the id is the account's email and every service category must already have a category assignment for the department. An Admin or Reviewer is a plain User with that role and no desk, so it takes no part in routing, escalation or officer statistics. An account holds one grievance role. Requires a Grievance Admin bearer token; resetting an Admin's password needs a System Manager or Administrator. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
       "item": [
         {
           "name": "List officers",
@@ -3232,7 +3232,7 @@
                 "password-resets"
               ]
             },
-            "description": "Reissue a temporary password to an account on the roster, for example after a forgotten password. Its sessions end at once and the holder must replace the password through POST /api/v1/auth/password/initial before signing in. A Grievance Admin can reset Officers and Reviewers; an Admin account can be reset only by a System Manager or Administrator. Nobody resets their own password here, and System Manager and Administrator accounts are never reset here.",
+            "description": "Reissue a temporary password to an officer, admin or reviewer, for example after a forgotten password. Its sessions end at once and the holder must replace the password through POST /api/v1/auth/password/initial before signing in. A Grievance Admin can reset Officers and Reviewers; an Admin account can be reset only by a System Manager or Administrator. Nobody resets their own password here, and System Manager and Administrator accounts are never reset here.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -3631,7 +3631,7 @@
                 "officers"
               ]
             },
-            "description": "Create a Grievance Admin. Only full_name, email, phone and temporary_password are required; designation is optional. level, department, service_categories, reports_to and region are refused. The login is created when the email is new, with this role alone, and is recorded on the staff desk. A login that holds a different grievance role is refused.",
+            "description": "Create a Grievance Admin. Only full_name, email, phone and temporary_password are required; designation is optional. level, department, service_categories, reports_to and region are refused. The login is created when the email is new, with this role alone. A login that holds a different grievance role is refused.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"role\": \"Admin\",\n  \"full_name\": \"Selam Bekele\",\n  \"designation\": \"Programme Administrator\",\n  \"email\": \"selam.bekele@example.com\",\n  \"phone\": \"+251911000001\",\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -3842,7 +3842,7 @@
                 "{{staff_officer}}"
               ]
             },
-            "description": "status Inactive retires the roster row, disables the login and ends its sessions and refresh tokens, so it cannot sign in. You cannot deactivate your own account, and the last active Grievance Admin cannot be deactivated. On Leave returns 400.",
+            "description": "status Inactive disables the login and ends its sessions and refresh tokens, so it cannot sign in. You cannot deactivate your own account, and the last active Grievance Admin cannot be deactivated. On Leave returns 400.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"Inactive\"\n}"

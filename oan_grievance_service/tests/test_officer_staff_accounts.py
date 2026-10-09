@@ -3,8 +3,8 @@
 
 """STG-443: Admin and Reviewer accounts through the officer API, and the status counts.
 
-Admin and Reviewer accounts are rostered on the inactive staff desk, so they are on the RBAC
-record without being officers: routing, escalation, scope checks and statistics never see them.
+Admin and Reviewer accounts are plain Users with a role. They have no desk, so routing,
+escalation, scope checks and statistics never see them.
 """
 
 import json
@@ -36,15 +36,10 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	get_subordinate_officers,
 	holds_rung,
 	query_active_officer_assignments,
-	top_rung,
 )
-from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
-	GrievanceRoleLevel,
-)
-from oan_grievance_service.services import category_assignment, routing, staff_account
+from oan_grievance_service.services import category_assignment, routing
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
-from oan_grievance_service.setup.install import seed_role_levels, seed_staff_desk
 from oan_grievance_service.tests.fixtures import a_leaf_area
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
@@ -69,7 +64,6 @@ class StaffAccountCase(FrappeTestCase):
 		self.addCleanup(commit.stop)
 		_role_level("nodal_officer", 10)
 		_role_level("senior_nodal_officer", 20)
-		seed_staff_desk()
 		self.department = _department("STG443 Inputs Agency", "S443")
 		self.other_department = _department("STG443 Credit Agency", "S444")
 		self.inputs = _category("STG443 Inputs", "Z83")
@@ -142,41 +136,8 @@ class StaffAccountCase(FrappeTestCase):
 		return f"{PREFIX}{email}@example.com"
 
 
-class TestStaffDeskSeed(StaffAccountCase):
-	def test_the_staff_desk_is_found_by_its_documented_name_and_is_never_active(self):
-		desk = frappe.get_doc(DESK, C.STAFF_DESK)
-		self.assertEqual(desk.name, "GR-RBAC-STAFF")
-		self.assertEqual(desk.department_scope, "Administration")
-		self.assertEqual(desk.active, 0)
-		self.assertFalse(desk.category_scope)
-		self.assertEqual(frappe.db.get_value("Grievance Department", "Administration", "active"), 0)
-
-	def test_the_staff_desk_cannot_be_switched_on(self):
-		self._staff("Admin")
-		desk = frappe.get_doc(DESK, C.STAFF_DESK)
-		desk.active = 1
-		desk.save()
-		self.assertEqual(frappe.db.get_value(DESK, C.STAFF_DESK, "active"), 0)
-
-	def test_the_role_levels_are_inactive_and_outside_the_escalation_chain(self):
-		for code in (C.ROLE_LEVEL_ADMIN, C.ROLE_LEVEL_REVIEW_OFFICER):
-			self.assertEqual(frappe.db.get_value("Grievance Role Level", code, "is_active"), 0)
-		frappe.cache.delete_value("grievance_role_level_chain")
-		names = [level.name for level in GrievanceRoleLevel.get_chain()]
-		self.assertNotIn(C.ROLE_LEVEL_ADMIN, names)
-		self.assertNotIn(C.ROLE_LEVEL_REVIEW_OFFICER, names)
-		self.assertIn(top_rung(), {"department_head", "senior_nodal_officer", "nodal_officer"})
-
-	def test_seeding_is_idempotent_and_the_officer_api_heals_a_site_without_it(self):
-		self.assertEqual(seed_role_levels(), [])
-		self.assertEqual(seed_staff_desk(), [])
-		frappe.delete_doc(DESK, C.STAFF_DESK, force=1, ignore_permissions=True)
-		admin = self._staff()
-		self.assertEqual(self._rows(admin["name"])[0].parent, C.STAFF_DESK)
-
-
 class TestCreateStaffAccounts(StaffAccountCase):
-	def test_an_admin_is_a_user_with_that_role_alone_and_a_row_on_the_staff_desk(self):
+	def test_an_admin_is_a_user_with_that_role_alone_and_no_desk_row(self):
 		admin = self._staff("Admin", designation="Programme Admin")
 		self.assertEqual(admin["name"], f"{PREFIX}admin@example.com")
 		self.assertEqual(admin["role"], "Admin")
@@ -185,18 +146,15 @@ class TestCreateStaffAccounts(StaffAccountCase):
 		self.assertTrue(admin["must_change_password"])
 		self.assertEqual(self._roles(admin["name"]), [C.ROLE_ADMIN])
 
-		rows = self._rows(admin["name"])
-		self.assertEqual(len(rows), 1)
-		self.assertEqual((rows[0].parent, rows[0].role_level, rows[0].active), (C.STAFF_DESK, "admin", 1))
-		self.assertEqual(rows[0].designation, "Programme Admin")
-		self.assertEqual(frappe.db.get_value(DESK, C.STAFF_DESK, "active"), 0)
+		self.assertFalse(self._rows(admin["name"]))
+		self.assertEqual(frappe.db.get_value("User", admin["name"], "enabled"), 1)
+		self.assertEqual(frappe.db.get_value("User", admin["name"], "oan_designation"), "Programme Admin")
 
-	def test_a_reviewer_is_a_user_with_that_role_alone_and_a_row_on_the_staff_desk(self):
+	def test_a_reviewer_is_a_user_with_that_role_alone_and_no_desk_row(self):
 		reviewer = self._staff("Reviewer")
 		self.assertEqual(reviewer["role"], "Reviewer")
 		self.assertEqual(self._roles(reviewer["name"]), [C.ROLE_REVIEW_OFFICER])
-		row = self._rows(reviewer["name"])[0]
-		self.assertEqual((row.parent, row.role_level), (C.STAFF_DESK, "review_officer"))
+		self.assertFalse(self._rows(reviewer["name"]))
 
 	def test_the_record_has_no_desk_fields(self):
 		for role in ("Admin", "Reviewer"):
@@ -309,7 +267,6 @@ class TestCreateStaffAccounts(StaffAccountCase):
 		admin = self._staff("Admin", status="Inactive")
 		self.assertEqual(admin["status"], "Inactive")
 		self.assertEqual(frappe.db.get_value("User", admin["name"], "enabled"), 0)
-		self.assertEqual(self._rows(admin["name"])[0].active, 0)
 
 	def test_a_second_account_for_the_same_email_is_refused(self):
 		admin = self._staff("Admin")
@@ -355,11 +312,15 @@ class TestOneGrievanceRole(StaffAccountCase):
 		self.assertEqual(check_password(login, "TheirOwn123!"), login)
 		self.assertEqual(self._roles(login), sorted(["Report Manager", C.ROLE_REVIEW_OFFICER]))
 
-	def test_a_desk_made_admin_can_be_put_on_the_roster(self):
+	def test_a_desk_made_admin_is_listed_and_cannot_be_created_again(self):
 		login = _user(f"{PREFIX}deskadmin@example.com", "Desk Admin", role=C.ROLE_ADMIN)
-		result = self._create_staff("Admin", login)
-		self.assertEqual(result["status"], "success", msg=result)
-		self.assertEqual(self._rows(login)[0].parent, C.STAFF_DESK)
+		self.assertIn(
+			login, [row["name"] for row in list_officers(role="Admin", q=PREFIX)["data"]["officers"]]
+		)
+		self.assertEqual(get_officer(login)["data"]["officer"]["role"], "Admin")
+		with _keep_transaction():
+			again = self._create_staff("Admin", login)
+		self.assertEqual(again["code"], "VALIDATION_ERROR", msg=again)
 		self.assertEqual(self._roles(login), [C.ROLE_ADMIN])
 
 	def test_a_login_with_another_grievance_role_cannot_become_an_admin_or_reviewer(self):
@@ -404,21 +365,6 @@ class TestOneGrievanceRole(StaffAccountCase):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(role, result))
 				self.assertEqual(self._roles(email), [role])
 				self.assertFalse(self._rows(email))
-
-	def test_create_officer_rejects_a_rostered_admin_even_if_the_role_was_removed(self):
-		admin = self._staff("Admin")
-		frappe.db.delete("Has Role", {"parent": admin["name"]})
-		with _keep_transaction():
-			result = create_officer(
-				full_name="X",
-				designation="Y",
-				level="L1",
-				department="S443",
-				email=admin["email"],
-				service_categories=[self.inputs],
-				temporary_password=PASSWORD,
-			)
-		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 
 	def test_an_officer_is_not_made_an_admin_by_the_same_email(self):
 		officer = self._officer()
@@ -480,27 +426,26 @@ class TestStaffNeverTakePartInGrievanceWork(StaffAccountCase):
 		admin = self._staff("Admin")
 		reviewer = self._staff("Reviewer")
 		for user in (admin["name"], reviewer["name"]):
-			# The rows are active; it is the staff desk being inactive that takes them out.
-			self.assertEqual(self._rows(user)[0].active, 1)
+			self.assertFalse(self._rows(user))
 			self.assertEqual(query_active_officer_assignments(user=user), [])
 			self.assertEqual(query_active_officer_assignments(user=user, include_user_details=True), [])
 			self.assertEqual(active_scopes(user), [])
 			self.assertIsNone(current_level_of(user))
 			self.assertIsNone(get_officer_supervisor(user))
 			self.assertEqual(get_subordinate_officers(user), {user})
-			for level in (C.ROLE_LEVEL_ADMIN, C.ROLE_LEVEL_REVIEW_OFFICER, "nodal_officer"):
+			for level in ("nodal_officer", "senior_nodal_officer", "department_head"):
 				self.assertFalse(holds_rung(user, level))
-		for level in (C.ROLE_LEVEL_ADMIN, C.ROLE_LEVEL_REVIEW_OFFICER):
-			self.assertEqual(query_active_officer_assignments(role_level=level), [])
-			self.assertIsNone(find_officer_by_role_level(level))
+		self.assertNotIn(admin["name"], {row.user for row in query_active_officer_assignments()})
+		self.assertNotIn(reviewer["name"], {row.user for row in query_active_officer_assignments()})
 
 	def test_staff_are_not_offered_a_case_by_routing(self):
-		self._staff("Admin")
-		self._staff("Reviewer")
+		admin = self._staff("Admin")
+		reviewer = self._staff("Reviewer")
 		case = {"service_category": self.inputs, "administrative_area": a_leaf_area()}
-		self.assertEqual(routing.department_desks(case, C.STAFF_DEPARTMENT), [])
-		desks = {desk.name for desk in routing.department_desks(case, self.department)}
-		self.assertNotIn(C.STAFF_DESK, desks)
+		for desk in routing.department_desks(case, self.department):
+			doc = frappe.get_doc(DESK, desk.name)
+			users = {row.user for row in doc.officers}
+			self.assertTrue(users.isdisjoint({admin["name"], reviewer["name"]}))
 
 	def test_staff_are_not_in_officer_statistics(self):
 		officer = self._officer()
@@ -512,21 +457,6 @@ class TestStaffNeverTakePartInGrievanceWork(StaffAccountCase):
 		self.assertIn(officer["name"], users)
 		self.assertNotIn(admin["name"], users)
 		self.assertNotIn(reviewer["name"], users)
-
-	def test_staff_are_not_on_the_category_assignment_desks_or_the_escalation_chain(self):
-		self._staff("Admin")
-		self._staff("Reviewer")
-		self.assertFalse(frappe.get_all(DESK, filters=category_assignment.desk_filters(name=C.STAFF_DESK)))
-		frappe.cache.delete_value("grievance_role_level_chain")
-		chain = {level.name for level in GrievanceRoleLevel.get_chain()}
-		self.assertTrue(chain.isdisjoint({C.ROLE_LEVEL_ADMIN, C.ROLE_LEVEL_REVIEW_OFFICER}))
-
-	def test_an_officer_role_is_not_needed_on_the_staff_desk(self):
-		"""validate_links is skipped, so a Reviewer sits on the desk without the Officer role."""
-		reviewer = self._staff("Reviewer")
-		self.assertNotIn(C.ROLE_OFFICER, self._roles(reviewer["name"]))
-		desk = frappe.get_doc(DESK, C.STAFF_DESK)
-		self.assertIn(reviewer["name"], [row.user for row in desk.officers])
 
 
 class TestListByRole(StaffAccountCase):
@@ -642,7 +572,7 @@ class TestUpdateStaffAccounts(StaffAccountCase):
 			(record["full_name"], record["phone"], record["designation"], record["role"]),
 			("Renamed Admin", "+251911999999", "Lead", "Admin"),
 		)
-		self.assertEqual(self._rows(admin["name"])[0].designation, "Lead")
+		self.assertEqual(frappe.db.get_value("User", admin["name"], "oan_designation"), "Lead")
 		self.assertEqual(self._roles(admin["name"]), [C.ROLE_ADMIN])
 
 	def test_everything_else_is_refused_and_changes_nothing(self):
@@ -674,7 +604,6 @@ class TestUpdateStaffAccounts(StaffAccountCase):
 			self.assertEqual(phone["code"], "VALIDATION_ERROR", msg=phone)
 			blank = update_officer(reviewer["name"], phone="  ")
 			self.assertEqual(blank["code"], "VALIDATION_ERROR", msg=blank)
-		self.assertEqual(self._rows(reviewer["name"])[0].on_leave, 0)
 		self.assertEqual(get_officer(reviewer["name"])["data"]["officer"]["phone"], "+251911000001")
 
 	def test_an_officer_update_is_unchanged(self):
@@ -700,7 +629,7 @@ class TestDeactivation(StaffAccountCase):
 	def _sessions(self, user):
 		return frappe.db.sql("SELECT sid FROM `tabSessions` WHERE user = %s", user)
 
-	def test_inactive_retires_the_row_disables_the_login_and_ends_sessions_and_tokens(self):
+	def test_inactive_disables_the_login_and_ends_sessions_and_tokens(self):
 		reviewer = self._staff("Reviewer")
 		user = reviewer["name"]
 		frappe.db.set_value("User", user, MUST_CHANGE_PASSWORD_FIELD, 0)
@@ -713,7 +642,6 @@ class TestDeactivation(StaffAccountCase):
 		result = update_officer(user, status="Inactive")
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(result["data"]["officer"]["status"], "Inactive")
-		self.assertEqual(self._rows(user)[0].active, 0)
 		self.assertEqual(frappe.db.get_value("User", user, "enabled"), 0)
 		self.assertFalse(self._sessions(user))
 		self.assertFalse(frappe.db.exists(REFRESH_TOKEN_DOCTYPE, {"user": user}))
@@ -760,7 +688,6 @@ class TestDeactivation(StaffAccountCase):
 		self.assertEqual(deactivated["status"], "success", msg=deactivated)
 		reactivated = update_officer(user, status="Active")
 		self.assertEqual(reactivated["data"]["officer"]["status"], "Active")
-		self.assertEqual(self._rows(user)[0].active, 1)
 		self.assertEqual(frappe.db.get_value("User", user, "enabled"), 1)
 		with configured_keys(), _keep_transaction():
 			status, body = _call("/api/v1/auth/login", {"usr": user, "pwd": "TheirOwn123!"})
@@ -769,7 +696,6 @@ class TestDeactivation(StaffAccountCase):
 
 	def test_an_admin_cannot_deactivate_their_own_account(self):
 		me = self._caller("me", C.ROLE_ADMIN)
-		self._staff("Admin", me)
 		other = self._caller("other-admin", C.ROLE_ADMIN)
 		self.assertTrue(other)
 		frappe.set_user(me)
@@ -777,7 +703,6 @@ class TestDeactivation(StaffAccountCase):
 			result = update_officer(me, status="Inactive")
 		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 		self.assertEqual(frappe.db.get_value("User", me, "enabled"), 1)
-		self.assertEqual(self._rows(me)[0].active, 1)
 
 	def test_the_last_active_grievance_admin_cannot_be_deactivated(self):
 		# Disable every other admin on the site so the one under test really is the last.
@@ -791,7 +716,6 @@ class TestDeactivation(StaffAccountCase):
 		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 		self.assertIn("last active", result["message"])
 		self.assertEqual(frappe.db.get_value("User", last["name"], "enabled"), 1)
-		self.assertEqual(self._rows(last["name"])[0].active, 1)
 
 		second = self._staff("Admin", f"{PREFIX}second@example.com")
 		self.assertEqual(update_officer(last["name"], status="Inactive")["status"], "success")
@@ -862,8 +786,6 @@ class TestPasswordResets(StaffAccountCase):
 	def test_nobody_resets_their_own_password(self):
 		for role in (C.ROLE_ADMIN, "System Manager"):
 			me = self._caller(f"self-{role.split()[0].lower()}", role)
-			if role == C.ROLE_ADMIN:
-				self._staff("Admin", me)
 			frappe.set_user(me)
 			with _keep_transaction():
 				result = reset_temporary_password(me, temporary_password="Another123")
@@ -946,7 +868,6 @@ class TestPermissions(StaffAccountCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(label, result))
 		frappe.set_user("Administrator")
 		self.assertEqual(self._roles(self.admin["name"]), [C.ROLE_ADMIN])
-		self.assertEqual(self._rows(self.admin["name"])[0].active, 1)
 		self.assertFalse(frappe.db.exists("User", f"{PREFIX}w-admin@example.com"))
 
 	def test_a_reviewer_reads_officers_but_not_admins_or_reviewers(self):
@@ -1175,3 +1096,43 @@ class TestStatusCounts(StaffAccountCase):
 			self._counts(q="no-one-has-this-name"),
 			{"active": 0, "on_leave": 0, "inactive": 0, "total": 0},
 		)
+
+
+class TestPlainUsers(StaffAccountCase):
+	"""Admin and Reviewer are the User and its role; nothing else records them."""
+
+	def test_no_desk_department_or_role_level_is_involved(self):
+		self._staff("Admin")
+		self._staff("Reviewer")
+		self.assertFalse(frappe.db.exists(DESK, "GR-RBAC-STAFF"))
+		self.assertFalse(frappe.db.exists("Grievance Department", "Administration"))
+		for code in ("admin", "review_officer"):
+			self.assertFalse(frappe.db.exists("Grievance Role Level", code))
+
+	def test_the_status_is_the_user_enabled_flag(self):
+		admin = self._staff("Admin")
+		self._staff("Admin", f"{PREFIX}backup-admin@example.com")
+		update_officer(admin["name"], status="Inactive")
+		self.assertEqual(frappe.db.get_value("User", admin["name"], "enabled"), 0)
+		frappe.db.set_value("User", admin["name"], "enabled", 1)
+		self.assertEqual(get_officer(admin["name"])["data"]["officer"]["status"], "Active")
+
+	def test_system_managers_and_officers_are_not_in_the_staff_lists(self):
+		manager = self._caller("both-manager", "System Manager")
+		frappe.get_doc("User", manager).add_roles(C.ROLE_ADMIN)
+		officer = self._officer()
+		frappe.get_doc("User", officer["name"]).add_roles(C.ROLE_REVIEW_OFFICER)
+		real = self._staff("Reviewer", f"{PREFIX}real-reviewer@example.com")
+
+		listed = [
+			row["name"] for row in list_officers(role="Admin", q=PREFIX, page_size=100)["data"]["officers"]
+		]
+		self.assertNotIn(manager, listed)
+		reviewers = [
+			row["name"] for row in list_officers(role="Reviewer", q=PREFIX, page_size=100)["data"]["officers"]
+		]
+		self.assertEqual(reviewers, [real["name"]])
+		with _keep_transaction():
+			self.assertEqual(get_officer(manager)["code"], "NOT_FOUND")
+		# The officer still reads as an officer.
+		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["role"], "Officer")

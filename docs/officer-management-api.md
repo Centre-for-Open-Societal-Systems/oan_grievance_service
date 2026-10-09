@@ -176,7 +176,7 @@ GET /api/v1/officers?level=L1&department=MoA&status=Active&page=1&page_size=20
 
 `GET /api/v1/officers/{officer}`
 
-No query or body. Returns `data.officer` with the same shape as above, for an account of any role. 404 if the id is not on the roster. 403 if the account is an Admin or Reviewer and the caller is a Review Officer.
+No query or body. Returns `data.officer` with the same shape as above, for an account of any role. 404 if the id is not an officer, admin or reviewer. 403 if the account is an Admin or Reviewer and the caller is a Review Officer.
 
 ## 6. Create an officer
 
@@ -241,8 +241,8 @@ Returns 200 with `data.officer`, where `must_change_password` is now `true`. Rul
 
 - The account's current sessions end at once, so use it when an account may be compromised too.
 - The password rule is the same as on create. A weak one returns 400 with the message under `details.temporary_password`.
-- It works for an account on the roster, of any role. An email that is not on it returns 404.
-- A Grievance Admin can reset Officers and Reviewers. Resetting an **Admin** account needs a System Manager or Administrator; another Grievance Admin gets 403. An account that holds the Grievance Admin role counts as an Admin account even if it is also on the roster as an officer.
+- It works for an officer, admin or reviewer. Any other email returns 404.
+- A Grievance Admin can reset Officers and Reviewers. Resetting an **Admin** account needs a System Manager or Administrator; another Grievance Admin gets 403. An account that holds the Grievance Admin role counts as an Admin account even if it is also an officer.
 - Nobody can reset their own password here (403).
 - A System Manager or Administrator account is never reset here (403). Recovering one stays on Frappe Desk or `bench`, because the auth service has no System Manager reset endpoint yet.
 - Meant to be limited to 10 requests per admin every 5 minutes (see the note in section 12), and logged with the caller, the account and its role.
@@ -322,7 +322,7 @@ Nobody can deactivate their own account (403), and the last active Grievance Adm
 | "… would be left without officers. Assign another officer first." | The officer is the only one on a desk they are being removed from                                                                                                      |
 | "Department '…' does not exist." / "Region '…' does not exist."   | The picker value is stale. Reload the options                                                                                                                          |
 | "… already holds the … role. An account holds one grievance role" | The login is already a submitter, officer, admin or reviewer. Use a different email                                                                                    |
-| "… is already an Admin or Reviewer."                              | That email is already on the roster as an Admin or Reviewer                                                                                                            |
+| "… is already an Admin or Reviewer."                              | That email already holds the Admin or Reviewer role                                                                                                                    |
 | "… is the last active Grievance Admin and cannot be deactivated." | Make another Grievance Admin first                                                                                                                                     |
 | "… cannot be changed on a … account."                             | An Admin or Reviewer has no level, department, region, supervisor or categories                                                                                        |
 
@@ -351,7 +351,6 @@ Nobody can deactivate their own account (403), and the last active Grievance Adm
 - Department Head as a level. Only `L1` and `L2` are accepted.
 - Performance metrics per officer. They come from the statistics API.
 - Recovering a System Manager or Administrator account. It stays on Frappe Desk or `bench` until the auth service gets its own endpoint.
-- Admin and Reviewer logins that were created on Frappe Desk before this API are not on the roster until someone registers them. `POST /officers` with their email and `role` does it, keeps their password and says so in the message.
 - The password-reset rate limit. The handler calls the auth service's `check_rate_limit` with 10 requests per 5 minutes, but that helper reads its counter through a different cache key than it writes, so it does not limit anything today. It is the same for every role and is tracked on the auth service, not here.
 
 ## 13. Admin and Reviewer accounts
@@ -381,7 +380,7 @@ Nobody can deactivate their own account (403), and the last active Grievance Adm
 | `status`                                                            | optional. `Active` (default) or `Inactive`. `On Leave` returns 400   |
 | `level`, `department`, `service_categories`, `reports_to`, `region` | **refused** with 400. `details` names each field sent                |
 
-The login is created only when the email is new, and holds the requested role and no other. An existing login with no grievance role (or one that already holds this role, for example an admin created on Frappe Desk) is kept as it is, password included, and the message says so. A login that holds a different grievance role is refused (section 6).
+The login is created only when the email is new, and holds the requested role and no other. An existing login with no grievance role is kept as it is, password included, and the message says so. A login that already holds a grievance role is refused (section 6), including one that already holds this role.
 
 **Record.** The same fields as an officer, plus `role`. For an Admin or Reviewer, `level`, `department`, `region`, `region_name`, `reports_to` and `reports_to_name` are `null`, `service_categories` is `[]` and `assignments` is `[]`. `designation`, `phone`, `status` and `must_change_password` are filled as for an officer.
 
@@ -410,7 +409,7 @@ The login is created only when the email is new, and holds the requested role an
 
 **Status.** Only `Active` and `Inactive`; `On Leave` returns 400.
 
-- `Inactive` retires the account's roster row, disables the login (`User.enabled = 0`), and ends its sessions and refresh tokens. It cannot sign in, and an access token it already holds is refused.
+- `Inactive` disables the login (`User.enabled = 0`) and ends its sessions and refresh tokens. It cannot sign in, and an access token it already holds is refused.
 - `Active` enables the login again. The password is unchanged, so an account that never replaced its temporary password still has to.
 - A login disabled on Frappe Desk reads as `Inactive` here too, so the list, the record and the counts agree.
 - Nobody can deactivate their own account (403). The last active Grievance Admin cannot be deactivated (400).
@@ -421,16 +420,16 @@ The login is created only when the email is new, and holds the requested role an
 
 ### How they are recorded
 
-Every grievance login is on the RBAC record so the roster stays in one place. An Admin or Reviewer has one row on a **staff desk**, which exists only to hold them.
+An Admin or Reviewer is a plain Frappe User that holds the role. Nothing else records them, so there is no second list to keep in step:
 
-| Item        | Value                                                                                                                                                                                            |
-| :---------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Staff desk  | `GR-RBAC-STAFF` (`constants.STAFF_DESK`). Never active; saving it always clears `active`                                                                                                         |
-| Department  | `Administration`, inactive, with a placeholder mailbox that is never used. The doctype requires a department scope, so this is the placeholder. It is in no dropdown and no case is routed to it |
-| Role levels | `admin` and `review_officer`, both inactive, so neither is a step of the escalation chain                                                                                                        |
-| Created by  | `seed_staff_desk()` in `setup/install.py`, run on install and on every `bench migrate`. The API runs it too if it finds the desk missing                                                         |
+| Item        | Where it lives                                                                                          |
+| :---------- | :------------------------------------------------------------------------------------------------------ |
+| Role        | The `Has Role` row on the User (`Grievance Admin` or `Grievance Review Officer`)                        |
+| Status      | `User.enabled`. Active is enabled, Inactive is disabled. Disabling in Desk is reflected here at once    |
+| Designation | The `oan_designation` Custom Field on User, seeded by `setup/install.py` on install and `bench migrate` |
+| Name, phone | `User.full_name` and `User.phone`                                                                       |
 
-Routing, escalation, scope checks and officer statistics read **active** desks only, and the officer list reads L1 and L2 rows only, so the staff desk's rows never appear in them. The desk has no category scope, so the active-desk link checks (`validate_links`) never run on it, and a Reviewer can sit on it without the Officer role. What an account may do comes from its Frappe role alone; the row is the roster entry.
+They have no desk, so routing, escalation, scope checks and officer statistics never see them. An account with officer rows is an officer here whatever other roles it holds, and a System Manager or Administrator is never listed or managed, even if it also holds one of these roles. Logins created on Frappe Desk with the role are listed like any other.
 
 ## 14. Status counts
 

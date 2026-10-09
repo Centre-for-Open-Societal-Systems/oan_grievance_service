@@ -4345,7 +4345,7 @@ paths:
       tags:
       - Administration
       summary: Issue a new temporary password
-      description: Reissue a temporary password to an account on the roster.
+      description: Reissue a temporary password to an officer, admin or reviewer.
       operationId: post_api_v1_officers_officer_password_resets
       responses:
         '200':

@@ -160,8 +160,7 @@ def a_department():
 	if _CACHED_DEPARTMENT and frappe.db.exists("Grievance Department", _CACHED_DEPARTMENT):
 		return _CACHED_DEPARTMENT
 
-	# Active only: the seeded Administration department holds the staff desk and is inactive.
-	existing = frappe.db.get_value("Grievance Department", {"active": 1}, "name")
+	existing = frappe.db.get_value("Grievance Department", {}, "name")
 	if existing:
 		_CACHED_DEPARTMENT = existing
 		return existing

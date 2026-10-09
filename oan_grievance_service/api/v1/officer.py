@@ -8,10 +8,10 @@ An officer is a User placed on category desks through Grievance RBAC Assignment 
 rows, so what an admin edits here is what routing, permissions and escalation read. The
 officer id is the User id, which is the officer's email.
 
-An Admin ("Grievance Admin") or Reviewer ("Grievance Review Officer") is a User too, rostered on
-the inactive staff desk so it is on the RBAC record without taking part in routing, escalation,
-scope checks or officer statistics. `role` selects which accounts a call is about and defaults to
-Officer, which is exactly the behaviour this resource had before roles existed.
+An Admin ("Grievance Admin") or Reviewer ("Grievance Review Officer") is a plain User that holds
+that role. It has no desk, so it takes no part in routing, escalation, scope checks or officer
+statistics. `role` selects which accounts a call is about and defaults to Officer, which is
+exactly the behaviour this resource had before roles existed.
 
 Officers are not deleted: set `status` to Inactive. Performance metrics (assigned, resolved,
 average time, resolution rate) are served by the statistics API, not by this resource.
@@ -386,8 +386,8 @@ def get_officer(officer: str, **kwargs):
 	+ "category assignment for the department, and reports_to is an L2 officer and is only for "
 	+ "an L1. An Admin or Reviewer needs only full_name, email, phone and temporary_password, "
 	+ "with an optional designation; level, department, service_categories, reports_to and "
-	+ "region are refused. An Admin or Reviewer is recorded on the staff desk and takes no "
-	+ "part in grievance routing. The login is created when the email is new, with the "
+	+ "region are refused. An Admin or Reviewer is a User with that role and has no desk, so "
+	+ "it takes no part in grievance routing. The login is created when the email is new, with the "
 	+ "requested role alone. An existing login is promoted only if it holds no grievance role, "
 	+ "or already holds this one: an account holds one of Submitter, Officer, Admin or "
 	+ "Reviewer, and a System Manager or Administrator is never managed here. "
@@ -483,7 +483,7 @@ def update_officer(officer: str, **kwargs):
 	response_model=OfficerData,
 )
 def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
-	"""Reissue a temporary password to an account on the roster."""
+	"""Reissue a temporary password to an officer, admin or reviewer."""
 	check_rate_limit(f"rl:officer_temporary_password:{frappe.session.user}", limit=10, window=300)
 
 	service.reset_temporary_password(officer, temporary_password)

@@ -137,7 +137,7 @@ class TestReviewOfficer(FrappeTestCase):
 		)
 
 	def test_frappe_permissions_refuse_a_write_without_any_role_check_of_ours(self):
-		department = frappe.db.get_value("Grievance Department", {"active": 1}, "name")
+		department = frappe.db.get_value("Grievance Department", {}, "name")
 		self.assertTrue(frappe.has_permission("Grievance Department", "read", user=self.reviewer))
 		for ptype in ("write", "create", "delete"):
 			self.assertFalse(frappe.has_permission("Grievance Department", ptype, user=self.reviewer))

@@ -73,17 +73,6 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
 
-# Admin and Reviewer accounts are rostered on one RBAC desk that exists only to hold them
-# (STG-443), so every grievance login is on the RBAC record. The desk is seeded by
-# setup/install.py under this fixed name and is never active: routing, escalation, scope
-# checks and officer statistics read active desks only, so staff never take part in them.
-STAFF_DESK = "GR-RBAC-STAFF"
-# The desk's required department_scope. A department that exists only for the staff desk:
-# inactive, so it is in no dropdown, and never a routing target.
-STAFF_DEPARTMENT = "Administration"
-# Role levels the staff rows carry. Inactive, so they are not rungs of the escalation chain.
-ROLE_LEVEL_ADMIN = "admin"
-ROLE_LEVEL_REVIEW_OFFICER = "review_officer"
 # The four roles that make an account a grievance participant. They are additive in Frappe,
 # so an account holds exactly one: a combination would grant write access nobody chose.
 GRIEVANCE_ROLES = frozenset({ROLE_SUBMITTER, ROLE_OFFICER, ROLE_ADMIN, ROLE_REVIEW_OFFICER})

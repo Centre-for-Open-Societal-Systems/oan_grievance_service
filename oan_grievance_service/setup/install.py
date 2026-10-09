@@ -125,25 +125,6 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
-# The roster rungs of the Admin and Reviewer accounts (STG-443). They are inactive on
-# purpose: `get_chain` and `top_rung` read active levels only, so neither is ever a step of an
-# escalation. They exist so a staff account can sit on the RBAC record like every other login.
-# The orders are far above the chain's and only keep the two apart.
-STAFF_ROLE_LEVELS = [
-	(
-		C.ROLE_LEVEL_ADMIN,
-		"Grievance Admin",
-		900,
-		"Roster entry of a Grievance Admin account. Not a step of the escalation chain.",
-	),
-	(
-		C.ROLE_LEVEL_REVIEW_OFFICER,
-		"Grievance Review Officer",
-		910,
-		"Roster entry of a Grievance Review Officer account. Not a step of the escalation chain.",
-	),
-]
-
 # Service categories. The code is the 3-character CATEGORY segment of the ticket number
 # (services.ticket_number). Three characters allow 32,768 categories, so a
 # service can later be split into much finer groups without the codes running
@@ -506,13 +487,13 @@ def seed_all():
 		"sla_category_field": seed_sla_category_field(),
 		"workflow": seed_workflow(),
 		"role_levels": seed_role_levels(),
-		"staff_desk": seed_staff_desk(),
 		"categories": seed_categories(),
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
 		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
+		"user_designation_field": seed_user_designation_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
@@ -771,60 +752,6 @@ def seed_role_levels():
 			}
 		).insert(ignore_permissions=True)
 		made.append(code)
-	for code, name, order, description in STAFF_ROLE_LEVELS:
-		if frappe.db.exists("Grievance Role Level", code):
-			continue
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Role Level",
-				"level_code": code,
-				"level_name": name,
-				"level_order": order,
-				"description": description,
-				"is_active": 0,
-			}
-		).insert(ignore_permissions=True)
-		made.append(code)
-	return made
-
-
-def seed_staff_desk():
-	"""The RBAC desk that holds the Admin and Reviewer accounts, and the department it needs.
-
-	The desk is `GR-RBAC-STAFF` (constants.STAFF_DESK) and is never active, which is what keeps
-	its rows out of routing, escalation, scope checks and officer statistics. The doctype
-	requires a department scope, so the desk points at an `Administration` department that
-	exists for nothing else: inactive, so it is in no dropdown and cannot receive a case. A
-	desk with no rows yet is valid here (`ignore_mandatory`); the officer API adds them.
-
-	Idempotent, and also run by the officer API when it finds the desk missing.
-	"""
-	seed_role_levels()
-	made = []
-	if not frappe.db.exists("Grievance Department", C.STAFF_DEPARTMENT):
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Department",
-				"dept_name": C.STAFF_DEPARTMENT,
-				"short_name": "ADM",
-				# Required by the doctype. Nothing is ever sent to it: no case is routed here.
-				"email_account": "administration@oan.invalid",
-				"active": 0,
-			}
-		).insert(ignore_permissions=True)
-		made.append(C.STAFF_DEPARTMENT)
-	if not frappe.db.exists("Grievance RBAC Assignment", C.STAFF_DESK):
-		desk = frappe.get_doc(
-			{
-				"doctype": "Grievance RBAC Assignment",
-				"department_scope": C.STAFF_DEPARTMENT,
-				"active": 0,
-				"effective_from": frappe.utils.today(),
-			}
-		)
-		desk.flags.staff_desk = True
-		desk.insert(ignore_permissions=True, ignore_mandatory=True)
-		made.append(C.STAFF_DESK)
 	return made
 
 
@@ -921,6 +848,30 @@ def seed_recipient_custom_field():
 		},
 	)
 	return ["Notification-grievance_recipient"]
+
+
+def seed_user_designation_field():
+	"""The title of an Admin or Reviewer, as a Custom Field on core User.
+
+	An officer's designation lives on their desk rows. An Admin or Reviewer has no desk, and
+	User has no title of its own, so theirs is this field. It is not read for officers.
+	"""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	if frappe.db.exists("Custom Field", "User-oan_designation"):
+		return []
+
+	create_custom_field(
+		"User",
+		{
+			"fieldname": "oan_designation",
+			"label": "Designation",
+			"fieldtype": "Data",
+			"insert_after": "phone",
+			"description": "Title of a Grievance Admin or Review Officer.",
+		},
+	)
+	return ["User-oan_designation"]
 
 
 def _translatable(source, args, context_key):

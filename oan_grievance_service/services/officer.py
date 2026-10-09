@@ -18,7 +18,7 @@ desk and its permissions stay, but auto-routing skips the officer), and Inactive
 `active` cleared. Changing status writes every desk row of the officer.
 
 The same resource also serves Admin and Reviewer accounts (`role`), which are not officers:
-they sit on the staff desk and never on a category desk. `services/staff_account.py` owns
+they are plain Users with a role and never on a category desk. `services/staff_account.py` owns
 them; this module dispatches to it by role and keeps the Officer behaviour as it was.
 """
 
@@ -29,6 +29,8 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
+from pypika.functions import Max
+from pypika.terms import Case
 
 from oan_grievance_service.services import account, category_assignment, staff_account
 from oan_grievance_service.services import constants as C
@@ -78,7 +80,7 @@ def create(
 	already has an account. A login that is already an officer is rejected, and so is one
 	that holds another grievance role (Submitter, Admin or Reviewer) or is a System Manager
 	or Administrator: the roles are additive, so a second one would grant access nobody chose.
-	For an Admin or Reviewer the desk fields do not apply: the account goes on the staff desk.
+	For an Admin or Reviewer the desk fields do not apply: the account is a User with that role.
 
 	`temporary_password` is required, so a new officer always has a way in: they can use it
 	just long enough to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). It is applied
@@ -124,14 +126,14 @@ def create(
 def reset_temporary_password(user_id: str, password: str) -> str:
 	"""Issue a fresh temporary password to an existing account (the forgotten-password path).
 
-	Only an account on the roster: this is how an admin recovers an account they manage, and
+	Only an officer, admin or reviewer: this is how an admin recovers an account they manage, and
 	it must not be a way to set a password on any other login. The account's current sessions
 	end and it must replace the password before signing in again.
 
 	Nobody resets their own password here, and System Manager and Administrator accounts are
 	never reset here. An Admin account is reset by a System Manager or Administrator only, so
 	one Grievance Admin cannot take over another. An account that holds the Grievance Admin
-	role counts as an Admin account whatever else it is on the roster.
+	role counts as an Admin account whatever else it is.
 	"""
 	account.assert_manageable(user_id)
 	if user_id == frappe.session.user:
@@ -272,12 +274,24 @@ def status_counts(
 	query = _officer_query(
 		level=level, department=department, service_category=service_category, region=region, q=q
 	)
-	return account.status_counts(
-		query,
-		user,
-		available=(row.active == 1) & (row.on_leave == 0),
-		reachable=row.active == 1,
+	per_person = (
+		query.select(
+			Max(Case().when((row.active == 1) & (row.on_leave == 0), 1).else_(0)).as_("available"),
+			Max(Case().when(row.active == 1, 1).else_(0)).as_("reachable"),
+		)
+		.groupby(user.name)
+		.as_("per_person")
 	)
+	outcomes = (
+		frappe.qb.from_(per_person)
+		.select(per_person.available, per_person.reachable, Count("*"))
+		.groupby(per_person.available, per_person.reachable)
+		.run()
+	)
+	counts = {"active": 0, "on_leave": 0, "inactive": 0}
+	for available, reachable, count in outcomes:
+		counts["active" if available else "on_leave" if reachable else "inactive"] += count
+	return {**counts, "total": sum(counts.values())}
 
 
 def _officer_query(*, level, department, service_category, region, q):
