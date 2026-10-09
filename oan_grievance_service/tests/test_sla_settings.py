@@ -89,11 +89,11 @@ class TestSlaSettings(FrappeTestCase):
 		policy = result["data"]["policy"]
 		self.assertEqual(
 			set(policy),
-			{"max_deferral_days", "auto_escalation_threshold", "deferral_approval", "modified"},
+			{"max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval", "modified"},
 		)
 
 		updated = update_global_policy(
-			max_deferral_days=21, auto_escalation_threshold=80, deferral_approval="l1_self_approve"
+			max_deferral_days=21, auto_escalation_threshold=80, requires_supervisor_approval=False
 		)
 		self.assertEqual(updated["status"], "success", msg=updated)
 		self.assertEqual(
@@ -101,7 +101,7 @@ class TestSlaSettings(FrappeTestCase):
 			{
 				"max_deferral_days": 21,
 				"auto_escalation_threshold": 80,
-				"deferral_approval": "l1_self_approve",
+				"requires_supervisor_approval": False,
 			},
 		)
 
@@ -112,12 +112,12 @@ class TestSlaSettings(FrappeTestCase):
 		self.assertEqual(frappe.db.get_single_value(POLICY, "requires_supervisor_approval"), 0)
 
 		# Omitted fields stay.
-		partial = update_global_policy(deferral_approval="l2_approval")
-		self.assertEqual(partial["data"]["policy"]["deferral_approval"], "l2_approval")
+		partial = update_global_policy(requires_supervisor_approval=True)
+		self.assertEqual(partial["data"]["policy"]["requires_supervisor_approval"], True)
 		self.assertEqual(partial["data"]["policy"]["max_deferral_days"], 21)
 		self.assertEqual(partial["data"]["policy"]["auto_escalation_threshold"], 80)
 		self.assertTrue(requires_supervisor_approval())
-		self.assertEqual(get_global_policy()["data"]["policy"]["deferral_approval"], "l2_approval")
+		self.assertEqual(get_global_policy()["data"]["policy"]["requires_supervisor_approval"], True)
 
 	def test_global_policy_untouched_single_reads_as_defaults(self):
 		frappe.db.delete("Singles", {"doctype": POLICY})
@@ -125,15 +125,7 @@ class TestSlaSettings(FrappeTestCase):
 		policy = get_global_policy()["data"]["policy"]
 		self.assertEqual(policy["max_deferral_days"], C.DEFAULT_MAX_DEFERRAL_DAYS)
 		self.assertEqual(policy["auto_escalation_threshold"], C.DEFAULT_ESCALATION_THRESHOLD)
-
-	def test_deferral_approval_maps_to_the_check_field(self):
-		policy = frappe.get_doc(POLICY)
-		policy.set_deferral_approval("l1_self_approve")
-		self.assertEqual(policy.requires_supervisor_approval, 0)
-		policy.set_deferral_approval("l2_approval")
-		self.assertEqual(policy.requires_supervisor_approval, 1)
-		with self.assertRaises(frappe.ValidationError):
-			policy.set_deferral_approval("nobody")
+		self.assertTrue(policy["requires_supervisor_approval"])
 
 	def test_global_policy_rejects_bad_input(self):
 		with _keep_transaction():
@@ -143,8 +135,8 @@ class TestSlaSettings(FrappeTestCase):
 				{"max_deferral_days": "many"},
 				{"auto_escalation_threshold": 0},
 				{"auto_escalation_threshold": 101},
-				{"deferral_approval": "nobody"},
-				{"requires_supervisor_approval": True},
+				{"requires_supervisor_approval": "nobody"},
+				{"deferral_approval": "l2_approval"},
 			):
 				result = update_global_policy(**kwargs)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(kwargs, result))

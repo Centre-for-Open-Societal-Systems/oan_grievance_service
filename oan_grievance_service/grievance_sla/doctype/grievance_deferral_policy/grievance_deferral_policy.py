@@ -24,18 +24,8 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
-# Who decides a deferral. The Check field below stores it, these are the two names a client sees.
-L2_APPROVAL = "l2_approval"
-L1_SELF_APPROVE = "l1_self_approve"
-
 
 class GrievanceDeferralPolicy(Document):
-	def set_deferral_approval(self, approval: str):
-		"""Store the L2 / L1 self-approve choice on `requires_supervisor_approval`."""
-		if approval not in (L2_APPROVAL, L1_SELF_APPROVE):
-			frappe.throw(_("Deferral approval must be {0} or {1}.").format(L2_APPROVAL, L1_SELF_APPROVE))
-		self.requires_supervisor_approval = 1 if approval == L2_APPROVAL else 0
-
 	def validate(self):
 		if self.max_deferral_days is not None and self.max_deferral_days < 0:
 			frappe.throw(_("The deferral ceiling cannot be negative."))
@@ -57,11 +47,6 @@ def max_deferral_days():
 def requires_supervisor_approval():
 	"""Whether a deferral must be decided by someone above the assigned officer."""
 	return bool(get_policy().requires_supervisor_approval)
-
-
-def deferral_approval():
-	"""Who decides a deferral: `l2_approval` or `l1_self_approve`."""
-	return L2_APPROVAL if requires_supervisor_approval() else L1_SELF_APPROVE
 
 
 def auto_escalation_threshold():

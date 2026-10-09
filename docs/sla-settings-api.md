@@ -46,38 +46,38 @@ Why not a second table: routing reads that row (`sla.resolve_policy`), so any co
     "policy": {
       "max_deferral_days": 30,
       "auto_escalation_threshold": 100,
-      "deferral_approval": "l2_approval",
+      "requires_supervisor_approval": true,
       "modified": "2026-10-08T16:29:56.801747"
     }
   }
 }
 ```
 
-An installation that never saved the policy returns the defaults: 30 days, 100 %, `l2_approval`.
+An installation that never saved the policy returns the defaults: 30 days, 100 %, and `requires_supervisor_approval` true.
 
-| Field                       | Type   | Meaning                                                                                             | Card control                      |
-| :-------------------------- | :----- | :-------------------------------------------------------------------------------------------------- | :-------------------------------- |
-| `max_deferral_days`         | int    | Most days any single deferral request may add to the SLA clock                                      | Max SLA Deferral (days)           |
-| `auto_escalation_threshold` | int    | Percent of the SLA window consumed before a case escalates. 100 is at the deadline                  | Auto-escalate Threshold (%)       |
-| `deferral_approval`         | string | `l2_approval`: a senior officer decides. `l1_self_approve`: the assigned officer approves their own | Deferral Approval Policy (radios) |
+| Field                          | Type | Meaning                                                                                       | Card control                      |
+| :----------------------------- | :--- | :-------------------------------------------------------------------------------------------- | :-------------------------------- |
+| `max_deferral_days`            | int  | Most days any single deferral request may add to the SLA clock                                | Max SLA Deferral (days)           |
+| `auto_escalation_threshold`    | int  | Percent of the SLA window consumed before a case escalates. 100 is at the deadline            | Auto-escalate Threshold (%)       |
+| `requires_supervisor_approval` | bool | `true`: a senior officer decides a deferral. `false`: the assigned officer approves their own | Deferral Approval Policy (radios) |
 
 ### `PATCH /api/v1/sla-policy`
 
 Send any of the three fields. Omitted fields stay as they are. The body must not be empty. Respond with the saved policy in the same shape as the `GET`. The **Save Global Policy** button sends the whole form in one call.
 
 ```json
-{ "max_deferral_days": 21, "auto_escalation_threshold": 80, "deferral_approval": "l1_self_approve" }
+{ "max_deferral_days": 21, "auto_escalation_threshold": 80, "requires_supervisor_approval": false }
 ```
 
-| Field                       | Rule                               |
-| :-------------------------- | :--------------------------------- |
-| `max_deferral_days`         | integer, 1 or more                 |
-| `auto_escalation_threshold` | integer, 1 to 100                  |
-| `deferral_approval`         | `l2_approval` or `l1_self_approve` |
+| Field                          | Rule               |
+| :----------------------------- | :----------------- |
+| `max_deferral_days`            | integer, 1 or more |
+| `auto_escalation_threshold`    | integer, 1 to 100  |
+| `requires_supervisor_approval` | boolean            |
 
 What a change does:
 
-- `max_deferral_days` and `deferral_approval` apply to the next deferral request or approval.
+- `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval.
 - `auto_escalation_threshold` is the default for **every category that does not set a threshold of its own**. It is read when a case's escalation is armed, so it applies to cases that start, resume, change category or are re-armed after the change. Cases already armed keep their time.
 
 A category can still set its own threshold in the Desk (`Grievance SLA Configuration`, field Auto Escalation Threshold). That is an override, and 0 means "follow the global one". The SLA tab does not edit it.

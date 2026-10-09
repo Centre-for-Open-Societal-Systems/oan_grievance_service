@@ -13,13 +13,10 @@ Two surfaces, each backed by one record:
   shared by every department that serves the category.
 
 Handlers stay thin. Field and range checks live in the doctypes' `validate()`, so they hold
-for the Desk as well as the API, and the L2 / L1 self-approve choice is the Deferral Policy's
-`set_deferral_approval`. What is here is request shape and the projection of the records.
+for the Desk as well as the API. What is here is request shape and the projection of the records.
 The settings are read when a case's clock is armed, so a
 change applies to cases that start, resume or re-arm after it, and leaves armed cases alone.
 """
-
-from typing import Literal
 
 import frappe
 from frappe import _
@@ -39,9 +36,9 @@ from pydantic import BaseModel, Field
 from oan_grievance_service.api.v1._schemas import Body, NonBlank
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
 	auto_escalation_threshold,
-	deferral_approval,
 	get_policy,
 	max_deferral_days,
+	requires_supervisor_approval,
 )
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	get_active_config,
@@ -65,16 +62,14 @@ CONFIGURATION_FIELDS = [
 
 # The only fields a PATCH may write. The request schema already forbids anything else; this
 # keeps that true if a schema ever grows a field the document should not take from a client.
-POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold")
+POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval")
 CONFIGURATION_EDITABLE = ("sla_days", "auto_escalate", "notify_on_breach")
-
-DEFERRAL_APPROVAL = Literal["l2_approval", "l1_self_approve"]
 
 
 class GlobalSlaPolicyRecord(BaseModel):
 	max_deferral_days: int
 	auto_escalation_threshold: int
-	deferral_approval: DEFERRAL_APPROVAL
+	requires_supervisor_approval: bool
 	modified: str | None = None
 
 
@@ -113,9 +108,9 @@ class UpdateGlobalSlaPolicy(Body):
 		le=100,
 		description="Percent of the SLA window consumed before escalation. 100 is at the deadline",
 	)
-	deferral_approval: DEFERRAL_APPROVAL = Field(
+	requires_supervisor_approval: bool = Field(
 		default=None,
-		description="l2_approval needs a senior officer to decide. l1_self_approve lets the assignee",
+		description="true: a senior officer decides a deferral. false: the assigned officer may approve it",
 	)
 
 
@@ -150,7 +145,7 @@ def _policy_data() -> dict:
 		"policy": GlobalSlaPolicyRecord(
 			max_deferral_days=max_deferral_days(),
 			auto_escalation_threshold=auto_escalation_threshold(),
-			deferral_approval=deferral_approval(),
+			requires_supervisor_approval=requires_supervisor_approval(),
 			modified=_text(get_policy().modified),
 		).model_dump()
 	}
@@ -193,7 +188,8 @@ def _configuration_record(name: str) -> dict:
 @api_doc(
 	summary="Get the global SLA policy",
 	description="The installation-wide SLA settings: the most days one deferral may add, the default "
-	+ "auto-escalate threshold in percent, and who approves a deferral (l2_approval or l1_self_approve). "
+	+ "auto-escalate threshold in percent, and whether a deferral needs a senior officer's approval "
+	+ "(requires_supervisor_approval; false lets the assigned officer approve it). "
 	+ "Categories without a threshold of their own follow this one.",
 	tags=["Administration"],
 	response_model=GlobalSlaPolicyData,
@@ -213,7 +209,7 @@ def get_global_policy(**kwargs):
 @validate_request(UpdateGlobalSlaPolicy, exclude_unset=True)
 @api_doc(
 	summary="Update the global SLA policy",
-	description="Change any of max_deferral_days, auto_escalation_threshold and deferral_approval. "
+	description="Change any of max_deferral_days, auto_escalation_threshold and requires_supervisor_approval. "
 	+ "Omitted fields stay as they are. A new threshold applies to cases whose escalation is armed "
 	+ "after the change. A new deferral setting applies to the next deferral request.",
 	tags=["Administration"],
@@ -224,8 +220,6 @@ def update_global_policy(**kwargs):
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
 	policy = frappe.get_doc(POLICY)
-	if "deferral_approval" in kwargs:
-		policy.set_deferral_approval(kwargs["deferral_approval"])
 	policy.update({key: kwargs[key] for key in POLICY_EDITABLE if key in kwargs})
 	policy.save()
 	return success_response(data=_policy_data(), message=_("Global SLA policy updated"))

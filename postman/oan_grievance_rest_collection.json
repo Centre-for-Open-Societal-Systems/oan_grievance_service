@@ -2373,7 +2373,7 @@
                   "    var p = pm.response.json().data.policy;",
                   "    pm.expect(p).to.have.property(\"max_deferral_days\");",
                   "    pm.expect(p).to.have.property(\"auto_escalation_threshold\");",
-                  "    pm.expect(p.deferral_approval).to.be.oneOf([\"l2_approval\", \"l1_self_approve\"]);",
+                  "    pm.expect(p.requires_supervisor_approval).to.be.a(\"boolean\");",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -2394,7 +2394,7 @@
                 "sla-policy"
               ]
             },
-            "description": "Installation-wide policy: max_deferral_days, auto_escalation_threshold (percent) and deferral_approval (l2_approval or l1_self_approve)."
+            "description": "Installation-wide policy: max_deferral_days, auto_escalation_threshold (percent) and requires_supervisor_approval (true: a senior officer decides a deferral; false: the assigned officer may approve it)."
           },
           "response": []
         },
@@ -2412,7 +2412,7 @@
                   "    var p = pm.response.json().data.policy;",
                   "    pm.expect(p.max_deferral_days).to.eql(30);",
                   "    pm.expect(p.auto_escalation_threshold).to.eql(100);",
-                  "    pm.expect(p.deferral_approval).to.eql(\"l2_approval\");",
+                  "    pm.expect(p.requires_supervisor_approval).to.eql(true);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -2441,7 +2441,7 @@
             "description": "Send any of the three fields; omitted fields stay as they are.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"deferral_approval\": \"l2_approval\"\n}",
+              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"requires_supervisor_approval\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"

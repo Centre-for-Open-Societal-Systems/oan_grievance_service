@@ -8418,12 +8418,10 @@ components:
           maximum: 100
           minimum: 1
           type: integer
-        deferral_approval:
-          description: l2_approval needs a senior officer to decide. l1_self_approve lets the assignee
-          enum:
-          - l2_approval
-          - l1_self_approve
-          type: string
+        requires_supervisor_approval:
+          description: 'true: a senior officer decides a deferral. false: the assigned officer may approve
+            it'
+          type: boolean
       type: object
     UpdateSlaConfiguration:
       additionalProperties: false
