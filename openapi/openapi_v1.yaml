@@ -4004,6 +4004,105 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SubmitDraftRequest'
+  /api/v1/notification-configs:
+    get:
+      tags:
+      - Administration
+      summary: List notification configurations
+      description: Every Appendix C notification event.
+      operationId: get_api_v1_notification_configs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.notification_config.list_notification_configs
+      security:
+      - BearerAuth: []
+  /api/v1/notification-configs/{event_id}:
+    get:
+      tags:
+      - Administration
+      summary: Get a notification configuration
+      description: One notification event, by EC id.
+      operationId: get_api_v1_notification_configs_event_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Event Id identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.notification_config.get_notification_config
+      security:
+      - BearerAuth: []
   /api/v1/officers:
     get:
       tags:

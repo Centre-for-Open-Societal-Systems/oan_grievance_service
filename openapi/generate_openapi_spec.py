@@ -1549,6 +1549,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.charts",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
+		"oan_grievance_service.api.v1.notification_config",
 		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",
 		"oan_grievance_service.api.v1.profile",
@@ -1579,6 +1580,7 @@ def _determine_tag(path: str, func_name: str) -> str:
 			"/api/v1/response-templates",
 			"/api/v1/service-categories",
 			"/api/v1/grievance-types",
+			"/api/v1/notification-configs",
 		)
 	):
 		return "Administration"
