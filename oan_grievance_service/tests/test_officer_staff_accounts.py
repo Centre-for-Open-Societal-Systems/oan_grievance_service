@@ -731,20 +731,29 @@ class TestDeactivation(StaffAccountCase):
 				validate_jwt_request(request)
 		frappe.set_user("Administrator")
 
-	def test_an_inactive_account_cannot_sign_in_and_can_after_it_is_active_again(self):
+	def _admin_with_own_password(self):
+		admin = self._staff("Admin")
+		update_password(admin["name"], "TheirOwn123!")
+		frappe.db.set_value("User", admin["name"], MUST_CHANGE_PASSWORD_FIELD, 0)
+		return admin["name"]
+
+	def test_an_inactive_account_cannot_sign_in(self):
 		from oan_auth_service.tests.test_temporary_password import _call
 
-		admin = self._staff("Admin")
-		user = admin["name"]
-		update_password(user, "TheirOwn123!")
-		frappe.db.set_value("User", user, MUST_CHANGE_PASSWORD_FIELD, 0)
+		user = self._admin_with_own_password()
 		update_officer(user, status="Inactive")
+		# A refused sign-in rolls the request back, so nothing is asserted on the data after it.
 		with configured_keys(), _keep_transaction():
 			status, body = _call("/api/v1/auth/login", {"usr": user, "pwd": "TheirOwn123!"})
 		self.assertEqual(status, 401, msg=body)
 		self.assertNotIn("access_token", json.dumps(body))
 		frappe.set_user("Administrator")
 
+	def test_an_account_can_sign_in_again_once_it_is_active_again(self):
+		from oan_auth_service.tests.test_temporary_password import _call
+
+		user = self._admin_with_own_password()
+		update_officer(user, status="Inactive")
 		reactivated = update_officer(user, status="Active")
 		self.assertEqual(reactivated["data"]["officer"]["status"], "Active")
 		self.assertEqual(self._rows(user)[0].active, 1)
