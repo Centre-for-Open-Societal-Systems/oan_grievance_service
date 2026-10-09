@@ -6,6 +6,20 @@ from frappe import _
 from frappe.model.document import Document
 
 
+def get_active_config(name: str):
+	"""The active SLA configuration with this name, or DoesNotExistError.
+
+	An inactive row is not served: routing ignores it, so editing it would change nothing
+	a case ever sees.
+	"""
+	if not name or not frappe.db.exists("Grievance SLA Configuration", {"name": name, "active": 1}):
+		frappe.throw(
+			_("SLA configuration '{0}' was not found.").format(name),
+			frappe.DoesNotExistError,
+		)
+	return frappe.get_doc("Grievance SLA Configuration", name)
+
+
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
 		self.validate_one_active_row()

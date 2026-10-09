@@ -126,6 +126,15 @@ class TestSlaSettings(FrappeTestCase):
 		self.assertEqual(policy["max_deferral_days"], C.DEFAULT_MAX_DEFERRAL_DAYS)
 		self.assertEqual(policy["auto_escalation_threshold"], C.DEFAULT_ESCALATION_THRESHOLD)
 
+	def test_deferral_approval_maps_to_the_check_field(self):
+		policy = frappe.get_doc(POLICY)
+		policy.set_deferral_approval("l1_self_approve")
+		self.assertEqual(policy.requires_supervisor_approval, 0)
+		policy.set_deferral_approval("l2_approval")
+		self.assertEqual(policy.requires_supervisor_approval, 1)
+		with self.assertRaises(frappe.ValidationError):
+			policy.set_deferral_approval("nobody")
+
 	def test_global_policy_rejects_bad_input(self):
 		with _keep_transaction():
 			for kwargs in (

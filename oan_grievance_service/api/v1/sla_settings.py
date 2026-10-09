@@ -3,7 +3,7 @@
 
 """SLA settings for the Administration SLA tab: the global policy and the per-category windows.
 
-Two surfaces, each backed by one record (see `services/sla_settings.py`):
+Two surfaces, each backed by one record:
 
 - `/api/v1/sla-policy` is the installation-wide policy: the deferral ceiling, who approves
   a deferral, and the default auto-escalate threshold.
@@ -13,7 +13,9 @@ Two surfaces, each backed by one record (see `services/sla_settings.py`):
   shared by every department that serves the category.
 
 Handlers stay thin. Field and range checks live in the doctypes' `validate()`, so they hold
-for the Desk as well as the API. The settings are read when a case's clock is armed, so a
+for the Desk as well as the API, and the L2 / L1 self-approve choice is the Deferral Policy's
+`set_deferral_approval`. What is here is request shape and the projection of the records.
+The settings are read when a case's clock is armed, so a
 change applies to cases that start, resume or re-arm after it, and leaves armed cases alone.
 """
 
@@ -35,10 +37,36 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank
-from oan_grievance_service.services import sla_settings as service
+from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+	auto_escalation_threshold,
+	deferral_approval,
+	get_policy,
+	max_deferral_days,
+)
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	get_active_config,
+)
+from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
+from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1")
+
+POLICY = "Grievance Deferral Policy"
+SLA_CONFIGURATION = "Grievance SLA Configuration"
+CONFIGURATION_FIELDS = [
+	"name",
+	"service_category",
+	"sla_days",
+	"auto_escalate",
+	"notify_on_breach",
+	"modified",
+]
+
+# The only fields a PATCH may write. The request schema already forbids anything else; this
+# keeps that true if a schema ever grows a field the document should not take from a client.
+POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold")
+CONFIGURATION_EDITABLE = ("sla_days", "auto_escalate", "notify_on_breach")
 
 DEFERRAL_APPROVAL = Literal["l2_approval", "l1_self_approve"]
 
@@ -111,18 +139,51 @@ class ListSlaConfigurations(PageParams, Body):
 	department: str | None = None
 
 
-def _policy_data(policy: dict) -> dict:
-	return {"policy": GlobalSlaPolicyRecord(**_text_modified(policy)).model_dump()}
+def _text(modified) -> str | None:
+	"""`modified` as the ISO-8601 text the other admin endpoints return."""
+	return get_datetime(modified).isoformat() if modified else None
 
 
-def _config_data(record: dict) -> dict:
-	return {"sla_configuration": SlaConfigurationRecord(**_text_modified(record)).model_dump()}
+def _policy_data() -> dict:
+	"""The installation-wide policy, with the defaults filled in while the Single is untouched."""
+	return {
+		"policy": GlobalSlaPolicyRecord(
+			max_deferral_days=max_deferral_days(),
+			auto_escalation_threshold=auto_escalation_threshold(),
+			deferral_approval=deferral_approval(),
+			modified=_text(get_policy().modified),
+		).model_dump()
+	}
 
 
-def _text_modified(record: dict) -> dict:
-	"""The response carries `modified` as the ISO-8601 text the other admin endpoints use."""
-	modified = record.get("modified")
-	return {**record, "modified": get_datetime(modified).isoformat() if modified else None}
+def _configuration_records(rows: list) -> list[dict]:
+	"""Project SLA rows to API records with one query for the departments of the whole page."""
+	departments: dict[str, list[str]] = {row.service_category: [] for row in rows}
+	if departments:
+		for desk in frappe.get_all(
+			category_assignment.DOCTYPE,
+			filters=category_assignment.desk_filters(category_scope=["in", list(departments)], active=1),
+			fields=["category_scope", "department_scope"],
+			order_by="department_scope asc",
+		):
+			departments[desk.category_scope].append(desk.department_scope)
+	return [
+		SlaConfigurationRecord(
+			name=row.name,
+			service_category=row.service_category,
+			departments=departments[row.service_category],
+			sla_days=row.sla_days,
+			auto_escalate=bool(row.auto_escalate),
+			notify_on_breach=bool(row.notify_on_breach),
+			modified=_text(row.modified),
+		).model_dump()
+		for row in rows
+	]
+
+
+def _configuration_record(name: str) -> dict:
+	rows = frappe.get_all(SLA_CONFIGURATION, filters={"name": name}, fields=CONFIGURATION_FIELDS)
+	return _configuration_records(rows)[0]
 
 
 @route("/sla-policy", methods=("GET",), summary="Get the global SLA policy")
@@ -140,7 +201,7 @@ def _text_modified(record: dict) -> dict:
 def get_global_policy(**kwargs):
 	"""Return the installation-wide SLA policy."""
 	return success_response(
-		data=_policy_data(service.global_policy()),
+		data=_policy_data(),
 		message=_("Global SLA policy retrieved"),
 	)
 
@@ -162,10 +223,12 @@ def update_global_policy(**kwargs):
 	"""Update the installation-wide policy. `kwargs` holds only the fields the client sent."""
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	return success_response(
-		data=_policy_data(service.update_global_policy(kwargs)),
-		message=_("Global SLA policy updated"),
-	)
+	policy = frappe.get_doc(POLICY)
+	if "deferral_approval" in kwargs:
+		policy.set_deferral_approval(kwargs["deferral_approval"])
+	policy.update({key: kwargs[key] for key in POLICY_EDITABLE if key in kwargs})
+	policy.save()
+	return success_response(data=_policy_data(), message=_("Global SLA policy updated"))
 
 
 @route("/sla-configurations", methods=("GET",), summary="List per-category SLA settings")
@@ -195,18 +258,34 @@ def list_sla_configurations(
 	runs, and a bare int would turn a bad value into its own type error.
 	"""
 	params = PageParams(page=page, page_size=page_size)
-	records, total = service.list_configs(
-		service_category=service_category,
-		department=department,
-		start=params.start,
-		page_size=params.page_size,
+	filters: dict = {"active": 1}
+	if service_category:
+		filters["service_category"] = resolve_service_category(service_category)
+	if department:
+		served = frappe.get_all(
+			category_assignment.DOCTYPE,
+			filters=category_assignment.desk_filters(
+				department_scope=resolve_department(department), active=1
+			),
+			pluck="category_scope",
+		)
+		if "service_category" in filters:
+			served = [name for name in served if name == filters["service_category"]]
+		filters["service_category"] = ["in", served or [""]]
+	rows = frappe.get_all(
+		SLA_CONFIGURATION,
+		filters=filters,
+		fields=CONFIGURATION_FIELDS,
+		order_by="service_category asc, name asc",
+		offset=params.start,
+		limit_page_length=params.page_size,
 	)
 	return success_response(
 		data={
-			"sla_configurations": [
-				SlaConfigurationRecord(**_text_modified(record)).model_dump() for record in records
-			],
-			"pagination": page_meta(total, params.page, params.page_size),
+			"sla_configurations": _configuration_records(rows),
+			"pagination": page_meta(
+				frappe.db.count(SLA_CONFIGURATION, filters), params.page, params.page_size
+			),
 		},
 		message=_("SLA configurations retrieved"),
 	)
@@ -228,11 +307,12 @@ def list_sla_configurations(
 )
 def update_sla_configuration(config: str, **kwargs):
 	"""Update one category's SLA configuration. `kwargs` holds only the fields the client sent."""
-	record = service.get_config(config)
+	doc = get_active_config(config)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	service.update_config(record, kwargs)
+	doc.update({key: kwargs[key] for key in CONFIGURATION_EDITABLE if key in kwargs})
+	doc.save()
 	return success_response(
-		data=_config_data(service.config_record(record.name)),
+		data={"sla_configuration": _configuration_record(doc.name)},
 		message=_("SLA configuration updated"),
 	)
