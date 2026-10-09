@@ -45,34 +45,11 @@ def get_desk(name: str):
 	return frappe.get_doc(DOCTYPE, name)
 
 
-# NOTE: Dynamic role level lookup via _default_role_levels is currently retained for backward compatibility.
-# In a future refactor, prefer resolving seats structurally via the reporting chain (L1 via is_primary,
-# L2 via primary.reports_to) and using static constants ("nodal_officer", "senior_nodal_officer")
-# instead of querying Grievance Role Level on each call.
-def _default_role_levels() -> tuple[str, str]:
-	"""Returns the (L1, L2) role levels for category assignment desks."""
-	l1 = "nodal_officer" if frappe.db.exists("Grievance Role Level", "nodal_officer") else None
-	l2 = "senior_nodal_officer" if frappe.db.exists("Grievance Role Level", "senior_nodal_officer") else None
-	if not l1 or not l2:
-		levels = frappe.get_all(
-			"Grievance Role Level",
-			filters={"is_active": 1},
-			fields=["name"],
-			order_by="level_order asc",
-			limit=2,
-		)
-		l1 = l1 or (levels[0].name if levels else "nodal_officer")
-		l2 = l2 or (levels[1].name if len(levels) > 1 else "senior_nodal_officer")
-	return l1, l2
+L1_ROLE_LEVEL = "nodal_officer"
+L2_ROLE_LEVEL = "senior_nodal_officer"
 
 
-def role_levels(departments) -> dict:
-	"""(L1 role level, L2 role level) for category assignment desks."""
-	l1, l2 = _default_role_levels()
-	return {name: (l1, l2) for name in departments if name}
-
-
-def split_officers(rows: list, l1_level: str | None = None, l2_level: str | None = None):
+def split_officers(rows: list, l1_level: str = L1_ROLE_LEVEL, l2_level: str = L2_ROLE_LEVEL):
 	"""The L1 and L2 seats of a desk, found by role level and not by position.
 
 	A desk can hold many officers, so list order says nothing about who is L2. The primary is
@@ -80,10 +57,6 @@ def split_officers(rows: list, l1_level: str | None = None, l2_level: str | None
 	secondary is an active officer at the L2 level: the one the primary reports to, else a
 	non-primary one, else the first. Anyone else is left alone.
 	"""
-	if not l1_level or not l2_level:
-		def_l1, def_l2 = _default_role_levels()
-		l1_level = l1_level or def_l1
-		l2_level = l2_level or def_l2
 
 	def is_l2(row) -> bool:
 		return bool(l2_level) and row.role_level == l2_level
@@ -214,11 +187,10 @@ def _write_desk(desk, state: dict, seats: tuple):
 	# `reports_to` names an officer's supervisor: escalation hands a case up to it, and an
 	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
 	# reverse. L2 is the escalation tier and has no supervisor on this desk.
-	l1_role, l2_role = _default_role_levels()
 	l1, l2 = state["l1_officer"], state.get("l2_officer")
-	wanted = {l1: {"role_level": l1_role, "is_primary": 1, "reports_to": l2}}
+	wanted = {l1: {"role_level": L1_ROLE_LEVEL, "is_primary": 1, "reports_to": l2}}
 	if l2:
-		wanted[l2] = {"role_level": l2_role, "is_primary": 0, "reports_to": None}
+		wanted[l2] = {"role_level": L2_ROLE_LEVEL, "is_primary": 0, "reports_to": None}
 	vacated = {seat.user for seat in seats if seat and seat.user not in wanted}
 	_assert_nobody_reports_to(desk, vacated, keep=wanted)
 	for row in list(desk.officers):
