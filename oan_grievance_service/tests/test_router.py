@@ -402,6 +402,37 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		)
 		self.assertEqual(total_matching, 1)
 
+		# Reusing the same client_message_id on a DIFFERENT case creates a new entry on that case
+		doc2 = a_grievance()
+		ticket2 = doc2.ticket_number or doc2.name
+		payload_other = {
+			"body": "Message on second case with same client_message_id",
+			"client_message_id": client_msg_id,
+		}
+		req_other = make_test_request(
+			f"/api/v1/grievances/{ticket2}/message", method="POST", data=payload_other
+		)
+		res_other = frappe.api.handle(req_other)
+		self.assertEqual(res_other.status_code, 200)
+		data_other = json.loads(res_other.get_data(as_text=True))["data"]
+		self.assertNotEqual(data_other["name"], entry1_name)
+		self.assertEqual(
+			frappe.db.get_value("Grievance Timeline", data_other["name"], "grievance"), doc2.name
+		)
+
+		# Sending client_message_id longer than 64 characters is refused (400)
+		payload_too_long = {
+			"body": "Message with overlong key",
+			"client_message_id": "a" * 65,
+		}
+		req_long = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/message", method="POST", data=payload_too_long
+		)
+		res_long = frappe.api.handle(req_long)
+		self.assertEqual(res_long.status_code, 400)
+		body_long = json.loads(res_long.get_data(as_text=True))
+		self.assertEqual(body_long["code"], "VALIDATION_ERROR")
+
 	def test_grievance_submission_tracking_and_timeline_rest_flow(self):
 		"""Test complete REST workflow: submit, track, add note, and timeline."""
 		import uuid
@@ -549,20 +580,44 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		from oan_grievance_service.tests.fixtures import a_department, a_grievance
 
+		case_bad = a_grievance(assigned_dept=a_department())
+		lifecycle.transition(case_bad, "Assign", automated=True)
+
+		# Execute In Progress without reason is refused (400)
+		req_action_bad = make_test_request(
+			f"/api/v1/grievances/{case_bad.ticket_number or case_bad.name}/action",
+			method="POST",
+			data={"action": "In Progress"},
+		)
+		res_action_bad = frappe.api.handle(req_action_bad)
+		body_action_bad = json.loads(res_action_bad.get_data(as_text=True))
+		self.assertEqual(body_action_bad["status"], "error")
+		self.assertIn("reason is required", body_action_bad["message"].lower())
+
+		# Execute In Progress via unified action endpoint with reason
 		case = a_grievance(assigned_dept=a_department())
 		lifecycle.transition(case, "Assign", automated=True)
-
-		# Execute Start Work via unified action endpoint
 		req_action = make_test_request(
 			f"/api/v1/grievances/{case.ticket_number or case.name}/action",
 			method="POST",
-			data={"action": "Start Work"},
+			data={"action": "In Progress", "reason": "Officer commenced case review."},
 		)
 		res_action = frappe.api.handle(req_action)
 		self.assertEqual(res_action.status_code, 200, res_action.get_data(as_text=True))
 		action_data = json.loads(res_action.get_data(as_text=True))
 		self.assertEqual(action_data["status"], "success")
 		self.assertEqual(action_data["data"]["status"], "In Progress")
+
+		# Verify timeline formatting: entry is status_change and has no response_number
+		req_tl_check = make_test_request(
+			f"/api/v1/grievances/{case.ticket_number or case.name}/timeline", method="GET"
+		)
+		res_tl_check = frappe.api.handle(req_tl_check)
+		tl_events = json.loads(res_tl_check.get_data(as_text=True))["data"]["timeline"]
+		in_prog_entry = next((e for e in tl_events if e.get("action") == "In Progress"), None)
+		self.assertIsNotNone(in_prog_entry)
+		self.assertEqual(in_prog_entry["entry_type"], "status_change")
+		self.assertNotIn("response_number", in_prog_entry)
 
 		# Attempting an unavailable action is refused
 		req_resp_bad = make_test_request(
@@ -633,7 +688,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		# 7. Resolve without reason is refused (400)
 		res_case = a_grievance(assigned_dept=a_department())
 		lifecycle.transition(res_case, "Assign", automated=True)
-		lifecycle.transition(res_case, "Start Work")
+		lifecycle.transition(res_case, "In Progress", reason="Starting investigation.")
 		req_res_bad = make_test_request(
 			f"/api/v1/grievances/{res_case.ticket_number or res_case.name}/action",
 			method="POST",
@@ -647,7 +702,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		# 8. Resolve with incomplete two-part resolution is refused (400)
 		res_case_2 = a_grievance(assigned_dept=a_department())
 		lifecycle.transition(res_case_2, "Assign", automated=True)
-		lifecycle.transition(res_case_2, "Start Work")
+		lifecycle.transition(res_case_2, "In Progress", reason="Starting investigation.")
 		req_res_incomplete = make_test_request(
 			f"/api/v1/grievances/{res_case_2.ticket_number or res_case_2.name}/action",
 			method="POST",
@@ -754,8 +809,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			{
 				"doctype": "Grievance Department",
 				"dept_name": reassign_dept_name,
-				"email_account": "router_reassign@example.com",
-				"active": 1,
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(
@@ -806,6 +859,17 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		# 3. Assign case to start SLA clock, then Defer SLA endpoint
 		doc_case = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		lifecycle.transition(doc_case, "Assign")
+
+		# Deferral with reason < 20 characters is refused
+		req_defer_short = make_test_request(
+			f"/api/v1/grievances/{ticket_number}/defer-sla",
+			method="POST",
+			data={"additional_days": 5, "reason": "Too short"},
+		)
+		res_defer_short = frappe.api.handle(req_defer_short)
+		self.assertEqual(res_defer_short.status_code, 400)
+		body_defer_short = json.loads(res_defer_short.get_data(as_text=True))
+		self.assertEqual(body_defer_short["code"], "VALIDATION_ERROR")
 
 		req_defer = make_test_request(
 			f"/api/v1/grievances/{ticket_number}/defer-sla",
@@ -877,13 +941,13 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
 
-		# Assign and Start Work
+		# Assign and In Progress
 		frappe.set_user("Administrator")
 		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
 		doc.assigned_dept = a_department()
 		doc.save(ignore_permissions=True)
 		lifecycle.transition(doc, "Assign")
-		lifecycle.transition(doc, "Start Work")
+		lifecycle.transition(doc, "In Progress", reason="Starting investigation.")
 
 		# 2. Staff posts an internal note
 		req_note = make_test_request(

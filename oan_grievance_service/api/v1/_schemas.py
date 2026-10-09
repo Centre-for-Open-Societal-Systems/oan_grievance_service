@@ -3,11 +3,16 @@
 
 """Request-schema building blocks shared by the v1 endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+Decision = Annotated[
+	Literal["Approved", "Rejected"],
+	BeforeValidator(lambda value: value.strip().title() if isinstance(value, str) else value),
+]
 
 
 def blank_to_none(value):

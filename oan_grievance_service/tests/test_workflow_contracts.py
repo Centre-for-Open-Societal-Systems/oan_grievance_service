@@ -72,8 +72,9 @@ class WorkflowTestCase(FrappeTestCase):
 	def _at_in_progress(self):
 		doc = self._saved()
 		doc.db_set("assigned_dept", a_department(), update_modified=False)
+		doc.db_set("assigned_to", "Administrator", update_modified=False)
 		lifecycle.transition(doc, "Assign")
-		lifecycle.transition(doc, "Start Work")
+		lifecycle.transition(doc, "In Progress", reason="Investigation commenced.")
 		return self._saved()
 
 	def _at_pending_submitter(self):

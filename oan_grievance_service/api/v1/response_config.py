@@ -14,18 +14,21 @@ A template's text may be sent and read as two parts, `action_taken` and
 Handlers stay thin. Field and link checks live in each doctype's `validate()`.
 """
 
+from typing import Any, Literal
+
 import frappe
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
+	api_doc,
 	handle_api_errors,
 	page_meta,
 	require_role,
 	success_response,
 	validate_request,
 )
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import response_body
@@ -50,6 +53,31 @@ TEMPLATE_FIELDS = [
 
 # Response templates
 # ------------------
+
+
+class ResponseParts(BaseModel):
+	action_taken: str | None = None
+	resolution_summary: str | None = None
+
+
+class AdminResponseTemplateRecord(BaseModel):
+	template: str
+	title: str
+	action: str | None = None
+	workflow_action: str | None = None
+	department: str | None = None
+	service_category: str | None = None
+	reason: str = ""
+	body: str = ""
+	reason_parts: ResponseParts | None = None
+	note: str = ""
+	usage_count: int = 0
+	is_active: bool = True
+
+
+class AdminResponseTemplateListData(BaseModel):
+	response_templates: list[AdminResponseTemplateRecord]
+	pagination: dict[str, Any] | None = None
 
 
 class TemplateRef(Body):
@@ -210,6 +238,12 @@ def _get_template(name: str):
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(ListResponseTemplatesRequest)
+@api_doc(
+	summary="List response templates",
+	description="Admin list of response templates with their usage counts.",
+	tags=["Administration"],
+	response_model=AdminResponseTemplateListData,
+)
 def list_response_templates(
 	action: str | None = None,
 	workflow_action: str | None = None,
@@ -260,6 +294,12 @@ def list_response_templates(
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)
+@api_doc(
+	summary="Get a response template",
+	description="Return one response template, unrendered.",
+	tags=["Administration"],
+	response_model=dict[Literal["response_template"], AdminResponseTemplateRecord],
+)
 def get_response_template(template: str, **kwargs):
 	"""Return one response template, unrendered."""
 	return success_response(
@@ -273,6 +313,12 @@ def get_response_template(template: str, **kwargs):
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateResponseTemplateRequest)
+@api_doc(
+	summary="Create a response template",
+	description="Create a response template for one workflow action, optionally scoped.",
+	tags=["Administration"],
+	response_model=dict[Literal["response_template"], AdminResponseTemplateRecord],
+)
 def create_response_template(
 	title: str,
 	workflow_action: str | None = None,
@@ -315,6 +361,12 @@ def create_response_template(
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateResponseTemplateRequest, exclude_unset=True)
+@api_doc(
+	summary="Update a response template",
+	description="Change a template's text, scope, workflow action or active flag. Edits are tracked.",
+	tags=["Administration"],
+	response_model=dict[Literal["response_template"], AdminResponseTemplateRecord],
+)
 def update_response_template(template: str, **kwargs):
 	"""Change a template's text, scope, workflow action or active flag. Edits are tracked."""
 	doc = _get_template(template)
@@ -340,6 +392,12 @@ def update_response_template(template: str, **kwargs):
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)
+@api_doc(
+	summary="Deactivate a response template",
+	description="Retire a template. Same as PATCH with is_active false; repeating it is a no-op.",
+	tags=["Administration"],
+	response_model=dict[Literal["response_template"], AdminResponseTemplateRecord],
+)
 def deactivate_response_template(template: str, **kwargs):
 	"""Retire a template. Same as PATCH with is_active false; repeating it is a no-op."""
 	doc = _get_template(template)

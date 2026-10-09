@@ -21,10 +21,11 @@ import inspect
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
 import frappe
 from oan_auth_service.api.router import _exempt_paths, _rules
+from pydantic import BaseModel
 
 try:
 	from oan_auth_service.openapi_spec import (
@@ -994,11 +995,6 @@ data(
 				enum=["Pending", "Approved", "Rejected"],
 				description="Change request status",
 			),
-			"approved_due_date": S(
-				format="date-time",
-				nullable=True,
-				description="Approved new SLA due date (null if pending or rejected)",
-			),
 		},
 		required=["status"],
 		description="Public change request snapshot for non-staff citizens",
@@ -1178,47 +1174,6 @@ data(
 )
 
 
-# Response templates (Administration)
-data(
-	"AdminResponseTemplate",
-	OBJ(
-		{
-			"template": S(example="TPL-RESOLVED-INPUTS", description="Template code; fixed once created"),
-			"title": S(),
-			"action": S(
-				example="Resolve", nullable=True, description="Grievance workflow action the template is for"
-			),
-			"workflow_action": S(
-				example="Resolve", description="Grievance workflow action the template is for"
-			),
-			"department": S(nullable=True, description="Null for every department"),
-			"service_category": S(nullable=True, description="Null for every category"),
-			"reason": S(nullable=True, description="Jinja template for the reason, unrendered"),
-			"body": S(description="Jinja template for the reason, unrendered"),
-			"reason_parts": {**REF("ResponseParts"), "nullable": True},
-			"note": S(nullable=True, description="Jinja template for internal note, unrendered"),
-			"usage_count": I(description="Actions sent with this template"),
-			"is_active": B(),
-		},
-		required=["template", "title", "workflow_action", "body", "usage_count", "is_active"],
-		description="A response template as administrators manage it",
-	),
-)
-
-data(
-	"AdminResponseTemplateData",
-	OBJ({"response_template": REF("AdminResponseTemplate")}, required=["response_template"]),
-)
-
-data(
-	"AdminResponseTemplateListData",
-	OBJ(
-		{"response_templates": ARR(REF("AdminResponseTemplate")), "pagination": REF("PaginationMeta")},
-		required=["response_templates", "pagination"],
-	),
-)
-
-
 # Dashboard charts. Rows differ per chart and are documented on each route; each is
 # a flat object of counts, codes and labels, never case detail on the public routes.
 data(
@@ -1293,12 +1248,6 @@ ENVELOPES = {
 	),
 	"GrievanceMessageResponse": make_envelope(
 		"GrievanceMessageData", description="Message or internal note posted"
-	),
-	"AdminResponseTemplateResponse": make_envelope(
-		"AdminResponseTemplateData", description="One response template"
-	),
-	"AdminResponseTemplateListResponse": make_envelope(
-		"AdminResponseTemplateListData", description="One page of response templates"
 	),
 	"ChangeRequestResponse": make_envelope(
 		"ChangeRequestData", description="Grievance change request response"
@@ -1549,6 +1498,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.charts",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
+		"oan_grievance_service.api.v1.notification_template",
 		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",
 		"oan_grievance_service.api.v1.profile",
@@ -1578,6 +1528,7 @@ def _determine_tag(path: str, func_name: str) -> str:
 			"/api/v1/category-assignments",
 			"/api/v1/officers",
 			"/api/v1/response-templates",
+			"/api/v1/notification-templates",
 			"/api/v1/sla-configurations",
 			"/api/v1/sla-policy",
 			"/api/v1/service-categories",
@@ -1648,15 +1599,80 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"create_assignment": "CategoryAssignmentResponse",
 		"update_assignment": "CategoryAssignmentResponse",
 		"deactivate_assignment": "CategoryAssignmentResponse",
-		"list_response_templates": "AdminResponseTemplateListResponse",
-		"get_response_template": "AdminResponseTemplateResponse",
-		"create_response_template": "AdminResponseTemplateResponse",
-		"update_response_template": "AdminResponseTemplateResponse",
-		"deactivate_response_template": "AdminResponseTemplateResponse",
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
 	return mapping.get(func_name, "GrievanceActionResultResponse" if method == "POST" else None)
+
+
+def get_api_doc(endpoint_fn: Any) -> dict[str, Any] | None:
+	curr = endpoint_fn
+	while curr is not None:
+		if hasattr(curr, "_api_doc"):
+			return curr._api_doc
+		curr = getattr(curr, "__wrapped__", None)
+	return None
+
+
+def resolve_response_schema(
+	endpoint_fn: Any,
+	func_name: str,
+	openapi_path: str,
+	method: str,
+) -> str | None:
+	api_doc_meta = get_api_doc(endpoint_fn)
+	response_model = api_doc_meta.get("response_model") if api_doc_meta else None
+
+	if response_model is not None:
+		# Pattern 1: dict[Literal[key], RecordModel]
+		origin = get_origin(response_model)
+		if origin is dict:
+			args = get_args(response_model)
+			if len(args) == 2 and get_origin(args[0]) is Literal:
+				key = get_args(args[0])[0]
+				record_cls = args[1]
+				if inspect.isclass(record_cls) and issubclass(record_cls, BaseModel):
+					rec_schema = record_cls.model_json_schema(ref_template="#/components/schemas/{model}")
+					for name, sub in rec_schema.pop("$defs", {}).items():
+						DATA_SCHEMAS.setdefault(name, oas30(sub))
+					DATA_SCHEMAS.setdefault(record_cls.__name__, oas30(rec_schema))
+
+					clean_name = record_cls.__name__.removesuffix("Record")
+					data_schema_name = f"{clean_name}Data"
+					DATA_SCHEMAS.setdefault(
+						data_schema_name,
+						OBJ({key: REF(record_cls.__name__)}, required=[key]),
+					)
+
+					resp_name = f"{clean_name}Response"
+					if resp_name not in ENVELOPES:
+						ENVELOPES[resp_name] = make_envelope(
+							data_schema_name, description=f"{clean_name} response"
+						)
+					return resp_name
+
+		# Pattern 2: Direct BaseModel (e.g. CategoryAssignmentData, NotificationTemplateListData)
+		if inspect.isclass(response_model) and issubclass(response_model, BaseModel):
+			schema = response_model.model_json_schema(ref_template="#/components/schemas/{model}")
+			for name, sub in schema.pop("$defs", {}).items():
+				DATA_SCHEMAS.setdefault(name, oas30(sub))
+			DATA_SCHEMAS.setdefault(response_model.__name__, oas30(schema))
+
+			model_name = response_model.__name__
+			if model_name.endswith("ListData"):
+				clean_base = model_name[:-8]
+				resp_name = f"{clean_base}ListResponse"
+			elif model_name.endswith("Data"):
+				clean_base = model_name[:-4]
+				resp_name = f"{clean_base}Response"
+			else:
+				resp_name = f"{model_name}Response"
+
+			if resp_name not in ENVELOPES:
+				ENVELOPES[resp_name] = make_envelope(model_name, description=f"{model_name} response")
+			return resp_name
+
+	return _determine_response(func_name, openapi_path, method)
 
 
 def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1678,10 +1694,24 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 		route_info = getattr(endpoint_fn, "_route", {})
 		allow_guest = route_info.get("allow_guest", False) or rule.rule in _exempt_paths
-		summary = route_info.get("summary") or (unwrapped.__doc__ or "").strip().split("\n")[0]
-		description = (unwrapped.__doc__ or "").strip() or summary
+		api_doc_meta = get_api_doc(endpoint_fn)
 
-		tag = _determine_tag(openapi_path, func_name)
+		summary = (
+			(api_doc_meta.get("summary") if api_doc_meta else None)
+			or route_info.get("summary")
+			or (unwrapped.__doc__ or "").strip().split("\n")[0]
+		)
+		description = (
+			(api_doc_meta.get("description") if api_doc_meta else None)
+			or (unwrapped.__doc__ or "").strip()
+			or summary
+		)
+
+		tag = None
+		if api_doc_meta and api_doc_meta.get("tags"):
+			tag = api_doc_meta["tags"][0]
+		if not tag:
+			tag = _determine_tag(openapi_path, func_name)
 		req_model = request_model(endpoint_fn)
 		req_schema_name = req_model.__name__ if req_model else None
 		req_schema = request_schema(req_model, path_param_names, REQ) if req_model else None
@@ -1736,7 +1766,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				elif func_name.startswith("get_public_chart_"):
 					parameters.extend(copy.deepcopy(QP["DashboardChart"]))
 
-			response_schema_name = _determine_response(func_name, openapi_path, method)
+			response_schema_name = resolve_response_schema(endpoint_fn, func_name, openapi_path, method)
 			resp_content_type = "*/*" if func_name == "view" else "application/json"
 
 			op: dict[str, Any] = {
@@ -1775,6 +1805,9 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					},
 				},
 			}
+
+			if api_doc_meta and api_doc_meta.get("deprecated"):
+				op["deprecated"] = True
 
 			if parameters:
 				op["parameters"] = parameters

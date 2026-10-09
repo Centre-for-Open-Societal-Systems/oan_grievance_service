@@ -209,6 +209,12 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		# Visibility granted for all cases in reporting chain; editing permitted for assignee or supervisor
 		return True
 
+	if ptype == "read" and frappe.db.exists(
+		"Grievance Change Request",
+		{"grievance": doc.get("name"), "status": "Pending", "pending_with": user},
+	):
+		return True
+
 	dept = doc.get("assigned_dept")
 	category = doc.get("service_category")
 	grievance_type = doc.get("grievance_type")

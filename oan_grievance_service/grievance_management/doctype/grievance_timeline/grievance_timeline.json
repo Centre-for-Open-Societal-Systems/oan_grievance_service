@@ -12,7 +12,7 @@
   "is_internal",
   "col_author",
   "author_user",
-  "author_submitter",
+  "author_type",
   "created_on",
   "sec_body",
   "body",
@@ -57,15 +57,16 @@
    "fieldname": "author_user",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Author (Staff)",
+   "label": "Author",
    "options": "User"
   },
   {
-   "fieldname": "author_submitter",
-   "fieldtype": "Link",
+   "fieldname": "author_type",
+   "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Author (Submitter)",
-   "options": "Grievance Submitter Profile"
+   "in_standard_filter": 1,
+   "label": "Author Type",
+   "options": "\nofficer\nsubmitter\nsystem"
   },
   {
    "fieldname": "created_on",

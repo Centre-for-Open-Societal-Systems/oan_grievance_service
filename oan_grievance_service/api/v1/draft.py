@@ -471,13 +471,21 @@ def submit_draft(
 	lifecycle.transition(doc, "Submit", reason="Grievance submitted")
 
 	body_text = (doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})"
+	submitter_user = (
+		frappe.db.get_value("Grievance Submitter Profile", doc.submitter, "user") if doc.submitter else None
+	)
+	submit_author_user = (
+		doc.assisted_by_officer
+		or submitter_user
+		or (frappe.session.user if frappe.session.user != "Guest" else None)
+	)
 	timeline_entry = GrievanceTimeline.record(
 		grievance=doc.name,
 		entry_type="submission",
 		is_internal=False,
 		body=body_text,
-		author_submitter=doc.submitter,
-		author_user=doc.assisted_by_officer,
+		author_user=submit_author_user,
+		author_type="submitter",
 		ref_doctype="Grievance",
 		ref_docname=doc.name,
 	)

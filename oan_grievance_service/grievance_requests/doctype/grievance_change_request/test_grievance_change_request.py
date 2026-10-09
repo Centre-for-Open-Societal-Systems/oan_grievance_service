@@ -42,10 +42,14 @@ def _ensure_test_user(email, role="Grievance Officer", first_name=None):
 	return doc.email
 
 
+from oan_grievance_service.api.router import ensure_routes_registered
+
+
 class TestGrievanceChangeRequest(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
+		ensure_routes_registered()
 		seed_role_levels()
 		seed_workflow()
 		seed_notifications()
@@ -71,8 +75,6 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": dept2_name,
-					"email_account": f"sec_{frappe.generate_hash(length=4)}@example.com",
-					"active": 1,
 				}
 			)
 			.insert(ignore_permissions=True)
@@ -150,28 +152,48 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 			assigned_to=self.officer1,
 		)
 		lifecycle.transition(self.grievance, "Assign")
-		lifecycle.transition(self.grievance, "Start Work")
+		lifecycle.transition(self.grievance, "In Progress", reason="Investigation commenced.")
 
 	def tearDown(self):
+		frappe.db.rollback()
 		frappe.set_user("Administrator")
 		if hasattr(self, "assignment1") and frappe.db.exists(
 			"Grievance RBAC Assignment", self.assignment1.name
 		):
 			frappe.delete_doc(
-				"Grievance RBAC Assignment", self.assignment1.name, force=True, ignore_permissions=True
+				"Grievance RBAC Assignment",
+				self.assignment1.name,
+				force=True,
+				ignore_permissions=True,
+				delete_permanently=True,
 			)
 		if hasattr(self, "assignment2") and frappe.db.exists(
 			"Grievance RBAC Assignment", self.assignment2.name
 		):
 			frappe.delete_doc(
-				"Grievance RBAC Assignment", self.assignment2.name, force=True, ignore_permissions=True
+				"Grievance RBAC Assignment",
+				self.assignment2.name,
+				force=True,
+				ignore_permissions=True,
+				delete_permanently=True,
 			)
-		for cr in frappe.get_all("Grievance Change Request", pluck="name"):
-			frappe.delete_doc("Grievance Change Request", cr, force=True, ignore_permissions=True)
+		if hasattr(self, "grievance"):
+			for cr in frappe.get_all(
+				"Grievance Change Request", filters={"grievance": self.grievance.name}, pluck="name"
+			):
+				frappe.db.delete("Grievance Change Request", {"name": cr})
+				frappe.db.delete("Grievance Change Request Item", {"parent": cr})
 		if hasattr(self, "dept2") and frappe.db.exists("Grievance Department", self.dept2):
-			frappe.delete_doc("Grievance Department", self.dept2, force=True, ignore_permissions=True)
+			frappe.delete_doc(
+				"Grievance Department",
+				self.dept2,
+				force=True,
+				ignore_permissions=True,
+				delete_permanently=True,
+			)
 		if hasattr(self, "grievance") and frappe.db.exists("Grievance", self.grievance.name):
 			discard_grievance(self.grievance.name)
+		frappe.db.rollback()
 
 	# ---------------------------------------------------------
 	# Submitter Change Request Tests
@@ -385,8 +407,6 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": f"Headless Dept {frappe.generate_hash(length=4)}",
-					"email_account": f"headless_{frappe.generate_hash(length=4)}@example.com",
-					"active": 1,
 				}
 			)
 			.insert(ignore_permissions=True)
@@ -843,3 +863,78 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 
 		res2 = decide(name="NON_EXISTENT_CR_123", decision="Approved")
 		self.assertEqual(res2["status"], "error")
+
+	def test_decide_reassignment_endpoint_works_for_target_dept_head(self):
+		"""Target department head (who has read-only access on source case) can decide reassignment."""
+		import json
+
+		import frappe.api
+
+		from oan_grievance_service.tests.test_router import make_test_request
+
+		frappe.set_user(self.officer1)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Move to Dept 2 for Specialised Review",
+				"reason": "Expertise required",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		# Target dept head decides via API
+		frappe.set_user(self.head2)
+		req = make_test_request(
+			f"/api/v1/grievances/{self.grievance.ticket_number}/reassign/decide",
+			method="POST",
+			data={"decision": "Approved", "note": "Accepted transfer to Dept 2"},
+		)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+
+		self.grievance.reload()
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+
+	def test_decide_deferral_endpoint_works_for_approver(self):
+		"""Designated approver can decide SLA deferral request via decide_deferral endpoint."""
+		import json
+
+		import frappe.api
+
+		from oan_grievance_service.tests.test_router import make_test_request
+
+		initial_deadline = add_days(today(), 5)
+		new_deadline = add_days(today(), 9)
+		self.grievance.db_set("sla_due_date", initial_deadline, update_modified=False)
+
+		frappe.set_user(self.officer1)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "SLA Deferral: +4 days",
+				"reason": "Lab sample testing delays",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
+			}
+		).insert(ignore_permissions=True)
+
+		# Approver decides via API
+		frappe.set_user(self.senior)
+		req = make_test_request(
+			f"/api/v1/grievances/{self.grievance.ticket_number}/defer-sla/decide",
+			method="POST",
+			data={"decision": "Approved", "note": "Extension granted for lab analysis"},
+		)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+
+		self.grievance.reload()
+		self.assertEqual(str(self.grievance.sla_due_date).split(" ")[0], str(new_deadline).split(" ")[0])
