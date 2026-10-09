@@ -1553,6 +1553,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.officer_statistics",
 		"oan_grievance_service.api.v1.profile",
 		"oan_grievance_service.api.v1.response_config",
+		"oan_grievance_service.api.v1.sla_settings",
 		"oan_grievance_service.api.v1.submitter",
 		"oan_grievance_service.api.v1.taxonomy",
 	]
@@ -1577,6 +1578,8 @@ def _determine_tag(path: str, func_name: str) -> str:
 			"/api/v1/category-assignments",
 			"/api/v1/officers",
 			"/api/v1/response-templates",
+			"/api/v1/sla-configurations",
+			"/api/v1/sla-policy",
 			"/api/v1/service-categories",
 			"/api/v1/grievance-types",
 		)

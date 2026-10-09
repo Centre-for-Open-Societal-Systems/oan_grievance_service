@@ -93,6 +93,7 @@ def _register() -> None:
 		officer_statistics,
 		profile,
 		response_config,
+		sla_settings,
 		submitter,
 		taxonomy,
 	)

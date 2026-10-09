@@ -6,11 +6,27 @@ from frappe import _
 from frappe.model.document import Document
 
 
+def get_active_config(name: str):
+	"""The active SLA configuration with this name, or DoesNotExistError.
+
+	An inactive row is not served: routing ignores it, so editing it would change nothing
+	a case ever sees.
+	"""
+	if not name or not frappe.db.exists("Grievance SLA Configuration", {"name": name, "active": 1}):
+		frappe.throw(
+			_("SLA configuration '{0}' was not found.").format(name),
+			frappe.DoesNotExistError,
+		)
+	return frappe.get_doc("Grievance SLA Configuration", name)
+
+
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
 		self.validate_one_active_row()
 		if self.sla_days is not None and self.sla_days <= 0:
 			frappe.throw(_("SLA Days must be greater than zero."))
+		if (self.auto_escalation_threshold or 0) > 100:
+			frappe.throw(_("Auto Escalation Threshold cannot exceed 100%."))
 		if self.first_response_hours is not None and self.first_response_hours < 0:
 			frappe.throw(_("First Response Hours cannot be negative."))
 		if self.update_cadence_hours is not None and self.update_cadence_hours < 0:

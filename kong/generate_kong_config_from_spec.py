@@ -131,6 +131,10 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
 	("PATCH", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
 	("DELETE", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
+	("GET", "/api/v1/sla-policy"): "officer-core",
+	("PATCH", "/api/v1/sla-policy"): "officer-core",
+	("GET", "/api/v1/sla-configurations"): "officer-core",
+	("PATCH", "/api/v1/sla-configurations/{config}"): "officer-core",
 	("GET", "/api/v1/officers/statistics"): "officer-core",
 	("GET", "/api/v1/charts"): "officer-core",
 	**{

@@ -14,6 +14,7 @@
   "col_sla_esc",
   "auto_escalate",
   "auto_escalation_threshold",
+  "notify_on_breach",
   "sec_milestones",
   "first_response_hours",
   "update_cadence_hours",
@@ -64,13 +65,19 @@
    "label": "Auto-escalate on Breach"
   },
   {
-   "default": "100",
    "depends_on": "auto_escalate",
-   "description": "Share of the SLA window that must be consumed before the first escalation. 100 means at the deadline; 80 hands the case up while there is still time to save it.",
+   "description": "Share of the SLA window that must be consumed before the first escalation. 100 means at the deadline; 80 hands the case up while there is still time to save it. Leave at 0 to follow the threshold on Grievance Deferral Policy.",
    "fieldname": "auto_escalation_threshold",
    "fieldtype": "Int",
    "label": "Auto Escalation Threshold (%)",
    "non_negative": 1
+  },
+  {
+   "default": "1",
+   "description": "Queue the SLA breach notification when a case in this category escalates. Escalation itself is unaffected.",
+   "fieldname": "notify_on_breach",
+   "fieldtype": "Check",
+   "label": "Notify on Breach"
   },
   {
    "fieldname": "sec_milestones",
@@ -118,7 +125,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-07 10:00:15.000000",
+ "modified": "2026-10-08 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",
