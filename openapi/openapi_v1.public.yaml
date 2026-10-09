@@ -4268,12 +4268,11 @@ paths:
       tags:
       - Administration
       summary: List officers
-      description: 'Admin list of accounts by role: Officer (L1 and L2, the default), Admin or Reviewer.
-        Officers are filterable by level, department, status, service category and region. region matches
-        an officer''s area exactly. q matches name or email. status, q and pagination apply to every role.
-        An Admin or Reviewer has no level, department, service category or region, so those filters are
-        refused for them, and so is the status On Leave. Admin and Reviewer lists need an admin role:
-        a Review Officer reads Officer lists only.'
+      description: 'Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the
+        department heads, which the Admin tab shows. Filterable by level, department, status, service
+        category and region. region matches an account''s area exactly. q matches name or email. A Reviewer
+        has no level, so level is refused for role Reviewer, and so is status On Leave. Listing Reviewers
+        needs an admin role: a Review Officer reads Officer lists only.'
       operationId: get_api_v1_officers
       responses:
         '200':
@@ -4320,7 +4319,6 @@ paths:
           default: Officer
           enum:
           - Officer
-          - Admin
           - Reviewer
           type: string
       - name: level
@@ -4330,6 +4328,7 @@ paths:
           enum:
           - L1
           - L2
+          - L3
           type: string
           default: null
           nullable: true
@@ -4395,18 +4394,17 @@ paths:
       tags:
       - Administration
       summary: Create an officer
-      description: 'Create an account by role. role defaults to Officer. An Officer needs level, department,
-        service_categories and designation: the login becomes an L1 or L2 officer on the category desks
-        of a department, every service category must already have a category assignment for the department,
-        and reports_to is an L2 officer and is only for an L1. An Admin or Reviewer needs only full_name,
-        email, phone and temporary_password, with an optional designation; level, department, service_categories,
-        reports_to and region are refused. An Admin or Reviewer is a User with that role and has no desk,
-        so it takes no part in grievance routing. The login is created when the email is new, with the
-        requested role alone. An existing login is promoted only if it holds no grievance role, or already
-        holds this one: an account holds one of Submitter, Officer, Admin or Reviewer, and a System Manager
-        or Administrator is never managed here. temporary_password is required: the account holder signs
-        in with it only to replace it through /api/v1/auth/password/initial. It is applied to a new login
-        only. An email that already has a login keeps its own password and the message says so.'
+      description: 'Make a login an officer or a Reviewer on the category desks of a department. role
+        defaults to Officer. An Officer needs level (L1, L2 or L3), department, service_categories and
+        designation; level L3 makes a department head, who is reached by escalation and is not assigned
+        first-line cases. A Reviewer needs department and service_categories and takes no level or reports_to:
+        they read those desks'' cases only, are never assigned one and cannot change one. Every service
+        category must already have a category assignment for the department. reports_to is an L2 officer
+        and is only for an L1. The login is created when the email is new. An existing login keeps its
+        own roles and is given the officer or review role; a System Manager or Administrator is never
+        managed here. temporary_password is required: the account holder signs in with it only to replace
+        it through /api/v1/auth/password/initial. It is applied to a new login only. An email that already
+        has a login keeps its own password and the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -4461,10 +4459,10 @@ paths:
       description: 'Active, On Leave and Inactive totals for the officers tabs, so the UI shows the counts
         from here instead of hardcoding them. Takes the list''s filters (role, level, department, service_category,
         region, q) without status, so a tab''s counts follow the same filters as its list. Each person
-        is counted once, in the status the officer record shows: the most available of their desk rows
-        wins. The list''s status filter matches an officer with a row in that status, so one whose rows
-        differ can be on two pages and is still one count here. An Admin or Reviewer has no On Leave.
-        Counting Admin or Reviewer accounts needs an admin role, as listing them does.'
+        is counted once, in the status the record shows: the most available of their desk rows wins. The
+        list''s status filter matches an account with a row in that status, so one whose rows differ can
+        be on two pages and is still one count here. A Reviewer has no On Leave. Counting Reviewers needs
+        an admin role, as listing them does.'
       operationId: get_api_v1_officers_status_counts
       responses:
         '200':
@@ -4511,7 +4509,6 @@ paths:
           default: Officer
           enum:
           - Officer
-          - Admin
           - Reviewer
           type: string
       - name: level
@@ -4521,6 +4518,7 @@ paths:
           enum:
           - L1
           - L2
+          - L3
           type: string
           default: null
           nullable: true
@@ -4559,9 +4557,8 @@ paths:
       tags:
       - Administration
       summary: Get an officer
-      description: 'One account of any role: an L1 or L2 officer with the desks (RBAC assignments) they
-        sit on, or an Admin or Reviewer, whose level, department, region, supervisor and assignments are
-        empty. The id is the account''s email. An Admin or Reviewer needs an admin role to read.'
+      description: One officer, department head or Reviewer with the desks (RBAC assignments) they sit
+        on. The id is the account's email. Reading a Reviewer needs an admin role.
       operationId: get_api_v1_officers_officer
       responses:
         '200':
@@ -4614,14 +4611,12 @@ paths:
       - Administration
       summary: Update an officer
       description: 'Change name, designation, phone, level, department, region, status, service categories
-        or supervisor of an officer. Set status to Inactive to deactivate: the officer''s desk rows are
-        retired too. service_categories replaces the whole list. Changing level clears the officer''s
-        supervisor, and an L2 with L1 officers reporting to them cannot change level. An Admin or Reviewer
-        takes only full_name, phone, designation and status (Active or Inactive); anything else is refused,
-        and so is a change of role, which is fixed once created. Inactive on an Admin or Reviewer also
-        disables the login and ends its sessions and refresh tokens, so it cannot sign in; Active enables
-        it again. An account cannot deactivate itself, and the last active Grievance Admin cannot be deactivated.
-        email is fixed once created. A System Manager or Administrator is never updated here.'
+        or supervisor. Set status to Inactive to deactivate: the account''s desk rows are retired too,
+        and a Reviewer''s login is disabled and its sessions and refresh tokens ended, so it cannot sign
+        in. service_categories replaces the whole list. Changing level clears the officer''s supervisor,
+        and an L2 with L1 officers reporting to them cannot change level. A Reviewer has no level or supervisor,
+        so those are refused, and so is On Leave. An account cannot deactivate itself. email and role
+        are fixed once created. A System Manager or Administrator is never updated here.'
       operationId: patch_api_v1_officers_officer
       responses:
         '200':
@@ -4680,13 +4675,11 @@ paths:
       tags:
       - Administration
       summary: Issue a new temporary password
-      description: 'Set a new temporary password on an Officer, Admin or Reviewer who cannot sign in,
-        for example after a forgotten password. The account''s current sessions end at once and its holder
-        must replace the password through /api/v1/auth/password/initial before signing in. A Grievance
-        Admin can do this for Officers and Reviewers. An Admin account can be reset only by a System Manager
-        or Administrator. Nobody can reset their own password here, and a System Manager or Administrator
-        account is never reset here: that recovery stays on Frappe Desk or bench. Limited to 10 requests
-        per caller in 5 minutes, and logged.'
+      description: Set a new temporary password on an officer or Reviewer who cannot sign in, for example
+        after a forgotten password. The account's current sessions end at once and its holder must replace
+        the password through /api/v1/auth/password/initial before signing in. Not available for an account
+        that itself holds an admin role, nor for your own account. Limited to 10 requests per admin every
+        5 minutes, and logged.
       operationId: post_api_v1_officers_officer_password_resets
       responses:
         '200':
@@ -8227,7 +8220,10 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
+          default: null
+          nullable: true
         region:
           type: string
           default: null
@@ -8238,7 +8234,6 @@ components:
           type: boolean
       required:
       - assignment
-      - level
       - active
       - on_leave
       type: object
@@ -8251,7 +8246,6 @@ components:
         role:
           enum:
           - Officer
-          - Admin
           - Reviewer
           type: string
         designation:
@@ -8262,6 +8256,7 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
           default: null
           nullable: true
@@ -9265,15 +9260,16 @@ components:
       type: object
     CreateOfficer:
       additionalProperties: false
-      description: 'An Officer needs a desk placement; an Admin or Reviewer needs a phone and nothing
-        else.
+      description: 'An officer needs a level; a Reviewer is placed on the same desks without one.
 
 
-        `level`, `department`, `service_categories` and `designation` are required for an Officer
+        `designation`, `level`, `department` and `service_categories` are required for an Officer.
 
-        and, with `reports_to` and `region`, refused for an Admin or Reviewer, whose designation is
+        A Reviewer needs the department and categories whose desks they read, and has no level or
 
-        optional. The checks are in one model validator because they depend on `role`.'
+        supervisor, so those are refused for them. The checks are in one model validator because
+
+        they depend on `role`.'
       properties:
         full_name:
           minLength: 1
@@ -9288,7 +9284,6 @@ components:
           default: Officer
           enum:
           - Officer
-          - Admin
           - Reviewer
           type: string
         designation:
@@ -9300,6 +9295,7 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
           default: null
           nullable: true
@@ -9347,6 +9343,7 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
         full_name:
           minLength: 1

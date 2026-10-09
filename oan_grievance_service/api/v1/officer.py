@@ -1,17 +1,17 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""Officer management for the Administration Nodal Officers (L1) and Senior Officers (L2) tabs,
-and the Admin and Reviewer accounts, through one resource configured by `role`.
+"""Officer management for the Administration tabs: Nodal Officers (L1), Senior Officers (L2),
+Department Heads (L3) and Reviewers, through one resource configured by `role` and `level`.
 
 An officer is a User placed on category desks through Grievance RBAC Assignment Officer
 rows, so what an admin edits here is what routing, permissions and escalation read. The
 officer id is the User id, which is the officer's email.
 
-An Admin ("Grievance Admin") or Reviewer ("Grievance Review Officer") is a plain User that holds
-that role. It has no desk, so it takes no part in routing, escalation, scope checks or officer
-statistics. `role` selects which accounts a call is about and defaults to Officer, which is
-exactly the behaviour this resource had before roles existed.
+A department head is an L3 officer: a department's final escalation rung, who approves its
+reassignments. A Reviewer is placed on a department's desks too, with read-only access limited
+to those desks and no cases assigned to them. `role` defaults to Officer, which is exactly the
+behaviour this resource had before reviewers and L3 existed.
 
 Officers are not deleted: set `status` to Inactive. Performance metrics (assigned, resolved,
 average time, resolution rate) are served by the statistics API, not by this resource.
@@ -46,11 +46,9 @@ from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROL
 
 route = prefixed("/api/v1/officers")
 
-Level = Literal["L1", "L2"]
+Level = Literal["L1", "L2", "L3"]
 Status = Literal["Active", "On Leave", "Inactive"]
-Role = Literal["Officer", "Admin", "Reviewer"]
-# Fields that place an officer on category desks. An Admin or Reviewer has none of them.
-DESK_ONLY_FILTERS = ("level", "department", "service_category", "region")
+Role = Literal["Officer", "Reviewer"]
 
 
 def normalize_email(value: str) -> str:
@@ -88,7 +86,7 @@ class OfficerAssignment(BaseModel):
 	assignment: str
 	service_category: str | None = None
 	department: str | None = None
-	level: Level
+	level: Level | None = None
 	region: str | None = None
 	active: bool
 	on_leave: bool
@@ -133,11 +131,12 @@ class OfficerRef(Body):
 
 
 class CreateOfficer(Body):
-	"""An Officer needs a desk placement; an Admin or Reviewer needs a phone and nothing else.
+	"""An officer needs a level; a Reviewer is placed on the same desks without one.
 
-	`level`, `department`, `service_categories` and `designation` are required for an Officer
-	and, with `reports_to` and `region`, refused for an Admin or Reviewer, whose designation is
-	optional. The checks are in one model validator because they depend on `role`.
+	`designation`, `level`, `department` and `service_categories` are required for an Officer.
+	A Reviewer needs the department and categories whose desks they read, and has no level or
+	supervisor, so those are refused for them. The checks are in one model validator because
+	they depend on `role`.
 	"""
 
 	full_name: NonBlank
@@ -162,20 +161,20 @@ class CreateOfficer(Body):
 	@model_validator(mode="after")
 	def _fields_follow_role(self):
 		errors = {}
+		if not self.department:
+			errors["department"] = f"Required when role is {self.role}"
+		if not self.service_categories:
+			errors["service_categories"] = f"Required when role is {self.role}: give at least one"
 		if self.role == "Officer":
-			for field in ("designation", "level", "department"):
+			for field in ("designation", "level"):
 				if not getattr(self, field):
 					errors[field] = "Required when role is Officer"
-			if not self.service_categories:
-				errors["service_categories"] = "Required when role is Officer: give at least one"
 		else:
-			if not self.phone:
-				errors["phone"] = f"Required when role is {self.role}"
-			for field in ("level", "department", "service_categories", "reports_to", "region"):
+			for field in ("level", "reports_to"):
 				if getattr(self, field):
 					errors[field] = f"Not accepted when role is {self.role}: it applies to officers only"
 			if self.status == "On Leave":
-				errors["status"] = f"{self.role} accounts are Active or Inactive, not On Leave"
+				errors["status"] = "A Reviewer is Active or Inactive, not On Leave"
 		if errors:
 			field_errors(type(self), errors)
 		return self
@@ -209,8 +208,8 @@ class OfficerFilters(Body):
 	"""Filters shared by the list and the status counts.
 
 	Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered
-	list. An Admin or Reviewer has no level, department, category or region, so asking for
-	one of those with such a role is refused rather than answered with an empty page.
+	list. A Reviewer has no level, so asking for one with that role is refused rather than
+	answered with an empty page.
 	"""
 
 	role: Role = "Officer"
@@ -227,14 +226,10 @@ class OfficerFilters(Body):
 
 	@model_validator(mode="after")
 	def _filters_follow_role(self):
-		if self.role != "Officer":
-			errors = {
-				field: f"Not accepted when role is {self.role}: it applies to officers only"
-				for field in DESK_ONLY_FILTERS
-				if getattr(self, field)
-			}
-			if errors:
-				field_errors(type(self), errors)
+		if self.role == "Reviewer" and self.level:
+			field_errors(
+				type(self), {"level": "Not accepted when role is Reviewer: it applies to officers only"}
+			)
 		return self
 
 
@@ -249,11 +244,8 @@ class ListOfficers(PageParams, OfficerFilters):
 
 	@model_validator(mode="after")
 	def _status_follows_role(self):
-		if self.role != "Officer" and self.status == "On Leave":
-			field_errors(
-				type(self),
-				{"status": f"{self.role} accounts are Active or Inactive, not On Leave"},
-			)
+		if self.role == "Reviewer" and self.status == "On Leave":
+			field_errors(type(self), {"status": "A Reviewer is Active or Inactive, not On Leave"})
 		return self
 
 
@@ -264,12 +256,11 @@ class ListOfficers(PageParams, OfficerFilters):
 @validate_request(ListOfficers)
 @api_doc(
 	summary="List officers",
-	description="Admin list of accounts by role: Officer (L1 and L2, the default), Admin or "
-	+ "Reviewer. Officers are filterable by level, department, status, service category and "
-	+ "region. region matches an officer's area exactly. q matches name or email. status, q "
-	+ "and pagination apply to every role. An Admin or Reviewer has no level, department, "
-	+ "service category or region, so those filters are refused for them, and so is the status "
-	+ "On Leave. Admin and Reviewer lists need an admin role: a Review Officer reads Officer "
+	description="Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the "
+	+ "department heads, which the Admin tab shows. Filterable by level, department, status, "
+	+ "service category and region. region matches an account's area exactly. q matches name "
+	+ "or email. A Reviewer has no level, so level is refused for role Reviewer, and so is "
+	+ "status On Leave. Listing Reviewers needs an admin role: a Review Officer reads Officer "
 	+ "lists only.",
 	tags=["Administration"],
 	response_model=OfficerListData,
@@ -319,14 +310,14 @@ def list_officers(
 @validate_request(StatusCountsQuery)
 @api_doc(
 	summary="Count officers by status",
-	description="Active, On Leave and Inactive totals for the officers tabs, so the UI shows "
-	+ "the counts from here instead of hardcoding them. Takes the list's filters (role, level, "
+	description="Active, On Leave and Inactive totals for the officers tabs, so the UI shows the "
+	+ "counts from here instead of hardcoding them. Takes the list's filters (role, level, "
 	+ "department, service_category, region, q) without status, so a tab's counts follow the "
-	+ "same filters as its list. Each person is counted once, in the status the officer record "
-	+ "shows: the most available of their desk rows wins. The list's status filter matches an "
-	+ "officer with a row in that status, so one whose rows differ can be on two pages and is "
-	+ "still one count here. An Admin or Reviewer has no On Leave. Counting Admin or Reviewer "
-	+ "accounts needs an admin role, as listing them does.",
+	+ "same filters as its list. Each person is counted once, in the status the record shows: "
+	+ "the most available of their desk rows wins. The list's status filter matches an account "
+	+ "with a row in that status, so one whose rows differ can be on two pages and is still one "
+	+ "count here. A Reviewer has no On Leave. Counting Reviewers needs an admin role, as "
+	+ "listing them does.",
 	tags=["Administration"],
 	response_model=StatusCounts,
 )
@@ -359,10 +350,8 @@ def officer_status_counts(
 @validate_request(OfficerRef)
 @api_doc(
 	summary="Get an officer",
-	description="One account of any role: an L1 or L2 officer with the desks (RBAC "
-	+ "assignments) they sit on, or an Admin or Reviewer, whose level, department, region, "
-	+ "supervisor and assignments are empty. The id is the account's email. An Admin or "
-	+ "Reviewer needs an admin role to read.",
+	description="One officer, department head or Reviewer with the desks (RBAC assignments) "
+	+ "they sit on. The id is the account's email. Reading a Reviewer needs an admin role.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -380,20 +369,18 @@ def get_officer(officer: str, **kwargs):
 @validate_request(CreateOfficer)
 @api_doc(
 	summary="Create an officer",
-	description="Create an account by role. role defaults to Officer. An Officer needs level, "
-	+ "department, service_categories and designation: the login becomes an L1 or L2 officer "
-	+ "on the category desks of a department, every service category must already have a "
-	+ "category assignment for the department, and reports_to is an L2 officer and is only for "
-	+ "an L1. An Admin or Reviewer needs only full_name, email, phone and temporary_password, "
-	+ "with an optional designation; level, department, service_categories, reports_to and "
-	+ "region are refused. An Admin or Reviewer is a User with that role and has no desk, so "
-	+ "it takes no part in grievance routing. The login is created when the email is new, with the "
-	+ "requested role alone. An existing login is promoted only if it holds no grievance role, "
-	+ "or already holds this one: an account holds one of Submitter, Officer, Admin or "
-	+ "Reviewer, and a System Manager or Administrator is never managed here. "
-	+ "temporary_password is required: the account holder signs in with it only to replace it "
-	+ "through /api/v1/auth/password/initial. It is applied to a new login only. An email that "
-	+ "already has a login keeps its own password and the message says so.",
+	description="Make a login an officer or a Reviewer on the category desks of a department. "
+	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3), department, "
+	+ "service_categories and designation; level L3 makes a department head, who is reached "
+	+ "by escalation and is not assigned first-line cases. A Reviewer needs department and "
+	+ "service_categories and takes no level or reports_to: they read those desks' cases only, "
+	+ "are never assigned one and cannot change one. Every service category must already have "
+	+ "a category assignment for the department. reports_to is an L2 officer and is only for "
+	+ "an L1. The login is created when the email is new. An existing login keeps its own "
+	+ "roles and is given the officer or review role; a System Manager or Administrator is "
+	+ "never managed here. temporary_password is required: the account holder signs in with it "
+	+ "only to replace it through /api/v1/auth/password/initial. It is applied to a new login "
+	+ "only. An email that already has a login keeps its own password and the message says so.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -412,7 +399,7 @@ def create_officer(
 	reports_to: str | None = None,
 	**kwargs,
 ):
-	"""Create an officer, admin or reviewer."""
+	"""Create an officer, department head or reviewer."""
 	user_id, password_applied = service.create(
 		role=role,
 		full_name=full_name,
@@ -443,16 +430,13 @@ def create_officer(
 @api_doc(
 	summary="Update an officer",
 	description="Change name, designation, phone, level, department, region, status, service "
-	+ "categories or supervisor of an officer. Set status to Inactive to deactivate: the "
-	+ "officer's desk rows are retired too. service_categories replaces the whole list. "
-	+ "Changing level clears the officer's supervisor, and an L2 with L1 officers reporting to "
-	+ "them cannot change level. An Admin or Reviewer takes only full_name, phone, designation "
-	+ "and status (Active or Inactive); anything else is refused, and so is a change of role, "
-	+ "which is fixed once created. Inactive on an Admin or Reviewer also disables the login "
-	+ "and ends its sessions and refresh tokens, so it cannot sign in; Active enables it "
-	+ "again. An account cannot deactivate itself, and the last active Grievance Admin cannot "
-	+ "be deactivated. email is fixed once created. A System Manager or Administrator is never "
-	+ "updated here.",
+	+ "categories or supervisor. Set status to Inactive to deactivate: the account's desk rows "
+	+ "are retired too, and a Reviewer's login is disabled and its sessions and refresh tokens "
+	+ "ended, so it cannot sign in. service_categories replaces the whole list. Changing level "
+	+ "clears the officer's supervisor, and an L2 with L1 officers reporting to them cannot "
+	+ "change level. A Reviewer has no level or supervisor, so those are refused, and so is "
+	+ "On Leave. An account cannot deactivate itself. email and role are fixed once created. A "
+	+ "System Manager or Administrator is never updated here.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
@@ -471,19 +455,16 @@ def update_officer(officer: str, **kwargs):
 @validate_request(ResetTemporaryPassword)
 @api_doc(
 	summary="Issue a new temporary password",
-	description="Set a new temporary password on an Officer, Admin or Reviewer who cannot "
-	+ "sign in, for example after a forgotten password. The account's current sessions end at "
-	+ "once and its holder must replace the password through /api/v1/auth/password/initial "
-	+ "before signing in. A Grievance Admin can do this for Officers and Reviewers. An Admin "
-	+ "account can be reset only by a System Manager or Administrator. Nobody can reset their "
-	+ "own password here, and a System Manager or Administrator account is never reset here: "
-	+ "that recovery stays on Frappe Desk or bench. Limited to 10 requests per caller in 5 "
-	+ "minutes, and logged.",
+	description="Set a new temporary password on an officer or Reviewer who cannot sign in, for "
+	+ "example after a forgotten password. The account's current sessions end at once and its "
+	+ "holder must replace the password through /api/v1/auth/password/initial before signing "
+	+ "in. Not available for an account that itself holds an admin role, nor for your own "
+	+ "account. Limited to 10 requests per admin every 5 minutes, and logged.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
 def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
-	"""Reissue a temporary password to an officer, admin or reviewer."""
+	"""Reissue a temporary password to an officer or reviewer. The account must already exist."""
 	check_rate_limit(f"rl:officer_temporary_password:{frappe.session.user}", limit=10, window=300)
 
 	service.reset_temporary_password(officer, temporary_password)
@@ -491,9 +472,7 @@ def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
 	frappe.logger("oan_grievance_service").info(
 		f"temporary password reissued by={frappe.session.user} for={officer} role={found['role']}"
 	)
-	message = _("Temporary password issued. The officer must set their own password before signing in.")
-	if found["role"] != "Officer":
-		message = _(
-			"Temporary password issued. The {0} must set their own password before signing in."
-		).format(found["role"])
-	return success_response(data={"officer": found}, message=message)
+	return success_response(
+		data={"officer": found},
+		message=_("Temporary password issued. The officer must set their own password before signing in."),
+	)

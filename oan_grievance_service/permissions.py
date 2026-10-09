@@ -99,13 +99,105 @@ def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
 
 
+def _scope_clauses(scopes):
+	"""SQL for the cases inside each of `scopes`, one parenthesised clause per scope."""
+	clauses = []
+	bounds = area_bounds(scopes)
+	for scope in scopes:
+		dept_scope = scope.get("department_scope")
+		cat_scope = scope.get("category_scope")
+		gtype_scope = scope.get("grievance_type_scope")
+		prov_scope = scope.get("service_provider_scope")
+		area_scope = scope.get("administrative_area_scope")
+
+		include_parts = []
+
+		if dept_scope:
+			include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
+		if cat_scope:
+			include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
+		if gtype_scope:
+			include_parts.append(f"`tabGrievance`.grievance_type = {frappe.db.escape(gtype_scope)}")
+		if prov_scope:
+			include_parts.append(
+				f"`tabGrievance`.associated_service_provider = {frappe.db.escape(prov_scope)}"
+			)
+		if area_scope:
+			area_lft, area_rgt = bounds.get(area_scope, (None, None))
+			if area_lft is not None and area_rgt is not None:
+				include_parts.append(
+					f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
+				)
+
+		if include_parts:
+			clauses.append("(`tabGrievance`.docstatus != 0 and " + " and ".join(include_parts) + ")")
+	return clauses
+
+
+def _scope_covers(doc, scopes) -> bool:
+	"""Whether the case falls inside any of `scopes`. A scope with no field set covers nothing."""
+	dept = doc.get("assigned_dept")
+	category = doc.get("service_category")
+	grievance_type = doc.get("grievance_type")
+	provider = doc.get("associated_service_provider")
+	area = doc.get("administrative_area")
+	case_lft = doc.get("area_lft")
+	if case_lft is None and area:
+		case_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
+
+	for scope in scopes:
+		dept_scope = scope.get("department_scope")
+		cat_scope = scope.get("category_scope")
+		gtype_scope = scope.get("grievance_type_scope")
+		prov_scope = scope.get("service_provider_scope")
+		area_scope = scope.get("administrative_area_scope")
+
+		if not (dept_scope or cat_scope or gtype_scope or prov_scope or area_scope):
+			continue
+
+		if dept_scope and dept != dept_scope:
+			continue
+		if cat_scope and category != cat_scope:
+			continue
+		if gtype_scope and grievance_type != gtype_scope:
+			continue
+		if prov_scope and provider != prov_scope:
+			continue
+		if area_scope:
+			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):
+				continue
+
+		return True
+
+	return False
+
+
+def _is_placed(user):
+	"""Whether `user` has been put on a desk at all, active or not."""
+	return bool(frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user}))
+
+
+def _reviewer_clause(user):
+	"""What a Review Officer reads: the cases in their desks' scopes, never an unsent draft.
+
+	A reviewer placed on a department's desks reads that department's cases only, and loses
+	access when every desk is retired. One who was never placed on a desk keeps the oversight
+	of every filed case that Review Officers had before desks were assigned to them.
+	"""
+	if not _is_placed(user):
+		return "`tabGrievance`.docstatus != 0"
+	scoped = _scope_clauses(active_scopes(user))
+	return "(" + " or ".join(scoped) + ")" if scoped else "1 = 0"
+
+
 def grievance_query_conditions(user=None):
 	"""SQL appended to every Grievance list query. Deny-by-default.
 
 	- Submitters only see their own cases and assisted submissions.
 	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
 	- Admins see all cases.
-	- Review Officers see every case that has left Draft.
+	- Review Officers see the cases in the scopes of the desks they are placed on, and every
+	  case that has left Draft if they were never placed on one.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -117,7 +209,7 @@ def grievance_query_conditions(user=None):
 
 	# Oversight reads every filed case but never someone's unsent draft.
 	if ROLE_REVIEW_OFFICER in roles:
-		clauses.append("`tabGrievance`.docstatus != 0")
+		clauses.append(_reviewer_clause(user))
 
 	# A submitter reaches their own cases, and the assisted submissions they
 	# filed on someone else's behalf. Both arms belong to the one Submitter role.
@@ -130,40 +222,7 @@ def grievance_query_conditions(user=None):
 
 	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
-		scope_clauses = []
-		scopes = active_scopes(user)
-		bounds = area_bounds(scopes)
-		for scope in scopes:
-			dept_scope = scope.get("department_scope")
-			cat_scope = scope.get("category_scope")
-			gtype_scope = scope.get("grievance_type_scope")
-			prov_scope = scope.get("service_provider_scope")
-			area_scope = scope.get("administrative_area_scope")
-
-			include_parts = []
-
-			if dept_scope:
-				include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
-			if cat_scope:
-				include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
-			if gtype_scope:
-				include_parts.append(f"`tabGrievance`.grievance_type = {frappe.db.escape(gtype_scope)}")
-			if prov_scope:
-				include_parts.append(
-					f"`tabGrievance`.associated_service_provider = {frappe.db.escape(prov_scope)}"
-				)
-			if area_scope:
-				area_lft, area_rgt = bounds.get(area_scope, (None, None))
-				if area_lft is not None and area_rgt is not None:
-					include_parts.append(
-						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
-					)
-
-			if include_parts:
-				scope_clauses.append(
-					"(`tabGrievance`.docstatus != 0 and " + " and ".join(include_parts) + ")"
-				)
-
+		scope_clauses = _scope_clauses(active_scopes(user))
 		team = get_subordinate_officers(user)
 		scope_clauses.append(
 			f"(`tabGrievance`.assigned_to in ({_quote(team)}) and `tabGrievance`.docstatus != 0)"
@@ -184,7 +243,8 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		return True
 
 	if ROLE_REVIEW_OFFICER in roles and ptype == "read" and int(doc.get("docstatus") or 0) != 0:
-		return True
+		if not _is_placed(user) or _scope_covers(doc, active_scopes(user)):
+			return True
 
 	if ROLE_SUBMITTER in roles:
 		owner = doc.get("owner")
@@ -215,42 +275,8 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	):
 		return True
 
-	dept = doc.get("assigned_dept")
-	category = doc.get("service_category")
-	grievance_type = doc.get("grievance_type")
-	provider = doc.get("associated_service_provider")
-	area = doc.get("administrative_area")
-	case_lft = doc.get("area_lft")
-	if case_lft is None and area:
-		case_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
-
-	scopes = active_scopes(user)
-	for scope in scopes:
-		dept_scope = scope.get("department_scope")
-		cat_scope = scope.get("category_scope")
-		gtype_scope = scope.get("grievance_type_scope")
-		prov_scope = scope.get("service_provider_scope")
-		area_scope = scope.get("administrative_area_scope")
-
-		if not (dept_scope or cat_scope or gtype_scope or prov_scope or area_scope):
-			continue
-
-		if dept_scope and dept != dept_scope:
-			continue
-		if cat_scope and category != cat_scope:
-			continue
-		if gtype_scope and grievance_type != gtype_scope:
-			continue
-		if prov_scope and provider != prov_scope:
-			continue
-		if area_scope:
-			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):
-				continue
-
-		# Scope grants visibility; editing still needs the case assigned.
-		return ptype == "read"
-
-	return False
+	# Scope grants visibility; editing still needs the case assigned.
+	return ptype == "read" and _scope_covers(doc, active_scopes(user))
 
 
 def _template_scope_clause(scope):

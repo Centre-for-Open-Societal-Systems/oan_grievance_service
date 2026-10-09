@@ -124,6 +124,16 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
+# The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
+# Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
+# and `top_rung` read active levels only. Routing and the officer picker skip these rows.
+REVIEWER_ROLE_LEVEL = (
+	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"Review Officer",
+	910,
+	"Read-only oversight of a department. Not a step of the escalation chain.",
+)
+
 # Service categories. The code is the 3-character CATEGORY segment of the ticket number
 # (services.ticket_number). Three characters allow 32,768 categories, so a
 # service can later be split into much finer groups without the codes running
@@ -492,7 +502,6 @@ def seed_all():
 		"submission_types": seed_submission_types(),
 		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
-		"user_designation_field": seed_user_designation_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
@@ -751,6 +760,19 @@ def seed_role_levels():
 			}
 		).insert(ignore_permissions=True)
 		made.append(code)
+	code, name, order, description = REVIEWER_ROLE_LEVEL
+	if not frappe.db.exists("Grievance Role Level", code):
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Role Level",
+				"level_code": code,
+				"level_name": name,
+				"level_order": order,
+				"description": description,
+				"is_active": 0,
+			}
+		).insert(ignore_permissions=True)
+		made.append(code)
 	return made
 
 
@@ -867,30 +889,6 @@ def seed_recipient_custom_field():
 		created.append("Notification-grievance_recipient")
 
 	return created
-
-
-def seed_user_designation_field():
-	"""The title of an Admin or Reviewer, as a Custom Field on core User.
-
-	An officer's designation lives on their desk rows. An Admin or Reviewer has no desk, and
-	User has no title of its own, so theirs is this field. It is not read for officers.
-	"""
-	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
-
-	if frappe.db.exists("Custom Field", "User-oan_designation"):
-		return []
-
-	create_custom_field(
-		"User",
-		{
-			"fieldname": "oan_designation",
-			"label": "Designation",
-			"fieldtype": "Data",
-			"insert_after": "phone",
-			"description": "Title of a Grievance Admin or Review Officer.",
-		},
-	)
-	return ["User-oan_designation"]
 
 
 def _translatable(source, args, context_key):

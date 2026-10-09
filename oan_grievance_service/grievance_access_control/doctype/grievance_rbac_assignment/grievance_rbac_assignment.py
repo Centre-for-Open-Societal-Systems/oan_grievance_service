@@ -17,8 +17,10 @@ from frappe.model.document import Document
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
 )
+from oan_grievance_service.services.constants import ROLE_LEVEL_REVIEW_OFFICER
 
-OFFICER_ROLES = {"Grievance Officer", "Grievance Admin"}
+# A Reviewer sits on a department's desks too, with read-only access to that department.
+OFFICER_ROLES = {"Grievance Officer", "Grievance Admin", "Grievance Review Officer"}
 # Scope fields that make a desk more specific than a category-only desk. Area is not one:
 # it sits on each officer row, because an officer is assigned to a region, not a desk.
 NARROWING_SCOPES = ("grievance_type_scope", "service_provider_scope")
@@ -102,7 +104,9 @@ def _assert_officer(user: str):
 		frappe.throw(_("{0} '{1}' is disabled.").format(label, user), frappe.ValidationError)
 	if not OFFICER_ROLES.intersection(frappe.get_roles(user)):
 		frappe.throw(
-			_("{0} '{1}' must be a Grievance Officer or Grievance Admin.").format(label, user),
+			_("{0} '{1}' must be a Grievance Officer, Grievance Admin or Grievance Review Officer.").format(
+				label, user
+			),
 			frappe.ValidationError,
 		)
 
@@ -123,8 +127,13 @@ def query_active_officer_assignments(
 	fields=None,
 	order_by="c.is_primary DESC, p.modified DESC",
 	limit=None,
+	include_reviewers=False,
 ):
-	"""Consolidated query builder for active Grievance RBAC Assignments & Officers."""
+	"""Consolidated query builder for active Grievance RBAC Assignments & Officers.
+
+	A Reviewer's rows are left out unless `include_reviewers`: a Reviewer is on a desk to read
+	it, so is no assignee, supervisor or rung. Their own scopes are read with `active_scopes`.
+	"""
 	today = frappe.utils.today()
 	conditions = [
 		"c.active = 1",
@@ -133,6 +142,10 @@ def query_active_officer_assignments(
 		"(p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)",
 	]
 	params = {"today": today}
+
+	if not include_reviewers:
+		conditions.append("c.role_level != %(reviewer_level)s")
+		params["reviewer_level"] = ROLE_LEVEL_REVIEW_OFFICER
 
 	if user:
 		conditions.append("c.user = %(user)s")
@@ -213,7 +226,7 @@ def active_scopes(user=None):
 		"c.is_primary",
 		"c.max_open_cases",
 	]
-	return query_active_officer_assignments(user=user, fields=fields, order_by=None)
+	return query_active_officer_assignments(user=user, fields=fields, order_by=None, include_reviewers=True)
 
 
 def find_officer_by_role_level(role_level, department=None, administrative_area=None):
