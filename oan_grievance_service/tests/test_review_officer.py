@@ -224,7 +224,11 @@ class TestReviewOfficer(FrappeTestCase):
 			grievance.message(ticket_number=ticket_number, body="A note"),
 			grievance.feedback(ticket_number=ticket_number, rating=5),
 			grievance.reassign(ticket_number=ticket_number, target_department=self.department),
-			grievance.defer_sla(ticket_number=ticket_number, additional_days=2, reason="Waiting"),
+			grievance.defer_sla(
+				ticket_number=ticket_number,
+				additional_days=2,
+				reason="Waiting for laboratory soil analysis results",
+			),
 			attachment.delete(attachment_id="none"),
 			draft.discard(client_submission_uuid="00000000-0000-4000-8000-000000000000"),
 			submitter.unblock_submitter("none"),

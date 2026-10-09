@@ -46,8 +46,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Unified Agri Dept",
-					"email_account": "unified_agri@example.com",
-					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 

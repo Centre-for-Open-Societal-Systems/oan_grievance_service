@@ -84,7 +84,10 @@ class GrievanceRBACAssignment(Document):
 			if row.active:
 				_assert_officer(row.user)
 		_assert_active("Grievance Service Category", self.category_scope, "is_active", _("Service category"))
-		_assert_active("Grievance Department", self.department_scope, "active", _("Department"))
+		if self.department_scope and not frappe.db.exists("Grievance Department", self.department_scope):
+			frappe.throw(
+				_("Department '{0}' does not exist.").format(self.department_scope), frappe.ValidationError
+			)
 
 
 def _active_users(rows) -> set[str]:

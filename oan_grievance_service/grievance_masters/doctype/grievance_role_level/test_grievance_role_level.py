@@ -95,8 +95,6 @@ class TestGrievanceRoleLevel(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Test Role Dept",
-					"email_account": "test_role_dept@example.com",
-					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 

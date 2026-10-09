@@ -60,8 +60,7 @@ class NotificationCase(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Notif Test Dept",
-					"email_account": "notif-dept@example.com",
-					"active": 1,
+					"short_name": "NTD",
 				}
 			).insert(ignore_permissions=True)
 		else:
@@ -210,7 +209,7 @@ class TestGrievanceNotificationLog(NotificationCase):
 			notifications.RECIPIENT_DEPARTMENT_HEAD: self.head,
 			notifications.RECIPIENT_NODAL_OFFICER: self.nodal,
 			notifications.RECIPIENT_TOP_LEVEL: self.senior,
-			notifications.RECIPIENT_DEPARTMENT_OFFICER: "notif-dept@example.com",
+			notifications.RECIPIENT_DEPARTMENT_OFFICER: self.head,
 		}
 		for role, expected in cases.items():
 			with self.subTest(role=role):

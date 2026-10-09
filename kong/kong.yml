@@ -142,66 +142,6 @@ services:
         policy: redis
         fault_tolerant: true
         hide_client_headers: false
-  - name: post-api-v1-grievances-ticket_number-defer-sla-decide
-    methods:
-    - POST
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/defer-sla/decide$
-    strip_path: false
-    regex_priority: 6
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
-  - name: post-api-v1-grievances-ticket_number-reassign-decide
-    methods:
-    - POST
-    paths:
-    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/reassign/decide$
-    strip_path: false
-    regex_priority: 6
-    tags:
-    - oan
-    - grievance
-    - v1
-    - d07
-    - officer-core
-    - bearer
-    plugins:
-    - name: rate-limiting
-      config:
-        minute: 300
-        hour: 10000
-        limit_by: consumer
-        policy: redis
-        fault_tolerant: true
-        hide_client_headers: false
-    - name: jwt
-      config:
-        claims_to_verify:
-        - exp
-        key_claim_name: iss
-        header_names:
-        - Authorization
   - name: get-api-v1-grievances
     methods:
     - GET
@@ -412,6 +352,36 @@ services:
         key_claim_name: iss
         header_names:
         - Authorization
+  - name: post-api-v1-grievances-ticket_number-reassign-decide
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/reassign/decide$
+    strip_path: false
+    regex_priority: 6
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
   - name: post-api-v1-grievances-ticket_number-defer-sla
     methods:
     - POST
@@ -419,6 +389,36 @@ services:
     - ~/api/v1/grievances/(?<ticket_number>[^/]+)/defer-sla$
     strip_path: false
     regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d07
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-grievances-ticket_number-defer-sla-decide
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/grievances/(?<ticket_number>[^/]+)/defer-sla/decide$
+    strip_path: false
+    regex_priority: 6
     tags:
     - oan
     - grievance
@@ -1473,6 +1473,156 @@ services:
       config:
         minute: 60
         hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-notification-templates
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/notification-templates$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-notification-templates-options
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/notification-templates/options$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-notification-templates-placeholders
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/notification-templates/placeholders$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-notification-templates-template
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/notification-templates/(?<template>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-notification-templates-template
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/notification-templates/(?<template>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
         limit_by: consumer
         policy: redis
         fault_tolerant: true

@@ -162,6 +162,11 @@
       "type": "string"
     },
     {
+      "key": "notification_template",
+      "value": "Grievance Submitted Submitter SMS",
+      "type": "string"
+    },
+    {
       "key": "taxonomy_category",
       "value": "Infrastructure",
       "type": "string"
@@ -3934,6 +3939,262 @@
               "mode": "raw",
               "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
             }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notification Templates",
+      "description": "Grievance notification templates and routing rules. Fetch active and inactive notification templates with event, channel, and recipient filtering. Requires a Grievance Officer, Grievance Admin, or System Manager bearer token.",
+      "item": [
+        {
+          "name": "List notification templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns notification templates page\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.templates).to.be.an(\"array\");",
+                  "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
+                  "    if (body.data.templates.length > 0) {",
+                  "        pm.collectionVariables.set(\"notification_template\", body.data.templates[0].name);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notification-templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification-templates"
+              ],
+              "query": [
+                {
+                  "key": "event",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "channel",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "recipient_type",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "role_level",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "enabled",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List grievance notification templates. Returns both active and inactive by default. Optional filters: event, channel, recipient_type, role_level, enabled (true/false), page, page_size."
+          },
+          "response": []
+        },
+        {
+          "name": "Get notification template options",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns notification template options\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.channels).to.be.an(\"array\");",
+                  "    pm.expect(body.data.recipients).to.be.an(\"array\");",
+                  "    pm.expect(body.data.placeholders).to.be.an(\"array\");",
+                  "    pm.expect(body.data.role_levels).to.be.an(\"array\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notification-templates/options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification-templates",
+                "options"
+              ]
+            },
+            "description": "Returns available notification channels, flat recipient targets, active role levels, and allowed template placeholders."
+          },
+          "response": []
+        },
+        {
+          "name": "Get notification placeholders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns list of placeholders\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.placeholders).to.be.an(\"array\");",
+                  "    pm.expect(body.data.placeholders.length).to.be.above(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notification-templates/placeholders",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification-templates",
+                "placeholders"
+              ]
+            },
+            "description": "Get available notification template placeholders with descriptions and examples."
+          },
+          "response": []
+        },
+        {
+          "name": "Get notification template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns notification template details\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.template).to.have.property(\"name\");",
+                  "    pm.expect(body.data.template).to.have.property(\"channel\");",
+                  "    pm.expect(body.data.template).to.have.property(\"recipient_type\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/notification-templates/{{notification_template}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification-templates",
+                "{{notification_template}}"
+              ]
+            },
+            "description": "Fetch a single grievance notification template by its document name / ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update notification template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Returns updated template\", function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.status).to.eql(\"success\");",
+                  "    pm.expect(body.data.template).to.have.property(\"name\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"subject\": \"Updated Subject: Grievance {ticket_number}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/notification-templates/{{notification_template}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notification-templates",
+                "{{notification_template}}"
+              ]
+            },
+            "description": "Partially update a notification template (enabled, subject, body, recipient_type, role_level). Requires Grievance Admin or System Manager."
           },
           "response": []
         }

@@ -15,7 +15,7 @@ class TestGrievanceFeedback(FrappeTestCase):
 		super().setUp()
 		self.grievance = a_grievance()
 		lifecycle.transition(self.grievance, "Assign", automated=True)
-		lifecycle.transition(self.grievance, "Start Work")
+		lifecycle.transition(self.grievance, "In Progress", reason="Investigation commenced.")
 
 	def tearDown(self):
 		super().tearDown()

@@ -157,24 +157,17 @@ def discard_grievance(name):
 def a_department():
 	"""A department for a case to be assigned to; work cannot start without one."""
 	global _CACHED_DEPARTMENT
-	if _CACHED_DEPARTMENT and frappe.db.exists("Grievance Department", _CACHED_DEPARTMENT):
-		return _CACHED_DEPARTMENT
-
-	existing = frappe.db.get_value("Grievance Department", {}, "name")
-	if existing:
-		_CACHED_DEPARTMENT = existing
-		return existing
-	_CACHED_DEPARTMENT = (
+	dept_name = "Test Department"
+	if not frappe.db.exists("Grievance Department", dept_name):
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Department",
-				"dept_name": "Test Department",
-				"email_account": "test.department@example.com",
+				"dept_name": dept_name,
+				"short_name": "TD",
 			}
-		)
-		.insert(ignore_permissions=True)
-		.name
-	)
+		).insert(ignore_permissions=True)
+
+	_CACHED_DEPARTMENT = dept_name
 	return _CACHED_DEPARTMENT
 
 
