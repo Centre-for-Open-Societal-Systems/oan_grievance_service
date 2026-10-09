@@ -4,10 +4,10 @@ Read-only API behind the Administration Notification tab: the notification event
 Appendix C (EC-001 to EC-019). Editing an event is a separate endpoint and is not part of this
 one.
 
-| Endpoint                                  | Purpose                  |
-| ----------------------------------------- | ------------------------ |
-| `GET /api/v1/notification-configs`        | All 19 events, in order  |
-| `GET /api/v1/notification-configs/<EC-id>` | One event (`EC-001` …)   |
+| Endpoint                                   | Purpose                 |
+| ------------------------------------------ | ----------------------- |
+| `GET /api/v1/notification-configs`         | All 19 events, in order |
+| `GET /api/v1/notification-configs/<EC-id>` | One event (`EC-001` …)  |
 
 Roles: Grievance Admin, System Manager, Administrator, Grievance Review Officer. An id that is
 not in Appendix C returns 404.

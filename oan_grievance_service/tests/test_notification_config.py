@@ -221,6 +221,8 @@ class TestDisplayTemplate(FrappeTestCase):
 		self.assertEqual(display_template(stored), "Due {{nextEscalationAt}}")
 
 	def test_double_quoted_literal_and_escapes(self):
+		# A stored Jinja fixture, not a call to _().
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-translation-python-splitting
 		stored = "{{ _(\"It's {0}\", context='k').format(doc.ticket_number) }}"
 		self.assertEqual(display_template(stored), "It's {{id}}")
 
