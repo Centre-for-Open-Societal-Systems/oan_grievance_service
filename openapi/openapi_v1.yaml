@@ -4009,7 +4009,7 @@ paths:
       tags:
       - Administration
       summary: List officers
-      description: 'List officers by name.
+      description: 'List accounts of one role by name.
 
 
         Numeric parameters also accept str: frappe checks annotations before validate_request
@@ -4053,23 +4053,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       parameters:
-      - name: page
+      - name: role
         in: query
         required: false
         schema:
-          default: 1
-          minimum: 1
-          type: integer
-        description: Page number, 1-indexed
-      - name: page_size
-        in: query
-        required: false
-        schema:
-          default: 20
-          maximum: 100
-          minimum: 1
-          type: integer
-        description: Items per page
+          default: Officer
+          enum:
+          - Officer
+          - Admin
+          - Reviewer
+          type: string
       - name: level
         in: query
         required: false
@@ -4084,17 +4077,6 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          default: null
-          nullable: true
-      - name: status
-        in: query
-        required: false
-        schema:
-          enum:
-          - Active
-          - On Leave
-          - Inactive
           type: string
           default: null
           nullable: true
@@ -4119,6 +4101,34 @@ paths:
           type: string
           default: null
           nullable: true
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: status
+        in: query
+        required: false
+        schema:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+          default: null
+          nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
       security:
       - BearerAuth: []
@@ -4126,7 +4136,7 @@ paths:
       tags:
       - Administration
       summary: Create an officer
-      description: Create an officer.
+      description: Create an officer, admin or reviewer.
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -4174,12 +4184,107 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
+  /api/v1/officers/status-counts:
+    get:
+      tags:
+      - Administration
+      summary: Count officers by status
+      description: Count the accounts the list would return, by status.
+      operationId: get_api_v1_officers_status_counts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          default: Officer
+          enum:
+          - Officer
+          - Admin
+          - Reviewer
+          type: string
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_status_counts
+      security:
+      - BearerAuth: []
   /api/v1/officers/{officer}:
     get:
       tags:
       - Administration
       summary: Get an officer
-      description: Return one officer.
+      description: Return one account.
       operationId: get_api_v1_officers_officer
       responses:
         '200':
@@ -4231,7 +4336,7 @@ paths:
       tags:
       - Administration
       summary: Update an officer
-      description: Update an officer. `kwargs` holds only the fields the client sent.
+      description: Update an account. `kwargs` holds only the fields the client sent.
       operationId: patch_api_v1_officers_officer
       responses:
         '200':
@@ -4290,7 +4395,7 @@ paths:
       tags:
       - Administration
       summary: Issue a new temporary password
-      description: Reissue a temporary password to an officer. The officer must already exist.
+      description: Reissue a temporary password to an account on the roster.
       operationId: post_api_v1_officers_officer_password_resets
       responses:
         '200':
@@ -8236,33 +8341,56 @@ components:
       type: object
     CreateOfficer:
       additionalProperties: false
+      description: 'An Officer needs a desk placement; an Admin or Reviewer needs a phone and nothing
+        else.
+
+
+        `level`, `department`, `service_categories` and `designation` are required for an Officer
+
+        and, with `reports_to` and `region`, refused for an Admin or Reviewer, whose designation is
+
+        optional. The checks are in one model validator because they depend on `role`.'
       properties:
         full_name:
-          minLength: 1
-          type: string
-        designation:
-          minLength: 1
-          type: string
-        level:
-          enum:
-          - L1
-          - L2
-          type: string
-        department:
           minLength: 1
           type: string
         email:
           minLength: 1
           type: string
+        temporary_password:
+          maxLength: 128
+          type: string
+        role:
+          default: Officer
+          enum:
+          - Officer
+          - Admin
+          - Reviewer
+          type: string
+        designation:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        level:
+          enum:
+          - L1
+          - L2
+          type: string
+          default: null
+          nullable: true
+        department:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
         service_categories:
           items:
             minLength: 1
             type: string
-          minItems: 1
           type: array
-        temporary_password:
-          maxLength: 128
-          type: string
+          default: null
+          nullable: true
         phone:
           type: string
           default: null
@@ -8284,11 +8412,7 @@ components:
           nullable: true
       required:
       - full_name
-      - designation
-      - level
-      - department
       - email
-      - service_categories
       - temporary_password
       type: object
     UpdateOfficer:

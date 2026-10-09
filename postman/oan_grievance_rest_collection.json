@@ -3043,7 +3043,7 @@
     },
     {
       "name": "Officers",
-      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers, extended by STG-443 to Admin and Reviewer accounts through the same resource: role is Officer (the default), Admin or Reviewer. An officer is a User placed on category desks, so the id is the account's email and every service category must already have a category assignment for the department. An Admin or Reviewer sits on the inactive staff desk instead and takes no part in routing, escalation or officer statistics. An account holds one grievance role. Requires a Grievance Admin bearer token; resetting an Admin's password needs a System Manager or Administrator. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
       "item": [
         {
           "name": "List officers",
@@ -3104,7 +3104,7 @@
                 }
               ]
             },
-            "description": "Filter by level (L1/L2), department, status, service_category, region (exact area), or search text q. Paginated with page and page_size; the pagination block is at the top level of the response."
+            "description": "Filter by role (Officer by default, or Admin or Reviewer), level (L1/L2), department, status, service_category, region (exact area), or search text q. level, department, service_category and region are officer filters: they return 400 with role=Admin or Reviewer, as does status On Leave. Paginated with page and page_size; the pagination block is at the top level of the response. Admin and Reviewer accounts never appear in the Officer list."
           },
           "response": []
         },
@@ -3232,7 +3232,7 @@
                 "password-resets"
               ]
             },
-            "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
+            "description": "Reissue a temporary password to an account on the roster, for example after a forgotten password. Its sessions end at once and the holder must replace the password through POST /api/v1/auth/password/initial before signing in. A Grievance Admin can reset Officers and Reviewers; an Admin account can be reset only by a System Manager or Administrator. Nobody resets their own password here, and System Manager and Administrator accounts are never reset here.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -3270,7 +3270,7 @@
                 "{{officer}}"
               ]
             },
-            "description": "Fetch one officer by email, with the desks (RBAC assignments) they sit on."
+            "description": "Fetch one account by email, of any role. An officer comes with the desks (RBAC assignments) they sit on; an Admin or Reviewer has empty level, department, region, reports_to, service_categories and assignments."
           },
           "response": []
         },
@@ -3402,12 +3402,546 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Status counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var data = pm.response.json().data;",
+                  "pm.test(\"Counts add up\", function () {",
+                  "    pm.expect(data.active + data.on_leave + data.inactive).to.eql(data.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer&level=L1&department=MoA",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                },
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "department",
+                  "value": "MoA"
+                }
+              ]
+            },
+            "description": "Active, On Leave, Inactive and total counts for the officers tabs, with the same filters as the list but no status. Each person is counted once, by the most available of their desk rows. The UI shows these in place of its hardcoded counts."
+          },
+          "response": []
+        },
+        {
+          "name": "Status counts (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Admin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Admin"
+                }
+              ]
+            },
+            "description": "Counts of Admin accounts. Admin and Reviewer have no On Leave, so on_leave is 0. Needs an admin role: a Review Officer is refused with 403."
+          },
+          "response": []
+        },
+        {
+          "name": "List admins",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?role=Admin&status=Active&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Admin"
+                },
+                {
+                  "key": "status",
+                  "value": "Active"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Admin accounts, by name. status, q, page and page_size apply as for officers."
+          },
+          "response": []
+        },
+        {
+          "name": "List reviewers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?role=Reviewer&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Reviewer"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Reviewer (Grievance Review Officer) accounts, by name."
+          },
+          "response": []
+        },
+        {
+          "name": "Create admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.officer) {",
+                  "    pm.collectionVariables.set(\"staff_officer\", body.data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create a Grievance Admin. Only full_name, email, phone and temporary_password are required; designation is optional. level, department, service_categories, reports_to and region are refused. The login is created when the email is new, with this role alone, and is recorded on the staff desk. A login that holds a different grievance role is refused.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Admin\",\n  \"full_name\": \"Selam Bekele\",\n  \"designation\": \"Programme Administrator\",\n  \"email\": \"selam.bekele@example.com\",\n  \"phone\": \"+251911000001\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.officer) {",
+                  "    pm.collectionVariables.set(\"staff_officer\", body.data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create a Grievance Review Officer (read-only). Same fields and rules as Create admin.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"email\": \"rahel.review@example.com\",\n  \"phone\": \"+251911000002\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create admin with officer fields (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Refused with VALIDATION_ERROR\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"VALIDATION_ERROR\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "level, department, service_categories, reports_to and region are not accepted for an Admin or Reviewer. The response is 400 VALIDATION_ERROR and details names each field.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Admin\",\n  \"full_name\": \"Selam Bekele\",\n  \"designation\": \"Programme Administrator\",\n  \"email\": \"refused.admin@example.com\",\n  \"phone\": \"+251911000001\",\n  \"temporary_password\": \"Welcome2026\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get admin or reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}"
+              ]
+            },
+            "description": "One Admin or Reviewer by email. Needs an admin role."
+          },
+          "response": []
+        },
+        {
+          "name": "Update admin or reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}"
+              ]
+            },
+            "description": "An Admin or Reviewer takes only full_name, phone, designation and status. Anything else, including role and email, returns 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"designation\": \"Lead Administrator\",\n  \"phone\": \"+251911000099\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate admin or reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}"
+              ]
+            },
+            "description": "status Inactive retires the roster row, disables the login and ends its sessions and refresh tokens, so it cannot sign in. You cannot deactivate your own account, and the last active Grievance Admin cannot be deactivated. On Leave returns 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reactivate admin or reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}"
+              ]
+            },
+            "description": "status Active enables the login again. The password is unchanged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Active\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Issue temporary password (admin or reviewer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}/password-resets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}",
+                "password-resets"
+              ]
+            },
+            "description": "A Grievance Admin can reset a Reviewer. An Admin's password can be reset only by a System Manager or Administrator; another Grievance Admin gets 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
         }
       ]
     },
     {
       "name": "Review Officer (read-only)",
-      "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call.",
+      "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call. STG-443: it reads officer status counts, but not Admin or Reviewer accounts, and cannot create, update or reset any account.",
       "item": [
         {
           "name": "R1. List grievances",
@@ -4220,6 +4754,179 @@
               "mode": "raw",
               "raw": "{\n  \"body\": \"A note.\"\n}"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "R10. Officer status counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                }
+              ]
+            },
+            "description": "Active, On Leave and Inactive counts of officers. A Review Officer may read these."
+          },
+          "response": []
+        },
+        {
+          "name": "W7. Create admin (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create an Admin account. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Admin\",\n  \"full_name\": \"Selam Bekele\",\n  \"designation\": \"Programme Administrator\",\n  \"email\": \"refused.admin@example.com\",\n  \"phone\": \"+251911000001\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W8. Update admin (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{staff_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{staff_officer}}"
+              ]
+            },
+            "description": "Update an Admin or Reviewer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W9. List admins (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?role=Admin",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Admin"
+                }
+              ]
+            },
+            "description": "Admin and Reviewer accounts need an admin role to read. A Review Officer is refused with 403 PERMISSION_DENIED. Whether it should be allowed is a product decision still to be confirmed."
           },
           "response": []
         }

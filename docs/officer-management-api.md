@@ -1,12 +1,15 @@
 # Officer Management API: frontend integration guide
 
-For the Nodal Officers (L1) and Senior Officers (L2) tabs in Administration, and the Add and Edit officer modals. These endpoints replace the hardcoded `initialOfficers` arrays.
+For the Nodal Officers (L1), Senior Officers (L2), Admin and Reviewer tabs in Administration, and the Add and Edit modals. These endpoints replace the hardcoded `initialOfficers` arrays and the dummy Admin data, and `GET /officers/status-counts` replaces the hardcoded Active, On Leave and Inactive counts.
 
 Performance numbers (Assigned, Resolved, Avg Time, Resolution Rate) are **not** in this API. They come from the statistics API.
+
+One resource serves three kinds of account, chosen by `role`: `Officer` (the default), `Admin` and `Reviewer`. Anything that does not send `role` behaves exactly as it did before roles existed. Sections 1 to 12 describe officers; section 13 covers what differs for Admin and Reviewer accounts, and section 14 the status counts.
 
 ## 1. Concepts
 
 - An **officer** is a login (User) placed on one or more **desks**. A desk is one department and one service category.
+- A **role** is `Officer`, `Admin` (Grievance Admin) or `Reviewer` (Grievance Review Officer). Every record carries it. An Admin or Reviewer is a login too, but it is not an officer: it is on no category desk and takes no part in routing, escalation or officer statistics (section 13).
 - The officer **id** is the officer's email, lowercase. Use it in URLs and for `reports_to`.
 - **level** is `L1` (Nodal Officer) or `L2` (Senior Nodal Officer). It can be changed later.
 - **service_categories** are the categories the officer handles. Every category must already have a category assignment for the chosen department, otherwise the request fails.
@@ -19,15 +22,24 @@ Performance numbers (Assigned, Resolved, Avg Time, Resolution Rate) are **not** 
 
 ## 2. Conventions
 
-| Item         | Value                                                                    |
-| :----------- | :----------------------------------------------------------------------- |
-| Base URL     | `{base_url}/api/v1`                                                      |
-| Auth         | `Authorization: Bearer <access_token>` from `POST /api/v1/auth/login`    |
-| Role         | Grievance Admin, System Manager or Administrator. Others get 403         |
-| Content type | `Content-Type: application/json` for `POST` and `PATCH`                  |
-| Officer id   | The email. Put it through `encodeURIComponent` before using it in a path |
+| Item         | Value                                                                       |
+| :----------- | :-------------------------------------------------------------------------- |
+| Base URL     | `{base_url}/api/v1`                                                         |
+| Auth         | `Authorization: Bearer <access_token>` from `POST /api/v1/auth/login`       |
+| Role         | Grievance Admin, System Manager or Administrator. Others get 403. See below |
+| Content type | `Content-Type: application/json` for `POST` and `PATCH`                     |
+| Officer id   | The email. Put it through `encodeURIComponent` before using it in a path    |
 
-The Grievance Review Officer role is read-only. It may call the `GET` endpoints in this guide and gets 403 on every `POST`, `PATCH` and `DELETE`.
+The Grievance Review Officer role is read-only. It may call the `GET` endpoints for **officers** and gets 403 on every `POST`, `PATCH` and `DELETE`. Reading `Admin` and `Reviewer` accounts needs an admin role too, so a Review Officer gets 403 on `role=Admin`, `role=Reviewer` and on a single Admin or Reviewer id. Whether a Review Officer should see those is still a product decision; today the answer is no.
+
+| Call                                               | Allowed roles                                                            |
+| :------------------------------------------------- | :----------------------------------------------------------------------- |
+| `GET` list, one, counts, for `Officer`             | Grievance Admin, System Manager, Administrator, Grievance Review Officer |
+| `GET` list, one, counts, for `Admin` or `Reviewer` | Grievance Admin, System Manager, Administrator                           |
+| `POST`, `PATCH`, password reset                    | Grievance Admin, System Manager, Administrator                           |
+| Password reset of an `Admin` account               | System Manager or Administrator only                                     |
+
+System Manager and Administrator accounts are never created, changed or reset through this API.
 
 ### Success envelope
 
@@ -59,12 +71,12 @@ List responses add a top-level `pagination` block next to `data`.
 }
 ```
 
-| HTTP | `code`              | When                                                                                  |
-| :--- | :------------------ | :------------------------------------------------------------------------------------ |
-| 400  | `VALIDATION_ERROR`  | A bad field, an unknown field, or a rule broken. `details` maps field name to message |
-| 401  | none                | Missing or expired token. Refresh the token or sign in again                          |
-| 403  | `PERMISSION_DENIED` | The signed-in user is not an admin                                                    |
-| 404  | `NOT_FOUND`         | No officer with that id                                                               |
+| HTTP | `code`              | When                                                                                    |
+| :--- | :------------------ | :-------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`  | A bad field, an unknown field, or a rule broken. `details` maps field name to message   |
+| 401  | none                | Missing or expired token. Refresh the token or sign in again                            |
+| 403  | `PERMISSION_DENIED` | The signed-in user may not do this (section 2), or a rule in section 7, 9 or 13 applies |
+| 404  | `NOT_FOUND`         | No account with that id                                                                 |
 
 Sign-in (`POST /api/v1/auth/login`) also returns **403 `PASSWORD_CHANGE_REQUIRED`** when an officer uses a correct temporary password. It is not an error to show: it means "send the user to Set your password".
 
@@ -89,6 +101,7 @@ Department accepts the id, name or short name. A category accepts its name or co
 
 | Query param        | Type                             | Notes                                                    |
 | :----------------- | :------------------------------- | :------------------------------------------------------- |
+| `role`             | `Officer`, `Admin`, `Reviewer`   | Default `Officer`. See section 13 for the other two      |
 | `level`            | `L1` or `L2`                     | The tab filter: L1 tab sends `L1`, L2 tab sends `L2`     |
 | `department`       | string                           | Department id, name or short name                        |
 | `status`           | `Active`, `On Leave`, `Inactive` |                                                          |
@@ -98,7 +111,9 @@ Department accepts the id, name or short name. A category accepts its name or co
 | `page`             | integer, 1 or more               | Default 1                                                |
 | `page_size`        | integer, 1 to 100                | Default 20                                               |
 
-Unknown params and bad values return 400. A blank value is treated as not set. Results are sorted by name, then email.
+Unknown params and bad values return 400. A blank value is treated as not set. Results are sorted by name, then email. `status`, `q`, `page` and `page_size` apply to every role. `level`, `department`, `service_category` and `region` are officer filters: with `role=Admin` or `role=Reviewer` they return 400 rather than an empty page, and so does `status=On Leave`.
+
+Admin and Reviewer accounts never appear in the officer list, whatever the filters.
 
 `must_change_password` is `true` while the officer still holds a temporary password and has not set their own. Use it to show an "Awaiting first sign-in" badge and the "Issue new temporary password" action.
 
@@ -117,6 +132,7 @@ GET /api/v1/officers?level=L1&department=MoA&status=Active&page=1&page_size=20
       {
         "name": "tigist.alemu@example.com",
         "full_name": "Tigist Alemu",
+        "role": "Officer",
         "designation": "Nodal Officer",
         "level": "L1",
         "department": "MoA",
@@ -160,7 +176,7 @@ GET /api/v1/officers?level=L1&department=MoA&status=Active&page=1&page_size=20
 
 `GET /api/v1/officers/{officer}`
 
-No query or body. Returns `data.officer` with the same shape as above. 404 if the id is not an officer.
+No query or body. Returns `data.officer` with the same shape as above, for an account of any role. 404 if the id is not on the roster. 403 if the account is an Admin or Reviewer and the caller is a Review Officer.
 
 ## 6. Create an officer
 
@@ -182,23 +198,26 @@ No query or body. Returns `data.officer` with the same shape as above. 404 if th
 }
 ```
 
-| Field                | Required | Notes                                                       |
-| :------------------- | :------- | :---------------------------------------------------------- |
-| `full_name`          | yes      | Non-blank                                                   |
-| `designation`        | yes      | Title shown on the card, for example "Nodal Officer"        |
-| `level`              | yes      | `L1` or `L2`                                                |
-| `department`         | yes      | Must be an active department                                |
-| `email`              | yes      | Valid email. Stored lowercase and becomes the officer id    |
-| `service_categories` | yes      | At least one                                                |
-| `phone`              | no       | Validated. Blank means not set                              |
-| `region`             | no       | Blank means every area                                      |
-| `status`             | no       | Default `Active`                                            |
-| `reports_to`         | no       | L2 officer id. Only for `level: "L1"`. Blank means none     |
-| `temporary_password` | yes      | At least 8 characters with a letter and a number. See below |
+| Field                | Required | Notes                                                                                              |
+| :------------------- | :------- | :------------------------------------------------------------------------------------------------- |
+| `role`               | no       | `Officer` (default), `Admin` or `Reviewer`. This table is for `Officer`; section 13 for the others |
+| `full_name`          | yes      | Non-blank                                                                                          |
+| `designation`        | yes      | Title shown on the card, for example "Nodal Officer"                                               |
+| `level`              | yes      | `L1` or `L2`                                                                                       |
+| `department`         | yes      | Must be an active department                                                                       |
+| `email`              | yes      | Valid email. Stored lowercase and becomes the officer id                                           |
+| `service_categories` | yes      | At least one                                                                                       |
+| `phone`              | no       | Validated. Blank means not set                                                                     |
+| `region`             | no       | Blank means every area                                                                             |
+| `status`             | no       | Default `Active`                                                                                   |
+| `reports_to`         | no       | L2 officer id. Only for `level: "L1"`. Blank means none                                            |
+| `temporary_password` | yes      | At least 8 characters with a letter and a number. See below                                        |
 
 Returns 200 with `message: "Officer created"` and `data.officer`. There is no 201.
 
 If the email already belongs to a login that is not an officer yet, that login is reused and becomes an officer, and its own password is **not** changed (see below). If it is already an officer, you get 400 with the message "… is already an officer."
+
+An account holds **one** grievance role. A login that already holds Grievance Admin, Grievance Review Officer or Grievance Submitter is refused with 400 "… already holds the … role. An account holds one grievance role, so it cannot also be given Grievance Officer." The roles add up in Frappe, so a second one would quietly grant access nobody chose. A System Manager or Administrator login is refused with 403.
 
 ### Temporary password
 
@@ -220,11 +239,13 @@ For an officer who forgot their password, or who never used the temporary one th
 
 Returns 200 with `data.officer`, where `must_change_password` is now `true`. Rules:
 
-- The officer's current sessions end at once, so use it when an account may be compromised too.
+- The account's current sessions end at once, so use it when an account may be compromised too.
 - The password rule is the same as on create. A weak one returns 400 with the message under `details.temporary_password`.
-- It works only for an existing officer. An email that is not an officer returns 404.
-- It is refused with 403 for an account that is itself an admin (Grievance Admin or System Manager), even if that account is also an officer.
-- Limited to 10 requests per admin every 5 minutes.
+- It works for an account on the roster, of any role. An email that is not on it returns 404.
+- A Grievance Admin can reset Officers and Reviewers. Resetting an **Admin** account needs a System Manager or Administrator; another Grievance Admin gets 403. An account that holds the Grievance Admin role counts as an Admin account even if it is also on the roster as an officer.
+- Nobody can reset their own password here (403).
+- A System Manager or Administrator account is never reset here (403). Recovering one stays on Frappe Desk or `bench`, because the auth service has no System Manager reset endpoint yet.
+- Meant to be limited to 10 requests per admin every 5 minutes (see the note in section 12), and logged with the caller, the account and its role.
 
 ## 8. The officer sets their own password
 
@@ -273,7 +294,9 @@ Send **only the fields that changed**. An empty body returns 400 "No fields to u
 | `service_categories` | **Replaces the whole list.** Send every category the officer should keep                    |
 | `reports_to`         | An L2 officer id for an L1. `null` or blank clears it                                       |
 
-`email` cannot be changed. Sending it returns 400.
+`email` cannot be changed. Sending it returns 400, and so does sending `role`: the role is fixed once the account is created.
+
+An Admin or Reviewer takes only `full_name`, `phone`, `designation` and `status` (section 13).
 
 | Action in the UI | Request body               |
 | :--------------- | :------------------------- |
@@ -283,6 +306,8 @@ Send **only the fields that changed**. An empty body returns 400 "No fields to u
 | Promote to L2    | `{ "level": "L2" }`        |
 
 Returns 200 with `message: "Officer updated"` and the updated `data.officer`. Use that object to refresh the card instead of reloading the list.
+
+Nobody can deactivate their own account (403), and the last active Grievance Admin cannot be deactivated (400).
 
 ## 10. Rules that produce a 400
 
@@ -296,25 +321,148 @@ Returns 200 with `message: "Officer updated"` and the updated `data.officer`. Us
 | "… cannot change level while other officers report to them."      | Move or re-point those L1 officers first                                                                                                                               |
 | "… would be left without officers. Assign another officer first." | The officer is the only one on a desk they are being removed from                                                                                                      |
 | "Department '…' does not exist." / "Region '…' does not exist."   | The picker value is stale. Reload the options                                                                                                                          |
+| "… already holds the … role. An account holds one grievance role" | The login is already a submitter, officer, admin or reviewer. Use a different email                                                                                    |
+| "… is already an Admin or Reviewer."                              | That email is already on the roster as an Admin or Reviewer                                                                                                            |
+| "… is the last active Grievance Admin and cannot be deactivated." | Make another Grievance Admin first                                                                                                                                     |
+| "… cannot be changed on a … account."                             | An Admin or Reviewer has no level, department, region, supervisor or categories                                                                                        |
 
 ## 11. Suggested screen wiring
 
-| Screen part                        | Call                                                                                  |
-| :--------------------------------- | :------------------------------------------------------------------------------------ |
-| Nodal Officers tab (L1)            | `GET /officers?level=L1&page=…` and the status and department filters                 |
-| Senior Officers tab (L2)           | `GET /officers?level=L2&page=…`                                                       |
-| Search box                         | Add `q`. Debounce, and reset `page` to 1                                              |
-| Officer card                       | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge           |
-| Add modal                          | `POST /officers`. On success, add the returned `officer` or refetch                   |
-| Edit modal                         | `PATCH /officers/{id}` with only the changed fields                                   |
-| Deactivate and On Leave actions    | `PATCH /officers/{id}` with `status`                                                  |
-| "Issue new temporary password"     | `POST /officers/{id}/password-resets`. Show it when the officer cannot sign in        |
-| Awaiting first sign-in badge       | `officer.must_change_password` is `true`                                              |
-| Officer's "Set your password" page | `POST /auth/password/initial`, opened when sign-in returns `PASSWORD_CHANGE_REQUIRED` |
-| L2 card "N officers report to me"  | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id       |
+| Screen part                        | Call                                                                                      |
+| :--------------------------------- | :---------------------------------------------------------------------------------------- |
+| Nodal Officers tab (L1)            | `GET /officers?level=L1&page=…` and the status and department filters                     |
+| Senior Officers tab (L2)           | `GET /officers?level=L2&page=…`                                                           |
+| Search box                         | Add `q`. Debounce, and reset `page` to 1                                                  |
+| Officer card                       | Fields on `officer`. `status` drives the Active, On Leave or Inactive badge               |
+| Add modal                          | `POST /officers`. On success, add the returned `officer` or refetch                       |
+| Edit modal                         | `PATCH /officers/{id}` with only the changed fields                                       |
+| Deactivate and On Leave actions    | `PATCH /officers/{id}` with `status`                                                      |
+| "Issue new temporary password"     | `POST /officers/{id}/password-resets`. Show it when the officer cannot sign in            |
+| Awaiting first sign-in badge       | `officer.must_change_password` is `true`                                                  |
+| Officer's "Set your password" page | `POST /auth/password/initial`, opened when sign-in returns `PASSWORD_CHANGE_REQUIRED`     |
+| L2 card "N officers report to me"  | Count L1 rows from `GET /officers?level=L1` where `reports_to` equals the L2 id           |
+| Active, On Leave, Inactive counts  | `GET /officers/status-counts?role=…` with the tab's filters. Remove the hardcoded numbers |
+| Admin tab                          | `GET /officers?role=Admin`, `POST /officers` with `role: "Admin"`                         |
+| Reviewer tab                       | `GET /officers?role=Reviewer`, `POST /officers` with `role: "Reviewer"`                   |
 
 ## 12. Not available yet
 
 - Sending the temporary password to the officer by email or SMS. The admin passes it on.
 - Department Head as a level. Only `L1` and `L2` are accepted.
 - Performance metrics per officer. They come from the statistics API.
+- Recovering a System Manager or Administrator account. It stays on Frappe Desk or `bench` until the auth service gets its own endpoint.
+- Admin and Reviewer logins that were created on Frappe Desk before this API are not on the roster until someone registers them. `POST /officers` with their email and `role` does it, keeps their password and says so in the message.
+- The password-reset rate limit. The handler calls the auth service's `check_rate_limit` with 10 requests per 5 minutes, but that helper reads its counter through a different cache key than it writes, so it does not limit anything today. It is the same for every role and is tracked on the auth service, not here.
+
+## 13. Admin and Reviewer accounts
+
+`role` is `Admin` (the Grievance Admin role) or `Reviewer` (the Grievance Review Officer role, read-only). They are listed, read, created, changed and reset through the same endpoints as officers.
+
+**Create.** `POST /api/v1/officers` with `role`:
+
+```json
+{
+  "role": "Admin",
+  "full_name": "Selam Bekele",
+  "email": "selam.bekele@example.com",
+  "phone": "+251911000001",
+  "designation": "Programme Administrator",
+  "temporary_password": "Welcome2026"
+}
+```
+
+| Field                                                               | Admin or Reviewer                                                    |
+| :------------------------------------------------------------------ | :------------------------------------------------------------------- |
+| `full_name`                                                         | required                                                             |
+| `email`                                                             | required                                                             |
+| `phone`                                                             | required                                                             |
+| `temporary_password`                                                | required. Same rule and same behaviour as for an officer (section 6) |
+| `designation`                                                       | optional                                                             |
+| `status`                                                            | optional. `Active` (default) or `Inactive`. `On Leave` returns 400   |
+| `level`, `department`, `service_categories`, `reports_to`, `region` | **refused** with 400. `details` names each field sent                |
+
+The login is created only when the email is new, and holds the requested role and no other. An existing login with no grievance role (or one that already holds this role, for example an admin created on Frappe Desk) is kept as it is, password included, and the message says so. A login that holds a different grievance role is refused (section 6).
+
+**Record.** The same fields as an officer, plus `role`. For an Admin or Reviewer, `level`, `department`, `region`, `region_name`, `reports_to` and `reports_to_name` are `null`, `service_categories` is `[]` and `assignments` is `[]`. `designation`, `phone`, `status` and `must_change_password` are filled as for an officer.
+
+```json
+{
+  "name": "selam.bekele@example.com",
+  "full_name": "Selam Bekele",
+  "role": "Admin",
+  "designation": "Programme Administrator",
+  "level": null,
+  "department": null,
+  "email": "selam.bekele@example.com",
+  "phone": "+251911000001",
+  "must_change_password": true,
+  "region": null,
+  "region_name": null,
+  "status": "Active",
+  "service_categories": [],
+  "reports_to": null,
+  "reports_to_name": null,
+  "assignments": []
+}
+```
+
+**Update.** `PATCH /api/v1/officers/{id}` takes only `full_name`, `phone` (not blank), `designation` and `status`. Anything else returns 400. `role` and `email` are fixed.
+
+**Status.** Only `Active` and `Inactive`; `On Leave` returns 400.
+
+- `Inactive` retires the account's roster row, disables the login (`User.enabled = 0`), and ends its sessions and refresh tokens. It cannot sign in, and an access token it already holds is refused.
+- `Active` enables the login again. The password is unchanged, so an account that never replaced its temporary password still has to.
+- A login disabled on Frappe Desk reads as `Inactive` here too, so the list, the record and the counts agree.
+- Nobody can deactivate their own account (403). The last active Grievance Admin cannot be deactivated (400).
+
+**Reading.** Admin and Reviewer accounts need an admin role to read (section 2). They never appear in the default `Officer` list, in officer statistics, or anywhere in routing and escalation.
+
+**Passwords.** A Grievance Admin can reissue a Reviewer's temporary password. An Admin's can be reissued only by a System Manager or Administrator (section 7).
+
+### How they are recorded
+
+Every grievance login is on the RBAC record so the roster stays in one place. An Admin or Reviewer has one row on a **staff desk**, which exists only to hold them.
+
+| Item        | Value                                                                                                                                                                                            |
+| :---------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staff desk  | `GR-RBAC-STAFF` (`constants.STAFF_DESK`). Never active; saving it always clears `active`                                                                                                         |
+| Department  | `Administration`, inactive, with a placeholder mailbox that is never used. The doctype requires a department scope, so this is the placeholder. It is in no dropdown and no case is routed to it |
+| Role levels | `admin` and `review_officer`, both inactive, so neither is a step of the escalation chain                                                                                                        |
+| Created by  | `seed_staff_desk()` in `setup/install.py`, run on install and on every `bench migrate`. The API runs it too if it finds the desk missing                                                         |
+
+Routing, escalation, scope checks and officer statistics read **active** desks only, and the officer list reads L1 and L2 rows only, so the staff desk's rows never appear in them. The desk has no category scope, so the active-desk link checks (`validate_links`) never run on it, and a Reviewer can sit on it without the Officer role. What an account may do comes from its Frappe role alone; the row is the roster entry.
+
+## 14. Status counts
+
+`GET /api/v1/officers/status-counts`
+
+Replaces the hardcoded counts on the tabs. It takes the list's filters **without** `status`, so a tab's counts follow the same filters as its list.
+
+| Query param        | Type                           | Notes                   |
+| :----------------- | :----------------------------- | :---------------------- |
+| `role`             | `Officer`, `Admin`, `Reviewer` | Default `Officer`       |
+| `level`            | `L1` or `L2`                   | Officers only           |
+| `department`       | string                         | Officers only           |
+| `service_category` | string                         | Officers only           |
+| `region`           | string                         | Officers only           |
+| `q`                | string                         | Searches name and email |
+
+`status`, `page` and `page_size` return 400, as do the officer-only filters with `role=Admin` or `role=Reviewer`.
+
+```json
+{
+  "status": "success",
+  "message": "Officer status counts retrieved",
+  "data": { "active": 12, "on_leave": 2, "inactive": 3, "total": 17 },
+  "meta": { "api_version": "v1", "status": "current" },
+  "request_id": "…"
+}
+```
+
+- Each person is counted **once**, in the status their record shows: the most available of their desk rows wins. `total` is the number of people, and `active + on_leave + inactive = total`.
+- The list's `status` filter matches an officer who has **a row** in that status. An officer whose rows differ (an admin edited one desk directly) can therefore be on two status pages but is one count here. In the normal case every row of an officer is equal, and the counts equal the list totals for the same filters.
+- Admin and Reviewer accounts have no On Leave, so `on_leave` is `0`.
+- Permissions follow the role counted: `Officer` for every admin-read role, `Admin` and `Reviewer` for admin roles only.
+- The route is registered before `/officers/{officer}`, so `status-counts` is never read as an officer id.
+
+Use it for the numbers beside the tab titles, and delete the hardcoded ones.

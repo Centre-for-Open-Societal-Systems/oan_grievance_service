@@ -16,6 +16,10 @@ An officer is never deleted. Status is read from the rows, so it has no field of
 nothing on User: Active is an active row, On Leave is an active row with `on_leave` set (the
 desk and its permissions stay, but auto-routing skips the officer), and Inactive is a row with
 `active` cleared. Changing status writes every desk row of the officer.
+
+The same resource also serves Admin and Reviewer accounts (`role`), which are not officers:
+they sit on the staff desk and never on a category desk. `services/staff_account.py` owns
+them; this module dispatches to it by role and keeps the Officer behaviour as it was.
 """
 
 from collections import defaultdict
@@ -26,7 +30,8 @@ from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
 
-from oan_grievance_service.services import category_assignment
+from oan_grievance_service.services import account, category_assignment, staff_account
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.resolvers import (
 	resolve_administrative_area,
 	resolve_department,
@@ -39,9 +44,8 @@ OFFICER_ROLE = "Grievance Officer"
 LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
 CODE_LEVELS = {code: level for level, code in LEVEL_CODES.items()}
 DEFAULT_STATUS = "Active"
-# Custom field on User, created by oan_auth_service. Named here rather than imported so this
-# module still loads against an auth service that predates temporary passwords.
-MUST_CHANGE_PASSWORD_FIELD = "oan_must_change_password"
+DEFAULT_ROLE = "Officer"
+MUST_CHANGE_PASSWORD_FIELD = account.MUST_CHANGE_PASSWORD_FIELD
 USER_FIELDS = [
 	"name",
 	"full_name",
@@ -54,23 +58,27 @@ USER_FIELDS = [
 def create(
 	*,
 	full_name: str,
-	designation: str,
-	level: str,
-	department: str,
 	email: str,
-	service_categories: list[str],
 	temporary_password: str,
+	role: str = DEFAULT_ROLE,
+	designation: str | None = None,
+	level: str | None = None,
+	department: str | None = None,
+	service_categories: list[str] | None = None,
 	phone: str | None = None,
 	region: str | None = None,
 	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
 ) -> tuple[str, bool]:
-	"""Make `email` an officer on the category desks of `department`.
+	"""Make `email` an officer on the category desks of `department`, or an Admin or Reviewer.
 
 	Returns the user id and whether `temporary_password` was applied.
 
 	An existing login with no desk rows is promoted, so an admin can staff someone who
-	already has an account. A login that is already an officer is rejected.
+	already has an account. A login that is already an officer is rejected, and so is one
+	that holds another grievance role (Submitter, Admin or Reviewer) or is a System Manager
+	or Administrator: the roles are additive, so a second one would grant access nobody chose.
+	For an Admin or Reviewer the desk fields do not apply: the account goes on the staff desk.
 
 	`temporary_password` is required, so a new officer always has a way in: they can use it
 	just long enough to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). It is applied
@@ -78,54 +86,105 @@ def create(
 	replacing it with one the admin typed would let the admin take the account over. The caller
 	tells the admin when that happened.
 	"""
+	if role != DEFAULT_ROLE:
+		if _rows([email]):
+			frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
+		return staff_account.create(
+			role=role,
+			full_name=full_name,
+			email=email,
+			phone=phone,
+			temporary_password=temporary_password,
+			designation=designation,
+			status=status,
+		)
 	desks = _category_desks(resolve_department(department), service_categories)
 	if _rows([email]):
 		frappe.throw(_("{0} is already an officer.").format(email), frappe.ValidationError)
+	if staff_account.role_of(email):
+		frappe.throw(_("{0} is already an Admin or Reviewer.").format(email), frappe.ValidationError)
 	has_login = bool(frappe.db.exists("User", email))
+	if has_login:
+		account.assert_manageable(email)
+		account.assert_single_grievance_role(email, OFFICER_ROLE)
 	placement = _placement(level, status)
 	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
 	placement["reports_to"] = _resolve_supervisor(reports_to, level)
 
-	user = _new_or_existing_user(email)
-	_write_user(user, {"full_name": full_name, "phone": phone})
+	user = account.new_or_existing_user(email)
+	account.write_user(user, {"full_name": full_name, "phone": phone}, OFFICER_ROLE)
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	if not has_login:
-		_issue_temporary_password(user.name, temporary_password)
+		account.issue_temporary_password(user.name, temporary_password)
 	return user.name, not has_login
 
 
 def reset_temporary_password(user_id: str, password: str) -> str:
-	"""Issue a fresh temporary password to an existing officer (the forgotten-password path).
+	"""Issue a fresh temporary password to an existing account (the forgotten-password path).
 
-	Only an officer: this is how an admin recovers an account they manage, and it must not
-	be a way to set a password on any other login. The officer's current sessions end and
-	they must replace the password before signing in again.
+	Only an account on the roster: this is how an admin recovers an account they manage, and
+	it must not be a way to set a password on any other login. The account's current sessions
+	end and it must replace the password before signing in again.
+
+	Nobody resets their own password here, and System Manager and Administrator accounts are
+	never reset here. An Admin account is reset by a System Manager or Administrator only, so
+	one Grievance Admin cannot take over another. An account that holds the Grievance Admin
+	role counts as an Admin account whatever else it is on the roster.
 	"""
-	_current(user_id)
-	_issue_temporary_password(user_id, password)
+	account.assert_manageable(user_id)
+	if user_id == frappe.session.user:
+		frappe.throw(
+			_("You cannot issue a temporary password to your own account here."),
+			frappe.PermissionError,
+		)
+	if not role_of(user_id):
+		_not_found(user_id)
+	if account.ADMIN_ROLE in account.user_roles(user_id) and not account.caller_is_system():
+		frappe.throw(
+			_("Only a System Manager or Administrator can issue a temporary password to an Admin."),
+			frappe.PermissionError,
+		)
+	account.issue_temporary_password(user_id, password)
 	return user_id
 
 
-def _issue_temporary_password(user_id: str, password: str) -> None:
-	# Imported here because that module declares the auth service's REST routes as a side
-	# effect of being imported, and a module-level import would add them to this app's
-	# OpenAPI and gateway generators.
-	from oan_auth_service.api.v1.auth import issue_temporary_password
+def role_of(user_id: str) -> str | None:
+	"""Officer, Admin or Reviewer, or None for a login that is none of them."""
+	if _rows([user_id]):
+		return DEFAULT_ROLE
+	return staff_account.role_of(user_id)
 
-	issue_temporary_password(user_id, password)
+
+def assert_may_read(role: str) -> None:
+	"""Officers are read by every admin-read role. Admin and Reviewer accounts only by admins.
+
+	Whether a Reviewer may read them is a product decision still to be confirmed; the answer
+	for now is no, and it is one constant (`STAFF_READ_ROLES`) to change.
+	"""
+	allowed = C.ADMIN_READ_ROLES if role == DEFAULT_ROLE else C.STAFF_READ_ROLES
+	if not set(frappe.get_roles()) & set(allowed):
+		frappe.throw(_("You cannot view {0} accounts.").format(role), frappe.PermissionError)
 
 
 def update(user_id: str, changes: dict) -> str:
-	"""Apply a partial update. `department` and `service_categories` re-seat the officer on desks."""
+	"""Apply a partial update. `department` and `service_categories` re-seat the officer on desks.
+
+	An Admin or Reviewer account takes only name, phone, designation and status.
+	"""
+	account.assert_manageable(user_id)
+	if not _rows([user_id]) and staff_account.role_of(user_id):
+		return staff_account.update(user_id, changes)
 	current = _current(user_id)
 	changes = dict(changes)
 	level = changes.pop("level", current.level)
 	status = changes.pop("status", None)
+	if status == "Inactive":
+		account.guard_deactivation(user_id)
 	person = {key: changes.pop(key) for key in ("full_name", "phone") if key in changes}
 	if person:
-		_write_user(frappe.get_doc("User", user_id), person)
+		account.write_user(frappe.get_doc("User", user_id), person, OFFICER_ROLE)
 
 	row_changes = _availability(status) if status else {}
 	designation = changes.get("designation", current.designation)
@@ -155,6 +214,7 @@ def update(user_id: str, changes: dict) -> str:
 
 def list_officers(
 	*,
+	role=DEFAULT_ROLE,
 	level=None,
 	department=None,
 	status=None,
@@ -164,7 +224,64 @@ def list_officers(
 	start=0,
 	page_size=20,
 ):
-	"""One page of officer ids and the total, filtered and counted in SQL."""
+	"""One page of account ids of `role` and the total, filtered and counted in SQL.
+
+	`level`, `department`, `service_category` and `region` are officer filters. The request
+	schema rejects them for an Admin or Reviewer, who have none.
+	"""
+	if role != DEFAULT_ROLE:
+		return staff_account.list_ids(role=role, status=status, q=q, start=start, page_size=page_size)
+	row, user = DocType(ROW), DocType("User")
+	query = _officer_query(
+		level=level, department=department, service_category=service_category, region=region, q=q
+	)
+	if status:
+		query = query.where(_status_filter(row, status))
+
+	total = query.select(Count(user.name).distinct()).run()[0][0]
+	ids = (
+		query.select(user.name, user.full_name)
+		.distinct()
+		.orderby(user.full_name)
+		.orderby(user.name)
+		.limit(page_size)
+		.offset(start)
+		.run()
+	)
+	return [name for name, _full_name in ids], total
+
+
+def status_counts(
+	*,
+	role=DEFAULT_ROLE,
+	level=None,
+	department=None,
+	service_category=None,
+	region=None,
+	q=None,
+) -> dict[str, int]:
+	"""Active, On Leave and Inactive people for the same filters as the list, without `status`.
+
+	Each person is counted once, in the status `_status` gives them: the most available of
+	their rows. The list's status filter matches a person with a row in that status, so an
+	officer whose rows differ is in two of its pages but in one count here.
+	"""
+	if role != DEFAULT_ROLE:
+		return staff_account.count_by_status(role=role, q=q)
+	row, user = DocType(ROW), DocType("User")
+	query = _officer_query(
+		level=level, department=department, service_category=service_category, region=region, q=q
+	)
+	return account.status_counts(
+		query,
+		user,
+		available=(row.active == 1) & (row.on_leave == 0),
+		reachable=row.active == 1,
+	)
+
+
+def _officer_query(*, level, department, service_category, region, q):
+	"""Officer rows on category desks narrowed by every list filter except status."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	query = (
 		frappe.qb.from_(row)
@@ -181,27 +298,24 @@ def list_officers(
 		query = query.where(desk.category_scope == resolve_service_category(service_category))
 	if region:
 		query = query.where(row.administrative_area == _resolve_region(region))
-	if status:
-		query = query.where(_status_filter(row, status))
 	if q:
 		like = f"%{q.strip()}%"
 		query = query.where(user.full_name.like(like) | user.email.like(like))
-
-	total = query.select(Count(user.name).distinct()).run()[0][0]
-	ids = (
-		query.select(user.name, user.full_name)
-		.distinct()
-		.orderby(user.full_name)
-		.orderby(user.name)
-		.limit(page_size)
-		.offset(start)
-		.run()
-	)
-	return [name for name, _full_name in ids], total
+	return query
 
 
 def records(user_ids: list[str]) -> list[dict]:
-	"""API records for officers, in the order given, with a fixed number of queries."""
+	"""API records for officers, admins and reviewers, in the order given.
+
+	A fixed number of queries. A login that is none of them is left out.
+	"""
+	officers = {record["name"]: record for record in _officer_records(user_ids)}
+	others = staff_account.records([name for name in user_ids if name not in officers])
+	found = {**officers, **{record["name"]: record for record in others}}
+	return [found[name] for name in user_ids if name in found]
+
+
+def _officer_records(user_ids: list[str]) -> list[dict]:
 	if not user_ids:
 		return []
 	rows = _rows(user_ids)
@@ -221,7 +335,10 @@ def records(user_ids: list[str]) -> list[dict]:
 		for area in frappe.get_all(
 			"Grievance Administrative Area",
 			filters={
-				"name": ["in", list({row.administrative_area for row in rows if row.administrative_area})]
+				"name": [
+					"in",
+					list({row.administrative_area for row in rows if row.administrative_area}),
+				]
 			},
 			fields=["name", "area_name"],
 		)
@@ -239,6 +356,7 @@ def records(user_ids: list[str]) -> list[dict]:
 			{
 				"name": person.name,
 				"full_name": person.full_name,
+				"role": DEFAULT_ROLE,
 				"designation": next((row.designation for row in own if row.designation), None),
 				"level": CODE_LEVELS[top.role_level],
 				"department": top.department_scope,
@@ -351,7 +469,10 @@ def _category_desks(department: str, categories: list[str]) -> list:
 
 def _availability(status: str) -> dict:
 	"""Officer-row flags for a status. On Leave stays active: the desk row and its permissions remain."""
-	return {"active": 0 if status == "Inactive" else 1, "on_leave": 1 if status == "On Leave" else 0}
+	return {
+		"active": 0 if status == "Inactive" else 1,
+		"on_leave": 1 if status == "On Leave" else 0,
+	}
 
 
 def _status(rows: list) -> str:
@@ -394,7 +515,11 @@ def _change_level(user_id: str, old: str, new: str) -> dict:
 			_("{0} cannot change level while other officers report to them.").format(user_id),
 			frappe.ValidationError,
 		)
-	return {"role_level": LEVEL_CODES[new], "is_primary": 1 if new == "L1" else 0, "reports_to": None}
+	return {
+		"role_level": LEVEL_CODES[new],
+		"is_primary": 1 if new == "L1" else 0,
+		"reports_to": None,
+	}
 
 
 def _resolve_region(value: str | None) -> str | None:
@@ -415,27 +540,6 @@ def _resolve_supervisor(user_id: str | None, level: str) -> str | None:
 	if not frappe.db.exists(ROW, {"user": user_id, "parenttype": DESK, "role_level": LEVEL_CODES["L2"]}):
 		frappe.throw(_("{0} is not an L2 officer.").format(user_id), frappe.ValidationError)
 	return user_id
-
-
-def _new_or_existing_user(email: str):
-	if frappe.db.exists("User", email):
-		return frappe.get_doc("User", email)
-	user = frappe.get_doc(
-		{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
-	)
-	user.insert(ignore_permissions=True)
-	return user
-
-
-def _write_user(user, fields: dict):
-	"""Set the person-level fields that were given and make sure the User holds the officer role."""
-	if "full_name" in fields:
-		user.first_name, user.last_name = fields["full_name"], ""
-	if "phone" in fields:
-		user.phone = fields["phone"]
-	if OFFICER_ROLE not in {role.role for role in user.roles}:
-		user.append("roles", {"role": OFFICER_ROLE})
-	user.save(ignore_permissions=True)
 
 
 def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):

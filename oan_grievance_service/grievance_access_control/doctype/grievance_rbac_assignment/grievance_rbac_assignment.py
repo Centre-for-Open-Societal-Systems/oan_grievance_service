@@ -17,6 +17,7 @@ from frappe.model.document import Document
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
 )
+from oan_grievance_service.services.constants import STAFF_DESK
 
 OFFICER_ROLES = {"Grievance Officer", "Grievance Admin"}
 # Scope fields that make a desk more specific than a category-only desk. Area is not one:
@@ -25,7 +26,18 @@ NARROWING_SCOPES = ("grievance_type_scope", "service_provider_scope")
 
 
 class GrievanceRBACAssignment(Document):
+	def autoname(self):
+		"""The staff desk is found by name, so its seeder names it. Other desks use the series."""
+		if self.flags.staff_desk:
+			self.name = STAFF_DESK
+
 	def validate(self):
+		if self.name == STAFF_DESK:
+			# Holds Admin and Reviewer accounts only. It stays inactive, which is what keeps
+			# them out of routing, escalation and scope checks, and it has no category scope,
+			# so the active-desk link checks below never apply to it.
+			self.active = 0
+			return
 		# Type- and provider-scoped desks predate these rules and are left alone.
 		if self.is_category_only():
 			self.validate_no_repeated_officer()
