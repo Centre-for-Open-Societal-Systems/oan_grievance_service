@@ -9,8 +9,7 @@ departments can serve the same category. SLA days and auto-escalate are stored o
 the category's Grievance SLA Configuration, which is shared by every department
 serving that category. The desk's own `active` flag is the only on/off switch, so
 deactivating a desk never touches the SLA row. Area-aware desks are left alone and
-still win when they are the nearer match. Role levels and routing strategy are
-read from the department.
+still win when they are the nearer match. Desk officers are assigned standard role levels.
 
 Handlers stay thin. Field and link checks live in the desk's `validate()`, and the
 workflow (officer projection, SLA row) lives in `services/category_assignment.py`.

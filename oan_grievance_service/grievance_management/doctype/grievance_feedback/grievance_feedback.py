@@ -81,13 +81,18 @@ class GrievanceFeedback(Document):
 		body_text = f"Citizen Feedback ({self.feedback_type}): Rating {self.rating}/5."
 		if self.comments:
 			body_text += f" {self.comments}"
+		author_user = self.submitted_by or (
+			frappe.db.get_value("Grievance Submitter Profile", self.author_submitter, "user")
+			if self.author_submitter
+			else None
+		)
 		GrievanceTimeline.record(
 			grievance=self.grievance,
 			entry_type="feedback",
 			is_internal=0,
 			body=body_text.strip(),
-			author_user=self.submitted_by if not self.author_submitter else None,
-			author_submitter=self.author_submitter,
+			author_user=author_user,
+			author_type="submitter",
 			ref_doctype="Grievance Feedback",
 			ref_docname=self.name,
 		)

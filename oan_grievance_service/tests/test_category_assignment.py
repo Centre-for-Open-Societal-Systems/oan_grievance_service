@@ -100,51 +100,35 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		again = deactivate_assignment(assignment["name"])
 		self.assertFalse(again["data"]["assignment"]["active"])
 
-	def test_desk_uses_the_departments_role_levels_and_routing_strategy(self):
-		_role_level("desk_primary", 110)
-		_role_level("desk_senior", 120)
-		department = _department(
-			"STG404 Routing Agency",
-			"S404R",
-			l1_role_level="desk_primary",
-			l2_role_level="desk_senior",
-			routing_strategy="Round Robin",
-		)
+	def test_desk_assigns_role_levels_and_default_routing_strategy(self):
 		category = _category("STG404 Routing", "Z9R")
 		created = create_assignment(
 			service_category=category,
-			department=department,
+			department=self.department,
 			l1_officer=self.l1,
 			l2_officer=self.l2,
 			sla_days=6,
 		)
 		self.assertEqual(created["status"], "success", msg=created)
 		assignment = created["data"]["assignment"]
-		self.assertEqual(assignment["l1_role_level"], "desk_primary")
-		self.assertEqual(assignment["l2_role_level"], "desk_senior")
-		self.assertEqual(assignment["routing_strategy"], "Round Robin")
+		self.assertEqual(assignment["l1_role_level"], "nodal_officer")
+		self.assertEqual(assignment["l2_role_level"], "senior_nodal_officer")
+		self.assertEqual(assignment["routing_strategy"], "Primary First")
 		desk = frappe.get_doc("Grievance RBAC Assignment", assignment["name"])
-		self.assertEqual(desk.routing_strategy, "Round Robin")
+		self.assertEqual(desk.routing_strategy, "Primary First")
 		officers = {row.role_level: row.user for row in desk.officers}
-		self.assertEqual(officers["desk_primary"], self.l1)
-		self.assertEqual(officers["desk_senior"], self.l2)
+		self.assertEqual(officers["nodal_officer"], self.l1)
+		self.assertEqual(officers["senior_nodal_officer"], self.l2)
 
-	def test_department_without_l1_role_level_is_rejected(self):
-		department = _department(
-			"STG404 No Level Agency",
-			"S404N",
-			l1_role_level=None,
-			l2_role_level=None,
-			routing_strategy=None,
-		)
+	def test_unknown_department_is_rejected(self):
 		result = create_assignment(
 			service_category=self.category,
-			department=department,
+			department="Non Existent Dept",
 			l1_officer=self.l1,
 			sla_days=5,
 		)
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
-		self.assertIn("L1 role level", result["message"])
+		self.assertIn("does not exist", result["message"])
 
 	def test_duplicate_category_is_rejected(self):
 		create_assignment(
@@ -511,18 +495,17 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 			self.assertEqual(same_officer["code"], "VALIDATION_ERROR")
 			self.assertIn("different", same_officer["message"])
 
-	def test_inactive_department_and_disabled_officer_are_rejected(self):
-		inactive = _department("STG404 Inactive Agency", "S404I", active=0)
+	def test_unknown_department_and_disabled_officer_are_rejected(self):
 		disabled = _user("stg404-disabled@example.com", "Disabled Officer", enabled=0)
 		with _keep_transaction():
-			inactive_result = create_assignment(
+			unknown_result = create_assignment(
 				service_category=self.category,
-				department=inactive,
+				department="Non Existent Dept",
 				l1_officer=self.l1,
 				sla_days=5,
 			)
-			self.assertEqual(inactive_result["code"], "VALIDATION_ERROR")
-			self.assertIn("inactive", inactive_result["message"])
+			self.assertEqual(unknown_result["code"], "VALIDATION_ERROR")
+			self.assertIn("does not exist", unknown_result["message"])
 			disabled_result = create_assignment(
 				service_category=self.category,
 				department=self.department,
@@ -657,9 +640,8 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		plain = _user("stg404-direct-plain@example.com", "Direct Plain", role="Guest")
 		with self.assertRaisesRegex(frappe.ValidationError, "Grievance Officer"):
 			desk(officer=plain).insert()
-		inactive = _department("STG404 Direct Inactive", "S404X", active=0)
-		with self.assertRaisesRegex(frappe.ValidationError, "inactive"):
-			desk(department=inactive).insert()
+		with self.assertRaisesRegex(frappe.ValidationError, "Could not find Department Scope|does not exist"):
+			desk(department="Non Existent Dept").insert()
 
 		desk().insert()
 		with self.assertRaises(frappe.DuplicateEntryError):
@@ -712,7 +694,6 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 	def test_first_line_routing_skips_the_l2_officer(self):
 		from oan_grievance_service.services import routing
 
-		_department_strategy(self.department, "Round Robin")
 		name = create_assignment(
 			service_category=self.category,
 			department=self.department,
@@ -721,6 +702,8 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 			sla_days=7,
 		)["data"]["assignment"]["name"]
 		desk = frappe.get_doc("Grievance RBAC Assignment", name)
+		desk.routing_strategy = "Round Robin"
+		desk.save()
 		picked = {routing.pick_officer_by_strategy(desk) for _ in range(4)}
 		self.assertEqual(picked, {self.l1})
 
@@ -798,10 +781,6 @@ def _desk_users(name) -> set[str]:
 	return {row.user for row in frappe.get_doc("Grievance RBAC Assignment", name).officers}
 
 
-def _department_strategy(department, strategy):
-	frappe.db.set_value("Grievance Department", department, "routing_strategy", strategy)
-
-
 @contextmanager
 def _keep_transaction():
 	"""API errors call frappe.db.rollback(), which would erase this test's fixtures."""
@@ -859,30 +838,14 @@ def _role_level(level, order):
 	return level
 
 
-def _department(
-	name,
-	short_name,
-	active=1,
-	l1_role_level="nodal_officer",
-	l2_role_level="senior_nodal_officer",
-	routing_strategy="Primary First",
-):
-	values = {
-		"active": active,
-		"l1_role_level": l1_role_level,
-		"l2_role_level": l2_role_level,
-		"routing_strategy": routing_strategy,
-	}
+def _department(name, short_name="S404", **kwargs):
 	if frappe.db.exists("Grievance Department", name):
-		frappe.db.set_value("Grievance Department", name, values, update_modified=False)
 		return name
 	frappe.get_doc(
 		{
 			"doctype": "Grievance Department",
 			"dept_name": name,
 			"short_name": short_name,
-			"email_account": "stg404@example.com",
-			**values,
 		}
 	).insert(ignore_permissions=True)
 	return name

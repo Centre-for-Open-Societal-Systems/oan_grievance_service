@@ -56,8 +56,6 @@ from oan_grievance_service.services.resolvers import (
 
 route = prefixed("/api/v1/grievances")
 
-ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
-
 
 class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	"""Request body for the one-step submission endpoint."""
@@ -177,62 +175,10 @@ class PostMessageRequest(BaseModel):
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
 	client_message_id: str | None = Field(
-		None, description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions."
+		None,
+		max_length=64,
+		description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.",
 	)
-
-
-class DecideDeferralRequest(BaseModel):
-	decision: str = Field(..., description="Approved or Rejected")
-	note: str | None = None
-
-
-@route(
-	"/<ticket_number>/defer-sla/decide",
-	methods=("POST",),
-	summary="Approve or reject a pending SLA deferral request",
-)
-@frappe.whitelist()
-@validate_request(DecideDeferralRequest)
-@handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-def decide_deferral(ticket_number: str, decision: str, note: str | None = None, **kwargs):
-	"""Approve or reject a pending SLA deferral request for this grievance."""
-	doc = _load(ticket_number, ptype="write")
-	from oan_grievance_service.api.v1.change_request import decide as cr_decide
-	from oan_grievance_service.api.v1.change_request import get_pending_request
-
-	request_name = get_pending_request(doc.name, ["sla_due_date"])
-	if not request_name:
-		frappe.throw(_("No pending deferral request found for this grievance."), frappe.DoesNotExistError)
-
-	return cr_decide(name=request_name, decision=decision, note=note)
-
-
-class DecideReassignmentRequest(BaseModel):
-	decision: str = Field(..., description="Approved or Rejected")
-	note: str | None = None
-
-
-@route(
-	"/<ticket_number>/reassign/decide",
-	methods=("POST",),
-	summary="Approve or reject a pending reassignment request",
-)
-@frappe.whitelist()
-@validate_request(DecideReassignmentRequest)
-@handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-def decide_reassignment(ticket_number: str, decision: str, note: str | None = None, **kwargs):
-	"""Approve or reject a pending reassignment request for this grievance."""
-	doc = _load(ticket_number, ptype="write")
-	from oan_grievance_service.api.v1.change_request import decide as cr_decide
-	from oan_grievance_service.api.v1.change_request import get_pending_request
-
-	request_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
-	if not request_name:
-		frappe.throw(_("No pending reassignment request found for this grievance."), frappe.DoesNotExistError)
-
-	return cr_decide(name=request_name, decision=decision, note=note)
 
 
 class ResponseTemplatesRequest(BaseModel):
@@ -259,7 +205,7 @@ class DeferSLARequest(BaseModel):
 
 	ticket_number: str | None = None
 	additional_days: int = Field(..., ge=1)
-	reason: str = Field(..., min_length=1)
+	reason: str = Field(..., min_length=20)
 
 
 ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
@@ -767,6 +713,7 @@ def _grievance_page(items, page, page_size, total_count):
 
 ACTIONS_REQUIRING_REASON = {
 	"Close Case",
+	"In Progress",
 	"Partially Resolve",
 	"Refer Onward",
 	"Reject",
@@ -786,7 +733,6 @@ ACTION_CODES = {
 	"Request More Info": "request_more_info",
 	"Submitter Reply": "submitter_reply",
 	"In Progress": "in_progress",
-	"Start Work": "in_progress",
 }
 
 ACTIONS_REQUIRING_RATING = {"Close Case"}
@@ -806,8 +752,6 @@ def _get_available_actions_for_user(doc):
 		if act == "Reject" and not is_staff:
 			continue
 		if act == "Assign":
-			continue
-		if act == "Start Work":
 			continue
 		result.append(
 			{
@@ -889,21 +833,37 @@ def submit(**kwargs):
 
 
 def resolve_timeline_author(
-	author_submitter: str | None, author_user: str | None, submitter_type: str | None = None
+	author_user: str | None,
+	author_type: str | None = None,
+	submitter_type: str | None = None,
 ) -> tuple[str, str]:
 	"""Determine author_type and author_role for timeline formatting."""
-	if author_submitter:
+	if author_type == "submitter":
 		return "submitter", submitter_type or "Grievance Submitter"
-	if author_user:
+	if author_type == "officer":
 		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 			current_level_of,
 		)
 
-		level_id = current_level_of(author_user)
+		level_id = current_level_of(author_user) if author_user else None
 		role_name = (
 			frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
 		) or "Grievance Officer"
 		return "officer", role_name
+	if author_user:
+		from oan_grievance_service.permissions import is_staff
+
+		if is_staff(author_user):
+			from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+				current_level_of,
+			)
+
+			level_id = current_level_of(author_user)
+			role_name = (
+				frappe.db.get_value("Grievance Role Level", level_id, "level_name") if level_id else None
+			) or "Grievance Officer"
+			return "officer", role_name
+		return "submitter", submitter_type or "Grievance Submitter"
 	return "system", "System"
 
 
@@ -941,7 +901,7 @@ def _get_response_numbers(doc_name, up_to_name=None):
 			"name",
 			"entry_type",
 			"author_user",
-			"author_submitter",
+			"author_type",
 			"body",
 			"ref_doctype",
 			"ref_docname",
@@ -952,44 +912,19 @@ def _get_response_numbers(doc_name, up_to_name=None):
 	if not public_entries:
 		return {}
 
-	history_refs = {
-		e["ref_docname"] for e in public_entries if e.get("ref_doctype") == "Grievance Status History"
-	}
-	history_map = _history_details_for(history_refs) if history_refs else {}
-
 	submitter_type = frappe.db.get_value("Grievance", doc_name, "submitter_type")
 
 	response_numbers = {}
 	count = 1
 	for e in public_entries:
-		a_type, _ = resolve_timeline_author(e.get("author_submitter"), e.get("author_user"), submitter_type)
+		a_type, _ = resolve_timeline_author(
+			e.get("author_user"),
+			author_type=e.get("author_type"),
+			submitter_type=submitter_type,
+		)
 		e_type = e.get("entry_type")
-		if a_type == "officer" and e_type in (
-			"status_change",
-			"response",
-			"dept_response",
-			"info_request",
-			"rejection",
-			"message",
-		):
+		if e_type in ("response", "dept_response") or (a_type == "officer" and e_type == "message"):
 			e_type = "dept_response"
-
-		body = e.get("body")
-		parts = response_body.split(body) if body else None
-
-		action_val = None
-		if e.get("ref_docname"):
-			hist = history_map.get(e.get("ref_docname"))
-			if hist:
-				action_val = hist.get("action")
-
-		if (
-			e_type == "dept_response"
-			and not body
-			and not parts
-			and action_val in ("In Progress", "Start Work")
-		):
-			e_type = "status_change"
 
 		if e_type == "dept_response":
 			response_numbers[e["name"]] = count
@@ -1013,9 +948,13 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 	def get_field(f, d=None):
 		return entry.get(f, d) if is_dict else getattr(entry, f, d)
 
-	author_submitter = get_field("author_submitter")
 	author_user = get_field("author_user")
-	author_type, author_role = resolve_timeline_author(author_submitter, author_user, doc.submitter_type)
+	author_type_field = get_field("author_type")
+	author_type, author_role = resolve_timeline_author(
+		author_user,
+		author_type=author_type_field,
+		submitter_type=doc.submitter_type,
+	)
 
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
@@ -1050,23 +989,12 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 	is_internal = bool(get_field("is_internal", False))
 	entry_name = get_field("name")
 
-	if (
-		author_type == "officer"
-		and not is_internal
-		and entry_type
-		in ("status_change", "response", "dept_response", "info_request", "rejection", "message")
+	if not is_internal and (
+		entry_type in ("response", "dept_response") or (author_type == "officer" and entry_type == "message")
 	):
 		entry_type = "dept_response"
 
 	parts = response_body.split(body)
-
-	if (
-		entry_type == "dept_response"
-		and not body
-		and not parts
-		and action_val in ("In Progress", "Start Work")
-	):
-		entry_type = "status_change"
 
 	result = {
 		"id": entry_name,
@@ -1111,8 +1039,6 @@ _ACTION_ENTRY_TYPES = {
 	"Resolve": "response",
 	"Partially Resolve": "response",
 	"Refer Onward": "response",
-	"In Progress": "response",
-	"Start Work": "response",
 }
 
 
@@ -1157,10 +1083,6 @@ def action(
 	is_staff = permissions.is_staff(user)
 
 	matching_action = next((a for a in lifecycle.actions_available(doc) if a.lower() == action.lower()), None)
-	if not matching_action and action.lower() == "start work":
-		matching_action = next(
-			(a for a in lifecycle.actions_available(doc) if a.lower() == "in progress"), None
-		)
 	if not matching_action:
 		frappe.throw(
 			_("Action '{0}' is not available for this grievance in status '{1}'.").format(action, doc.status),
@@ -1194,7 +1116,7 @@ def action(
 			title=_("Action Not Permitted"),
 		)
 
-	if matching_action in ("Start Work", "In Progress") or (
+	if matching_action == "In Progress" or (
 		doc.workflow_state == C.STATE_ASSIGNED
 		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
 	):
@@ -1213,16 +1135,14 @@ def action(
 		notifications.queue(doc, C.EVENT_SUBMITTER_RESPONDED)
 
 	entry_type_override = _ACTION_ENTRY_TYPES.get(matching_action, "status_change")
-	if matching_action in ("Start Work", "In Progress") and not reason:
-		entry_type_override = "status_change"
 
 	timeline_entry = GrievanceTimeline.record(
 		grievance=doc.name,
 		entry_type=entry_type_override,
 		is_internal=False,
 		body=reason or _("Action: {0}").format(matching_action),
-		author_user=user if is_staff else None,
-		author_submitter=None if is_staff else doc.submitter,
+		author_user=user,
+		author_type="officer" if is_staff else "submitter",
 		ref_doctype="Grievance Status History",
 		ref_docname=history.name if history else None,
 	)
@@ -1233,6 +1153,7 @@ def action(
 			is_internal=True,
 			body=internal_notes.strip(),
 			author_user=user,
+			author_type="officer",
 		)
 	if template and frappe.db.exists("Grievance Response Template", template):
 		from oan_grievance_service.grievance_masters.doctype.grievance_response_template.grievance_response_template import (
@@ -1392,7 +1313,7 @@ def timeline(
 			timeline_dt.is_internal,
 			timeline_dt.body,
 			timeline_dt.author_user,
-			timeline_dt.author_submitter,
+			timeline_dt.author_type,
 			timeline_dt.ref_doctype,
 			timeline_dt.ref_docname,
 			timeline_dt.created_on,
@@ -1638,8 +1559,8 @@ def message(
 		entry_type="note" if internal else "message",
 		is_internal=internal,
 		body=body,
-		author_user=user if is_staff else None,
-		author_submitter=doc.submitter if not is_staff else None,
+		author_user=user,
+		author_type="officer" if is_staff else "submitter",
 		client_message_id=client_msg_id,
 	)
 	attachments = store_uploads(doc, prepared, timeline_entry=entry.name) if prepared else []
@@ -1754,6 +1675,36 @@ def reassign(
 	)
 
 
+class DecideReassignmentRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	decision: str = Field(..., description="Approved or Rejected")
+	note: str | None = None
+
+
+@route(
+	"/<ticket_number>/reassign/decide",
+	methods=("POST",),
+	summary="Approve or reject a pending reassignment request",
+)
+@frappe.whitelist()
+@validate_request(DecideReassignmentRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def decide_reassignment(ticket_number: str, decision: str, note: str | None = None, **kwargs):
+	"""Approve or reject a pending reassignment request for this grievance."""
+	doc = _load(ticket_number, ptype="read")
+	from oan_grievance_service.api.v1.change_request import decide as cr_decide
+	from oan_grievance_service.api.v1.change_request import get_pending_request
+
+	request_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
+	if not request_name:
+		frappe.throw(_("No pending reassignment request found for this grievance."), frappe.DoesNotExistError)
+
+	return cr_decide(name=request_name, decision=decision, note=note)
+
+
 @route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
 @frappe.whitelist()
 @validate_request(DeferSLARequest)
@@ -1790,6 +1741,36 @@ def defer_sla(
 		_("Deferral requested; awaiting approval"),
 		fields=("sla_due_date",),
 	)
+
+
+class DecideDeferralRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	decision: str = Field(..., description="Approved or Rejected")
+	note: str | None = None
+
+
+@route(
+	"/<ticket_number>/defer-sla/decide",
+	methods=("POST",),
+	summary="Approve or reject a pending SLA deferral request",
+)
+@frappe.whitelist()
+@validate_request(DecideDeferralRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def decide_deferral(ticket_number: str, decision: str, note: str | None = None, **kwargs):
+	"""Approve or reject a pending SLA deferral request for this grievance."""
+	doc = _load(ticket_number, ptype="read")
+	from oan_grievance_service.api.v1.change_request import decide as cr_decide
+	from oan_grievance_service.api.v1.change_request import get_pending_request
+
+	request_name = get_pending_request(doc.name, ["sla_due_date"])
+	if not request_name:
+		frappe.throw(_("No pending deferral request found for this grievance."), frappe.DoesNotExistError)
+
+	return cr_decide(name=request_name, decision=decision, note=note)
 
 
 @route(

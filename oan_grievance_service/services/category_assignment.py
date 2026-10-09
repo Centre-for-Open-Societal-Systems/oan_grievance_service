@@ -5,8 +5,8 @@
 
 The desk is the source of truth for officers. Field and link checks (officer roles, active
 links, duplicate desks) live in the desk's own `validate()`, so they hold for every writer.
-This module holds what spans entities: projecting a rule onto the desk's officer rows,
-reading the department's role levels, and writing the category's Grievance SLA Configuration.
+This module holds what spans entities: projecting a rule onto the desk's officer rows
+and writing the category's Grievance SLA Configuration.
 
 The SLA row is per category, not per desk. If departments A and B both serve category X,
 changing `sla_days` through A's rule changes B's too.
@@ -45,23 +45,34 @@ def get_desk(name: str):
 	return frappe.get_doc(DOCTYPE, name)
 
 
-def role_levels(departments) -> dict:
-	"""(L1 role level, L2 role level) for each department, in one query."""
-	departments = [name for name in departments if name]
-	if not departments:
-		return {}
-	return {
-		row.name: (row.l1_role_level, row.l2_role_level)
-		for row in frappe.get_all(
-			"Grievance Department",
-			filters={"name": ["in", departments]},
-			fields=["name", "l1_role_level", "l2_role_level"],
-			ignore_permissions=True,
+# NOTE: Dynamic role level lookup via _default_role_levels is currently retained for backward compatibility.
+# In a future refactor, prefer resolving seats structurally via the reporting chain (L1 via is_primary,
+# L2 via primary.reports_to) and using static constants ("nodal_officer", "senior_nodal_officer")
+# instead of querying Grievance Role Level on each call.
+def _default_role_levels() -> tuple[str, str]:
+	"""Returns the (L1, L2) role levels for category assignment desks."""
+	l1 = "nodal_officer" if frappe.db.exists("Grievance Role Level", "nodal_officer") else None
+	l2 = "senior_nodal_officer" if frappe.db.exists("Grievance Role Level", "senior_nodal_officer") else None
+	if not l1 or not l2:
+		levels = frappe.get_all(
+			"Grievance Role Level",
+			filters={"is_active": 1},
+			fields=["name"],
+			order_by="level_order asc",
+			limit=2,
 		)
-	}
+		l1 = l1 or (levels[0].name if levels else "nodal_officer")
+		l2 = l2 or (levels[1].name if len(levels) > 1 else "senior_nodal_officer")
+	return l1, l2
 
 
-def split_officers(rows: list, l1_level: str | None, l2_level: str | None):
+def role_levels(departments) -> dict:
+	"""(L1 role level, L2 role level) for category assignment desks."""
+	l1, l2 = _default_role_levels()
+	return {name: (l1, l2) for name in departments if name}
+
+
+def split_officers(rows: list, l1_level: str | None = None, l2_level: str | None = None):
 	"""The L1 and L2 seats of a desk, found by role level and not by position.
 
 	A desk can hold many officers, so list order says nothing about who is L2. The primary is
@@ -69,6 +80,10 @@ def split_officers(rows: list, l1_level: str | None, l2_level: str | None):
 	secondary is an active officer at the L2 level: the one the primary reports to, else a
 	non-primary one, else the first. Anyone else is left alone.
 	"""
+	if not l1_level or not l2_level:
+		def_l1, def_l2 = _default_role_levels()
+		l1_level = l1_level or def_l1
+		l2_level = l2_level or def_l2
 
 	def is_l2(row) -> bool:
 		return bool(l2_level) and row.role_level == l2_level
@@ -124,19 +139,18 @@ def create(
 		"auto_escalate": auto_escalate,
 		"active": active,
 	}
-	prefs = _department_prefs(state["department"])
-	_check_request(state, prefs)
+	_validate_officers(state)
 	desk = frappe.new_doc(DOCTYPE)
 	desk.effective_from = today()
 	desk.category_scope = state["service_category"]
-	_write_desk(desk, state, prefs, seats=(None, None))
+	_write_desk(desk, state, seats=(None, None))
 	desk.insert()
 	_save_sla(state["service_category"], sla_days, auto_escalate)
 	return desk
 
 
 def update(desk, changes: dict):
-	"""Apply a partial update. Deactivation alone skips the department checks so a broken desk can be retired."""
+	"""Apply a partial update. Deactivation alone skips the officer checks so a broken desk can be retired."""
 	if changes == {"active": False}:
 		desk.active = 0
 		desk.assigned_by = frappe.session.user
@@ -163,10 +177,7 @@ def _update_desk(desk, changes: dict):
 	department = (
 		resolve_department(changes["department"]) if "department" in changes else desk.department_scope
 	)
-	prefs = _department_prefs(department)
-	# The rows carry the role levels their department had when they were seated.
-	seated = prefs if department == desk.department_scope else _department_prefs(desk.department_scope)
-	seats = split_officers(desk.officers, seated.l1_role_level, seated.l2_role_level)
+	seats = split_officers(desk.officers)
 	primary, secondary = seats
 	state = {
 		"l1_officer": primary.user if primary else None,
@@ -175,34 +186,20 @@ def _update_desk(desk, changes: dict):
 		**changes,
 		"department": department,
 	}
-	_check_request(state, prefs)
-	_write_desk(desk, state, prefs, seats)
+	_validate_officers(state)
+	_write_desk(desk, state, seats)
 
 
-def _department_prefs(department: str):
-	"""The department's role levels and routing strategy."""
-	return frappe.db.get_value(
-		"Grievance Department",
-		department,
-		["l1_role_level", "l2_role_level", "routing_strategy"],
-		as_dict=True,
-	)
-
-
-def _check_request(state: dict, prefs):
-	"""Check the officers against each other and against the department's role levels."""
+def _validate_officers(state: dict):
+	"""Check the request against itself."""
 	l1, l2 = state["l1_officer"], state.get("l2_officer")
 	if not l1:
 		frappe.throw(_("An L1 officer is required."), frappe.ValidationError)
 	if l2 and l1 == l2:
 		frappe.throw(_("L1 and L2 officers must be different users."), frappe.ValidationError)
-	if not prefs.l1_role_level:
-		frappe.throw(_("Department must set an L1 role level."), frappe.ValidationError)
-	if l2 and not prefs.l2_role_level:
-		frappe.throw(_("Department must set an L2 role level."), frappe.ValidationError)
 
 
-def _write_desk(desk, state: dict, prefs, seats: tuple):
+def _write_desk(desk, state: dict, seats: tuple):
 	"""Copy state onto the desk. Existing officer rows are updated in place.
 
 	A desk can hold many officers, added on the Nodal Officers tab. This API names one L1 and
@@ -212,15 +209,16 @@ def _write_desk(desk, state: dict, prefs, seats: tuple):
 	desk.department_scope = state["department"]
 	desk.assigned_by = frappe.session.user
 	desk.active = 1 if state["active"] else 0
-	if prefs.routing_strategy:
-		desk.routing_strategy = prefs.routing_strategy
-	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	if not getattr(desk, "routing_strategy", None):
+		desk.routing_strategy = "Primary First"
 	# `reports_to` names an officer's supervisor: escalation hands a case up to it, and an
 	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
 	# reverse. L2 is the escalation tier and has no supervisor on this desk.
-	wanted = {l1: {"role_level": prefs.l1_role_level, "is_primary": 1, "reports_to": l2}}
+	l1_role, l2_role = _default_role_levels()
+	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	wanted = {l1: {"role_level": l1_role, "is_primary": 1, "reports_to": l2}}
 	if l2:
-		wanted[l2] = {"role_level": prefs.l2_role_level, "is_primary": 0, "reports_to": None}
+		wanted[l2] = {"role_level": l2_role, "is_primary": 0, "reports_to": None}
 	vacated = {seat.user for seat in seats if seat and seat.user not in wanted}
 	_assert_nobody_reports_to(desk, vacated, keep=wanted)
 	for row in list(desk.officers):

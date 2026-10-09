@@ -42,17 +42,18 @@ class GrievanceResponseTemplate(Document):
 			)
 
 	def validate_links_active(self):
-		checks = (
-			("department", "Grievance Department", "active"),
-			("service_category", "Grievance Service Category", "is_active"),
-		)
-		for fieldname, doctype, active_field in checks:
-			value = self.get(fieldname)
-			if value and not frappe.db.get_value(doctype, value, active_field):
-				frappe.throw(
-					_("{0} '{1}' is not active.").format(_(doctype), value),
-					frappe.ValidationError,
-				)
+		if self.department and not frappe.db.exists("Grievance Department", self.department):
+			frappe.throw(
+				_("{0} '{1}' does not exist.").format(_("Grievance Department"), self.department),
+				frappe.ValidationError,
+			)
+		if self.service_category and not frappe.db.get_value(
+			"Grievance Service Category", self.service_category, "is_active"
+		):
+			frappe.throw(
+				_("{0} '{1}' is not active.").format(_("Grievance Service Category"), self.service_category),
+				frappe.ValidationError,
+			)
 
 
 def templates_for(grievance, action, service_category=None):

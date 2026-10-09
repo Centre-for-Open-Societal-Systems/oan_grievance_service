@@ -6,13 +6,23 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from oan_grievance_service.permissions import is_staff
+
 
 class GrievanceTimeline(Document):
 	def validate(self):
 		if not self.created_on:
 			self.created_on = now_datetime()
 
-		if self.author_submitter and self.is_internal:
+		if self.author_user:
+			if not is_staff(self.author_user):
+				self.author_type = "submitter"
+			elif not self.author_type:
+				self.author_type = "officer"
+		elif not self.author_type:
+			self.author_type = "system"
+
+		if self.author_type == "submitter" and self.is_internal:
 			frappe.throw(
 				_("Submitters cannot create internal entries."),
 				frappe.ValidationError,
@@ -42,7 +52,7 @@ class GrievanceTimeline(Document):
 		body: str,
 		is_internal: bool | int = 0,
 		author_user: str | None = None,
-		author_submitter: str | None = None,
+		author_type: str | None = None,
 		ref_doctype: str | None = None,
 		ref_docname: str | None = None,
 		created_on=None,
@@ -51,10 +61,22 @@ class GrievanceTimeline(Document):
 		"""Insert an append-only timeline entry for a grievance. Returns the timeline doc."""
 		grievance_name = getattr(grievance, "name", grievance)
 
+		if author_user:
+			if not is_staff(author_user):
+				author_type = "submitter"
+			elif not author_type:
+				author_type = "officer"
+		elif not author_type:
+			author_type = "system"
+
 		if client_message_id:
-			existing_name = frappe.db.get_value(
-				"Grievance Timeline", {"client_message_id": client_message_id}, "name"
-			)
+			filters = {
+				"grievance": grievance_name,
+				"client_message_id": client_message_id,
+			}
+			if author_user:
+				filters["author_user"] = author_user
+			existing_name = frappe.db.get_value("Grievance Timeline", filters, "name")
 			if existing_name:
 				return frappe.get_doc("Grievance Timeline", existing_name)
 
@@ -66,7 +88,7 @@ class GrievanceTimeline(Document):
 				"is_internal": 1 if is_internal else 0,
 				"body": body,
 				"author_user": author_user,
-				"author_submitter": author_submitter,
+				"author_type": author_type,
 				"ref_doctype": ref_doctype,
 				"ref_docname": ref_docname,
 				"created_on": created_on or now_datetime(),

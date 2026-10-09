@@ -70,11 +70,10 @@ def get_submission_types() -> list[dict]:
 
 
 def get_departments() -> list[dict]:
-	"""Retrieve active grievance departments."""
+	"""Retrieve grievance departments."""
 	return frappe.get_all(
 		"Grievance Department",
-		filters={"active": 1},
-		fields=["name as department_id", "dept_name as department_name", "email_account"],
+		fields=["name as department_id", "dept_name as department_name", "short_name"],
 		order_by="dept_name asc",
 		ignore_permissions=True,
 	)

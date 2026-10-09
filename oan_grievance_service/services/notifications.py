@@ -35,6 +35,16 @@ from frappe.utils import now_datetime, strip_html_tags, validate_email_address
 RECIPIENT_SUBMITTER = "Submitter"
 RECIPIENT_ASSIGNED_OFFICER = "Assigned Officer"
 RECIPIENT_DEPARTMENT_OFFICER = "Department Officer"
+RECIPIENT_ROLE_LEVEL = "Role Level"
+
+RECIPIENT_TYPES = (
+	RECIPIENT_SUBMITTER,
+	RECIPIENT_ASSIGNED_OFFICER,
+	RECIPIENT_DEPARTMENT_OFFICER,
+	RECIPIENT_ROLE_LEVEL,
+)
+
+# Legacy aliases for backward compatibility with existing configs and tests
 RECIPIENT_NODAL_OFFICER = "Nodal Officer"
 RECIPIENT_DEPARTMENT_HEAD = "Department Head"
 RECIPIENT_TOP_LEVEL = "Top Level Authority"
@@ -65,6 +75,290 @@ SUPPORTED_CHANNELS = (CHANNEL_SMS, CHANNEL_EMAIL, CHANNEL_SYSTEM)
 
 # Jinja expression, statement and comment blocks.
 JINJA_BLOCK = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.DOTALL)
+
+
+ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
+	"ticket_number": {
+		"name": "ticket_number",
+		"label": "Ticket Number",
+		"description": "Canonical 9-character ticket reference",
+		"example": "3001002A0",
+	},
+	"service_category": {
+		"name": "service_category",
+		"label": "Service Category",
+		"description": "Name of the service category",
+		"example": "Fertilizer Distribution",
+	},
+	"grievance_type": {
+		"name": "grievance_type",
+		"label": "Grievance Type",
+		"description": "Specific grievance type",
+		"example": "Delayed Input Supply",
+	},
+	"assigned_dept": {
+		"name": "assigned_dept",
+		"label": "Assigned Department",
+		"description": "Responsible department handling the case",
+		"example": "Agricultural Inputs Bureau",
+	},
+	"department": {
+		"name": "department",
+		"label": "Department",
+		"description": "Alias for assigned department",
+		"example": "Agricultural Inputs Bureau",
+	},
+	"assigned_to": {
+		"name": "assigned_to",
+		"label": "Assigned Officer",
+		"description": "Email or User ID of the assigned officer",
+		"example": "officer.abebe@openagrinet.gov.et",
+	},
+	"sla_due_date": {
+		"name": "sla_due_date",
+		"label": "SLA Due Date",
+		"description": "Resolution deadline datetime",
+		"example": "2026-10-15 17:00:00",
+	},
+	"state_deadline": {
+		"name": "state_deadline",
+		"label": "State Deadline",
+		"description": "Confirmation window or state timer deadline",
+		"example": "2026-10-22 17:00:00",
+	},
+	"status": {
+		"name": "status",
+		"label": "Status",
+		"description": "Current lifecycle status of the grievance",
+		"example": "In Progress",
+	},
+	"submitter_name": {
+		"name": "submitter_name",
+		"label": "Submitter Name",
+		"description": "Name of citizen or organization",
+		"example": "Abebe Bikila",
+	},
+	"closure_reason": {
+		"name": "closure_reason",
+		"label": "Closure Reason",
+		"description": "Explanation provided upon case closure",
+		"example": "Resolved following input delivery",
+	},
+}
+
+
+def get_allowed_template_placeholders() -> set[str]:
+	"""Allowed fieldnames that can be used as placeholders in notification templates."""
+	return set(ALLOWED_TEMPLATE_PLACEHOLDERS.keys())
+
+
+def get_template_placeholders_metadata() -> list[dict[str, str]]:
+	"""Return curated placeholder metadata for API responses."""
+	return list(ALLOWED_TEMPLATE_PLACEHOLDERS.values())
+
+
+def simplify_jinja_expression(code: str) -> str:
+	"""Parse an AST inside {{ ... }} and return simplified text with {fieldname} placeholders."""
+	import ast
+
+	try:
+		node = ast.parse(code.strip(), mode="eval").body
+	except Exception:
+		return code
+
+	# Pattern 1: _('...', context='...').format(doc.a, doc.b)
+	if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+		inner = node.func.value
+		if isinstance(inner, ast.Call) and getattr(inner.func, "id", None) == "_" and inner.args:
+			source_text = getattr(inner.args[0], "value", None)
+			if isinstance(source_text, str):
+				args = []
+				for arg in node.args:
+					if isinstance(arg, ast.Attribute) and getattr(arg.value, "id", None) == "doc":
+						args.append(arg.attr)
+					elif isinstance(arg, ast.Name):
+						args.append(arg.id)
+					else:
+						args.append(ast.unparse(arg))
+				for i, arg_name in enumerate(args):
+					source_text = source_text.replace(f"{{{i}}}", f"{{{arg_name}}}")
+				return source_text
+
+	# Pattern 2: _('...', context='...')
+	if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args:
+		source_text = getattr(node.args[0], "value", None)
+		if isinstance(source_text, str):
+			return source_text
+
+	# Pattern 3: doc.fieldname
+	if isinstance(node, ast.Attribute) and getattr(node.value, "id", None) == "doc":
+		return f"{{{node.attr}}}"
+
+	return code
+
+
+def unpack_template(template_str: str) -> str:
+	"""Convert a compiled Jinja template into a clean user-facing template with {field} placeholders."""
+	if not template_str:
+		return ""
+
+	def _repl(m):
+		return simplify_jinja_expression(m.group(1))
+
+	res = re.sub(r"\{\{\s*(.*?)\s*\}\}", _repl, template_str)
+	return res.strip()
+
+
+def extract_placeholders(template_str: str) -> list[str]:
+	"""Extract placeholder names from a simplified or compiled template string."""
+	simplified = unpack_template(template_str)
+	raw_matches = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}", simplified)
+	unique_vars = []
+	for p in raw_matches:
+		clean = p.removeprefix("doc.")
+		if clean not in unique_vars:
+			unique_vars.append(clean)
+	return unique_vars
+
+
+def get_source_text(compiled: str) -> str:
+	"""Extract the source string from a compiled translatable Jinja expression."""
+	import ast
+
+	m = re.search(r"\{\{\s*(.*?)\s*\}\}", compiled)
+	if not m:
+		return compiled
+	expr = m.group(1)
+	try:
+		node = ast.parse(expr, mode="eval").body
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+			node = node.func.value
+		if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args:
+			val = getattr(node.args[0], "value", None)
+			if isinstance(val, str):
+				return val
+	except Exception:
+		pass
+	return compiled
+
+
+def compile_simple_segment(text: str, context_key: str, validate_fields: bool = True) -> str:
+	"""Compile a plain text segment into {{ _('...', context='...').format(...) }}."""
+	text = text.strip()
+	if not text:
+		return ""
+	if text.startswith("{{") and text.endswith("}}"):
+		return text
+
+	allowed = get_allowed_template_placeholders() if validate_fields else set()
+	placeholders = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}", text)
+
+	unique_vars = []
+	for p in placeholders:
+		clean = p.removeprefix("doc.")
+		if validate_fields and allowed and clean not in allowed:
+			frappe.throw(
+				_("Invalid placeholder '{{{0}}}'. Field does not exist on Grievance.").format(clean),
+				frappe.ValidationError,
+			)
+		if clean not in unique_vars:
+			unique_vars.append(clean)
+
+	formatted_text = text
+	for i, var_name in enumerate(unique_vars):
+		formatted_text = re.sub(rf"\{{(?:doc\.)?{re.escape(var_name)}\}}", f"{{{i}}}", formatted_text)
+
+	call = f"_({formatted_text!r}, context={context_key!r})"
+	if unique_vars:
+		args_str = ", ".join("doc.assigned_dept" if v == "department" else f"doc.{v}" for v in unique_vars)
+		call += f".format({args_str})"
+
+	return f"{{{{ {call} }}}}"
+
+
+def compile_template(text: str, context_key: str, validate_fields: bool = True) -> str:
+	"""Compile user-facing simplified text into translatable Jinja format."""
+	if not text:
+		return ""
+	text = text.strip()
+	if text.startswith("{{") and text.endswith("}}"):
+		return text
+
+	m = re.match(
+		r"^(.*?)\s*\{%\s*if\s+(.+?)\s*%\}([\s\S]*?)\{%\s*else\s*%\}([\s\S]*?)\{%\s*endif\s*%\}$",
+		text,
+		re.DOTALL,
+	)
+	if m:
+		base_part, cond, then_part, else_part = m.groups()
+		base_compiled = compile_simple_segment(base_part, context_key, validate_fields)
+		then_compiled = compile_simple_segment(then_part, f"{context_key}.then", validate_fields)
+		else_compiled = compile_simple_segment(else_part, f"{context_key}.else", validate_fields)
+		cond_clean = cond.strip()
+		if not cond_clean.startswith("doc."):
+			cond_clean = f"doc.{cond_clean}"
+		return (
+			f"{base_compiled} {{% if {cond_clean} %}}{then_compiled}{{% else %}}{else_compiled}{{% endif %}}"
+		)
+
+	return compile_simple_segment(text, context_key, validate_fields)
+
+
+def get_translations_for_event(event_code: str) -> dict[str, dict[str, str]]:
+	"""Return existing translations mapped by language for a grievance event."""
+	if not event_code or not getattr(frappe, "db", None):
+		return {}
+
+	body_ctx = f"grievance.{event_code}"
+	subj_ctx = f"grievance.{event_code}.subject"
+	rows = frappe.get_all(
+		"Translation",
+		filters={"context": ["in", [body_ctx, subj_ctx]]},
+		fields=["language", "context", "translated_text"],
+	)
+	res: dict[str, dict[str, str]] = {}
+	for row in rows:
+		lang = row["language"]
+		if lang not in res:
+			res[lang] = {}
+		if row["context"] == body_ctx:
+			res[lang]["body"] = row["translated_text"]
+		elif row["context"] == subj_ctx:
+			res[lang]["subject"] = row["translated_text"]
+	return res
+
+
+def sync_translation(
+	language: str,
+	source_text: str,
+	context: str,
+	translated_text: str | None = None,
+):
+	"""Keep a Translation record in sync when notification wording changes."""
+	if not source_text or not context:
+		return
+
+	existing = frappe.db.get_value(
+		"Translation",
+		{"language": language, "context": context},
+		"name",
+	)
+	if existing:
+		trans_doc = frappe.get_doc("Translation", existing)
+		trans_doc.source_text = source_text
+		if translated_text is not None:
+			trans_doc.translated_text = translated_text
+		trans_doc.save(ignore_permissions=True)
+	elif translated_text:
+		frappe.get_doc(
+			{
+				"doctype": "Translation",
+				"language": language,
+				"source_text": source_text,
+				"context": context,
+				"translated_text": translated_text,
+			}
+		).insert(ignore_permissions=True)
 
 
 def validate_notification(doc, method=None):
@@ -108,19 +402,25 @@ def validate_notification(doc, method=None):
 			)
 
 
-def resolve_recipient(grievance, recipient_role, override=None):
-	"""Turn a recipient role into a User, or into a bare address where there is no User.
+def resolve_recipient(grievance, recipient_role, role_level=None, override=None):
+	"""Turn a recipient role or (recipient_type, role_level) pair into a User, or into a bare address.
 
-	This is the Link traversal core cannot do: receiver_by_document_field iterates a
-	child table and has no way to follow a Link to another doctype, so the department
-	officers on Grievance Department are unreachable from a Notification. Doing it here
-	is also why no denormalised recipient columns are needed on Grievance.
-
-	Addresses are resolved at send time and never stored on the Notification, so a staff
-	change does not misdirect notifications on historic cases.
+	Supports:
+	- Direct case participants: Submitter, Assigned Officer, Department Officer
+	- Dynamic role level: recipient_role == "Role Level" with role_level
+	- Legacy aliases: "Nodal Officer", "Top Level Authority", "Department Head"
+	- Direct role level names from Grievance Role Level (e.g. "nodal_officer", "zonal_officer")
 	"""
 	if override:
 		return override
+
+	# Normalize legacy role names or direct role levels
+	if recipient_role in ROLE_LEVEL_RECIPIENTS:
+		role_level = role_level or ROLE_LEVEL_RECIPIENTS[recipient_role]
+		recipient_role = RECIPIENT_ROLE_LEVEL
+	elif not role_level and frappe.db.exists("Grievance Role Level", recipient_role):
+		role_level = recipient_role
+		recipient_role = RECIPIENT_ROLE_LEVEL
 
 	if recipient_role == RECIPIENT_SUBMITTER:
 		# If the case has no contact details on file (e.g. submitter opted out via can_request_more_info=False),
@@ -142,12 +442,11 @@ def resolve_recipient(grievance, recipient_role, override=None):
 	if not grievance.assigned_dept:
 		return None
 
-	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
-		find_officer_by_role_level,
-	)
+	if recipient_role == RECIPIENT_ROLE_LEVEL and role_level:
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			find_officer_by_role_level,
+		)
 
-	role_level = ROLE_LEVEL_RECIPIENTS.get(recipient_role)
-	if role_level:
 		officer = find_officer_by_role_level(
 			role_level,
 			department=grievance.assigned_dept,
@@ -156,21 +455,37 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		if officer:
 			return officer
 
-	# email_account is a Data field holding a mailbox, not a User link. Every
-	# Department Officer event is email-only, which is what makes
-	# that safe: there is no mobile number to look up for a bare address.
 	if recipient_role == RECIPIENT_DEPARTMENT_OFFICER:
-		email_account = frappe.db.get_value("Grievance Department", grievance.assigned_dept, "email_account")
-		if email_account:
-			return email_account
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			find_officer_by_role_level,
+		)
+
+		officer = (
+			find_officer_by_role_level(
+				"department_head",
+				department=grievance.assigned_dept,
+				administrative_area=grievance.administrative_area,
+			)
+			or find_officer_by_role_level(
+				"nodal_officer",
+				department=grievance.assigned_dept,
+				administrative_area=grievance.administrative_area,
+			)
+			or (grievance.assigned_to if getattr(grievance, "assigned_to", None) else None)
+			or find_officer_by_role_level("department_head")
+			or find_officer_by_role_level("nodal_officer")
+		)
+		if officer:
+			return officer
 
 	# Officers come only from Grievance RBAC Assignment now, so an unresolved
 	# recipient means no assignment covers this case's department and area. The
 	# notification is dropped either way; without this it is dropped invisibly.
+	target_label = role_level or recipient_role
 	frappe.log_error(
-		title=f"Grievance notification recipient unresolved: {recipient_role}",
+		title=f"Grievance notification recipient unresolved: {target_label}",
 		message=(
-			f"No recipient could be resolved for role '{recipient_role}' on grievance "
+			f"No recipient could be resolved for role '{target_label}' on grievance "
 			f"{grievance.name} (department '{grievance.assigned_dept}', administrative area "
 			f"'{grievance.administrative_area}'). Check the Grievance RBAC Assignment "
 			f"covering this department and area."
@@ -238,8 +553,18 @@ def queue(grievance, event_code, recipient_override=None):
 		if notification.condition and not frappe.safe_eval(notification.condition, None, context):
 			continue
 
-		recipient_role = notification.get("grievance_recipient") or RECIPIENT_SUBMITTER
-		recipient = resolve_recipient(grievance, recipient_role, recipient_override)
+		recipient_role = (
+			notification.get("grievance_recipient_type")
+			or notification.get("grievance_recipient")
+			or RECIPIENT_SUBMITTER
+		)
+		role_level = notification.get("grievance_role_level")
+		recipient = resolve_recipient(
+			grievance,
+			recipient_role,
+			role_level=role_level,
+			override=recipient_override,
+		)
 		if not recipient:
 			continue
 

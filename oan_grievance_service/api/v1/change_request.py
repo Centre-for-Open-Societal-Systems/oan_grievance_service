@@ -65,18 +65,25 @@ def raise_change_request(grievance, subject, changes, reason=None):
 
 def get_pending_request(grievance_name: str, fieldnames: list[str]) -> str | None:
 	"""Return the name of the most recent pending change request for the given fields."""
-	pending = frappe.get_all(
-		"Grievance Change Request",
-		filters={"grievance": grievance_name, "status": "Pending"},
-		order_by="creation desc",
-		pluck="name",
-	)
-	for req in pending:
-		if frappe.db.exists(
-			"Grievance Change Request Item", {"parent": req, "fieldname": ["in", fieldnames]}
-		):
-			return req
-	return None
+	if not grievance_name or not fieldnames:
+		return None
+
+	cr = frappe.qb.DocType("Grievance Change Request")
+	item = frappe.qb.DocType("Grievance Change Request Item")
+
+	result = (
+		frappe.qb.from_(cr)
+		.inner_join(item)
+		.on(item.parent == cr.name)
+		.select(cr.name)
+		.where(cr.grievance == grievance_name)
+		.where(cr.status == "Pending")
+		.where(item.fieldname.isin(fieldnames))
+		.orderby(cr.creation, order=frappe.qb.desc)
+		.limit(1)
+	).run(pluck=True)
+
+	return result[0] if result else None
 
 
 def serialize(req):
@@ -115,19 +122,8 @@ def serialize_public(req):
 	if not req:
 		return None
 	status = req.get("status") if isinstance(req, dict) else getattr(req, "status", None)
-	approved_due_date = None
-	if status == "Approved":
-		changes = req.get("changes") if isinstance(req, dict) else getattr(req, "changes", [])
-		for r in changes or []:
-			fname = r.get("fieldname") if isinstance(r, dict) else getattr(r, "fieldname", None)
-			if fname == "sla_due_date":
-				val = r.get("new_value") if isinstance(r, dict) else getattr(r, "new_value", None)
-				approved_due_date = to_tz_aware_iso(val) if val else None
-				break
-
 	return {
 		"status": status,
-		"approved_due_date": approved_due_date,
 	}
 
 

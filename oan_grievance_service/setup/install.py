@@ -72,7 +72,6 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_SUBMITTED, "Assign", C.STATE_ASSIGNED, SYSTEM_ROLES),
 	(C.STATE_SUBMITTED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
-	(C.STATE_ASSIGNED, "Start Work", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
@@ -815,38 +814,58 @@ def seed_submission_types():
 
 
 def seed_recipient_custom_field():
-	"""The recipient role, as a Select on core Notification.
-
-	The recipient must be changeable without a release, so it cannot be
-	hardcoded per event in our Python. Core's own receiver_by_document_field is not
-	usable for this: notification.js repopulates that Select's options with the target
-	doctype's fieldnames, so a role token stored there would fall outside the option
-	list and could be silently cleared the first time an admin opened the form.
-
-	A Custom Field is Frappe's supported way to extend a core doctype - it is a record,
-	not an edit to apps/frappe - and it gives admins a dropdown of exactly the six
-	recipient roles.
-	"""
+	"""The recipient type and dynamic role level, as fields on core Notification."""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
-	from oan_grievance_service.services.notifications import RECIPIENT_ROLES
+	from oan_grievance_service.services.notifications import RECIPIENT_ROLES, RECIPIENT_TYPES
 
-	if frappe.db.exists("Custom Field", "Notification-grievance_recipient"):
-		return []
+	created = []
+	if not frappe.db.exists("Custom Field", "Notification-grievance_recipient_type"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_recipient_type",
+				"label": "Grievance Recipient Type",
+				"fieldtype": "Select",
+				"options": "\n".join(("", *RECIPIENT_TYPES)),
+				"insert_after": "document_type",
+				"depends_on": 'eval:doc.document_type=="Grievance"',
+				"description": "Recipient classification (citizen, assigned officer, department mailbox, or organizational role level).",
+			},
+		)
+		created.append("Notification-grievance_recipient_type")
 
-	create_custom_field(
-		"Notification",
-		{
-			"fieldname": "grievance_recipient",
-			"label": "Grievance Recipient",
-			"fieldtype": "Select",
-			"options": "\n".join(("", *RECIPIENT_ROLES)),
-			"insert_after": "document_type",
-			"depends_on": 'eval:doc.document_type=="Grievance"',
-			"description": "Recipient role. Resolved to a User at send time.",
-		},
-	)
-	return ["Notification-grievance_recipient"]
+	if not frappe.db.exists("Custom Field", "Notification-grievance_role_level"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_role_level",
+				"label": "Grievance Role Level",
+				"fieldtype": "Link",
+				"options": "Grievance Role Level",
+				"insert_after": "grievance_recipient_type",
+				"depends_on": 'eval:doc.document_type=="Grievance" && doc.grievance_recipient_type=="Role Level"',
+				"description": "Dynamic escalation tier from Grievance Role Level.",
+			},
+		)
+		created.append("Notification-grievance_role_level")
+
+	if not frappe.db.exists("Custom Field", "Notification-grievance_recipient"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_recipient",
+				"label": "Grievance Recipient (Legacy)",
+				"fieldtype": "Select",
+				"options": "\n".join(("", *RECIPIENT_ROLES)),
+				"insert_after": "grievance_role_level",
+				"depends_on": 'eval:doc.document_type=="Grievance"',
+				"description": "Legacy recipient role.",
+			},
+		)
+		created.append("Notification-grievance_recipient")
+
+	return created
 
 
 def _translatable(source, args, context_key):
@@ -895,11 +914,37 @@ def seed_notifications():
 	service layer rather than on Save or Value Change, so the event code is the method
 	name and notifications.queue() looks them up by it.
 	"""
+	from oan_grievance_service.services.notifications import (
+		RECIPIENT_ROLE_LEVEL,
+		RECIPIENT_TYPES,
+		ROLE_LEVEL_RECIPIENTS,
+	)
+
 	made = []
 	for code, title, recipient, channels, _trigger, source, args in NOTIFICATION_EVENTS:
+		if recipient in ROLE_LEVEL_RECIPIENTS:
+			rec_type = RECIPIENT_ROLE_LEVEL
+			rec_role_level = ROLE_LEVEL_RECIPIENTS[recipient]
+		elif recipient in RECIPIENT_TYPES:
+			rec_type = recipient
+			rec_role_level = None
+		else:
+			rec_type = RECIPIENT_ROLE_LEVEL
+			rec_role_level = recipient
+
 		for channel in channels:
 			name = f"Grievance: {title} ({channel})"
 			if frappe.db.exists("Notification", name):
+				doc = frappe.get_doc("Notification", name)
+				needs_save = False
+				if not doc.get("grievance_recipient_type"):
+					doc.db_set("grievance_recipient_type", rec_type, update_modified=False)
+					needs_save = True
+				if rec_role_level and not doc.get("grievance_role_level"):
+					doc.db_set("grievance_role_level", rec_role_level, update_modified=False)
+					needs_save = True
+				if needs_save:
+					made.append(name)
 				continue
 			frappe.get_doc(
 				{
@@ -914,6 +959,8 @@ def seed_notifications():
 					"method": code,
 					"channel": channel,
 					"grievance_recipient": recipient,
+					"grievance_recipient_type": rec_type,
+					"grievance_role_level": rec_role_level,
 					"message": _translatable(source, args, f"grievance.{code}"),
 					"message_type": "Plain Text",
 					# Deliberately not is_standard. A standard Notification loads its

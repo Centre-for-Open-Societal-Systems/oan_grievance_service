@@ -171,7 +171,7 @@ class TestReassignmentResolution(FrappeTestCase):
 			administrative_area=self.area,
 		)
 		lifecycle.transition(self.grievance, "Assign")
-		lifecycle.transition(self.grievance, "Start Work")
+		lifecycle.transition(self.grievance, "In Progress", reason="Investigation commenced.")
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
