@@ -136,6 +136,8 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/sla-configurations"): "officer-core",
 	("PATCH", "/api/v1/sla-configurations/{config}"): "officer-core",
 	("GET", "/api/v1/officers/statistics"): "officer-core",
+	("GET", "/api/v1/notification-configs"): "officer-core",
+	("GET", "/api/v1/notification-configs/{event_id}"): "officer-core",
 	("GET", "/api/v1/charts"): "officer-core",
 	**{
 		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"
