@@ -154,7 +154,9 @@ def _to_record(row: dict, role_level_names: dict[str, str]) -> NotificationTempl
 		if sp not in placeholders:
 			placeholders.append(sp)
 
-	event_translations = notifications.get_translations_for_event(event_code) or None
+	event_translations = (
+		notifications.get_translations_for_event(event_code, row.get("channel") or "") or None
+	)
 
 	return NotificationTemplateRecord(
 		name=row["name"],
@@ -383,6 +385,8 @@ def update_notification_template(
 
 	doc = frappe.get_doc("Notification", template)
 	event_code = doc.get("method") or frappe.scrub(doc.name)
+	body_ctx = notifications.template_context(event_code, doc.channel)
+	subj_ctx = f"{body_ctx}.subject"
 
 	old_source_subj = notifications.get_source_text(doc.subject or "")
 	old_source_body = notifications.get_source_text(doc.message or "")
@@ -390,12 +394,12 @@ def update_notification_template(
 	if subject is not None:
 		doc.subject = notifications.compile_template(
 			subject,
-			context_key=f"grievance.{event_code}.subject",
+			context_key=subj_ctx,
 		)
 	if body is not None:
 		doc.message = notifications.compile_template(
 			body,
-			context_key=f"grievance.{event_code}",
+			context_key=body_ctx,
 		)
 	if enabled is not None:
 		doc.enabled = 1 if enabled else 0
@@ -433,23 +437,19 @@ def update_notification_template(
 
 	if subject is not None and new_source_subj != old_source_subj:
 		for lang in ("am",):
-			notifications.sync_translation(lang, new_source_subj, f"grievance.{event_code}.subject")
+			notifications.sync_translation(lang, new_source_subj, subj_ctx)
 
 	if body is not None and new_source_body != old_source_body:
 		for lang in ("am",):
-			notifications.sync_translation(lang, new_source_body, f"grievance.{event_code}")
+			notifications.sync_translation(lang, new_source_body, body_ctx)
 
 	if translations:
 		for lang, trans_data in translations.items():
 			if isinstance(trans_data, dict):
 				if trans_data.get("subject"):
-					notifications.sync_translation(
-						lang, new_source_subj, f"grievance.{event_code}.subject", trans_data["subject"]
-					)
+					notifications.sync_translation(lang, new_source_subj, subj_ctx, trans_data["subject"])
 				if trans_data.get("body"):
-					notifications.sync_translation(
-						lang, new_source_body, f"grievance.{event_code}", trans_data["body"]
-					)
+					notifications.sync_translation(lang, new_source_body, body_ctx, trans_data["body"])
 
 	from frappe.translate import clear_cache as clear_translation_cache
 

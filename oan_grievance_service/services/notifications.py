@@ -304,13 +304,18 @@ def compile_template(text: str, context_key: str, validate_fields: bool = True) 
 	return compile_simple_segment(text, context_key, validate_fields)
 
 
-def get_translations_for_event(event_code: str) -> dict[str, dict[str, str]]:
-	"""Return existing translations mapped by language for a grievance event."""
-	if not event_code or not getattr(frappe, "db", None):
+def template_context(event_code: str, channel: str) -> str:
+	"""Per-channel translation context, so one channel's edits never touch another's Translation rows."""
+	return f"grievance.{event_code}.{frappe.scrub(channel)}"
+
+
+def get_translations_for_event(event_code: str, channel: str) -> dict[str, dict[str, str]]:
+	"""Return existing translations mapped by language for one event and channel."""
+	if not event_code or not channel or not getattr(frappe, "db", None):
 		return {}
 
-	body_ctx = f"grievance.{event_code}"
-	subj_ctx = f"grievance.{event_code}.subject"
+	body_ctx = template_context(event_code, channel)
+	subj_ctx = f"{body_ctx}.subject"
 	rows = frappe.get_all(
 		"Translation",
 		filters={"context": ["in", [body_ctx, subj_ctx]]},
@@ -472,8 +477,6 @@ def resolve_recipient(grievance, recipient_role, role_level=None, override=None)
 				administrative_area=grievance.administrative_area,
 			)
 			or (grievance.assigned_to if getattr(grievance, "assigned_to", None) else None)
-			or find_officer_by_role_level("department_head")
-			or find_officer_by_role_level("nodal_officer")
 		)
 		if officer:
 			return officer

@@ -918,6 +918,7 @@ def seed_notifications():
 		RECIPIENT_ROLE_LEVEL,
 		RECIPIENT_TYPES,
 		ROLE_LEVEL_RECIPIENTS,
+		template_context,
 	)
 
 	made = []
@@ -946,6 +947,7 @@ def seed_notifications():
 				if needs_save:
 					made.append(name)
 				continue
+			context_key = template_context(code, channel)
 			frappe.get_doc(
 				{
 					"doctype": "Notification",
@@ -953,7 +955,7 @@ def seed_notifications():
 					# Translatable like the body: the subject is rendered for email and
 					# reused as the in-app title, so a literal here reaches the
 					# recipient just as untranslated as a literal in the message.
-					"subject": _translatable(title, (), f"grievance.{code}.subject"),
+					"subject": _translatable(title, (), f"{context_key}.subject"),
 					"document_type": "Grievance",
 					"event": "Method",
 					"method": code,
@@ -961,7 +963,7 @@ def seed_notifications():
 					"grievance_recipient": recipient,
 					"grievance_recipient_type": rec_type,
 					"grievance_role_level": rec_role_level,
-					"message": _translatable(source, args, f"grievance.{code}"),
+					"message": _translatable(source, args, context_key),
 					"message_type": "Plain Text",
 					# Deliberately not is_standard. A standard Notification loads its
 					# template from a file in the module folder and validate_standard()

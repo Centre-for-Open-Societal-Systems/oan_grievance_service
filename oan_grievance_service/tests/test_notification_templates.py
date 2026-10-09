@@ -256,11 +256,11 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		doc = frappe.get_doc("Notification", test_name)
 		self.assertEqual(
 			doc.subject,
-			"{{ _('Updated Subject: Case {0}', context='grievance.test_patch_event.subject').format(doc.ticket_number) }}",
+			"{{ _('Updated Subject: Case {0}', context='grievance.test_patch_event.email.subject').format(doc.ticket_number) }}",
 		)
 		self.assertEqual(
 			doc.message,
-			"{{ _('Updated Body: Hello {0} regarding {1}.', context='grievance.test_patch_event').format(doc.ticket_number, doc.service_category) }}",
+			"{{ _('Updated Body: Hello {0} regarding {1}.', context='grievance.test_patch_event.email').format(doc.ticket_number, doc.service_category) }}",
 		)
 		self.assertEqual(doc.enabled, 0)
 		self.assertEqual(doc.grievance_recipient_type, "Role Level")
@@ -301,7 +301,7 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		doc = frappe.get_doc("Notification", test_name)
 		self.assertEqual(
 			doc.message,
-			"{{ _('Case {0} assigned to {1}.', context='grievance.test_patch_event').format(doc.ticket_number, doc.assigned_dept) }}",
+			"{{ _('Case {0} assigned to {1}.', context='grievance.test_patch_event.email').format(doc.ticket_number, doc.assigned_dept) }}",
 		)
 
 	def test_get_notification_placeholders(self):
