@@ -12,6 +12,7 @@ from oan_grievance_service.api.v1.notification_template import (
 	update_notification_template,
 )
 from oan_grievance_service.services import notifications
+from oan_grievance_service.tests.test_category_assignment import _keep_transaction
 
 
 class TestNotificationTemplatesAPI(FrappeTestCase):
@@ -57,6 +58,12 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 				"enabled": 0,
 			}
 		).insert(ignore_permissions=True)
+		for name in (active_name, inactive_name):
+			self.addCleanup(
+				lambda n=name: frappe.delete_doc("Notification", n, force=1, ignore_permissions=True)
+				if frappe.db.exists("Notification", n)
+				else None
+			)
 
 		# Default listing must return both active and inactive
 		resp = list_notification_templates(page_size=100)
@@ -179,6 +186,23 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		self.addCleanup(
 			frappe.delete_doc, "Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True
 		)
+		self.addCleanup(
+			lambda: frappe.delete_doc("User", user_email, force=True, ignore_permissions=True)
+			if frappe.db.exists("User", user_email)
+			else None
+		)
+		self.addCleanup(
+			lambda: frappe.delete_doc("Grievance Department", dept_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("Grievance Department", dept_name)
+			else None
+		)
+		self.addCleanup(
+			lambda: frappe.delete_doc(
+				"Grievance Role Level", new_level_code, force=True, ignore_permissions=True
+			)
+			if frappe.db.exists("Grievance Role Level", new_level_code)
+			else None
+		)
 
 		grievance = frappe._dict(
 			{
@@ -222,6 +246,11 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 				"enabled": 1,
 			}
 		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
+			if frappe.db.exists("Notification", test_name)
+			else None
+		)
 
 		# 1. Update using simplified human-readable strings
 		res = update_notification_template(
@@ -269,19 +298,21 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		notifications.validate_notification(doc)
 
 		# 2. Verify invalid placeholder rejection
-		err_res = update_notification_template(
-			template=test_name,
-			body="Invalid field: {non_existent_field_xyz}",
-		)
+		with _keep_transaction():
+			err_res = update_notification_template(
+				template=test_name,
+				body="Invalid field: {non_existent_field_xyz}",
+			)
 		self.assertEqual(err_res["status"], "error")
 		self.assertEqual(err_res["code"], "VALIDATION_ERROR")
 		self.assertIn("Unknown placeholder", err_res["message"])
 
 		# 3. Raw Jinja is rejected: only {placeholder} braces are allowed
-		res_raw = update_notification_template(
-			template=test_name,
-			body="{{ _('Raw Body: Hello {0}').format(doc.ticket_number) }}",
-		)
+		with _keep_transaction():
+			res_raw = update_notification_template(
+				template=test_name,
+				body="{{ _('Raw Body: Hello {0}').format(doc.ticket_number) }}",
+			)
 		self.assertEqual(res_raw["status"], "error")
 		self.assertEqual(res_raw["code"], "VALIDATION_ERROR")
 
@@ -357,6 +388,11 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 				"enabled": 1,
 			}
 		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
+			if frappe.db.exists("Notification", test_name)
+			else None
+		)
 
 		# 1. Update using flat recipient_id = "department_head"
 		res = update_notification_template(
