@@ -20,7 +20,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
-from oan_grievance_service.services import notifications
+from oan_grievance_service.services import constants, notifications
 from oan_grievance_service.services.constants import ADMIN_ROLES, STAFF_ROLES
 from oan_grievance_service.services.notifications import RECIPIENT_ROLE_LEVEL, RECIPIENT_TYPES
 
@@ -29,6 +29,7 @@ route = prefixed("/api/v1/notification-templates")
 
 class NotificationTemplateRecord(BaseModel):
 	name: str
+	id: str | None = None
 	event: str
 	channel: str
 	recipient_type: str
@@ -118,29 +119,23 @@ class ListNotificationTemplates(PageParams, Body):
 	)
 
 
+def _resolve_recipient_id(recipient_id: str) -> tuple[str, str | None]:
+	"""Flat recipient_id -> (recipient_type, role_level), the shape stored on the doc."""
+	if recipient_id in notifications.PARTICIPANTS_BY_ID:
+		return notifications.PARTICIPANTS_BY_ID[recipient_id], None
+	if frappe.db.exists("Grievance Role Level", recipient_id):
+		return RECIPIENT_ROLE_LEVEL, recipient_id
+	frappe.throw(_("Invalid recipient '{0}'.").format(recipient_id), frappe.ValidationError)
+
+
 def _to_record(row: dict, role_level_names: dict[str, str]) -> NotificationTemplateRecord:
 	recipient_type = row.get("grievance_recipient_type") or row.get("grievance_recipient") or "Submitter"
 	role_level = row.get("grievance_role_level")
 	role_level_name = role_level_names.get(role_level) if role_level else None
 
-	if role_level:
-		recipient_id = role_level
-		recipient_label = role_level_name or role_level
-	elif recipient_type == "Submitter":
-		recipient_id = "submitter"
-		recipient_label = "Submitter"
-	elif recipient_type == "Assigned Officer":
-		recipient_id = "assigned_officer"
-		recipient_label = "Assigned Officer"
-	elif recipient_type in ("Department Officer", "Department Head"):
-		recipient_id = "department_head"
-		recipient_label = role_level_names.get("department_head", "Department Head")
-	elif recipient_type in ("Nodal Officer",):
-		recipient_id = "nodal_officer"
-		recipient_label = role_level_names.get("nodal_officer", "Nodal Officer")
-	else:
-		recipient_id = frappe.scrub(recipient_type)
-		recipient_label = recipient_type
+	level = role_level or notifications.ROLE_LEVEL_RECIPIENTS.get(recipient_type)
+	recipient_id = level or notifications.PARTICIPANT_IDS.get(recipient_type) or frappe.scrub(recipient_type)
+	recipient_label = role_level_names.get(recipient_id) or level or recipient_type
 
 	raw_subject = row.get("subject") or ""
 	raw_body = row.get("message") or ""
@@ -160,6 +155,7 @@ def _to_record(row: dict, role_level_names: dict[str, str]) -> NotificationTempl
 
 	return NotificationTemplateRecord(
 		name=row["name"],
+		id=constants.EVENT_EC_ID.get(event_code),
 		event=event_code,
 		channel=row.get("channel") or "",
 		recipient_type=recipient_type,
@@ -265,20 +261,8 @@ def get_notification_template_options(**kwargs):
 	from oan_grievance_service.api.v1._options import get_role_levels
 
 	recipients = [
-		FlatRecipientOption(
-			id="submitter",
-			label=_("Submitter"),
-			recipient_type=notifications.RECIPIENT_SUBMITTER,
-			role_level=None,
-			role_level_name=None,
-		),
-		FlatRecipientOption(
-			id="assigned_officer",
-			label=_("Assigned Officer"),
-			recipient_type=notifications.RECIPIENT_ASSIGNED_OFFICER,
-			role_level=None,
-			role_level_name=None,
-		),
+		FlatRecipientOption(id=recipient_id, label=_(recipient), recipient_type=recipient)
+		for recipient, recipient_id in notifications.PARTICIPANT_IDS.items()
 	]
 
 	active_levels = get_role_levels()
@@ -383,6 +367,10 @@ def update_notification_template(
 	if not frappe.db.exists("Notification", {"name": template, "document_type": "Grievance"}):
 		frappe.throw(_("Notification template '{0}' not found.").format(template), frappe.DoesNotExistError)
 
+	for lang in translations or {}:
+		if not frappe.db.exists("Language", lang):
+			frappe.throw(_("Unknown language '{0}'.").format(lang), frappe.ValidationError)
+
 	doc = frappe.get_doc("Notification", template)
 	event_code = doc.get("method") or frappe.scrub(doc.name)
 	body_ctx = notifications.template_context(event_code, doc.channel)
@@ -404,52 +392,43 @@ def update_notification_template(
 	if enabled is not None:
 		doc.enabled = 1 if enabled else 0
 	if recipient_id is not None:
-		if recipient_id == "submitter":
-			doc.grievance_recipient_type = notifications.RECIPIENT_SUBMITTER
+		if recipient_type is not None or role_level is not None:
+			frappe.throw(
+				_("Send either 'recipient_id', or 'recipient_type'/'role_level', not both."),
+				frappe.ValidationError,
+			)
+		recipient_type, role_level = _resolve_recipient_id(recipient_id)
+
+	if recipient_type is not None:
+		if recipient_type not in RECIPIENT_TYPES:
+			frappe.throw(_("Invalid recipient type '{0}'.").format(recipient_type), frappe.ValidationError)
+		doc.grievance_recipient_type = recipient_type
+		if recipient_type != RECIPIENT_ROLE_LEVEL:
 			doc.grievance_role_level = None
-		elif recipient_id == "assigned_officer":
-			doc.grievance_recipient_type = notifications.RECIPIENT_ASSIGNED_OFFICER
-			doc.grievance_role_level = None
-		elif frappe.db.exists("Grievance Role Level", recipient_id):
-			doc.grievance_recipient_type = notifications.RECIPIENT_ROLE_LEVEL
-			doc.grievance_role_level = recipient_id
-		else:
-			frappe.throw(_("Invalid recipient '{0}'.").format(recipient_id), frappe.ValidationError)
-	else:
-		if recipient_type is not None:
-			if recipient_type not in RECIPIENT_TYPES:
-				frappe.throw(
-					_("Invalid recipient type '{0}'.").format(recipient_type), frappe.ValidationError
-				)
-			doc.grievance_recipient_type = recipient_type
-			if recipient_type != RECIPIENT_ROLE_LEVEL:
-				doc.grievance_role_level = None
-		if role_level is not None:
-			if not frappe.db.exists("Grievance Role Level", role_level):
-				frappe.throw(_("Role Level '{0}' does not exist.").format(role_level), frappe.ValidationError)
-			doc.grievance_role_level = role_level
+
+	if role_level is not None:
+		if not frappe.db.exists("Grievance Role Level", role_level):
+			frappe.throw(_("Role Level '{0}' does not exist.").format(role_level), frappe.ValidationError)
+		doc.grievance_role_level = role_level
+
+	if recipient_type is not None or role_level is not None:
+		if doc.grievance_recipient_type == RECIPIENT_ROLE_LEVEL and not doc.grievance_role_level:
+			frappe.throw(
+				_("'role_level' is required when 'recipient_type' is 'Role Level'."),
+				frappe.ValidationError,
+			)
+		doc.grievance_recipient = None
 
 	doc.save(ignore_permissions=True)
 
-	# Synchronize Translation records so that English edits don't orphan translations
 	new_source_subj = notifications.get_source_text(doc.subject or "")
 	new_source_body = notifications.get_source_text(doc.message or "")
-
-	if subject is not None and new_source_subj != old_source_subj:
-		for lang in ("am",):
-			notifications.sync_translation(lang, new_source_subj, subj_ctx)
-
-	if body is not None and new_source_body != old_source_body:
-		for lang in ("am",):
-			notifications.sync_translation(lang, new_source_body, body_ctx)
-
-	if translations:
-		for lang, trans_data in translations.items():
-			if isinstance(trans_data, dict):
-				if trans_data.get("subject"):
-					notifications.sync_translation(lang, new_source_subj, subj_ctx, trans_data["subject"])
-				if trans_data.get("body"):
-					notifications.sync_translation(lang, new_source_body, body_ctx, trans_data["body"])
+	for key, context, source, changed in (
+		("subject", subj_ctx, new_source_subj, subject is not None and new_source_subj != old_source_subj),
+		("body", body_ctx, new_source_body, body is not None and new_source_body != old_source_body),
+	):
+		provided = {lang: texts[key] for lang, texts in (translations or {}).items() if texts.get(key)}
+		notifications.sync_translations(context, source, provided, source_changed=changed)
 
 	from frappe.translate import clear_cache as clear_translation_cache
 

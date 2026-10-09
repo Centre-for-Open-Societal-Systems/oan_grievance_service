@@ -809,8 +809,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			{
 				"doctype": "Grievance Department",
 				"dept_name": reassign_dept_name,
-				"email_account": "router_reassign@example.com",
-				"active": 1,
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(

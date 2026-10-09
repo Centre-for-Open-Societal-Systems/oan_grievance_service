@@ -75,8 +75,6 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": dept2_name,
-					"email_account": f"sec_{frappe.generate_hash(length=4)}@example.com",
-					"active": 1,
 				}
 			)
 			.insert(ignore_permissions=True)
@@ -409,8 +407,6 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": f"Headless Dept {frappe.generate_hash(length=4)}",
-					"email_account": f"headless_{frappe.generate_hash(length=4)}@example.com",
-					"active": 1,
 				}
 			)
 			.insert(ignore_permissions=True)

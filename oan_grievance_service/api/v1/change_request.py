@@ -17,6 +17,7 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field
 
+from oan_grievance_service.api.v1._schemas import Decision
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 
@@ -42,7 +43,7 @@ class DecideChangeRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	name: str | None = None
-	decision: str = Field(..., min_length=1, description="Approved or Rejected")
+	decision: Decision = Field(..., description="Approved or Rejected")
 	note: str | None = None
 
 
@@ -323,7 +324,7 @@ def decide(name: str, decision: str, note: str | None = None, **kwargs):
 			title=_("Not Found"),
 		)
 	req = frappe.get_doc(DOCTYPE, name)
-	req.status = decision.strip().title()
+	req.status = decision
 	req.decision_note = (note or "").strip() or None
 	req.save(ignore_permissions=True)
 	return success_response(

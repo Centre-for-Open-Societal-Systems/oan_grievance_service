@@ -166,7 +166,6 @@ def a_department():
 				"short_name": "TD",
 			}
 		).insert(ignore_permissions=True)
-		frappe.db.commit()
 
 	_CACHED_DEPARTMENT = dept_name
 	return _CACHED_DEPARTMENT

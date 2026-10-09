@@ -64,6 +64,15 @@ ROLE_LEVEL_RECIPIENTS = {
 	RECIPIENT_DEPARTMENT_HEAD: "department_head",
 }
 
+# Flat recipient ids for the case participants. Every other recipient id is a
+# Grievance Role Level code.
+PARTICIPANT_IDS = {
+	RECIPIENT_SUBMITTER: "submitter",
+	RECIPIENT_ASSIGNED_OFFICER: "assigned_officer",
+	RECIPIENT_DEPARTMENT_OFFICER: "department_officer",
+}
+PARTICIPANTS_BY_ID = {recipient_id: recipient for recipient, recipient_id in PARTICIPANT_IDS.items()}
+
 CHANNEL_SMS = "SMS"
 CHANNEL_EMAIL = "Email"
 # Core's create_system_notification writes per-user Notification Log rows carrying
@@ -242,27 +251,37 @@ def get_source_text(compiled: str) -> str:
 	return compiled
 
 
+PLACEHOLDER = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}")
+
+
+def _placeholder_field(name: str, validate_fields: bool) -> str:
+	field = name.removeprefix("doc.")
+	allowed = get_allowed_template_placeholders()
+	if validate_fields and field not in allowed:
+		frappe.throw(
+			_("Unknown placeholder '{{{0}}}'. Use one of: {1}.").format(field, ", ".join(sorted(allowed))),
+			frappe.ValidationError,
+		)
+	return field
+
+
 def compile_simple_segment(text: str, context_key: str, validate_fields: bool = True) -> str:
 	"""Compile a plain text segment into {{ _('...', context='...').format(...) }}."""
 	text = text.strip()
 	if not text:
 		return ""
-	if text.startswith("{{") and text.endswith("}}"):
-		return text
 
-	allowed = get_allowed_template_placeholders() if validate_fields else set()
-	placeholders = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}", text)
+	# Only {placeholder} may carry braces: a stray brace breaks .format() and a stray
+	# }} or %} breaks the Jinja the text is wrapped in.
+	if re.search(r"[{}]", PLACEHOLDER.sub("", text)):
+		frappe.throw(
+			_("Template text may only use braces for placeholders such as {ticket_number}."),
+			frappe.ValidationError,
+		)
 
-	unique_vars = []
-	for p in placeholders:
-		clean = p.removeprefix("doc.")
-		if validate_fields and allowed and clean not in allowed:
-			frappe.throw(
-				_("Invalid placeholder '{{{0}}}'. Field does not exist on Grievance.").format(clean),
-				frappe.ValidationError,
-			)
-		if clean not in unique_vars:
-			unique_vars.append(clean)
+	unique_vars = list(
+		dict.fromkeys(_placeholder_field(p, validate_fields) for p in PLACEHOLDER.findall(text))
+	)
 
 	formatted_text = text
 	for i, var_name in enumerate(unique_vars):
@@ -277,12 +296,14 @@ def compile_simple_segment(text: str, context_key: str, validate_fields: bool = 
 
 
 def compile_template(text: str, context_key: str, validate_fields: bool = True) -> str:
-	"""Compile user-facing simplified text into translatable Jinja format."""
+	"""Compile user-facing simplified text into translatable Jinja format.
+
+	Accepts `{field}` placeholders and one optional `{% if field %}...{% else %}...{% endif %}`
+	tail, whose condition must itself be an allowed placeholder field.
+	"""
 	if not text:
 		return ""
 	text = text.strip()
-	if text.startswith("{{") and text.endswith("}}"):
-		return text
 
 	m = re.match(
 		r"^(.*?)\s*\{%\s*if\s+(.+?)\s*%\}([\s\S]*?)\{%\s*else\s*%\}([\s\S]*?)\{%\s*endif\s*%\}$",
@@ -291,15 +312,18 @@ def compile_template(text: str, context_key: str, validate_fields: bool = True) 
 	)
 	if m:
 		base_part, cond, then_part, else_part = m.groups()
+		if not re.fullmatch(r"(?:doc\.)?[a-zA-Z_][a-zA-Z0-9_]*", cond.strip()):
+			frappe.throw(
+				_("Condition '{0}' must be a single placeholder field.").format(cond.strip()),
+				frappe.ValidationError,
+			)
+		cond_field = _placeholder_field(cond.strip(), validate_fields)
+		if cond_field == "department":
+			cond_field = "assigned_dept"
 		base_compiled = compile_simple_segment(base_part, context_key, validate_fields)
 		then_compiled = compile_simple_segment(then_part, f"{context_key}.then", validate_fields)
 		else_compiled = compile_simple_segment(else_part, f"{context_key}.else", validate_fields)
-		cond_clean = cond.strip()
-		if not cond_clean.startswith("doc."):
-			cond_clean = f"doc.{cond_clean}"
-		return (
-			f"{base_compiled} {{% if {cond_clean} %}}{then_compiled}{{% else %}}{else_compiled}{{% endif %}}"
-		)
+		return f"{base_compiled} {{% if doc.{cond_field} %}}{then_compiled}{{% else %}}{else_compiled}{{% endif %}}"
 
 	return compile_simple_segment(text, context_key, validate_fields)
 
@@ -366,6 +390,21 @@ def sync_translation(
 		).insert(ignore_permissions=True)
 
 
+def sync_translations(context: str, source_text: str, provided: dict[str, str], source_changed: bool):
+	"""Write the translations given for one template segment, in any language.
+
+	When the English changed, a translation not given here was written for the old
+	wording, so it is removed rather than left to render stale text.
+	"""
+	for language, translated_text in provided.items():
+		sync_translation(language, source_text, context, translated_text)
+	if not source_changed:
+		return
+	for row in frappe.get_all("Translation", filters={"context": context}, fields=["name", "language"]):
+		if row.language not in provided:
+			frappe.delete_doc("Translation", row.name, ignore_permissions=True, force=True)
+
+
 def validate_notification(doc, method=None):
 	"""Keep Grievance notification wording translatable. Registered on Notification.
 
@@ -407,7 +446,7 @@ def validate_notification(doc, method=None):
 			)
 
 
-def resolve_recipient(grievance, recipient_role, role_level=None, override=None):
+def resolve_recipient(grievance, recipient_role, override=None, role_level=None):
 	"""Turn a recipient role or (recipient_type, role_level) pair into a User, or into a bare address.
 
 	Supports:
@@ -423,7 +462,12 @@ def resolve_recipient(grievance, recipient_role, role_level=None, override=None)
 	if recipient_role in ROLE_LEVEL_RECIPIENTS:
 		role_level = role_level or ROLE_LEVEL_RECIPIENTS[recipient_role]
 		recipient_role = RECIPIENT_ROLE_LEVEL
-	elif not role_level and frappe.db.exists("Grievance Role Level", recipient_role):
+	elif (
+		not role_level
+		and recipient_role not in PARTICIPANT_IDS
+		and recipient_role != RECIPIENT_ROLE_LEVEL
+		and frappe.db.exists("Grievance Role Level", recipient_role)
+	):
 		role_level = recipient_role
 		recipient_role = RECIPIENT_ROLE_LEVEL
 

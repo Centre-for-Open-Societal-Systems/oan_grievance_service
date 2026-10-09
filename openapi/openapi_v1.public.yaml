@@ -7908,6 +7908,10 @@ components:
       properties:
         name:
           type: string
+        id:
+          type: string
+          default: null
+          nullable: true
         event:
           type: string
         channel:
@@ -8700,6 +8704,9 @@ components:
       properties:
         decision:
           description: Approved or Rejected
+          enum:
+          - Approved
+          - Rejected
           type: string
         note:
           type: string
@@ -8726,6 +8733,9 @@ components:
       properties:
         decision:
           description: Approved or Rejected
+          enum:
+          - Approved
+          - Rejected
           type: string
         note:
           type: string
@@ -8853,7 +8863,9 @@ components:
       properties:
         decision:
           description: Approved or Rejected
-          minLength: 1
+          enum:
+          - Approved
+          - Rejected
           type: string
         note:
           type: string

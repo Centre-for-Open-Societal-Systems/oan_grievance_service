@@ -35,7 +35,7 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, Decision, NonBlank, blank_to_none
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
@@ -1679,7 +1679,7 @@ class DecideReassignmentRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
-	decision: str = Field(..., description="Approved or Rejected")
+	decision: Decision = Field(..., description="Approved or Rejected")
 	note: str | None = None
 
 
@@ -1747,7 +1747,7 @@ class DecideDeferralRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
-	decision: str = Field(..., description="Approved or Rejected")
+	decision: Decision = Field(..., description="Approved or Rejected")
 	note: str | None = None
 
 

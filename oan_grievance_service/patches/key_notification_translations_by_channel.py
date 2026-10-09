@@ -9,15 +9,20 @@ used, and the other channels stopped matching their Amharic.
 
 This rewrites each template's `_(..., context=...)` calls to
 `grievance.{event}.{channel}` and copies each existing Translation row to every
-channel of its event before removing the shared row.
+channel of its event before removing the shared row. A copy carries that channel's own
+English; a channel whose English differs from the row's was never matched by it, so it
+gets no copy rather than a translation of other wording.
 """
 
+import ast
 import re
 from collections import defaultdict
 
 import frappe
 
 SUFFIXES = ("", ".subject", ".then", ".else")
+
+TRANSLATED = re.compile(r"_\(\s*('(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")\s*,\s*context\s*=\s*(['\"])(.+?)\2")
 
 
 def execute():
@@ -26,6 +31,7 @@ def execute():
 	from oan_grievance_service.services.notifications import template_context
 
 	channels_by_event = defaultdict(set)
+	source_by_context = {}
 	for row in frappe.get_all(
 		"Notification",
 		filters={"document_type": "Grievance"},
@@ -44,6 +50,8 @@ def execute():
 			rewritten = pattern.sub(lambda m, key=new_key: f"context={m[1]}{key}{m[2]}{m[1]}", value)
 			if rewritten != value:
 				updates[field] = rewritten
+			for match in TRANSLATED.finditer(rewritten):
+				source_by_context[match[3]] = ast.literal_eval(match[1])
 		if updates:
 			frappe.db.set_value("Notification", row.name, updates, update_modified=False)
 
@@ -57,13 +65,15 @@ def execute():
 			):
 				for new_key in new_keys:
 					context = new_key + suffix
+					if source_by_context.get(context) != row.source_text:
+						continue
 					if frappe.db.exists("Translation", {"language": row.language, "context": context}):
 						continue
 					frappe.get_doc(
 						{
 							"doctype": "Translation",
 							"language": row.language,
-							"source_text": row.source_text,
+							"source_text": source_by_context[context],
 							"translated_text": row.translated_text,
 							"context": context,
 						}

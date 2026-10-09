@@ -290,8 +290,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 			{
 				"doctype": "Grievance Department",
 				"dept_name": f"Lone Officer Dept {frappe.generate_hash(length=6)}",
-				"email_account": "lone_dept@example.com",
-				"active": 1,
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(

@@ -222,7 +222,6 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 				"enabled": 1,
 			}
 		).insert(ignore_permissions=True)
-		frappe.db.commit()
 
 		# 1. Update using simplified human-readable strings
 		res = update_notification_template(
@@ -268,7 +267,6 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 
 		# Verify validate_notification passes without error
 		notifications.validate_notification(doc)
-		frappe.db.commit()
 
 		# 2. Verify invalid placeholder rejection
 		err_res = update_notification_template(
@@ -277,20 +275,15 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		)
 		self.assertEqual(err_res["status"], "error")
 		self.assertEqual(err_res["code"], "VALIDATION_ERROR")
-		self.assertIn("Invalid placeholder", err_res["message"])
+		self.assertIn("Unknown placeholder", err_res["message"])
 
-		# 3. Verify backward-compatible raw Jinja acceptance
+		# 3. Raw Jinja is rejected: only {placeholder} braces are allowed
 		res_raw = update_notification_template(
 			template=test_name,
-			subject="{{ _('Raw Subject: Case {0}').format(doc.ticket_number) }}",
 			body="{{ _('Raw Body: Hello {0}').format(doc.ticket_number) }}",
 		)
-		self.assertEqual(res_raw["status"], "success")
-		t_raw = res_raw["data"]["template"]
-		self.assertEqual(t_raw["subject"], "Raw Subject: Case {ticket_number}")
-		self.assertEqual(t_raw["body"], "Raw Body: Hello {ticket_number}")
-		self.assertEqual(t_raw["raw_subject"], "{{ _('Raw Subject: Case {0}').format(doc.ticket_number) }}")
-		self.assertEqual(t_raw["raw_body"], "{{ _('Raw Body: Hello {0}').format(doc.ticket_number) }}")
+		self.assertEqual(res_raw["status"], "error")
+		self.assertEqual(res_raw["code"], "VALIDATION_ERROR")
 
 		# 4. Verify department alias compiles to doc.assigned_dept
 		res_alias = update_notification_template(

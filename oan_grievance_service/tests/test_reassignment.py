@@ -61,7 +61,6 @@ def _ensure_department(name):
 			{
 				"doctype": "Grievance Department",
 				"dept_name": name,
-				"email_account": f"{frappe.scrub(name)}@example.com",
 			}
 		)
 		.insert(ignore_permissions=True)

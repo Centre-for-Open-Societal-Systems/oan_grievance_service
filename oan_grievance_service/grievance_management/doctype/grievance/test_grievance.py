@@ -114,8 +114,6 @@ class TestGrievance(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Agriculture Dept",
-					"email_account": "agri@example.com",
-					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 
@@ -124,8 +122,6 @@ class TestGrievance(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Regional Agronomy Dept",
-					"email_account": "regional@example.com",
-					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 
@@ -714,8 +710,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				{
 					"doctype": "Grievance Department",
 					"dept_name": "Test Agri Dept",
-					"email_account": "test_agri@example.com",
-					"active": 1,
 				}
 			).insert(ignore_permissions=True)
 
