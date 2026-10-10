@@ -124,6 +124,16 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
+# The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
+# Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
+# and `top_rung` read active levels only. Routing and the officer picker skip these rows.
+REVIEWER_ROLE_LEVEL = (
+	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"Review Officer",
+	910,
+	"Read-only oversight of a department. Not a step of the escalation chain.",
+)
+
 # Service categories. The code is the 3-character CATEGORY segment of the ticket number
 # (services.ticket_number). Three characters allow 32,768 categories, so a
 # service can later be split into much finer groups without the codes running
@@ -747,6 +757,19 @@ def seed_role_levels():
 				"escalation_hours": escalation_hours,
 				"description": description,
 				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		made.append(code)
+	code, name, order, description = REVIEWER_ROLE_LEVEL
+	if not frappe.db.exists("Grievance Role Level", code):
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Role Level",
+				"level_code": code,
+				"level_name": name,
+				"level_order": order,
+				"description": description,
+				"is_active": 0,
 			}
 		).insert(ignore_permissions=True)
 		made.append(code)

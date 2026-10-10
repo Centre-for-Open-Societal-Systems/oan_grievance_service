@@ -16,6 +16,7 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from oan_grievance_service.services.constants import NON_ASSIGNEE_LEVELS
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 DOCTYPE = "Grievance RBAC Assignment"
@@ -61,7 +62,7 @@ def split_officers(rows: list, l1_level: str = L1_ROLE_LEVEL, l2_level: str = L2
 	def is_l2(row) -> bool:
 		return bool(l2_level) and row.role_level == l2_level
 
-	active = [row for row in rows if row.active]
+	active = [row for row in rows if row.active and row.role_level not in NON_ASSIGNEE_LEVELS]
 	firsts = sorted(
 		(row for row in active if not is_l2(row)),
 		key=lambda row: (row.role_level != l1_level, not row.is_primary),

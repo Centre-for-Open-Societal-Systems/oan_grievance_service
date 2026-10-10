@@ -3048,7 +3048,7 @@
     },
     {
       "name": "Officers",
-      "description": "STG-430 admin CRUD for L1 (Nodal) and L2 (Senior Nodal) officers. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. Requires a Grievance Admin bearer token. Officers are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+      "description": "STG-430 admin CRUD for officers, extended by STG-443. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. level is L1 (Nodal), L2 (Senior Nodal) or L3 (Department Head, the Admin tab). role is Officer (default) or Reviewer: a Reviewer is placed on the department's desks with read-only access to that department and is never assigned a case. Requires a Grievance Admin bearer token. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
       "item": [
         {
           "name": "List officers",
@@ -3109,7 +3109,7 @@
                 }
               ]
             },
-            "description": "Filter by level (L1/L2), department, status, service_category, region (exact area), or search text q. Paginated with page and page_size; the pagination block is at the top level of the response."
+            "description": "Filter by role (Officer by default, or Reviewer), level (L1/L2/L3), department, status, service_category, region (exact area), or search text q. level L3 lists the department heads. A Reviewer has no level, so level and status On Leave return 400 with role=Reviewer. Paginated with page and page_size; the pagination block is at the top level of the response."
           },
           "response": []
         },
@@ -3275,7 +3275,7 @@
                 "{{officer}}"
               ]
             },
-            "description": "Fetch one officer by email, with the desks (RBAC assignments) they sit on."
+            "description": "Fetch one officer, department head or Reviewer by email, with the desks (RBAC assignments) they sit on."
           },
           "response": []
         },
@@ -3404,6 +3404,422 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Status counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var data = pm.response.json().data;",
+                  "pm.test(\"Counts add up\", function () {",
+                  "    pm.expect(data.active + data.on_leave + data.inactive).to.eql(data.total);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer&level=L1&department=MoA",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                },
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "department",
+                  "value": "MoA"
+                }
+              ]
+            },
+            "description": "Active, On Leave, Inactive and total counts for the officers tabs, with the same filters as the list but no status. Each person is counted once, by the most available of their desk rows. The UI shows these in place of its hardcoded counts."
+          },
+          "response": []
+        },
+        {
+          "name": "List department heads",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?level=L3&department=MoA&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L3"
+                },
+                {
+                  "key": "department",
+                  "value": "MoA"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "The Admin tab: department heads (level L3), optionally for one department."
+          },
+          "response": []
+        },
+        {
+          "name": "Create department head (L3)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Create a department head. level L3 places the head on the department's desks for the given categories as its final escalation rung. They approve the department's reassignments and are not assigned first-line cases. reports_to is not accepted.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Hana Tesfaye\",\n  \"designation\": \"Department Head\",\n  \"level\": \"L3\",\n  \"department\": \"MoA\",\n  \"email\": \"hana.tesfaye@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List reviewers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?role=Reviewer&department=MoA&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Reviewer"
+                },
+                {
+                  "key": "department",
+                  "value": "MoA"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Reviewers, by name. Needs an admin role."
+          },
+          "response": []
+        },
+        {
+          "name": "Create reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.officer) {",
+                  "    pm.collectionVariables.set(\"reviewer_officer\", body.data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Place a Reviewer on a department's desks. department and service_categories are required; level and reports_to are refused. The login gets the Grievance Review Officer role and reads only those desks' cases. A Reviewer is never assigned a case and cannot change one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"rahel.review@example.com\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create reviewer with a level (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Refused with VALIDATION_ERROR\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"VALIDATION_ERROR\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "A Reviewer has no level or supervisor. The response is 400 VALIDATION_ERROR and details names each field.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\",\n  \"temporary_password\": \"Welcome2026\",\n  \"level\": \"L1\",\n  \"reports_to\": \"yonas.mekonnen@example.com\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{reviewer_officer}}"
+              ]
+            },
+            "description": "Change a Reviewer's name, designation, phone, region, department or service categories. level and reports_to return 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"designation\": \"Lead Reviewer\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{reviewer_officer}}"
+              ]
+            },
+            "description": "status Inactive retires the Reviewer's desk rows, disables their login and ends their sessions and refresh tokens, so they cannot sign in. On Leave returns 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reactivate reviewer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{reviewer_officer}}"
+              ]
+            },
+            "description": "status Active enables the login and the desk rows again. The password is unchanged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Active\"\n}"
             }
           },
           "response": []
@@ -3668,7 +4084,7 @@
     },
     {
       "name": "Review Officer (read-only)",
-      "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call.",
+      "description": "STG-434. The Grievance Review Officer reads grievances, officer statistics, departments, category assignments and Nodal and Senior Nodal Officers, and changes nothing. Sign in with 3. Login using a user that holds the Grievance Review Officer role. R requests return 200. W requests return 403 PERMISSION_DENIED: the role is refused on every create, edit, delete, assign and resolve call. STG-443: a Reviewer placed on a department's desks reads that department's cases only; it reads officer status counts but not Reviewer accounts.",
       "item": [
         {
           "name": "R1. List grievances",
@@ -4481,6 +4897,179 @@
               "mode": "raw",
               "raw": "{\n  \"body\": \"A note.\"\n}"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "R10. Officer status counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                }
+              ]
+            },
+            "description": "Active, On Leave and Inactive counts of officers. A Review Officer may read these."
+          },
+          "response": []
+        },
+        {
+          "name": "W7. Create reviewer (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Place a Reviewer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W8. Update reviewer (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers",
+                "{{reviewer_officer}}"
+              ]
+            },
+            "description": "Update an officer or Reviewer. A Review Officer is refused with 403 PERMISSION_DENIED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "W9. List reviewers (refused)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test(\"Refused with PERMISSION_DENIED\", function () {",
+                  "    pm.expect(pm.response.json().code).to.eql(\"PERMISSION_DENIED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers?role=Reviewer",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Reviewer"
+                }
+              ]
+            },
+            "description": "Reviewer accounts need an admin role to read. A Review Officer is refused with 403 PERMISSION_DENIED. Whether it should be allowed is a product decision still to be confirmed."
           },
           "response": []
         }

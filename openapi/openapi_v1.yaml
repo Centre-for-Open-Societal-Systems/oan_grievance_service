@@ -4326,8 +4326,11 @@ paths:
       tags:
       - Administration
       summary: List officers
-      description: Admin list of L1 and L2 officers, filterable by level, department, status, service
-        category and region. region matches an officer's area exactly. q matches name or email.
+      description: 'Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the
+        department heads, which the Admin tab shows. Filterable by level, department, status, service
+        category and region. region matches an account''s area exactly. q matches name or email. A Reviewer
+        has no level, so level is refused for role Reviewer, and so is status On Leave. Listing Reviewers
+        needs an admin role: a Review Officer reads Officer lists only.'
       operationId: get_api_v1_officers
       responses:
         '200':
@@ -4367,23 +4370,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       parameters:
-      - name: page
+      - name: role
         in: query
         required: false
         schema:
-          default: 1
-          minimum: 1
-          type: integer
-        description: Page number, 1-indexed
-      - name: page_size
-        in: query
-        required: false
-        schema:
-          default: 20
-          maximum: 100
-          minimum: 1
-          type: integer
-        description: Items per page
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
       - name: level
         in: query
         required: false
@@ -4391,6 +4386,7 @@ paths:
           enum:
           - L1
           - L2
+          - L3
           type: string
           default: null
           nullable: true
@@ -4398,17 +4394,6 @@ paths:
         in: query
         required: false
         schema:
-          type: string
-          default: null
-          nullable: true
-      - name: status
-        in: query
-        required: false
-        schema:
-          enum:
-          - Active
-          - On Leave
-          - Inactive
           type: string
           default: null
           nullable: true
@@ -4433,6 +4418,34 @@ paths:
           type: string
           default: null
           nullable: true
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: status
+        in: query
+        required: false
+        schema:
+          enum:
+          - Active
+          - On Leave
+          - Inactive
+          type: string
+          default: null
+          nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
       security:
       - BearerAuth: []
@@ -4440,12 +4453,17 @@ paths:
       tags:
       - Administration
       summary: Create an officer
-      description: 'Make a login an L1 or L2 officer on the category desks of a department. The login
-        is created when the email is new. Every service category must already have a category assignment
-        for the department. reports_to is an L2 officer and is only for an L1. temporary_password is required:
-        the officer signs in with it only to replace it through /api/v1/auth/password/initial. It is applied
-        to a new login only. An email that already has a login keeps its own password and the message
-        says so.'
+      description: 'Make a login an officer or a Reviewer on the category desks of a department. role
+        defaults to Officer. An Officer needs level (L1, L2 or L3), department, service_categories and
+        designation; level L3 makes a department head, who is reached by escalation and is not assigned
+        first-line cases. A Reviewer needs department and service_categories and takes no level or reports_to:
+        they read those desks'' cases only, are never assigned one and cannot change one. Every service
+        category must already have a category assignment for the department. reports_to is an L2 officer
+        and is only for an L1. The login is created when the email is new. An existing login keeps its
+        own roles and is given the officer or review role; a System Manager or Administrator is never
+        managed here. temporary_password is required: the account holder signs in with it only to replace
+        it through /api/v1/auth/password/initial. It is applied to a new login only. An email that already
+        has a login keeps its own password and the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -4493,13 +4511,115 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
+  /api/v1/officers/status-counts:
+    get:
+      tags:
+      - Administration
+      summary: Count officers by status
+      description: 'Active, On Leave and Inactive totals for the officers tabs, so the UI shows the counts
+        from here instead of hardcoding them. Takes the list''s filters (role, level, department, service_category,
+        region, q) without status, so a tab''s counts follow the same filters as its list. Each person
+        is counted once, in the status the record shows: the most available of their desk rows wins. The
+        list''s status filter matches an account with a row in that status, so one whose rows differ can
+        be on two pages and is still one count here. A Reviewer has no On Leave. Counting Reviewers needs
+        an admin role, as listing them does.'
+      operationId: get_api_v1_officers_status_counts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusCountsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
+      - name: level
+        in: query
+        required: false
+        schema:
+          enum:
+          - L1
+          - L2
+          - L3
+          type: string
+          default: null
+          nullable: true
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_status_counts
+      security:
+      - BearerAuth: []
   /api/v1/officers/{officer}:
     get:
       tags:
       - Administration
       summary: Get an officer
-      description: One L1 or L2 officer with the desks (RBAC assignments) they sit on. The id is the officer's
-        email.
+      description: One officer, department head or Reviewer with the desks (RBAC assignments) they sit
+        on. The id is the account's email. Reading a Reviewer needs an admin role.
       operationId: get_api_v1_officers_officer
       responses:
         '200':
@@ -4553,9 +4673,12 @@ paths:
       - Administration
       summary: Update an officer
       description: 'Change name, designation, phone, level, department, region, status, service categories
-        or supervisor. Set status to Inactive to deactivate: the officer''s desk rows are retired too.
-        service_categories replaces the whole list. Changing level clears the officer''s supervisor, and
-        an L2 with L1 officers reporting to them cannot change level. email is fixed once created.'
+        or supervisor. Set status to Inactive to deactivate: the account''s desk rows are retired too,
+        and a Reviewer''s login is disabled and its sessions and refresh tokens ended, so it cannot sign
+        in. service_categories replaces the whole list. Changing level clears the officer''s supervisor,
+        and an L2 with L1 officers reporting to them cannot change level. A Reviewer has no level or supervisor,
+        so those are refused, and so is On Leave. An account cannot deactivate itself. email and role
+        are fixed once created. A System Manager or Administrator is never updated here.'
       operationId: patch_api_v1_officers_officer
       responses:
         '200':
@@ -4615,10 +4738,11 @@ paths:
       tags:
       - Administration
       summary: Issue a new temporary password
-      description: Set a new temporary password on an officer who cannot sign in, for example after a
-        forgotten password. The officer's current sessions end at once and they must replace the password
-        through /api/v1/auth/password/initial before signing in. Not available for an account that itself
-        holds an admin role.
+      description: Set a new temporary password on an officer or Reviewer who cannot sign in, for example
+        after a forgotten password. The account's current sessions end at once and its holder must replace
+        the password through /api/v1/auth/password/initial before signing in. Not available for an account
+        that itself holds an admin role, nor for your own account. Limited to 10 requests per admin every
+        5 minutes, and logged.
       operationId: post_api_v1_officers_officer_password_resets
       responses:
         '200':
@@ -8185,7 +8309,10 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
+          default: null
+          nullable: true
         region:
           type: string
           default: null
@@ -8196,7 +8323,6 @@ components:
           type: boolean
       required:
       - assignment
-      - level
       - active
       - on_leave
       type: object
@@ -8206,6 +8332,11 @@ components:
           type: string
         full_name:
           type: string
+        role:
+          enum:
+          - Officer
+          - Reviewer
+          type: string
         designation:
           type: string
           default: null
@@ -8214,9 +8345,14 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
+          default: null
+          nullable: true
         department:
           type: string
+          default: null
+          nullable: true
         email:
           type: string
         phone:
@@ -8259,8 +8395,7 @@ components:
       required:
       - name
       - full_name
-      - level
-      - department
+      - role
       - email
       - status
       - service_categories
@@ -8274,6 +8409,22 @@ components:
           type: array
       required:
       - officers
+      type: object
+    StatusCounts:
+      properties:
+        active:
+          type: integer
+        on_leave:
+          type: integer
+        inactive:
+          type: integer
+        total:
+          type: integer
+      required:
+      - active
+      - on_leave
+      - inactive
+      - total
       type: object
     OfficerData:
       properties:
@@ -9190,33 +9341,57 @@ components:
       type: object
     CreateOfficer:
       additionalProperties: false
+      description: 'An officer needs a level; a Reviewer is placed on the same desks without one.
+
+
+        `designation`, `level`, `department` and `service_categories` are required for an Officer.
+
+        A Reviewer needs the department and categories whose desks they read, and has no level or
+
+        supervisor, so those are refused for them. The checks are in one model validator because
+
+        they depend on `role`.'
       properties:
         full_name:
-          minLength: 1
-          type: string
-        designation:
-          minLength: 1
-          type: string
-        level:
-          enum:
-          - L1
-          - L2
-          type: string
-        department:
           minLength: 1
           type: string
         email:
           minLength: 1
           type: string
+        temporary_password:
+          maxLength: 128
+          type: string
+        role:
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
+        designation:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        level:
+          enum:
+          - L1
+          - L2
+          - L3
+          type: string
+          default: null
+          nullable: true
+        department:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
         service_categories:
           items:
             minLength: 1
             type: string
-          minItems: 1
           type: array
-        temporary_password:
-          maxLength: 128
-          type: string
+          default: null
+          nullable: true
         phone:
           type: string
           default: null
@@ -9238,11 +9413,7 @@ components:
           nullable: true
       required:
       - full_name
-      - designation
-      - level
-      - department
       - email
-      - service_categories
       - temporary_password
       type: object
     UpdateOfficer:
@@ -9253,6 +9424,7 @@ components:
           enum:
           - L1
           - L2
+          - L3
           type: string
         full_name:
           minLength: 1
@@ -10512,6 +10684,31 @@ components:
       - status
       - data
       description: OfficerListData response
+    StatusCountsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/StatusCounts'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: StatusCounts response
     OfficerResponse:
       type: object
       properties:

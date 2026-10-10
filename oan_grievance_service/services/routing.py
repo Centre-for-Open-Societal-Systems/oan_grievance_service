@@ -321,10 +321,15 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 	if not assignment_doc.get("officers"):
 		return None
 
+	# Only first-line officers take cases. A department head is reached by escalation and a
+	# reviewer only reads, so neither is assigned work here.
+	first_line = [
+		o
+		for o in assignment_doc.officers
+		if getattr(o, "active", 1) and getattr(o, "role_level", None) not in C.NON_ASSIGNEE_LEVELS
+	]
 	# Availability first: an officer on leave must not hide the next-nearest one.
-	active_officers = _covering_case(
-		_available([o for o in assignment_doc.officers if getattr(o, "active", 1)]), grievance
-	)
+	active_officers = _covering_case(_available(first_line), grievance)
 	if not active_officers:
 		return None
 

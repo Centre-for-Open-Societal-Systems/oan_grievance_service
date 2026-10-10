@@ -98,11 +98,25 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
 
+# Accounts the officer API never manages, whatever their other roles.
+PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})
+# The role level of a Reviewer's rows on a department's desks. It is inactive, so it is not a
+# rung of the escalation chain; it only says "this row is read-only oversight, not an assignee".
+ROLE_LEVEL_REVIEW_OFFICER = "review_officer"
+ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
+# Rows at these levels sit on a desk without taking first-line cases: a department head is
+# reached by escalation, and a reviewer is never assigned work.
+NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
+
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
 ADMIN_ROLES = [ROLE_ADMIN, "System Manager", "Administrator"]
 # Admin endpoints that only read: the Review Officer joins the admins here and nowhere
 # on a POST, PATCH or DELETE.
 ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
+# Who may read Reviewer accounts through the officer API. Admins only for now: whether a Review
+# Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
+# here is the whole change if the answer is yes.
+REVIEWER_READ_ROLES = ADMIN_ROLES
 ALLOWED_GRIEVANCE_ROLES = [
 	ROLE_SUBMITTER,
 	ROLE_OFFICER,
