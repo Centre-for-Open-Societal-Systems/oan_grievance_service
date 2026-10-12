@@ -1,6 +1,8 @@
 """Dashboard charts over the analytics rollups.
 
-    GET /api/v1/charts?charts=<id,...>&<filters>     Grievance Admin; any chart, several per call
+    GET /api/v1/charts?charts=<id,...>&<filters>     Grievance Admin: any chart, several per call.
+                                                     Grievance Officer: the public charts, narrowed
+                                                     to the caller's RBAC desks.
     GET /api/v1/charts/<chart_id>?<filters>          Grievance Dashboard Reader; public charts only
 
 Both are answered by services.dashboard from the rollups the scheduler refreshes
@@ -44,6 +46,8 @@ route = prefixed("/api/v1")
 
 ADMIN_ROLES = [C.ROLE_ADMIN, "System Manager", "Administrator"]
 PUBLIC_CHART_ROLES = [C.ROLE_DASHBOARD_READER, *ADMIN_ROLES]
+# The JWT form: admins see everything, an officer sees the public charts for their desks.
+CHARTS_ROLES = [C.ROLE_OFFICER, *ADMIN_ROLES]
 MAX_CHARTS = 20
 MAX_SPAN_DAYS = 731
 LIMITS = {"region": 100, "service_category": 50, "assigned_dept": 100}
@@ -168,19 +172,29 @@ def _invalid(e):
 	)
 
 
-@route("/charts", methods=("GET",), summary="Dashboard charts (Grievance Admin)")
+def _is_admin():
+	return bool(set(frappe.get_roles()) & set(ADMIN_ROLES))
+
+
+@route("/charts", methods=("GET",), summary="Dashboard charts (Grievance Admin, Grievance Officer)")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(CHARTS_ROLES)
 def get_charts(charts: str | None = None, **kwargs):
 	"""Several charts in one round trip, each built and cached on its own.
+
+	An admin may ask for any chart. An officer gets the public (counts only) charts, narrowed
+	to the cases inside their RBAC desks; an admin-only chart id is as unknown to them as a
+	mistyped one. An officer on no usable desk reads zeros.
 
 	A chart that fails comes back as `data[<id>] = null` with its error in
 	`meta.errors`, so one broken tile does not blank the dashboard.
 	"""
 	check_rate_limit(f"grievance_charts:user:{frappe.session.user}", RATE_LIMIT, 60)
 
-	requested = parse_multi_value(charts) or list(dashboard.CHARTS)
+	admin = _is_admin()
+	available = dashboard.CHARTS if admin else dashboard.PUBLIC_CHARTS
+	requested = parse_multi_value(charts) or list(available)
 	if len(requested) > MAX_CHARTS:
 		frappe.response["http_status_code"] = 400
 		return error_response(
@@ -188,7 +202,7 @@ def get_charts(charts: str | None = None, **kwargs):
 			code="VALIDATION_ERROR",
 			details={"charts": _("At most {0} charts per request").format(MAX_CHARTS)},
 		)
-	unknown = [c for c in requested if c not in dashboard.CHARTS]
+	unknown = [c for c in requested if c not in available]
 	if unknown:
 		frappe.response["http_status_code"] = 404
 		return error_response(
@@ -196,14 +210,15 @@ def get_charts(charts: str | None = None, **kwargs):
 		)
 
 	try:
-		params = parse_params(kwargs, admin=True)
+		params = parse_params(kwargs, admin=admin)
 	except InvalidParam as e:
 		return _invalid(e)
 
+	scope = None if admin else dashboard.caller_scope()
 	data, as_of, errors = {}, {}, {}
 	for chart_id in requested:
 		try:
-			result = dashboard.get_chart(chart_id, params, admin=True)
+			result = dashboard.get_chart(chart_id, params, admin=admin, scope=scope)
 			data[chart_id] = result["rows"]
 			as_of[chart_id] = result["as_of"]
 		except Exception:
@@ -214,7 +229,7 @@ def get_charts(charts: str | None = None, **kwargs):
 	return success_response(
 		data=data,
 		message=_("Charts fetched successfully"),
-		meta={"as_of": as_of, "filters": _echo(params, admin=True), "errors": errors},
+		meta={"as_of": as_of, "filters": _echo(params, admin=admin), "errors": errors},
 	)
 
 

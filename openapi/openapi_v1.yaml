@@ -2418,8 +2418,15 @@ paths:
     get:
       tags:
       - Dashboard Charts
-      summary: Dashboard charts (Grievance Admin)
+      summary: Dashboard charts (Grievance Admin, Grievance Officer)
       description: 'Several charts in one round trip, each built and cached on its own.
+
+
+        An admin may ask for any chart. An officer gets the public (counts only) charts, narrowed
+
+        to the cases inside their RBAC desks; an admin-only chart id is as unknown to them as a
+
+        mistyped one. An officer on no usable desk reads zeros.
 
 
         A chart that fails comes back as `data[<id>] = null` with its error in

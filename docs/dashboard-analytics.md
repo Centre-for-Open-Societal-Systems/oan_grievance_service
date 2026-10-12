@@ -51,12 +51,13 @@ cache another 15 minutes).
 
 ## Endpoints
 
-| Route                           | Access           | Returns                                                    |
-| ------------------------------- | ---------------- | ---------------------------------------------------------- |
-| `GET /api/v1/charts/<chart_id>` | Dashboard Reader | one chart; public charts only; counts, never case detail   |
-| `GET /api/v1/charts?charts=...` | Grievance Admin  | several charts per call, admin-only charts and live detail |
+| Route                           | Access                      | Returns                                                             |
+| ------------------------------- | --------------------------- | ------------------------------------------------------------------- |
+| `GET /api/v1/charts/<chart_id>` | Dashboard Reader            | one chart; public charts only; counts, never case detail            |
+| `GET /api/v1/charts?charts=...` | Grievance Admin             | several charts per call, admin-only charts and live detail          |
+| `GET /api/v1/charts?charts=...` | Grievance Officer (JWT too) | the public charts, narrowed to the caller's RBAC desks; counts only |
 
-Both return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
+All return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
 `service_category` (alias `category`), `from` / `to`, `month`, `granularity`; the admin form
 also takes `assigned_dept` and `limit`. An unknown value is a 400 naming the field.
 
@@ -69,6 +70,24 @@ dashboards' secret store, and send them as `Authorization: token <api_key>:<api_
 checks the key itself (`FrappeTokenAuth` in the spec), so a call without it gets 401 whether it
 came through Kong or reached the backend directly; Kong passes the header through. Rotate or
 revoke by regenerating the key on the user.
+
+### Officer view (STG-330)
+
+`GET /api/v1/charts` is the JWT route behind the gateway. A `Grievance Officer` calling it gets the
+public charts (an admin-only chart id is a 404), computed from the same rollups, definitions and
+refresh as everything above, but only over the cases inside their active RBAC desks
+(`services.dashboard.caller_scope`). Grievance Admin, System Manager and Administrator are
+unscoped. A request without a valid bearer token is 401; a submitter or a Dashboard Reader is 403.
+
+A desk is an area, a department and a category, all optional. The desks are alternatives; within
+one desk every part must match. The rollups are grouped by region, category and department only,
+so the scope is exact down to region level and errs towards showing less:
+
+- A desk's area counts as the Regions inside it. A desk below Region level contributes nothing,
+  rather than its whole region.
+- A desk narrowed by grievance type or service provider contributes nothing.
+- A case an officer holds only through their reporting chain is not counted.
+- An officer on no usable desk reads zeros.
 
 Public charts: `grvKpis`, `grvPerformanceKpis`, `grvMonthlyTrend`, `grvWeeklyTrend`,
 `grvNetBacklogTrend`, `grvStatusDistribution`, `grvByCategory`, `grvCategoryResolution`,
