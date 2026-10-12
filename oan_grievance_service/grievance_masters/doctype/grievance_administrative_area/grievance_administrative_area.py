@@ -1,6 +1,15 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
+"""Grievance Administrative Area: the administrative area tree.
+
+What belongs here: the tree itself (naming, path codes) and queries over it, such as
+nested-set bounds and whether one area sits inside another.
+
+What does not belong here: which areas a user may see. Scope is an RBAC assignment
+fact, and the access rule built on it lives in permissions.py.
+"""
+
 import frappe
 from frappe import _
 from frappe.utils.nestedset import NestedSet
@@ -116,3 +125,130 @@ def on_doctype_update():
 	frappe.db.add_index("Grievance Administrative Area", ["rgt"])
 	frappe.db.add_index("Grievance Administrative Area", ["path_code"])
 	frappe.db.add_index("Grievance Administrative Area", ["depth"])
+
+
+def get_area_bounds(area_name: str) -> tuple[int | None, int | None]:
+	"""Return (lft, rgt) for an administrative area."""
+	if not area_name:
+		return (None, None)
+	row = frappe.db.get_value("Grievance Administrative Area", area_name, ["lft", "rgt"], as_dict=True)
+	if row and row.lft is not None and row.rgt is not None:
+		return (int(row.lft), int(row.rgt))
+	return (None, None)
+
+
+def is_in_area_subtree(target_area_or_lft, ancestor_area: str) -> bool:
+	"""Check if target_area (name or lft int) falls within ancestor_area's subtree."""
+	if not ancestor_area or target_area_or_lft is None:
+		return False
+	anc_lft, anc_rgt = get_area_bounds(ancestor_area)
+	if anc_lft is None or anc_rgt is None:
+		return False
+	if isinstance(target_area_or_lft, int) or (
+		isinstance(target_area_or_lft, str) and target_area_or_lft.isdigit()
+	):
+		target_lft = int(target_area_or_lft)
+	else:
+		target_lft, _ = get_area_bounds(str(target_area_or_lft))
+	if target_lft is None:
+		return False
+	return anc_lft <= target_lft <= anc_rgt
+
+
+def area_bounds(scopes):
+	"""Nested Set intervals for every area named by `scopes`, in one query."""
+	names = {s.get("administrative_area_scope") for s in scopes}
+	names = {n for n in names if n}
+	if not names:
+		return {}
+	return {
+		a.name: (a.lft, a.rgt)
+		for a in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"name": ["in", list(names)]},
+			fields=["name", "lft", "rgt"],
+		)
+		if a.lft is not None and a.rgt is not None
+	}
+
+
+def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[dict]:
+	"""Search and filter active administrative areas."""
+	limit = min(int(limit or 100), 500)
+	parents = [p for p in (parents if isinstance(parents, list) else [parents]) if p]
+
+	subtree_parents = []
+	direct_parents = []
+
+	if parents:
+		parent_docs = frappe.get_all(
+			"Grievance Administrative Area",
+			or_filters=[
+				{"name": ["in", parents]},
+				{"path_code": ["in", parents]},
+				{"code": ["in", parents]},
+				{"area_name": ["in", parents]},
+			],
+			fields=["name", "path_code", "code", "area_name", "level_name", "lft", "rgt"],
+			order_by="lft asc",
+		)
+		# One query for every parent, but each value still resolves in a fixed order:
+		# document name, then path_code, then code, then area_name. Display names recur
+		# across the tree (two areas can both be "Central"), so a name or code match must
+		# never lose to an area_name match. Within one field the first area in tree order
+		# wins, so the result does not depend on row order.
+		by_field = {field: {} for field in ("name", "path_code", "code", "area_name")}
+		for doc in parent_docs:
+			for field, index in by_field.items():
+				key = doc.get(field)
+				if key and key in parents:
+					index.setdefault(key, doc)
+
+		for p in parents:
+			doc = next((by_field[field][p] for field in by_field if p in by_field[field]), None)
+			if doc:
+				if level_name and doc.level_name != level_name:
+					subtree_parents.append(doc)
+				else:
+					direct_parents.append(doc.name)
+			else:
+				direct_parents.append(p)
+
+	Area = frappe.qb.DocType("Grievance Administrative Area")
+	query = (
+		frappe.qb.from_(Area)
+		.select(
+			Area.name.as_("area_id"),
+			Area.area_name,
+			Area.code,
+			Area.path_code,
+			Area.level_name,
+			Area.parent_administrative_area,
+			Area.is_group,
+			Area.depth,
+		)
+		.where(Area.is_active == 1)
+		.orderby(Area.area_name)
+		.limit(limit)
+	)
+
+	if parents:
+		parent_conditions = []
+		if direct_parents:
+			parent_conditions.append(Area.parent_administrative_area.isin(direct_parents))
+		for sp in subtree_parents:
+			parent_conditions.append((Area.lft > sp.lft) & (Area.rgt < sp.rgt))
+		if parent_conditions:
+			from pypika import Criterion
+
+			query = query.where(Criterion.any(parent_conditions))
+	elif not search and not level_name:
+		query = query.where(Area.level_name == "Region")
+
+	if level_name:
+		query = query.where(Area.level_name == level_name)
+
+	if search:
+		query = query.where(Area.area_name.like(f"%{search.strip()}%"))
+
+	return query.run(as_dict=True)

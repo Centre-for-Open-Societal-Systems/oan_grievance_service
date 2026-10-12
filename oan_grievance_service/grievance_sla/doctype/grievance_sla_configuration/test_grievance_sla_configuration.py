@@ -37,7 +37,6 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 				"first_response_hours": 8,
 				"update_cadence_hours": 72,
 				"remand_execution_hours": 36,
-				"appeal_window_days": 20,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -45,14 +44,12 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 		self.assertEqual(doc.first_response_hours, 8)
 		self.assertEqual(doc.update_cadence_hours, 72)
 		self.assertEqual(doc.remand_execution_hours, 36)
-		self.assertEqual(doc.appeal_window_days, 20)
 
 		policy = sla.resolve_policy(self.cat_name)
 		self.assertIsNotNone(policy)
 		self.assertEqual(policy.first_response_hours, 8)
 		self.assertEqual(policy.update_cadence_hours, 72)
 		self.assertEqual(policy.remand_execution_hours, 36)
-		self.assertEqual(policy.appeal_window_days, 20)
 
 	def test_sla_configuration_defaults(self):
 		doc = frappe.get_doc(
@@ -67,7 +64,6 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 		self.assertEqual(doc.first_response_hours, 4)
 		self.assertEqual(doc.update_cadence_hours, 48)
 		self.assertEqual(doc.remand_execution_hours, 24)
-		self.assertEqual(doc.appeal_window_days, 15)
 
 	def test_sla_configuration_negative_validation(self):
 		doc = frappe.get_doc(

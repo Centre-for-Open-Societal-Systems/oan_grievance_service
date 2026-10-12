@@ -22,7 +22,7 @@ THREE CHECKS, IN ORDER
    checked only for agreement with what the bytes say.
 
 2. **Location metadata, stripped.** A phone photo carries GPS coordinates in its
-   EXIF block. FSD 9.2 lets a submitter ask for anonymity -- and a geotagged
+   EXIF block. A submitter may ask for anonymity -- and a geotagged
    photograph of their own plot defeats that completely, whatever the database
    says about their name. Coordinates are removed before the file is stored.
 
@@ -44,9 +44,10 @@ site config.
 
 FAIL CLOSED
 -----------
-With no scanner reachable, a file is marked `Failed`, never `Clean`. Nothing is
-served to an officer until something has actually looked at it. An outage makes
-attachments unavailable; it does not make them trusted.
+With no scanner reachable, a file stays `Pending`, never `Clean`, and is asked
+about again on the next sweep. Nothing is served to an officer until something
+has actually looked at it. An outage makes attachments unavailable; it does not
+make them trusted.
 """
 
 import hashlib
@@ -71,6 +72,17 @@ SCAN_PENDING = "Pending"
 SCAN_CLEAN = "Clean"
 SCAN_INFECTED = "Infected"
 SCAN_FAILED = "Failed"
+
+# scan_bytes' answer when the scanner could not be asked at all: unreachable, timed
+# out, or not configured. Never stored as a status. The row stays Pending, which
+# withholds the object just as Failed did, and the next sweep tries again.
+SCAN_RETRY = "retry"
+
+# Realtime event pushed to the uploader and to the grievance's doc room on a verdict.
+EVENT_ATTACHMENT_SCANNED = "attachment_scanned"
+
+# One hourly sweep per attempt: a day of outage before a row is given up on.
+MAX_SCAN_ATTEMPTS = 24
 
 # EXIF tag 34853 is the GPS block. Pillow exposes it by number rather than name.
 EXIF_GPS_TAG = 34853
@@ -138,6 +150,7 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 			),
 			title=_("Unrecognised File"),
 		)
+	assert mime is not None
 
 	if mime not in ALLOWED_MIME_TYPES:
 		frappe.throw(
@@ -152,11 +165,37 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 			title=_("Extension Does Not Match Content"),
 		)
 
+	if mime == "application/pdf":
+		_assert_pdf_parses(file_name, content)
+
 	return ValidatedUpload(
 		file_name=file_name,
 		mime_type=mime,
 		size_bytes=size,
 	)
+
+
+def _assert_pdf_parses(file_name: str, content: bytes) -> None:
+	"""Refuse a PDF that pypdf cannot open, before core gets to it.
+
+	Core's File.check_content runs pypdf over every PDF to look for embedded
+	JavaScript and lets a parse failure escape as an uncaught exception. Found
+	with a %PDF header and no cross-reference table: the upload came back as an
+	INTERNAL_ERROR instead of a rejection. A file the reader cannot open is not
+	evidence anyone can view, so it is refused here with a reason.
+	"""
+	from io import BytesIO
+
+	from pypdf import PdfReader
+	from pypdf.errors import PyPdfError
+
+	try:
+		PdfReader(BytesIO(content))
+	except (PyPdfError, ValueError, OSError):
+		frappe.throw(
+			_("{0} is not a readable PDF.").format(frappe.bold(file_name)),
+			title=_("Corrupt PDF"),
+		)
 
 
 # ---------------------------------------------------------------------------
@@ -235,9 +274,14 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 	"""
 	target = clamav_target()
 	if not target:
-		return SCAN_FAILED, "No scanner configured (grievance_clamav_host is unset)."
+		return SCAN_RETRY, "No scanner configured (grievance_clamav_host is unset)."
+
+	if isinstance(content, str):
+		# Never let a text-decoded object crash the send; scan its bytes.
+		content = content.encode("utf-8")
 
 	host, port = target
+
 	try:
 		with socket.create_connection((host, port), timeout=CLAMAV_TIMEOUT_SECONDS) as sock:
 			sock.sendall(b"zINSTREAM\0")
@@ -246,15 +290,35 @@ def scan_bytes(content: bytes) -> tuple[str, str]:
 				sock.sendall(len(chunk).to_bytes(4, "big") + chunk)
 			sock.sendall((0).to_bytes(4, "big"))
 
-			reply = sock.recv(4096).decode("utf-8", "replace").strip()
+			# The z-prefixed command asks clamd to NUL-terminate its reply, and
+			# str.strip() leaves NUL alone: a reply of stream: OK plus NUL must still read as OK.
+			reply = sock.recv(4096).decode("utf-8", "replace").rstrip(chr(0)).strip()
 	except OSError as exc:
-		return SCAN_FAILED, f"Scanner unreachable: {exc}"
+		return SCAN_RETRY, f"Scanner unreachable: {exc}"
 
 	if reply.endswith("OK"):
 		return SCAN_CLEAN, reply
 	if "FOUND" in reply:
 		return SCAN_INFECTED, reply
 	return SCAN_FAILED, reply or "Scanner returned nothing."
+
+
+def scanner_available() -> bool:
+	"""Whether clamd answers a PING right now.
+
+	The sweep asks once before a batch. An outage should not cost every Pending
+	row one of its retries; the rows simply wait for the next sweep.
+	"""
+	target = clamav_target()
+	if not target:
+		return False
+	try:
+		with socket.create_connection(target, timeout=CLAMAV_TIMEOUT_SECONDS) as sock:
+			sock.sendall(b"zPING\0")
+			reply = sock.recv(64).decode("utf-8", "replace").rstrip(chr(0)).strip()
+	except OSError:
+		return False
+	return reply == "PONG"
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +335,10 @@ def enqueue_scan_attachment(name: str) -> None:
 			name=name,
 			enqueue_after_commit=True,
 			is_async=True,
+			# The upload enqueues a scan and the sweep may enqueue the same row
+			# before it runs; one job per row is enough.
+			job_id=f"scan-attachment-{name}",
+			deduplicate=True,
 		)
 	except Exception:
 		frappe.log_error(title=f"Failed to enqueue scan for attachment: {name}")
@@ -287,26 +355,70 @@ def scan_attachment(name: str) -> str:
 
 	An infected file loses its object and keeps its row: the case still needs to
 	show that something was submitted and what happened to it.
+
+	No row lock is held while clamd works. The upload enqueues a scan and the
+	hourly sweep picks up whatever is still Pending, so two scanners can hold one
+	row; a lock across a call that can wait CLAMAV_TIMEOUT_SECONDS made a delete
+	during a scan hang. Instead the verdict is written with a compare-and-set on
+	`scan_status = Pending`: whichever writer settles the row first wins, and the
+	other drops its verdict rather than overwrite it.
 	"""
-	if not frappe.db.exists("Grievance Attachment", name):
+	row = frappe.db.get_value(
+		"Grievance Attachment",
+		name,
+		["scan_status", "file", "file_url", "scan_attempts", "checksum_sha256"],
+		as_dict=True,
+	)
+	if not row:
 		return SCAN_FAILED
+	if row.scan_status != SCAN_PENDING:
+		return row.scan_status
 
-	attachment = frappe.get_doc("Grievance Attachment", name)
-	content = _read_object(attachment.file_url)
-	if content is None:
-		_record(attachment, SCAN_FAILED, "File object could not be read.")
-		return SCAN_FAILED
+	file_name = row.file or _file_name_for(row.file_url)
 
-	status, detail = scan_bytes(content)
-	if status == SCAN_INFECTED:
-		_discard_object(attachment.file_url)
+	# The same bytes already found infected on another row need no second scan,
+	# and must not be served meanwhile.
+	twin = _infected_twin(row.checksum_sha256, exclude=name)
+	if twin:
+		status, detail = SCAN_INFECTED, f"Identical to {twin}, which was found infected."
+	else:
+		content = read_object(file_name)
+		if content is None:
+			return _settle(name, SCAN_FAILED, "File object could not be read.")
+		status, detail = scan_bytes(content)
 
-	_record(attachment, status, detail)
-	return status
+	if status == SCAN_RETRY:
+		return _defer(name, row.scan_attempts or 0, detail)
+
+	# A twin condemned while this scan was in flight condemns this row too; a
+	# Clean written now would leave the same bytes servable here.
+	if status == SCAN_CLEAN:
+		twin = _infected_twin(row.checksum_sha256, exclude=name)
+		if twin:
+			status, detail = SCAN_INFECTED, f"Identical to {twin}, which was found infected."
+
+	settled = _settle(name, status, detail)
+	if status == SCAN_INFECTED and settled == SCAN_INFECTED:
+		_discard_infected(name, file_name, row.checksum_sha256)
+	return settled
 
 
 def scan_pending(limit: int = 50) -> int:
-	"""Drain the scan queue. Wired to the scheduler."""
+	"""Drain the scan queue. Wired to the scheduler.
+
+	Skipped whole while the scanner is down, so an outage costs no row a retry.
+	"""
+	if not scanner_available():
+		# One line in the Error Log per skipped sweep, so an outage is visible
+		# without charging every waiting row a retry.
+		waiting = frappe.db.count("Grievance Attachment", {"scan_status": SCAN_PENDING})
+		if waiting:
+			frappe.log_error(
+				title="Attachment scan sweep skipped: scanner unreachable",
+				message=f"{waiting} attachment(s) are waiting for a scan. No retry was charged.",
+			)
+		return 0
+
 	pending = frappe.get_all(
 		"Grievance Attachment",
 		filters={"scan_status": SCAN_PENDING},
@@ -322,6 +434,149 @@ def scan_pending(limit: int = 50) -> int:
 	return len(pending)
 
 
+def _settle(name: str, status: str, detail: str) -> str:
+	"""Record a verdict, and say what the row holds now.
+
+	Clean and Failed only fill a row that is still Pending: if another scanner
+	settled it first, or a delete removed it, the verdict is dropped and the
+	row's actual status (or Failed for a vanished row) is returned. Infected
+	outranks Clean. The sweep calls scan_attachment directly, so two scanners can
+	be inside clamd for one row at once; if the Clean lands first, the malware
+	this call found must still condemn the row and discard the object.
+	"""
+	overwrites = [SCAN_PENDING, SCAN_CLEAN] if status == SCAN_INFECTED else [SCAN_PENDING]
+	frappe.db.set_value(
+		"Grievance Attachment",
+		{"name": name, "scan_status": ["in", overwrites]},
+		{"scan_status": status, "scan_detail": detail[:500], "scanned_at": now_datetime()},
+		update_modified=False,
+	)
+	current = frappe.db.get_value("Grievance Attachment", name, "scan_status") or SCAN_FAILED
+	# Only the scanner whose verdict landed announces it; a loser stays silent.
+	if current == status:
+		publish_scan_status(name, status)
+	return current
+
+
+def publish_scan_status(name: str, status: str) -> None:
+	"""Tell open clients an attachment's verdict, so they need not poll for it.
+
+	The payload carries ids and status only; the client refetches through the API,
+	which applies permissions and is_servable(). Sent after commit, so a client that
+	refetches on receipt never reads the row still Pending.
+	"""
+	row = frappe.db.get_value("Grievance Attachment", name, ["grievance", "owner"], as_dict=True)
+	if not row:
+		return
+	payload = {"attachment": name, "grievance": row.grievance, "scan_status": status}
+	# The uploader, wherever they are in the app.
+	frappe.publish_realtime(EVENT_ATTACHMENT_SCANNED, payload, user=row.owner, after_commit=True)
+	# Anyone with the grievance open. Node checks read permission before letting a
+	# socket join a doc room, so this reaches only users who can read the grievance.
+	frappe.publish_realtime(
+		EVENT_ATTACHMENT_SCANNED,
+		payload,
+		doctype="Grievance",
+		docname=row.grievance,
+		after_commit=True,
+	)
+
+
+def _defer(name: str, attempts: int, detail: str) -> str:
+	"""Keep a row Pending after the scanner could not be asked, counting the attempt.
+
+	A transient failure (clamd down, timed out, not configured) used to be
+	recorded as Failed, which nothing ever revisited: one scanner outage left
+	every upload of that window unviewable for good. Pending withholds the object
+	just the same, and the sweep comes back to it. After MAX_SCAN_ATTEMPTS the row
+	is given up on as Failed, loudly, so someone looks at the scanner.
+	"""
+	attempts += 1
+	if attempts >= MAX_SCAN_ATTEMPTS:
+		frappe.log_error(
+			title=f"Attachment scan gave up: {name}",
+			message=f"{attempts} attempts, last: {detail}",
+		)
+		return _settle(name, SCAN_FAILED, f"Scanner unavailable for {attempts} attempts. Last: {detail}")
+
+	frappe.db.set_value(
+		"Grievance Attachment",
+		{"name": name, "scan_status": SCAN_PENDING},
+		{"scan_attempts": attempts, "scan_detail": f"Deferred ({attempts}): {detail}"[:500]},
+		update_modified=False,
+	)
+	# The row may have settled or vanished meanwhile; say what it holds, as _settle does.
+	return frappe.db.get_value("Grievance Attachment", name, "scan_status") or SCAN_FAILED
+
+
+def _infected_twin(checksum: str | None, exclude: str) -> str | None:
+	if not checksum:
+		return None
+	return frappe.db.get_value(
+		"Grievance Attachment",
+		{"checksum_sha256": checksum, "scan_status": SCAN_INFECTED, "name": ["!=", exclude]},
+		"name",
+	)
+
+
+def _discard_infected(name: str, file_name: str | None, checksum: str | None) -> None:
+	"""Remove the infected object, and every other attachment's copy of the same bytes.
+
+	Core's File keeps one object per content hash and only deletes it from disk
+	once no File row shares the hash. Deleting this row's File alone would leave
+	the bytes on disk behind any identical upload, served under that row's Clean
+	verdict. So every attachment with the same SHA-256 is marked Infected and
+	loses its File too. A sharing File that belongs to some other doctype cannot
+	be removed from here; it is reported instead.
+	"""
+	content_hash = frappe.db.get_value("File", file_name, "content_hash") if file_name else None
+
+	_drop_object(name, file_name)
+	if not checksum:
+		return
+
+	twins = frappe.get_all(
+		"Grievance Attachment",
+		filters={"checksum_sha256": checksum, "name": ["!=", name], "scan_status": ["!=", SCAN_INFECTED]},
+		fields=["name", "file", "file_url"],
+	)
+	for twin in twins:
+		twin_file = twin.file or _file_name_for(twin.file_url)
+		frappe.db.set_value(
+			"Grievance Attachment",
+			twin.name,
+			{
+				"scan_status": SCAN_INFECTED,
+				"scan_detail": f"Identical to {name}, which was found infected.",
+				"scanned_at": now_datetime(),
+			},
+			update_modified=False,
+		)
+		_drop_object(twin.name, twin_file)
+		publish_scan_status(twin.name, SCAN_INFECTED)
+
+	if content_hash:
+		sharers = frappe.get_all(
+			"File",
+			filters={"content_hash": content_hash},
+			fields=["name", "attached_to_doctype", "attached_to_name"],
+		)
+		if sharers:
+			frappe.log_error(
+				title=f"Infected bytes still on disk: {name}",
+				message="These File records share the infected object's content hash and were not "
+				"removed because they belong to another record:\n"
+				+ "\n".join(f"{f.name} -> {f.attached_to_doctype} {f.attached_to_name}" for f in sharers),
+			)
+
+
+def _drop_object(attachment_name: str, file_name: str | None) -> None:
+	"""Delete an attachment's File and unlink it, keeping the row and its trail."""
+	if file_name and frappe.db.exists("File", file_name):
+		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
+	frappe.db.set_value("Grievance Attachment", attachment_name, "file", None, update_modified=False)
+
+
 def _record(attachment, status: str, detail: str) -> None:
 	attachment.db_set(
 		{"scan_status": status, "scan_detail": detail[:500], "scanned_at": now_datetime()},
@@ -329,20 +584,39 @@ def _record(attachment, status: str, detail: str) -> None:
 	)
 
 
-def _read_object(file_url: str) -> bytes | None:
-	if not file_url:
-		return None
-	name = frappe.db.get_value("File", {"file_url": file_url}, "name")
+def read_object(file_name: str | None) -> bytes | None:
+	"""The stored bytes behind a File, or None if there is no object to read.
+
+	Takes the File name that `Grievance Attachment.file` links to. A file URL is
+	still accepted for rows that predate the link, and resolved the old way.
+
+	Used by the scanner and by the view endpoint, so both serve the same bytes
+	the checksum was taken over.
+	"""
+	name = _file_name_for(file_name)
 	if not name:
 		return None
 	try:
-		return frappe.get_doc("File", name).get_content()
+		file_doc = frappe.get_doc("File", name)
 	except Exception:
 		return None
 
+	# Core's File.get_content() tries a list of text encodings and hands back str
+	# for anything that decodes, so an all-ASCII upload came back as text and the
+	# INSTREAM send failed on it -- which left the file Pending forever, never
+	# scanned. An empty encodings list skips that step and returns the stored
+	# bytes, while still going through core's own file-path validation.
+	try:
+		content = file_doc.get_content(encodings=[])
+	except Exception:
+		return None
+	return content.encode("utf-8") if isinstance(content, str) else content
 
-def _discard_object(file_url: str) -> None:
-	"""Delete the stored object, keeping the attachment row and its trail."""
-	name = frappe.db.get_value("File", {"file_url": file_url}, "name")
-	if name:
-		frappe.delete_doc("File", name, force=True, ignore_permissions=True)
+
+def _file_name_for(value: str | None) -> str | None:
+	"""A File name from either a File name or, for rows without the link, a file URL."""
+	if not value:
+		return None
+	if value.startswith("/"):
+		return frappe.db.get_value("File", {"file_url": value}, "name")
+	return value if frappe.db.exists("File", value) else None

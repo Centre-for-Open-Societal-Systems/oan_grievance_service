@@ -1,0 +1,54 @@
+{
+ "actions": [],
+ "creation": "2026-09-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "holiday_date",
+  "description",
+  "weekly_off",
+  "is_half_day"
+ ],
+ "fields": [
+  {
+   "fieldname": "holiday_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Holiday Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "weekly_off",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Weekly Off"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_half_day",
+   "fieldtype": "Check",
+   "label": "Half Day"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance Holiday",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "holiday_date",
+ "sort_order": "ASC",
+ "states": []
+}

@@ -13,7 +13,7 @@ An upload is not stored and then checked. It is checked and then stored:
    File doctype derives content_type from `mimetypes.guess_type(file_name)`, which
    a payload renamed from .exe to .jpg defeats outright.
 2. Location metadata is stripped from images. A submitter who asked for anonymity
-   under FSD 9.2 and attached a photograph of their own plot has published their
+   and attached a photograph of their own plot has published their
    coordinates, whatever the database says about their name.
 3. The object is withheld until a scanner has looked at it. Uploads land Pending
    and `is_servable()` passes only on Clean, so an unscanned file never reaches an
@@ -33,6 +33,9 @@ from oan_auth_service.api.utils import (
 	validate_request,
 )
 from pydantic import BaseModel, Field, model_validator
+from werkzeug.wrappers import Response
+
+from oan_grievance_service import permissions
 
 
 class UploadedFile:
@@ -149,9 +152,9 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_CLEAN,
 	SCAN_PENDING,
 )
-from oan_grievance_service.services import audit, scanning
+from oan_grievance_service.services import audit, scanning, sla
 
-from .grievance import ALLOWED_GRIEVANCE_ROLES
+from .grievance import ALLOWED_GRIEVANCE_READ_ROLES, ALLOWED_GRIEVANCE_ROLES
 
 route = prefixed("/api/v1/attachments")
 
@@ -162,81 +165,73 @@ MAX_ATTACHMENTS_PER_CASE = 10
 grievance_route = prefixed("/api/v1/grievances")
 
 
-class SubmitDocumentsRequest(BaseModel):
-	model_config = {"extra": "allow"}
-
-	grievance: str = Field(..., min_length=1, description="Unique Grievance document identifier")
-	document_type: str | list[str] | None = None
-	response: str | None = None
-
-	@model_validator(mode="after")
-	def validate_upload_limits(self):
-		try:
-			uploads = get_uploaded_files()
-		except Exception as exc:
-			msg = str(exc.args[0]) if getattr(exc, "args", None) else str(exc)
-			raise ValueError(msg) from exc
-		if not uploads:
-			raise ValueError(_("At least one document file must be attached."))
-		if len(uploads) > MAX_ATTACHMENTS_PER_CASE:
-			raise ValueError(
-				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
-			)
-		existing_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance})
-		if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_CASE:
-			raise ValueError(
-				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
-			)
-		return self
+def has_uploads() -> bool:
+	"""Whether the request carries any multipart file."""
+	req = getattr(frappe, "request", None)
+	return bool(getattr(req, "files", None)) if req else False
 
 
-@grievance_route("/<grievance>/attachments", methods=("POST",), summary="Upload supporting documents")
-@route("", methods=("POST",), summary="Upload supporting documents")
-@frappe.whitelist(methods=["POST"])
-@validate_request(SubmitDocumentsRequest)
-@handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-def submit_documents(
-	grievance: str,
-	document_type: str | list[str] | None = None,
-	response: str | None = None,
-	**kwargs,
-):
-	"""Upload one or more supporting documents against a grievance.
-
-	Requires authentication (Grievance Submitter, Officer, or Admin role).
-	Accepts single or multiple files in multipart form data.
-	Always returns a list of created attachment records.
-	"""
-	case = _case_for_write(grievance)
-	owner = {"grievance": case.name}
-	submitter = case.submitter
-
-	uploads = get_uploaded_files()
-
-	# 1. Validate each file and strip location metadata before storing
-	prepared_files = []
-	for upload in uploads:
-		file_name = upload.file_name
-		content = upload.content
-
-		validated = scanning.validate_upload(file_name, content)
-		cleaned_content = scanning.strip_location_metadata(content, validated.mime_type)
-
-		prepared_files.append(
-			{
-				"file_name": validated.file_name,
-				"content": cleaned_content,
-				"mime_type": validated.mime_type,
-				"size_bytes": len(cleaned_content),
-				"checksum_sha256": scanning.sha256_of(cleaned_content),
-			}
+def check_attachment_limit(case_name: str, adding: int):
+	"""Refuse an upload that would take the case past MAX_ATTACHMENTS_PER_CASE."""
+	existing = frappe.db.count("Grievance Attachment", {"grievance": case_name})
+	if existing + adding > MAX_ATTACHMENTS_PER_CASE:
+		frappe.throw(
+			_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE),
+			frappe.ValidationError,
+			title=_("Too Many Files"),
 		)
 
-	# 2. Persist File and Grievance Attachment records
+
+def validate_timeline_entry(case_name: str, timeline_entry: str | None):
+	"""A file may hang only off an entry of the same case, and a submitter's only off a public one."""
+	if not timeline_entry:
+		return
+	entry = frappe.db.get_value(
+		"Grievance Timeline", timeline_entry, ["grievance", "is_internal"], as_dict=True
+	)
+	if not entry or entry.grievance != case_name:
+		frappe.throw(
+			_("Timeline entry '{0}' does not belong to this grievance.").format(timeline_entry),
+			frappe.ValidationError,
+		)
+	if entry.is_internal and not permissions.is_staff():
+		frappe.throw(_("You cannot attach files to an internal entry."), frappe.PermissionError)
+
+
+def prepare_uploads(case_name: str) -> list[dict]:
+	"""Check and clean the request's files without storing anything; [] when none came.
+
+	Callers that also move the case run this before the move, so a bad file refuses
+	the whole request rather than leaving a move recorded without its evidence.
+	"""
+	if not has_uploads():
+		return []
+	uploads = get_uploaded_files()
+	check_attachment_limit(case_name, len(uploads))
+	prepared = []
+	for upload in uploads:
+		validated = scanning.validate_upload(upload.file_name, upload.content)
+		cleaned = scanning.strip_location_metadata(upload.content, validated.mime_type)
+		prepared.append(
+			{
+				"file_name": validated.file_name,
+				"content": cleaned,
+				"mime_type": validated.mime_type,
+				"size_bytes": len(cleaned),
+				"checksum_sha256": scanning.sha256_of(cleaned),
+			}
+		)
+	return prepared
+
+
+def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> list[dict]:
+	"""Persist files from `prepare_uploads` against `case`, optionally on one timeline
+	entry, and queue their scans for after the commit."""
+	# Credited to whoever sent it: an officer's evidence on a response is not the submitter's.
+	submitter = None if permissions.is_staff() else case.submitter
 	results = []
 	attachment_names = []
-	for idx, item in enumerate(prepared_files):
+	for idx, item in enumerate(prepared):
 		stored = frappe.get_doc(
 			{
 				"doctype": "File",
@@ -255,16 +250,17 @@ def submit_documents(
 		attachment = frappe.get_doc(
 			{
 				"doctype": "Grievance Attachment",
-				**owner,
-				"response": response,
+				"grievance": case.name,
+				"timeline_entry": timeline_entry,
 				"document_type": doc_type,
+				"file": stored.name,
 				"file_name": stored.file_name,
 				"file_url": stored.file_url,
 				"mime_type": item["mime_type"],
 				"size_bytes": item["size_bytes"],
 				"checksum_sha256": item["checksum_sha256"],
 				"uploaded_by_submitter": submitter,
-				"uploaded_by_user": None if submitter else _acting_user(),
+				"uploaded_by_user": None if submitter else permissions.session_user(),
 				"scan_status": SCAN_PENDING,
 			}
 		).insert(ignore_permissions=True)
@@ -285,31 +281,111 @@ def submit_documents(
 				"size_bytes": item["size_bytes"],
 				"checksum_sha256": attachment.checksum_sha256,
 				"scan_status": attachment.scan_status,
+				"timeline_entry": attachment.timeline_entry,
 			}
 		)
 
-	# 3. Asynchronously enqueue scanning for all created attachments
 	scanning.enqueue_scan_attachments(attachment_names)
+	return results
 
+
+def _resolve_case_name(grievance: str | None) -> str | None:
+	"""Resolve a grievance identifier (name, formatted or flat ticket number, UUID) to case name."""
+	if not grievance:
+		return None
+	name = str(grievance).strip()
+	if frappe.db.exists("Grievance", name):
+		return name
+	from oan_grievance_service.services import ticket_number as tn
+
+	normalized = tn.normalize(name)
+	if frappe.db.exists("Grievance", normalized):
+		return normalized
+	return (
+		frappe.db.get_value("Grievance", {"ticket_number": normalized}, "name")
+		or frappe.db.get_value("Grievance", {"ticket_number": name}, "name")
+		or frappe.db.get_value("Grievance", {"client_submission_uuid": name}, "name")
+	)
+
+
+class SubmitDocumentsRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	# The REST route passes the case as the `ticket_number` path parameter; the RPC
+	# path and older clients send `grievance` in the body. One of them is required.
+	ticket_number: str | None = Field(None, description="Grievance ticket number (REST path parameter)")
+	grievance: str | None = Field(None, description="Grievance name or ticket number (RPC body field)")
+	document_type: str | list[str] | None = None
+	timeline_entry: str | None = None
+
+	@model_validator(mode="after")
+	def validate_upload_limits(self):
+		case_id = (self.ticket_number or self.grievance or "").strip()
+		if not case_id:
+			raise ValueError(_("A grievance is required."))
+		try:
+			uploads = get_uploaded_files()
+		except Exception as exc:
+			msg = str(exc.args[0]) if getattr(exc, "args", None) else str(exc)
+			raise ValueError(msg) from exc
+		if not uploads:
+			raise ValueError(_("At least one document file must be attached."))
+		if len(uploads) > MAX_ATTACHMENTS_PER_CASE:
+			raise ValueError(
+				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
+			)
+		# The identifier may be a ticket number, so count against the resolved case name.
+		case_name = _resolve_case_name(case_id) or case_id
+		existing_count = frappe.db.count("Grievance Attachment", {"grievance": case_name})
+		if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_CASE:
+			raise ValueError(
+				_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE)
+			)
+		return self
+
+
+@grievance_route("/<ticket_number>/attachments", methods=("POST",), summary="Upload supporting documents")
+@route("", methods=("POST",), summary="Upload supporting documents")
+@frappe.whitelist(methods=["POST"])
+@validate_request(SubmitDocumentsRequest)
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_ROLES)
+def submit_documents(
+	ticket_number: str | None = None,
+	grievance: str | None = None,
+	document_type: str | list[str] | None = None,
+	timeline_entry: str | None = None,
+	**kwargs,
+):
+	"""Upload one or more supporting documents against a grievance.
+
+	Requires authentication (Grievance Submitter, Officer, or Admin role).
+	Accepts single or multiple files in multipart form data.
+	Always returns a list of created attachment records.
+	"""
+	case = _case_for_write(ticket_number or grievance)
+	validate_timeline_entry(case.name, timeline_entry)
+	prepared = prepare_uploads(case.name)
+	results = store_uploads(case, prepared, timeline_entry=timeline_entry, document_type=document_type)
 	return success_response(
 		data=results,
 		message=_("{0} document(s) uploaded and queued for scanning").format(len(results)),
 	)
 
 
-@grievance_route("/<grievance>/attachments", methods=("GET",), summary="List a grievance's attachments")
+@grievance_route("/<ticket_number>/attachments", methods=("GET",), summary="List a grievance's attachments")
 @route("", methods=("GET",), summary="List attachments for a grievance")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-def get_attachments(grievance: str):
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
 	"""List the evidence on a case, with each file's scan verdict.
 
 	Infected and pending files are listed rather than hidden. An officer needs to
 	know something was submitted and what happened to it; silently omitting a row
 	would make the case look like it had less evidence than it did.
 	"""
-	case = _case_for_read(grievance)
+	case = _case_for_read(ticket_number or grievance)
 
 	rows = frappe.get_all(
 		"Grievance Attachment",
@@ -320,7 +396,7 @@ def get_attachments(grievance: str):
 			"mime_type",
 			"size_bytes",
 			"document_type",
-			"response",
+			"timeline_entry",
 			"scan_status",
 			"scanned_at",
 			"uploaded_by_user",
@@ -338,16 +414,82 @@ def get_attachments(grievance: str):
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@route("/<attachment>/download", methods=("GET",), summary="Get attachment download URL")
+@route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
 @frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
-def download(attachment: str):
-	"""Hand back one attachment's URL, but only once it has been scanned clean.
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+def view(
+	attachment_id: str | None = None,
+	attachment: str | None = None,
+	download: str | int | None = None,
+):
+	"""Serve the bytes of one attachment for display in the browser.
 
-	The gate is here rather than on the File row because the File is what an
-	officer's browser fetches directly; returning the URL is the last point at
-	which this module can refuse.
+	The private-file route that `file_url` points at sits outside the JWT
+	namespaces, so a bearer token does nothing there and a Next.js client cannot
+	open the URL it was handed. This route is under `/api/v1`, so the same token
+	that listed the case also fetches the file, and the scan gate is applied on
+	the way out. Inline by default so an image or PDF opens in the tab; pass
+	`download=1` for a Save As.
+	"""
+	doc = _servable(attachment_id or attachment)
+	content = scanning.read_object(doc.file or doc.file_url)
+	if content is None:
+		frappe.throw(
+			_("{0} has no stored object.").format(frappe.bold(doc.file_name)),
+			frappe.DoesNotExistError,
+			title=_("Attachment Missing"),
+		)
+
+	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
+
+	response = Response(content, status=200, mimetype=doc.mime_type or "application/octet-stream")
+	disposition = "attachment" if str(download or "").lower() in ("1", "true", "yes") else "inline"
+	response.headers.add("Content-Disposition", disposition, filename=doc.file_name)
+	response.headers["Content-Length"] = str(len(content))
+	response.headers["Cache-Control"] = "private, no-store"
+	response.headers["X-Content-Type-Options"] = "nosniff"
+	if doc.checksum_sha256:
+		response.headers["ETag"] = f'"{doc.checksum_sha256}"'
+
+	# Tells handle_api_errors to hand the Response back untouched instead of
+	# wrapping it in the JSON envelope; the REST router and Frappe's RPC handler
+	# both pass a Response object through as-is.
+	frappe.response["type"] = "download"
+	return response
+
+
+@route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
+@frappe.whitelist(methods=["GET"])
+@handle_api_errors
+@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+def download(attachment_id: str | None = None, attachment: str | None = None):
+	"""Metadata for one attachment, but only once it has been scanned clean.
+
+	Kept for the desk and for clients with a Frappe session cookie, which can
+	fetch `file_url` directly. API clients should use `/view`, which streams the
+	bytes under the same gate.
+	"""
+	doc = _servable(attachment_id or attachment)
+	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
+	return success_response(
+		data={
+			"file_name": doc.file_name,
+			"file_url": doc.file_url,
+			"view_url": f"/api/v1/attachments/{doc.name}/view",
+			"mime_type": doc.mime_type,
+			"size_bytes": doc.size_bytes,
+			"checksum_sha256": doc.checksum_sha256,
+		},
+		message=_("Attachment ready"),
+	)
+
+
+def _servable(attachment: str):
+	"""The attachment row, after the case permission and the scan gate.
+
+	The gate lives here rather than on the File row because this is the last
+	point at which the module can refuse before bytes or a URL leave it.
 	"""
 	doc = frappe.get_doc("Grievance Attachment", attachment)
 	_case_for_read(doc.grievance)
@@ -360,44 +502,31 @@ def download(attachment: str):
 			),
 			title=_("Attachment Withheld"),
 		)
-
-	audit.record_access(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.grievance)
-	return success_response(
-		data={
-			"file_name": doc.file_name,
-			"file_url": doc.file_url,
-			"mime_type": doc.mime_type,
-			"size_bytes": doc.size_bytes,
-			"checksum_sha256": doc.checksum_sha256,
-		},
-		message=_("Attachment ready"),
-	)
+	return doc
 
 
-@route("/<attachment>", methods=("DELETE", "POST"), summary="Delete an attachment")
+@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment")
 @frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
 @require_role(ALLOWED_GRIEVANCE_ROLES)
-def delete(attachment: str):
+def delete(attachment_id: str | None = None, attachment: str | None = None):
 	"""Remove an attachment the submitter added by mistake.
 
 	Only while the case is still open: once it is resolved or closed, the evidence
 	is part of what the decision rested on and removing it would rewrite the record
 	after the fact.
 	"""
-	doc = frappe.get_doc("Grievance Attachment", attachment)
+	doc = frappe.get_doc("Grievance Attachment", attachment_id or attachment)
 	case = _case_for_write(doc.grievance)
 
-	if case.status in ("Closed", "Rejected", "Resolved"):
+	if sla.sla_category_of(case.workflow_state) == sla.STOPPED:
 		frappe.throw(
 			_("Evidence cannot be removed once the grievance is {0}.").format(case.status),
 			title=_("Case Is Closed"),
 		)
 
-	file_name = frappe.db.get_value("File", {"file_url": doc.file_url}, "name")
-	if file_name:
-		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
-
+	# The row's on_trash removes its File: one owner for the object, and the
+	# disk delete happens last, after everything that could still roll back.
 	frappe.delete_doc("Grievance Attachment", doc.name, force=True, ignore_permissions=True)
 	audit.record_access(audit.ACTION_DELETE_ATTACHMENT, grievance=case.name)
 
@@ -409,22 +538,11 @@ def delete(attachment: str):
 # ---------------------------------------------------------------------------
 
 
-def _acting_user():
-	"""The signed-in user, or None for a guest filling in the wizard."""
-	user = frappe.session.user
-	return None if user in ("Guest", None) else user
-
-
 def _case_for_read(grievance):
 	"""The grievance, if this user may read it. Raises otherwise."""
 	from oan_grievance_service.permissions import has_grievance_permission
 
-	name = grievance
-	if not frappe.db.exists("Grievance", name):
-		name = frappe.db.get_value("Grievance", {"ticket_number": grievance}, "name") or frappe.db.get_value(
-			"Grievance", {"client_submission_uuid": grievance}, "name"
-		)
-
+	name = _resolve_case_name(grievance)
 	if not name or not frappe.db.exists("Grievance", name):
 		frappe.throw(_("No such grievance."), frappe.DoesNotExistError, title=_("Not Found"))
 

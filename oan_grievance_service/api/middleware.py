@@ -16,6 +16,12 @@ EXEMPT_PATHS: list[str] = [
 	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
 ]
 
+# Frappe's socket server learns who a connecting socket is by calling this endpoint
+# with the client's headers. Registered so a bearer JWT resolves to its user rather
+# than Guest. Exempt, so a desk cookie session or an anonymous website socket still
+# connects as before; a token that is present must be valid.
+SOCKET_USER_INFO_PATH = "/api/method/frappe.realtime.get_user_info"
+
 
 def register():
 	"""Register the oan_grievance_service namespace with oan_auth_service."""
@@ -23,6 +29,7 @@ def register():
 		from oan_auth_service.api.middleware import register_namespace
 
 		register_namespace(API_NAMESPACE, EXEMPT_PATHS)
+		register_namespace(SOCKET_USER_INFO_PATH, [SOCKET_USER_INFO_PATH])
 	except ImportError:
 		pass
 

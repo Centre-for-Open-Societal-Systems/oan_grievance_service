@@ -3,7 +3,7 @@
 
 """A position in the escalation chain, as a master rather than an enum.
 
-FSD Appendix F names four rungs - L1, L2, Nodal and Department Head - and
+The original design had four rungs - L1, L2, Nodal and Department Head - and
 `database-schema.md` carried them as a `role_level` enum on the assignment row. They
 live here as records so the ordering is data: escalation walks upward by `level_order`,
 and inserting a rung between two others is a row, not a migration.
@@ -20,10 +20,18 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+CACHE_KEY = "grievance_role_level_chain"
+
 
 class GrievanceRoleLevel(Document):
 	def validate(self):
 		self.validate_unique_order()
+
+	def on_update(self):
+		frappe.cache.delete_value(CACHE_KEY)
+
+	def on_trash(self):
+		frappe.cache.delete_value(CACHE_KEY)
 
 	def validate_unique_order(self):
 		"""Two active levels sharing a rank make "the next level up" ambiguous."""
@@ -45,6 +53,20 @@ class GrievanceRoleLevel(Document):
 				),
 				title=_("Duplicate Level Order"),
 			)
+
+	@staticmethod
+	def get_chain():
+		"""Returns all active rungs ordered by level_order ascending, cached in memory."""
+		chain = frappe.cache.get_value(CACHE_KEY)
+		if chain is None:
+			chain = frappe.get_all(
+				"Grievance Role Level",
+				filters={"is_active": 1},
+				fields=["name", "level_name", "level_order", "escalation_hours"],
+				order_by="level_order asc",
+			)
+			frappe.cache.set_value(CACHE_KEY, chain)
+		return chain
 
 
 def on_doctype_update():

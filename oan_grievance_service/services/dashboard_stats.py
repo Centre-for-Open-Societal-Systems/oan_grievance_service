@@ -8,9 +8,9 @@ scheduled job (and admin refresh) call ``refresh_projection`` to rebuild
 ``Grievance Dashboard Projection``; ``get_statistics`` aggregates those rows
 after applying the caller's RBAC scope (role / region / department / category).
 
-Status labels mirror the Grievance Workflow DocType (source of truth after #19).
-They are local to this module for KPI bucketing / draft exclusion only — not a
-second transition table.
+Status names come from ``services.constants``, which mirrors the Grievance Workflow.
+The groups below are for KPI bucketing / draft exclusion only — not a second
+transition table.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import frappe
 from frappe.utils import add_months, get_datetime, now_datetime
 
 from oan_grievance_service import permissions as perms
+from oan_grievance_service.services import constants as C
 
 PROJECTION_DOCTYPE = "Grievance Dashboard Projection"
 METRIC_STOCK = "stock"
@@ -29,31 +30,21 @@ METRIC_MONTHLY = "monthly"
 
 DEFAULT_MONTHS = 12
 
-STATUS_DRAFT = "Draft"
-STATUS_SUBMITTED = "Submitted"
-STATUS_ASSIGNED = "Assigned"
-STATUS_IN_PROGRESS = "In Progress"
-STATUS_MORE_INFO_NEEDED = "More Info Needed"
-STATUS_PENDING_SUBMITTER = "Pending Submitter"
-STATUS_RESOLVED = "Resolved"
-STATUS_CLOSED = "Closed"
-STATUS_REJECTED = "Rejected"
+STATUS_DRAFT = C.STATE_DRAFT
+STATUS_RESOLVED = C.STATE_RESOLVED
+STATUS_CLOSED = C.STATE_CLOSED
 
-OPEN_STATUSES = (
-	STATUS_SUBMITTED,
-	STATUS_ASSIGNED,
-	STATUS_IN_PROGRESS,
-	STATUS_MORE_INFO_NEEDED,
-	STATUS_PENDING_SUBMITTER,
-)
+OPEN_STATUSES = C.OPEN_STATES
 
-# FSD 3.11.3 display groups mapped to KPI card keys.
+# FSD 3.11.3 display groups mapped to KPI card keys. `under_review` is kept so the response
+# shape does not change, but no workflow state maps to it since Pending Submitter left the
+# Grievance Workflow, so it is always 0.
 KPI_STATUS_GROUPS = {
-	"pending": (STATUS_SUBMITTED, STATUS_ASSIGNED),
-	"in_progress": (STATUS_IN_PROGRESS, STATUS_MORE_INFO_NEEDED),
-	"under_review": (STATUS_PENDING_SUBMITTER,),
-	"resolved": (STATUS_RESOLVED, STATUS_CLOSED),
-	"rejected": (STATUS_REJECTED,),
+	"pending": (C.STATE_SUBMITTED, C.STATE_ASSIGNED),
+	"in_progress": (C.STATE_IN_PROGRESS, C.STATE_MORE_INFO_NEEDED),
+	"under_review": (),
+	"resolved": C.RESOLVED_STATES,
+	"rejected": (C.STATE_REJECTED,),
 }
 
 
@@ -148,7 +139,13 @@ def get_statistics(user: str | None = None, months: int = DEFAULT_MONTHS) -> dic
 
 
 def resolve_caller_scope(user: str | None = None) -> dict:
-	"""Mirror ``permissions.grievance_query_conditions`` as structured filters."""
+	"""Mirror ``permissions.grievance_query_conditions`` as structured filters.
+
+	Covers the area / department / category of each active desk. Cases an officer holds
+	only through the reporting chain (``assigned_to`` a subordinate) are not counted, and
+	desks narrowed by grievance type or service provider are left out; both err on showing
+	less than the case list, never more.
+	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
 
@@ -170,6 +167,11 @@ def resolve_caller_scope(user: str | None = None) -> dict:
 	scope_clauses = []
 
 	for scope in scopes:
+		# The projection is not grouped by grievance type or service provider, so a desk
+		# narrowed by either cannot be counted exactly. Dropping the narrowing would widen
+		# the desk to its whole department and over-report, so such a desk contributes nothing.
+		if scope.grievance_type_scope or scope.service_provider_scope:
+			continue
 		clause = {}
 		if scope.administrative_area_scope:
 			area_names.append(scope.administrative_area_scope)

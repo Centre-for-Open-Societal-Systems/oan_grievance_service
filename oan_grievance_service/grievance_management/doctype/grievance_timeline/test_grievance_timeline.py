@@ -58,8 +58,8 @@ class TestGrievanceTimeline(FrappeTestCase):
 
 	def tearDown(self):
 		frappe.flags.in_test = True
-		if frappe.db.exists("Grievance", self.grievance.name):
-			frappe.delete_doc("Grievance", self.grievance.name, force=True, ignore_permissions=True)
+		if hasattr(self, "grievance") and frappe.db.exists("Grievance", self.grievance.name):
+			frappe.db.delete("Grievance", {"name": self.grievance.name})
 
 	def test_timeline_entry_creation(self):
 		entry = frappe.get_doc(
@@ -75,30 +75,36 @@ class TestGrievanceTimeline(FrappeTestCase):
 
 		self.assertTrue(entry.name.startswith("GR-TIME-"))
 		self.assertEqual(entry.is_internal, 1)
+		self.assertEqual(entry.author_type, "officer")
+		self.assertEqual(entry.author_user, "Administrator")
 		self.assertIsNotNone(entry.created_on)
 
-	def test_submitter_cannot_author_internal_entry(self):
-		profile_name = frappe.db.get_value(
-			"Grievance Submitter Profile", {"contact_mobile": "+251911998877"}, "name"
-		)
-		if profile_name:
-			profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
-		else:
-			profile = frappe.get_doc(
+	def test_submitter_author_type_cannot_author_internal(self):
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc(
 				{
-					"doctype": "Grievance Submitter Profile",
-					"submitter_type": "Individual Farmer",
-					"submitter_name": "Abebe Submitter",
-					"contact_mobile": "+251911998877",
+					"doctype": "Grievance Timeline",
+					"grievance": self.grievance.name,
+					"entry_type": "message",
+					"is_internal": 1,
+					"body": "Illegal internal message with author_type submitter.",
+					"author_type": "submitter",
 				}
 			).insert(ignore_permissions=True)
-		self.addCleanup(
-			frappe.delete_doc,
-			"Grievance Submitter Profile",
-			profile.name,
-			force=True,
-			ignore_permissions=True,
-		)
+
+	def test_submitter_user_cannot_author_internal(self):
+		user_email = "farmer_timeline_test@example.com"
+		if not frappe.db.exists("User", user_email):
+			test_user = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": user_email,
+					"first_name": "Farmer",
+					"roles": [{"role": "Grievance Submitter"}],
+				}
+			).insert(ignore_permissions=True)
+			self.addCleanup(frappe.db.delete, "User", {"name": test_user.name})
+			self.addCleanup(frappe.db.delete, "Has Role", {"parent": test_user.name})
 
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc(
@@ -107,10 +113,46 @@ class TestGrievanceTimeline(FrappeTestCase):
 					"grievance": self.grievance.name,
 					"entry_type": "message",
 					"is_internal": 1,
-					"body": "Illegal internal message by submitter.",
-					"author_submitter": profile.name,
+					"body": "Illegal internal message by non-staff user.",
+					"author_user": user_email,
 				}
 			).insert(ignore_permissions=True)
+
+	def test_timeline_record_idempotency_scoped_to_author(self):
+		from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+			GrievanceTimeline,
+		)
+
+		client_msg_id = "test-msg-id-12345"
+
+		# Author A records message
+		entry_a1 = GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="message",
+			body="Message from A",
+			author_user="Administrator",
+			client_message_id=client_msg_id,
+		)
+
+		# Author A repeats same message
+		entry_a2 = GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="message",
+			body="Message from A again",
+			author_user="Administrator",
+			client_message_id=client_msg_id,
+		)
+		self.assertEqual(entry_a1.name, entry_a2.name)
+
+		# Author B uses same client_message_id -> should create distinct entry
+		entry_b = GrievanceTimeline.record(
+			grievance=self.grievance.name,
+			entry_type="message",
+			body="Message from B",
+			author_user="Guest",
+			client_message_id=client_msg_id,
+		)
+		self.assertNotEqual(entry_a1.name, entry_b.name)
 
 	def test_timeline_immutability(self):
 		entry = frappe.get_doc(

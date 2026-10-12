@@ -16,7 +16,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Case Management",
-   "link_count": 5,
+   "link_count": 4,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -27,26 +27,6 @@
    "label": "Grievance",
    "link_count": 0,
    "link_to": "Grievance",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Grievance Response",
-   "link_count": 0,
-   "link_to": "Grievance Response",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Grievance Comment",
-   "link_count": 0,
-   "link_to": "Grievance Comment",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -93,9 +73,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance Routing Rule",
+   "label": "Grievance RBAC Assignment",
    "link_count": 0,
-   "link_to": "Grievance Routing Rule",
+   "link_to": "Grievance RBAC Assignment",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -113,9 +93,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance SLA Deferral",
+   "label": "Grievance Change Request",
    "link_count": 0,
-   "link_to": "Grievance SLA Deferral",
+   "link_to": "Grievance Change Request",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -278,7 +258,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-04 17:50:30.551946",
+ "modified": "2026-10-04 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Management",
@@ -297,26 +277,8 @@
   },
   {
    "doc_view": "",
-   "label": "Responses",
-   "link_to": "Grievance Response",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "Reassignment Approvals",
-   "link_to": "Grievance Reassignment Request",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "SLA Deferrals",
-   "link_to": "Grievance SLA Deferral",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "",
-   "label": "Anonymity Approvals",
-   "link_to": "Grievance Anonymity Request",
+   "label": "Change Requests",
+   "link_to": "Grievance Change Request",
    "type": "DocType"
   }
  ],

@@ -3,8 +3,6 @@ from dataclasses import dataclass
 
 import frappe
 from frappe import _
-from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic import ValidationError as PydanticValidationError
 
 # Identity schemes, matching the dedupe_key prefixes.
 SCHEME_FAYDA = "fayda"
@@ -15,25 +13,8 @@ SCHEME_PHONE = "phone"
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
 
 # Format rules for profile/dedupe identity values — not Grievance DocType fields.
-FAYDA_PATTERN = re.compile(r"^(?=.{6,30}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$")
+FAYDA_PATTERN = re.compile(r"^\d{16}$")
 REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
-
-MIN_DESCRIPTION_LENGTH = 20
-
-# Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
-# are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
-ALLOWED_FILING_LEVELS = frozenset(
-	{
-		"Woreda",
-		"Kebele",
-		"Village",
-		"Ward",
-		"Taluka",
-		"Sub-County",
-		"County",
-		"District",
-	}
-)
 
 
 @dataclass(frozen=True)
@@ -75,27 +56,10 @@ SUBMITTER_TYPE_RULES = {
 }
 
 
-def rule_for(submitter_type):
-	"""The rule for a type, or None if the type is unknown to this map."""
-	return SUBMITTER_TYPE_RULES.get(submitter_type)
-
-
-def required_fields_for(submitter_type: str | None):
-	"""Return the required fields for a submitter type (common baseline only).
-
-	Scheme-specific identity (fayda_id / registration_number) is owned by the
-	submitter profile dedupe_key and is not required on grievance submission.
-	"""
-	rule = rule_for(submitter_type)
-	if rule:
-		return tuple(rule.required)
-	return tuple(COMMON_REQUIRED)
-
-
 def _validate_fayda_id(fayda_id: str):
 	if not FAYDA_PATTERN.match(fayda_id):
 		frappe.throw(
-			_("Fayda ID '{0}' is not in a valid format.").format(fayda_id),
+			_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id),
 			title=_("Invalid Fayda ID"),
 		)
 
@@ -108,111 +72,81 @@ def _validate_registration_number(registration_number: str):
 		)
 
 
-def validate_filing_area(administrative_area: str):
-	"""Domain rules for where a grievance may be filed.
-
-	Link existence is Frappe's job; this enforces filing level and dissolved dates.
-	"""
-	area = frappe.get_doc("Grievance Administrative Area", administrative_area)
-	if area.level_name not in ALLOWED_FILING_LEVELS or (
-		not area.parent_administrative_area and area.is_group
-	):
-		frappe.throw(
-			_(
-				"Grievances cannot be attached to administrative level '{0}'. "
-				"Please select an operational area such as a Woreda or Kebele."
-			).format(area.level_name or _("Unknown")),
-			title=_("Invalid Administrative Area"),
-		)
-	if area.valid_to and str(area.valid_to) <= frappe.utils.today():
-		frappe.throw(
-			_("The selected Administrative Area '{0}' has been dissolved or reorganized.").format(
-				administrative_area
-			),
-			title=_("Dissolved Administrative Area"),
-		)
-	return area
+# Bare / national numbers (no +ISD) are parsed against Ethiopia, the primary
+# jurisdiction. International numbers carry their
+# own country code and are validated by that country's numbering plan.
+DEFAULT_PHONE_REGION = "ET"
 
 
 def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
-	"""Strict Frappe phone validation with country code (E.164 via libphonenumber)."""
-	from frappe.utils import validate_phone_number_with_country_code
+	"""Return E.164 mobile validated by phonenumbers (libphonenumber), or raise.
+
+	Uses the same library Frappe ships. National forms default to Ethiopia.
+	The parsed region must also appear in jurisdiction phone extensions so a
+	valid neighbouring ISD cannot slip SMS onto another network.
+	"""
+	from phonenumbers import (
+		NumberParseException,
+		PhoneNumberFormat,
+		format_number,
+		is_valid_number,
+		parse,
+		region_code_for_number,
+	)
 
 	raw = str(v or "").strip()
 	if not raw:
 		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
-	if not raw.startswith("+"):
-		import phonenumbers
 
-		try:
-			parsed = phonenumbers.parse(raw, "ET")
-			if phonenumbers.is_valid_number(parsed):
-				raw = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
-		except Exception:
-			pass
-	validate_phone_number_with_country_code(raw, fieldname)
-	return raw
+	# Keep a leading +; drop spaces, hyphens, and desk-style separators.
+	candidate = re.sub(r"[^\d+]", "", raw)
+	if candidate.count("+") > 1 or (candidate and "+" in candidate[1:]):
+		frappe.throw(
+			_("{0} is not a valid phone number.").format(raw),
+			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
 
+	try:
+		parsed = parse(candidate, None if candidate.startswith("+") else DEFAULT_PHONE_REGION)
+	except NumberParseException as exc:
+		if exc.error_type == NumberParseException.INVALID_COUNTRY_CODE:
+			frappe.throw(
+				_("Please select a country code for field {0}.").format(frappe.bold(fieldname)),
+				title=_("Country Code Required"),
+				exc=frappe.InvalidPhoneNumberError,
+			)
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
 
-class GrievanceSubmissionPayload(BaseModel):
-	model_config = {"extra": "allow"}
+	if not is_valid_number(parsed):
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
 
-	contact_mobile: str | None = None
-	description: str | None = Field(default=None, min_length=MIN_DESCRIPTION_LENGTH)
-	service_category: str | None = None
-	grievance_type: str | None = None
-	administrative_area: str | None = None
+	number_region = region_code_for_number(parsed)
+	from oan_grievance_service.api.v1._options import get_phone_extensions
 
-	@field_validator("contact_mobile")
-	@classmethod
-	def _validate_mobile(cls, v):
-		if not v or not str(v).strip():
-			return v
-		raw = str(v).strip()
-		try:
-			validate_mobile(raw)
-		except (frappe.ValidationError, Exception) as exc:
-			message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
-			raise ValueError(message) from exc
-		return raw
+	allowed = {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
+	if allowed and number_region and number_region not in allowed:
+		frappe.throw(
+			_("{0} belongs to a country outside the active jurisdiction. Use a number from: {1}.").format(
+				raw, ", ".join(sorted(allowed))
+			),
+			title=_("Wrong Country Code"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
 
-	@field_validator("administrative_area")
-	@classmethod
-	def _validate_area(cls, v):
-		if not v or not str(v).strip():
-			return v
-		area = str(v).strip()
-		if frappe.db.exists("Grievance Administrative Area", area):
-			try:
-				validate_filing_area(area)
-			except frappe.ValidationError as exc:
-				message = str(exc.args[0]) if isinstance(exc.args, tuple) and exc.args else str(exc)
-				raise ValueError(message) from exc
-		return area
-
-	@model_validator(mode="after")
-	def _validate_category_and_type(self):
-		cat = (self.service_category or "").strip()
-		g_type = (self.grievance_type or "").strip()
-		if cat and g_type and frappe.db.exists("Grievance Type", g_type):
-			parent = frappe.db.get_value("Grievance Type", g_type, "service_category")
-			if parent != cat:
-				raise ValueError(
-					_("Grievance type {0} belongs to category {1}, not {2}.").format(
-						frappe.bold(g_type),
-						frappe.bold(parent),
-						frappe.bold(cat),
-					)
-				)
-		return self
-
-
-def validate_submission_payload(payload):
-	"""Domain rules covered via GrievanceSubmissionPayload Pydantic schema."""
-	if not isinstance(payload, dict):
-		frappe.throw(_("Submission payload must be an object."), title=_("Invalid Payload"))
-	GrievanceSubmissionPayload.model_validate(payload)
-	return True
+	return format_number(parsed, PhoneNumberFormat.E164)
 
 
 def derive_dedupe_key(
@@ -236,7 +170,7 @@ def derive_dedupe_key(
 	Fayda / registration format checks live here (profile identity), not on grievance submit.
 	"""
 	raw_key = (dedupe_key or "").strip()
-	rule = rule_for(submitter_type)
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
 	allowed_schemes = rule.schemes if rule else (SCHEME_FAYDA, SCHEME_ORG, SCHEME_PHONE)
 
 	if raw_key:
@@ -325,3 +259,43 @@ def find_or_create_submitter(payload: dict) -> str | None:
 	)
 	profile.insert(ignore_permissions=True)
 	return profile.name
+
+
+def is_reachable(doc: object) -> bool:
+	"""Whether the submitter has contact information on file (mobile or email)."""
+	if hasattr(doc, "get"):
+		return bool(doc.get("contact_mobile") or doc.get("contact_email"))
+	return bool(getattr(doc, "contact_mobile", None) or getattr(doc, "contact_email", None))
+
+
+def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
+	"""Extract and optionally mask contact mobile and split country/national phone numbers.
+
+	Returns dict with:
+	  'contact_mobile', 'contact_email', 'country_code', 'phone_number', 'can_request_more_info'
+	"""
+	from oan_auth_service.api.utils import split_phone_number
+
+	get_val = doc.get if hasattr(doc, "get") else lambda k, default=None: getattr(doc, k, default)
+
+	raw_mobile = get_val("contact_mobile")
+	raw_email = get_val("contact_email")
+
+	can_contact = bool(raw_mobile or raw_email)
+
+	if show_identity:
+		mobile = raw_mobile
+		email = raw_email
+		cc, nat = split_phone_number(mobile) if mobile else (None, None)
+	else:
+		mobile = None
+		email = None
+		cc, nat = (None, None)
+
+	return {
+		"contact_mobile": mobile,
+		"contact_email": email,
+		"country_code": cc,
+		"phone_number": nat,
+		"can_request_more_info": can_contact,
+	}

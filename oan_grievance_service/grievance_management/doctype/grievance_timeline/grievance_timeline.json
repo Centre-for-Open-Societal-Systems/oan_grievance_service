@@ -12,13 +12,14 @@
   "is_internal",
   "col_author",
   "author_user",
-  "author_submitter",
+  "author_type",
   "created_on",
   "sec_body",
   "body",
   "sec_ref",
   "ref_doctype",
-  "ref_docname"
+  "ref_docname",
+  "client_message_id"
  ],
  "fields": [
   {
@@ -37,7 +38,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Entry Type",
-   "options": "note\nmessage\nresponse\ninfo_request\ninfo_response\nstatus_change\nassignment\nescalation\nattachment",
+   "options": "submission\nnote\nmessage\nresponse\ninfo_request\ninfo_response\nstatus_change\nassignment\nescalation\nresolution\nrejection\nattachment\nfeedback",
    "reqd": 1
   },
   {
@@ -56,15 +57,16 @@
    "fieldname": "author_user",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Author (Staff)",
+   "label": "Author",
    "options": "User"
   },
   {
-   "fieldname": "author_submitter",
-   "fieldtype": "Link",
+   "fieldname": "author_type",
+   "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Author (Submitter)",
-   "options": "Grievance Submitter Profile"
+   "in_standard_filter": 1,
+   "label": "Author Type",
+   "options": "\nofficer\nsubmitter\nsystem"
   },
   {
    "fieldname": "created_on",
@@ -100,12 +102,19 @@
    "fieldtype": "Dynamic Link",
    "label": "Reference DocName",
    "options": "ref_doctype"
+  },
+  {
+   "fieldname": "client_message_id",
+   "fieldtype": "Data",
+   "label": "Client Message ID",
+   "length": 64,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-14 12:00:00.000000",
+ "modified": "2026-10-07 10:00:02.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Timeline",
@@ -162,6 +171,21 @@
    "read": 1,
    "write": 0,
    "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
    "delete": 0,
    "submit": 0,
    "cancel": 0,

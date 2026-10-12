@@ -6,7 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestGrievanceAccessAuditEvent(FrappeTestCase):
-	"""FR-10: the access trail records reads, and a read cannot be un-recorded.
+	"""The access trail records reads, and a read cannot be un-recorded.
 
 	Every question about a breach is a question about who looked at what, so a row
 	an operator can edit afterwards answers nothing.

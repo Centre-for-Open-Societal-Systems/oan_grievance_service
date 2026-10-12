@@ -22,6 +22,14 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "kong.yml"
 GRIEVANCE_UPSTREAM_URL = "http://oan-grievance.internal.svc:8000"
+# Frappe's Node socket.io server (`bench socketio`, the `websocket` service in
+# frappe_docker). Its events are described in openapi/asyncapi_v1.yaml, not the
+# OpenAPI spec, so its route is declared here rather than derived.
+GRIEVANCE_SOCKET_UPSTREAM_URL = "http://oan-grievance-websocket.internal.svc:9000"
+# The Frappe site the socket server serves. Clients connect to the `/<site>`
+# socket.io namespace and the server checks it against this header.
+FRAPPE_SITE_NAME = '${{ env "DECK_FRAPPE_SITE_NAME" }}'
+SELECT_TAGS = ["oan", "grievance"]
 
 # ---------------------------------------------------------------------------
 # Throttling tiers
@@ -41,6 +49,13 @@ TIERS = {
 		"policy": "redis",
 		"note": "Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.",
 	},
+	"public-dashboards": {
+		"limit_by": "ip",
+		"minute": 120,
+		"hour": 3000,
+		"policy": "redis",
+		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; Kong has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
+	},
 	"officer-core": {
 		"limit_by": "consumer",
 		"minute": 300,
@@ -57,7 +72,10 @@ TIER_OVERRIDES = {
 	("GET", "/api/v1/grievances/health"): "public-reference",
 	("GET", "/api/v1/grievances/ping"): "public-reference",
 	("GET", "/api/v1/submitters/options"): "public-reference",
-	("GET", "/api/v1/submitters/me"): "citizen-intake",
+	("POST", "/api/v1/submitters"): "citizen-intake",
+	("POST", "/api/v1/submitters/register"): "citizen-intake",
+	("POST", "/api/v1/submitters/{profile_id}/block"): "officer-core",
+	("POST", "/api/v1/submitters/{profile_id}/unblock"): "officer-core",
 	("GET", "/api/v1/administrative-areas"): "public-reference",
 	("GET", "/api/v1/administrative-areas/{area_id_or_path}/ancestors"): "public-reference",
 	("POST", "/api/v1/drafts"): "citizen-intake",
@@ -65,17 +83,95 @@ TIER_OVERRIDES = {
 	("POST", "/api/v1/drafts/submit"): "citizen-intake",
 	("DELETE", "/api/v1/drafts"): "citizen-intake",
 	("GET", "/api/v1/grievances"): "officer-core",
+	("POST", "/api/v1/grievances"): "citizen-intake",
+	("GET", "/api/v1/grievances/summary"): "officer-core",
 	("GET", "/api/v1/grievances/options"): "officer-core",
-	("GET", "/api/v1/grievances/{ticket_number}"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/action"): "citizen-intake",
+	("POST", "/api/v1/grievances/{ticket_number}/feedback"): "citizen-intake",
 	("POST", "/api/v1/grievances/{ticket_number}/message"): "citizen-intake",
-	("POST", "/api/v1/grievances/{ticket_number}/note"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/reassign"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/reassign/decide"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/defer-sla"): "officer-core",
+	("POST", "/api/v1/grievances/{ticket_number}/defer-sla/decide"): "officer-core",
 	("GET", "/api/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
+	("GET", "/api/v1/grievances/{ticket_number}/response-templates"): "officer-core",
 	("POST", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
 	("GET", "/api/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
+	("GET", "/api/v1/attachments"): "officer-core",
+	("POST", "/api/v1/attachments"): "citizen-intake",
+	("POST", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
 	("GET", "/api/v1/attachments/{attachment_id}/download"): "citizen-intake",
+	("GET", "/api/v1/attachments/{attachment_id}/view"): "citizen-intake",
 	("DELETE", "/api/v1/attachments/{attachment_id}"): "citizen-intake",
+	("GET", "/api/v1/change-requests"): "officer-core",
+	("GET", "/api/v1/change-requests/{name}"): "officer-core",
+	("POST", "/api/v1/change-requests/{name}/decide"): "officer-core",
+	("GET", "/api/v1/category-assignments"): "officer-core",
+	("POST", "/api/v1/category-assignments"): "officer-core",
+	("GET", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("PATCH", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("DELETE", "/api/v1/category-assignments/{assignment}"): "officer-core",
+	("GET", "/api/v1/officers"): "officer-core",
+	("POST", "/api/v1/officers"): "officer-core",
+	("GET", "/api/v1/officers/status-counts"): "officer-core",
+	("GET", "/api/v1/officers/{officer}"): "officer-core",
+	("PATCH", "/api/v1/officers/{officer}"): "officer-core",
+	("POST", "/api/v1/officers/{officer}/password-resets"): "officer-core",
+	("GET", "/api/v1/response-templates"): "officer-core",
+	("POST", "/api/v1/response-templates"): "officer-core",
+	("GET", "/api/v1/response-templates/{template}"): "officer-core",
+	("PATCH", "/api/v1/response-templates/{template}"): "officer-core",
+	("DELETE", "/api/v1/response-templates/{template}"): "officer-core",
+	("GET", "/api/v1/notification-templates"): "officer-core",
+	("GET", "/api/v1/notification-templates/options"): "officer-core",
+	("GET", "/api/v1/notification-templates/placeholders"): "officer-core",
+	("GET", "/api/v1/notification-templates/{template}"): "officer-core",
+	("PATCH", "/api/v1/notification-templates/{template}"): "officer-core",
+	("GET", "/api/v1/service-categories"): "officer-core",
+	("POST", "/api/v1/service-categories"): "officer-core",
+	("GET", "/api/v1/service-categories/{category}"): "officer-core",
+	("PATCH", "/api/v1/service-categories/{category}"): "officer-core",
+	("DELETE", "/api/v1/service-categories/{category}"): "officer-core",
+	("GET", "/api/v1/grievance-types"): "officer-core",
+	("POST", "/api/v1/grievance-types"): "officer-core",
+	("GET", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
+	("PATCH", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
+	("DELETE", "/api/v1/grievance-types/{grievance_type}"): "officer-core",
+	("GET", "/api/v1/sla-policy"): "officer-core",
+	("PATCH", "/api/v1/sla-policy"): "officer-core",
+	("GET", "/api/v1/sla-configurations"): "officer-core",
+	("PATCH", "/api/v1/sla-configurations/{config}"): "officer-core",
+	("GET", "/api/v1/officers/statistics"): "officer-core",
+	("GET", "/api/v1/charts"): "officer-core",
+	("GET", "/api/v1/dashboard-statistics"): "officer-core",
+	("POST", "/api/v1/dashboard-statistics/refresh"): "officer-core",
+	**{
+		("GET", f"/api/v1/charts/{chart_id}"): "public-dashboards"
+		for chart_id in (
+			"grvKpis",
+			"grvPerformanceKpis",
+			"grvMonthlyTrend",
+			"grvWeeklyTrend",
+			"grvNetBacklogTrend",
+			"grvStatusDistribution",
+			"grvByCategory",
+			"grvCategoryResolution",
+			"grvResolutionRateByRegion",
+			"grvSlaRisk",
+			"grvPendingDuplicates",
+			"grvOldestOpen",
+			"grvFilterRegions",
+			"grvFilterCategories",
+		)
+	},
 }
+
+
+# Browser origins allowed to call the API, one regex per environment (Kong matches each
+# `origins` entry as a regex), e.g. `https://(portal|backoffice)\.openagrinet\.org`.
+# Not a secret, since browsers see it in Access-Control-Allow-Origin, but it differs
+# per environment, so it comes from the environment at `deck sync`.
+CORS_ORIGINS = '${{ env "DECK_CORS_ORIGINS_REGEX" }}'
 
 
 def load_spec(path):
@@ -92,6 +188,9 @@ def spec_routes(spec):
 			security = op.get("security", spec.get("security", []))
 			if not security or security == []:
 				auth = "public"
+			elif security == [{"FrappeTokenAuth": []}]:
+				# Frappe checks the API key and secret itself; Kong passes the header on.
+				auth = "frappe-token"
 			elif any("BearerAuth" in s for s in security):
 				auth = "bearer"
 			else:
@@ -162,8 +261,8 @@ def build_config(routes):
 			{
 				"name": "cors",
 				"config": {
-					"origins": ["*"],
-					"methods": ["GET", "POST", "DELETE", "OPTIONS"],
+					"origins": [CORS_ORIGINS],
+					"methods": ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 					"headers": ["Authorization", "Content-Type", "X-Request-Id"],
 					"credentials": False,
 					"max_age": 3600,
@@ -228,11 +327,9 @@ def build_config(routes):
 
 		service["routes"].append(route)
 
+	# oan-auth-jwt-issuer is owned by oan_auth_service's kong.yml, which also holds
+	# its jwt_secrets. Declaring it here too would clash with that repo's slice.
 	consumers = [
-		{
-			"username": "oan-auth-jwt-issuer",
-			"tags": ["oan", "auth", "issuer"],
-		},
 		{
 			"username": "oan-citizen-mobile-client",
 			"tags": ["oan", "grievance", "mobile"],
@@ -246,10 +343,101 @@ def build_config(routes):
 	doc = {
 		"_format_version": "3.0",
 		"_transform": True,
-		"services": [service],
+		# decK reads, diffs and deletes only entities carrying every tag listed
+		# here, so syncing this file never touches another service's routes or
+		# consumers on a shared Kong.
+		"_info": {"select_tags": SELECT_TAGS},
+		"services": [service, build_socket_service()],
 		"consumers": consumers,
 	}
 	return doc
+
+
+def build_socket_service():
+	"""The realtime socket.io service, see openapi/asyncapi_v1.yaml.
+
+	Frappe's socket server authenticates a socket by replaying its Authorization
+	header against frappe.realtime.get_user_info, and refuses any handshake whose
+	Origin host differs from its Host. Neither suits a gateway: a browser cannot set
+	headers on a WebSocket, and a native app sends no Origin. So Kong takes the JWT
+	from the header, verifies it, and hands it on, and it states the Origin itself.
+	(For browsers, the `oan_grievance_ui` realtime gateway translates the cookie to the
+	Authorization header before it reaches Kong).
+	Rewriting Origin is safe only because the jwt plugin runs first and the Cookie header
+	is dropped: no request reaches Node on ambient browser credentials, which is the attack
+	the Origin check exists to stop.
+	"""
+	return {
+		"name": "oan-grievance-realtime-v1",
+		"url": GRIEVANCE_SOCKET_UPSTREAM_URL,
+		"connect_timeout": 5000,
+		# A socket sits idle between events. socket.io pings every 25 seconds, so a
+		# live connection never reaches these; a dead one is reaped after an hour.
+		"write_timeout": 3600000,
+		"read_timeout": 3600000,
+		"retries": 0,
+		"tags": ["oan", "grievance", "v1", "realtime"],
+		"plugins": [
+			{
+				"name": "correlation-id",
+				"config": {"header_name": "X-Request-Id", "generator": "uuid", "echo_downstream": True},
+			},
+			{
+				"name": "prometheus",
+				"config": {"status_code_metrics": True, "latency_metrics": True, "bandwidth_metrics": True},
+			},
+		],
+		"routes": [
+			{
+				"name": "realtime-socket-io",
+				"paths": ["/socket.io/"],
+				"protocols": ["http", "https"],
+				"strip_path": False,
+				# The Origin rewrite below copies the public host; Node compares the two.
+				"preserve_host": True,
+				"tags": ["oan", "grievance", "v1", "realtime", "bearer"],
+				"plugins": [
+					{
+						# Handshakes, not messages: clients use the websocket transport,
+						# so each connection is one request. Limited by address because
+						# every JWT maps to the one issuer consumer.
+						"name": "rate-limiting",
+						"config": {
+							"minute": 60,
+							"hour": 1000,
+							"limit_by": "ip",
+							"policy": "redis",
+							"fault_tolerant": True,
+							"hide_client_headers": False,
+						},
+					},
+					{
+						"name": "jwt",
+						"config": {
+							"claims_to_verify": ["exp"],
+							"key_claim_name": "iss",
+							"header_names": ["Authorization"],
+						},
+					},
+					{
+						"name": "request-transformer",
+						"config": {
+							"remove": {"headers": ["Cookie"]},
+							"replace": {"headers": ["Origin:https://$(headers.host)"]},
+							# `add` only fills a header the client did not send, so a
+							# header-borne token is left as it came.
+							"add": {
+								"headers": [
+									"Origin:https://$(headers.host)",
+									f"X-Frappe-Site-Name:{FRAPPE_SITE_NAME}",
+								]
+							},
+						},
+					},
+				],
+			}
+		],
+	}
 
 
 def main():

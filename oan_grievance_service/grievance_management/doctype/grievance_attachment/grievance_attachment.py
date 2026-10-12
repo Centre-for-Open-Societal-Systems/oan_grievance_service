@@ -37,7 +37,6 @@ class GrievanceAttachment(Document):
 		self.validate_uploader()
 		self.validate_size()
 		self.validate_type()
-		self.validate_response_belongs_to_grievance()
 
 	def validate_owner(self):
 		"""Evidence belongs to a grievance case."""
@@ -46,11 +45,18 @@ class GrievanceAttachment(Document):
 				_("An attachment must belong to a grievance."),
 				title=_("Missing Grievance"),
 			)
+		if self.timeline_entry:
+			tl_grievance = frappe.db.get_value("Grievance Timeline", self.timeline_entry, "grievance")
+			if tl_grievance and tl_grievance != self.grievance:
+				frappe.throw(
+					_("A timeline-scoped attachment cannot point at another case's timeline entry."),
+					frappe.ValidationError,
+				)
 
 	def validate_uploader(self):
 		"""Every file is attributable to whoever put it there.
 
-		FR-10 needs the trail to name a person for each piece of evidence, and an
+		The audit trail must name a person for each piece of evidence, and an
 		attachment with no uploader is evidence nobody is answerable for.
 		"""
 		if self.uploaded_by_user or self.uploaded_by_submitter:
@@ -98,19 +104,18 @@ class GrievanceAttachment(Document):
 				title=_("Extension Does Not Match Content"),
 			)
 
-	def validate_response_belongs_to_grievance(self):
-		"""A response-scoped attachment cannot point at another case's response."""
-		if not self.response:
-			return
+	def on_trash(self):
+		"""The row owns its object: deleting the attachment deletes the File.
 
-		owner = frappe.db.get_value("Grievance Response", self.response, "grievance")
-		if owner and owner != self.grievance:
-			frappe.throw(
-				_("Response {0} belongs to grievance {1}, not {2}.").format(
-					frappe.bold(self.response), frappe.bold(owner), frappe.bold(self.grievance)
-				),
-				title=_("Response Does Not Match Grievance"),
-			)
+		Every other path used to find the File by its URL string and delete it.
+		Core reuses one URL for identical uploads, so that lookup could pick another
+		attachment's File. The Link makes the pairing exact. Core's File.on_trash
+		still unlinks the bytes on disk at once, not at commit, so a failure after
+		this point leaves a File row without an object; that window is core's own,
+		the same one every File delete has, and deleting the right File is the fix.
+		"""
+		if self.file and frappe.db.exists("File", self.file):
+			frappe.delete_doc("File", self.file, force=True, ignore_permissions=True)
 
 	def is_servable(self):
 		"""Whether this file may be handed to a reader.

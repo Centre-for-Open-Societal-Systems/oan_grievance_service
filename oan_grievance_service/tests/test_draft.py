@@ -19,11 +19,11 @@ class TestDraftModuleLoads(FrappeTestCase):
 		self.assertTrue(callable(draft.submit_draft))
 
 	def test_draft_endpoints_require_authentication(self):
-		for name in ("save", "load", "submit_draft", "discard", "delete_draft"):
+		for name in ("save", "load", "submit_draft", "discard"):
 			path = f"/api/method/oan_grievance_service.api.v1.draft.{name}"
 			self.assertNotIn(path, middleware.EXEMPT_PATHS)
 
-		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard, draft.delete_draft):
+		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard):
 			self.assertIn(fn, frappe.whitelisted)
 			self.assertNotIn(fn, frappe.guest_methods)
 
@@ -119,12 +119,12 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(frappe.response["http_status_code"], 403)
 		self.assertIn("another user", result["message"])
 
-	def test_loading_with_no_draft_is_a_404_not_an_empty_success(self):
+	def test_loading_with_no_draft_returns_success_with_none_data(self):
 		other = _a_submitter_user("draft.empty@example.com")
 		frappe.set_user(other.name)
 		result = draft.load()
-		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 404)
+		self.assertEqual(result["status"], "success")
+		self.assertIsNone(result["data"])
 
 	def test_discarding_removes_it(self):
 		draft.save(client_submission_uuid=self.uuid, **self._params())
@@ -215,8 +215,8 @@ class TestDraftRoundTrip(FrappeTestCase):
 		frappe.set_user(other.name)
 
 		result = draft.load()
-		self.assertEqual(result["status"], "error")
-		self.assertEqual(frappe.response["http_status_code"], 404)
+		self.assertEqual(result["status"], "success")
+		self.assertIsNone(result["data"])
 
 	def test_guest_cannot_load_a_draft(self):
 		draft.save(client_submission_uuid=self.uuid, **self._params())
@@ -255,10 +255,13 @@ class TestDraftRoundTrip(FrappeTestCase):
 		)
 		self.assertEqual(submit_res["status"], "success")
 		ticket = submit_res["data"]["ticket_number"]
-		self.assertEqual(len(ticket), 9)
+		self.assertEqual(len(ticket), 12)
+		self.assertIn("-", ticket)
 
 		# 3. Verify Grievance state in database
-		doc = frappe.get_doc("Grievance", ticket)
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket))
 		self.assertEqual(doc.workflow_state, "Submitted")
 		self.assertEqual(doc.status, "Submitted")
 		self.assertEqual(doc.docstatus, 1)
@@ -289,9 +292,12 @@ class TestDraftRoundTrip(FrappeTestCase):
 		self.assertEqual(res["data"]["status"], "Submitted")
 		self.assertEqual(res["data"]["workflow_state"], "Submitted")
 		ticket = res["data"]["ticket_number"]
-		self.assertEqual(len(ticket), 9)
+		self.assertEqual(len(ticket), 12)
+		self.assertIn("-", ticket)
 
-		doc = frappe.get_doc("Grievance", ticket)
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket))
 		self.assertEqual(doc.workflow_state, "Submitted")
 		self.assertEqual(doc.status, "Submitted")
 		self.assertEqual(doc.docstatus, 1)
@@ -323,6 +329,104 @@ class TestDraftRoundTrip(FrappeTestCase):
 		)
 		self.assertEqual(res_val["status"], "error")
 		self.assertIn("at least 20", str(res_val))
+
+	def test_draft_save_and_load_with_split_phone_numbers(self):
+		res = draft.save(
+			client_submission_uuid=self.uuid,
+			country_code="+251",
+			phone="911234567",
+			description="Valid description with split phone number details.",
+		)
+		self.assertEqual(res["status"], "success")
+		data = res["data"]
+		self.assertEqual(data["contact_mobile"], "+251911234567")
+		self.assertEqual(data["country_code"], "+251")
+		self.assertEqual(data["phone_number"], "911234567")
+		self.assertNotIn("phone_country_code", data)
+		self.assertNotIn("phone_national_number", data)
+
+		loaded = draft.load()
+		self.assertEqual(loaded["status"], "success")
+		loaded_data = loaded["data"]
+		self.assertEqual(loaded_data["contact_mobile"], "+251911234567")
+		self.assertEqual(loaded_data["country_code"], "+251")
+		self.assertEqual(loaded_data["phone_number"], "911234567")
+		self.assertNotIn("phone_country_code", loaded_data)
+		self.assertNotIn("phone_national_number", loaded_data)
+
+	def test_draft_submit_with_can_request_more_info_false(self):
+		area = a_leaf_area()
+		category = a_service_category()
+		gtype = frappe.db.get_value("Grievance Type", {"service_category": category, "is_active": 1}, "name")
+
+		draft.save(
+			client_submission_uuid=self.uuid,
+			administrative_area=area,
+			service_category=category,
+			grievance_type=gtype,
+			contact_mobile="+251911234567",
+			contact_email="tester@example.com",
+			description="A draft description long enough to satisfy all requirements.",
+			submitter_type="Individual Farmer",
+			submitter_name="Draft Tester",
+		)
+
+		res = draft.submit_draft(
+			client_submission_uuid=self.uuid,
+			consent_given=1,
+			can_request_more_info=False,
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertFalse(res["data"]["can_request_more_info"])
+
+		from oan_grievance_service.services import ticket_number as tn
+
+		doc = frappe.get_doc("Grievance", tn.normalize(res["data"]["ticket_number"]))
+		self.assertIsNone(doc.contact_mobile)
+		self.assertIsNone(doc.contact_email)
+		self.assertFalse(
+			frappe.db.exists(
+				"Grievance Notification Log",
+				{"grievance": doc.name, "recipient": "+251911234567"},
+			)
+		)
+
+	def test_purge_expired_drafts_scheduled_daily(self):
+		import oan_grievance_service.hooks as hooks
+
+		daily_tasks = hooks.scheduler_events.get("daily", [])
+		self.assertIn("oan_grievance_service.tasks.purge_expired_drafts", daily_tasks)
+
+	def test_client_uuid_alias_accepted(self):
+		key = frappe.generate_hash(length=16)
+		res = draft.save(client_uuid=key, description="Initial draft description")
+		self.assertEqual(res["status"], "success")
+		self.assertEqual(res["data"]["client_submission_uuid"], key)
+
+	def test_draft_field_clearing_and_anonymity_preservation(self):
+		key = frappe.generate_hash(length=16)
+		res1 = draft.save(client_submission_uuid=key, is_anonymous=1, description="Something to clear")
+		self.assertEqual(res1["data"]["is_anonymous"], 1)
+		self.assertEqual(res1["data"]["description"], "Something to clear")
+
+		res2 = draft.save(client_submission_uuid=key, description="")
+		self.assertEqual(res2["data"]["description"], "")
+		self.assertEqual(res2["data"]["is_anonymous"], 1, "Omitted is_anonymous must not reset to 0")
+
+	def test_draft_does_not_consume_real_ticket_number(self):
+		key = frappe.generate_hash(length=16)
+		area = a_leaf_area()
+		cat = a_service_category()
+
+		res = draft.save(
+			client_submission_uuid=key,
+			administrative_area=area,
+			service_category=cat,
+			description="Draft test",
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertTrue(res["data"]["name"].startswith("DRAFT-"))
+		self.assertIsNone(res["data"]["ticket_number"])
 
 
 def _a_submitter_user(email):

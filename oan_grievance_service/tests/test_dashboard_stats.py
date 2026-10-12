@@ -112,7 +112,8 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		# Scope officer to self.area + Inputs + Dept of Agriculture only.
+		# Scope officer to self.area + Inputs + Dept of Agriculture only. The area sits on
+		# the officer row, not on the desk.
 		existing = frappe.db.get_value(
 			"Grievance RBAC Assignment Officer",
 			{"user": self.officer_email, "active": 1},
@@ -121,24 +122,7 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 		if existing:
 			frappe.delete_doc("Grievance RBAC Assignment", existing, force=True, ignore_permissions=True)
 
-		frappe.get_doc(
-			{
-				"doctype": "Grievance RBAC Assignment",
-				"department_scope": "Dept of Agriculture",
-				"category_scope": "Inputs",
-				"administrative_area_scope": self.area,
-				"active": 1,
-				"effective_from": frappe.utils.today(),
-				"officers": [
-					{
-						"user": self.officer_email,
-						"role_level": "nodal_officer",
-						"is_primary": 1,
-						"active": 1,
-					}
-				],
-			}
-		).insert(ignore_permissions=True)
+		self.desk = self._make_desk(self.officer_email, area=self.area)
 
 		self.created = []
 		# In-scope: Inputs + Dept + self.area
@@ -152,6 +136,28 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 
 		dashboard_stats.refresh_projection()
 		self.addCleanup(frappe.set_user, "Administrator")
+
+	def _make_desk(self, user, area=None, **scope):
+		"""An active Inputs / Dept of Agriculture desk with `user` on it, plus any extra scope."""
+		return frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Dept of Agriculture",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": user,
+						"role_level": "nodal_officer",
+						"administrative_area": area,
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+				**scope,
+			}
+		).insert(ignore_permissions=True)
 
 	def _make_grievance(self, status, category, area, breached=False):
 		gtype = frappe.db.get_value("Grievance Type", {"service_category": category}, "name")
@@ -268,6 +274,49 @@ class TestDashboardStatisticsAPI(FrappeTestCase):
 		frappe.set_user("Guest")
 		res_guest = dashboard.get_statistics()
 		self.assertEqual(res_guest["status"], "error")
+
+	def test_officer_without_a_desk_sees_nothing(self):
+		frappe.delete_doc("Grievance RBAC Assignment", self.desk.name, force=True, ignore_permissions=True)
+		frappe.set_user(self.officer_email)
+		data = dashboard.get_statistics()["data"]
+		self.assertEqual(data["kpis"]["total"], 0)
+		self.assertEqual(data["by_category"], [])
+		self.assertEqual(sum(p["submitted"] for p in data["monthly_trend"]), 0)
+
+	def test_desk_narrowed_by_grievance_type_is_not_widened_to_the_department(self):
+		"""The projection has no grievance type dimension, so such a desk counts nothing."""
+		gtype = frappe.db.get_value("Grievance Type", {"service_category": "Inputs"}, "name")
+		frappe.delete_doc("Grievance RBAC Assignment", self.desk.name, force=True, ignore_permissions=True)
+		self._make_desk(self.officer_email, area=self.area, grievance_type_scope=gtype)
+
+		frappe.set_user(self.officer_email)
+		data = dashboard.get_statistics()["data"]
+		self.assertEqual(data["kpis"]["total"], 0)
+
+	def test_no_dashboard_route_is_reachable_without_a_token(self):
+		"""Every route here needs a bearer JWT: none is a guest route on either transport."""
+		from oan_auth_service.api import middleware
+		from oan_auth_service.api.router import _rules
+
+		from oan_grievance_service.api import middleware as grievance_middleware
+		from oan_grievance_service.api.router import ensure_routes_registered
+
+		ensure_routes_registered()
+
+		rest_exempt = middleware._NAMESPACES["/api/v1"]["exempt_paths"]
+		for path in ("/api/v1/dashboard-statistics", "/api/v1/dashboard-statistics/refresh"):
+			self.assertNotIn(path, rest_exempt)
+
+		rpc_exempt = set(grievance_middleware.EXEMPT_PATHS)
+		for name in ("get_statistics", "refresh_projection"):
+			self.assertNotIn(f"/api/method/oan_grievance_service.api.v1.dashboard.{name}", rpc_exempt)
+		self.assertIn(grievance_middleware.API_NAMESPACE, middleware._NAMESPACES)
+
+		declared = [rule.endpoint._route for rule in _rules]
+		dashboard_routes = [r for r in declared if r["path"].startswith("/api/v1/dashboard-statistics")]
+		self.assertEqual(len(dashboard_routes), 2)
+		for route in dashboard_routes:
+			self.assertFalse(route["allow_guest"], route["path"])
 
 	def test_invalid_months_rejected(self):
 		frappe.set_user("Administrator")

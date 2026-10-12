@@ -9,9 +9,11 @@
  "field_order": [
   "department_scope",
   "category_scope",
+  "grievance_type_scope",
   "col_scope",
-  "administrative_area_scope",
+  "service_provider_scope",
   "routing_strategy",
+  "reassignment_requires_approval",
   "active",
   "sec_validity",
   "effective_from",
@@ -40,17 +42,21 @@
    "options": "Grievance Service Category"
   },
   {
+   "fieldname": "grievance_type_scope",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Grievance Type Scope",
+   "options": "Grievance Type"
+  },
+  {
    "fieldname": "col_scope",
    "fieldtype": "Column Break"
   },
   {
-   "description": "Scoping tree node. Rule applies to grievances in this area or any of its sub-tree descendants.",
-   "fieldname": "administrative_area_scope",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Administrative Area Scope",
-   "options": "Grievance Administrative Area"
+   "fieldname": "service_provider_scope",
+   "fieldtype": "Data",
+   "label": "Service Provider Scope"
   },
   {
    "default": "Primary First",
@@ -60,6 +66,14 @@
    "in_list_view": 1,
    "label": "Routing Strategy",
    "options": "Primary First\nRound Robin\nLeast Loaded"
+  },
+  {
+   "default": "1",
+   "description": "Whether moving a case off this desk needs department head approval.",
+   "fieldname": "reassignment_requires_approval",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Reassignment Requires Approval"
   },
   {
    "default": "1",
@@ -105,13 +119,14 @@
    "fieldname": "officers",
    "fieldtype": "Table",
    "label": "Officers",
-   "options": "Grievance RBAC Assignment Officer"
+   "options": "Grievance RBAC Assignment Officer",
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-11 10:00:00.000000",
+ "modified": "2026-10-07 10:00:14.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance RBAC Assignment",
@@ -162,11 +177,27 @@
    "share": 1,
    "print": 1,
    "email": 1
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
   }
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

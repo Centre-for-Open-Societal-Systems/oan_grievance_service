@@ -24,23 +24,28 @@ before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
 # Installation
 # ------------------
 
-# FSD Appendix F roles, 3.2.2 categories, 3.11.8 regions and the Appendix C
-# notification matrix are seeded so a fresh site comes up usable.
+# Roles, escalation levels, categories, regions and the notification matrix
+# are seeded so a fresh site comes up usable.
 
 after_install = "oan_grievance_service.setup.install.after_install"
-after_migrate = "oan_grievance_service.setup.install.after_migrate"
+after_migrate = [
+	"oan_grievance_service.setup.install.after_migrate",
+	"oan_grievance_service.services.dashboard_rollup.ensure_built",
+]
 
 # Permissions
 # ------------------
-# FSD 3.1.1 deny-by-default RBAC. The query condition filters list views, reports and
+# Deny-by-default RBAC. The query condition filters list views, reports and
 # the API uniformly; has_permission mirrors it for a single document.
 
 permission_query_conditions = {
 	"Grievance": "oan_grievance_service.permissions.grievance_query_conditions",
+	"Grievance Response Template": "oan_grievance_service.permissions.response_template_query_conditions",
 }
 
 has_permission = {
 	"Grievance": "oan_grievance_service.permissions.has_grievance_permission",
+	"Grievance Response Template": "oan_grievance_service.permissions.has_response_template_permission",
 	# Core's File resolves a private file's permission against whatever it is
 	# attached to, so this is what stops /private/files/<name> serving an unscanned
 	# object behind download()'s back.
@@ -52,10 +57,9 @@ has_permission = {
 
 # Document Events
 # ------------------
-# FSD 3.4's lifecycle is the Grievance Workflow record (setup/install.py); the
+# The lifecycle is the Grievance Workflow record (setup/install.py); the
 # Grievance controller records each move from the save Frappe's engine makes.
-# FSD 3.5 advances the lifecycle when a structured response is filed. FSD 3.3.1
-# gates reassignment on L2 approval. FR-10 records every read of a case.
+# Every read of a case is audited.
 
 _CLEAR_LOOKUP_CACHE = {
 	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
@@ -65,19 +69,7 @@ doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
 	},
-	"Grievance Response": {
-		"after_insert": "oan_grievance_service.services.hooks_handlers.response_after_insert",
-	},
-	"Grievance Reassignment Request": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.reassignment_on_update",
-	},
-	"Grievance SLA Deferral": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.deferral_on_update",
-	},
-	"Grievance Anonymity Request": {
-		"on_update": "oan_grievance_service.services.hooks_handlers.anonymity_on_update",
-	},
-	# FSD 3.8: our send path renders per recipient inside print_language(), which only
+	# Our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
 	# text. Extends a core doctype through the supported hook rather than editing it.
 	"Notification": {
@@ -87,8 +79,8 @@ doc_events = {
 
 # Scheduled Tasks
 # ------------------
-# FSD 4.3: a background process monitors open grievances against their SLA deadlines.
-# FSD 7 requires the batch to complete within 30 minutes.
+# A background process monitors open grievances against their SLA deadlines.
+# The batch must complete within 30 minutes.
 # FR-09 / STG-330: hourly rebuild of the dashboard reporting projection
 # (admins can also POST /api/v1/dashboard-statistics/refresh).
 
@@ -96,32 +88,44 @@ scheduler_events = {
 	"hourly": [
 		"oan_grievance_service.tasks.send_sla_reminders",
 		"oan_grievance_service.tasks.escalate_breached",
+		"oan_grievance_service.tasks.expire_state_timers",
+		"oan_grievance_service.tasks.forward_stale_change_requests",
 		"oan_grievance_service.tasks.dispatch_notifications",
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.scan_pending_attachments",
+		# Process unrouted submitted cases through the routing engine in the background
+		"oan_grievance_service.tasks.drain_routing_queue",
 		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
 		# stay off the live Grievance table (lag capped at ~1h).
 		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 	"daily": [
-		"oan_grievance_service.tasks.auto_close_expired",
 		"oan_grievance_service.tasks.purge_expired_drafts",
+	],
+	# The dashboards read only these rollups, so this is how fresh they are.
+	"cron": {
+		"*/15 * * * *": [
+			"oan_grievance_service.tasks.refresh_dashboard_rollup",
+		],
+	},
+	"daily_long": [
+		"oan_grievance_service.tasks.rebuild_dashboard_rollup",
 	],
 }
 
 
-# Authentication & Registration
-# -----------------------------
-# Integrates with oan_auth_service to initialize domain profiles upon user registration
-# and enrich user introspection (GET /api/v1/auth/me) with grievance profile data.
+# Authentication & Profile Resolution
+# -----------------------------------
+# Integrates with oan_auth_service to enrich user introspection (GET /api/v1/auth/me)
+# with grievance profile data. Submitter profile registration is handled via REST API.
 
-on_user_registered = ["oan_grievance_service.services.hooks_handlers.on_user_registered"]
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
+on_user_registered = ["oan_grievance_service.api.v1.profile.on_user_registered_hook"]
 
 # Portal
 # ------------------
-# FSD 3.2.1 lists the web portal as a channel open to all submitter types.
+# The web portal is a channel open to all submitter types.
 
 website_route_rules = [
 	{"from_route": "/grievance/track/<path:ticket>", "to_route": "grievance-track"},

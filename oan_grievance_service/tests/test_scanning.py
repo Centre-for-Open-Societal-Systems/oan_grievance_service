@@ -75,7 +75,7 @@ class TestTypeSniffing(FrappeTestCase):
 
 
 class TestLocationMetadata(FrappeTestCase):
-	"""FSD 9.2 anonymity survives the database and then dies in the EXIF block."""
+	"""Anonymity survives the database and then dies in the EXIF block."""
 
 	def test_a_phone_photo_carries_coordinates(self):
 		self.assertTrue(scanning.has_location_metadata(_real_jpeg(with_gps=True)))
@@ -93,19 +93,168 @@ class TestLocationMetadata(FrappeTestCase):
 
 
 class TestScannerFailsClosed(FrappeTestCase):
-	"""An outage makes attachments unavailable; it must not make them trusted."""
+	"""An outage makes attachments unavailable; it must not make them trusted.
 
-	def test_no_scanner_configured_yields_failed_not_clean(self):
+	The answer for "could not ask the scanner" is a retry marker, never Clean and
+	no longer Failed: Failed was final, and one outage left every upload of that
+	window unviewable for good. The row stays Pending and is asked again.
+	"""
+
+	def test_no_scanner_configured_asks_for_a_retry_not_clean(self):
 		status, detail = scanning.scan_bytes(JPEG_HEADER)
-		self.assertEqual(status, scanning.SCAN_FAILED)
+		self.assertEqual(status, scanning.SCAN_RETRY)
 		self.assertIn("No scanner configured", detail)
 
-	def test_an_unreachable_scanner_yields_failed_not_clean(self):
+	def test_an_unreachable_scanner_asks_for_a_retry_not_clean(self):
 		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
 		frappe.conf["grievance_clamav_port"] = 1  # nothing listens here
 		try:
-			status, _ = scanning.scan_bytes(JPEG_HEADER)
-			self.assertEqual(status, scanning.SCAN_FAILED)
+			status, detail = scanning.scan_bytes(JPEG_HEADER)
+			self.assertEqual(status, scanning.SCAN_RETRY)
+			self.assertIn("unreachable", detail)
 		finally:
 			frappe.conf.pop("grievance_clamav_host", None)
 			frappe.conf.pop("grievance_clamav_port", None)
+
+	def test_the_retry_marker_is_never_a_stored_status(self):
+		self.assertNotIn(scanning.SCAN_RETRY, ("Pending", "Clean", "Infected", "Failed"))
+
+
+class TestScannerAvailability(FrappeTestCase):
+	"""The sweep pings once before a batch so an outage costs no row a retry."""
+
+	def tearDown(self):
+		frappe.conf.pop("grievance_clamav_host", None)
+		frappe.conf.pop("grievance_clamav_port", None)
+
+	def test_no_scanner_configured_is_unavailable(self):
+		self.assertFalse(scanning.scanner_available())
+
+	def test_an_unreachable_scanner_is_unavailable(self):
+		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
+		frappe.conf["grievance_clamav_port"] = 1
+		self.assertFalse(scanning.scanner_available())
+
+	def test_a_pong_means_available(self):
+		frappe.conf["grievance_clamav_host"] = "fake-clamd"
+		fake = _FakeClamd(b"PONG\x00")
+		self.addCleanup(setattr, scanning.socket, "create_connection", scanning.socket.create_connection)
+		scanning.socket.create_connection = fake
+
+		self.assertTrue(scanning.scanner_available())
+		self.assertEqual(fake.sent, b"zPING\x00")
+
+
+class _FakeClamd:
+	"""Stands in for socket.create_connection and answers with a canned reply."""
+
+	def __init__(self, reply: bytes):
+		self.reply = reply
+		self.sent = b""
+
+	def __call__(self, *args, **kwargs):
+		return self
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, *exc):
+		return False
+
+	def sendall(self, data: bytes):
+		self.sent += data
+
+	def recv(self, size: int) -> bytes:
+		return self.reply
+
+
+class TestScannerReplies(FrappeTestCase):
+	"""clamd's wire replies are parsed as clamd actually sends them.
+
+	The z-prefixed INSTREAM command asks for NUL-terminated replies, so a clean
+	verdict arrives as b"stream: OK\\0". Found against a live clamd 1.4: the NUL
+	survived str.strip() and every clean file was marked Failed.
+	"""
+
+	def setUp(self):
+		frappe.conf["grievance_clamav_host"] = "fake-clamd"
+		self._real_connect = scanning.socket.create_connection
+
+	def tearDown(self):
+		scanning.socket.create_connection = self._real_connect
+		frappe.conf.pop("grievance_clamav_host", None)
+
+	def _scan_with_reply(self, reply: bytes):
+		fake = _FakeClamd(reply)
+		scanning.socket.create_connection = fake
+		return scanning.scan_bytes(JPEG_HEADER), fake
+
+	def test_a_nul_terminated_ok_is_clean(self):
+		(status, detail), _ = self._scan_with_reply(b"stream: OK\x00")
+		self.assertEqual(status, scanning.SCAN_CLEAN)
+		self.assertEqual(detail, "stream: OK")
+
+	def test_a_newline_terminated_ok_is_clean_too(self):
+		(status, _), _ = self._scan_with_reply(b"stream: OK\n")
+		self.assertEqual(status, scanning.SCAN_CLEAN)
+
+	def test_a_found_verdict_is_infected(self):
+		(status, detail), _ = self._scan_with_reply(b"stream: Eicar-Test-Signature FOUND\x00")
+		self.assertEqual(status, scanning.SCAN_INFECTED)
+		self.assertIn("Eicar-Test-Signature", detail)
+
+	def test_an_error_reply_is_failed_not_clean(self):
+		(status, _), _ = self._scan_with_reply(b"INSTREAM size limit exceeded. ERROR\x00")
+		self.assertEqual(status, scanning.SCAN_FAILED)
+
+	def test_an_empty_reply_is_failed_not_clean(self):
+		(status, detail), _ = self._scan_with_reply(b"")
+		self.assertEqual(status, scanning.SCAN_FAILED)
+		self.assertIn("nothing", detail)
+
+	def test_the_stream_is_sent_in_clamd_wire_format(self):
+		_, fake = self._scan_with_reply(b"stream: OK\x00")
+		self.assertTrue(fake.sent.startswith(b"zINSTREAM\x00"))
+		self.assertTrue(fake.sent.endswith(b"\x00\x00\x00\x00"))
+
+	def test_text_decoded_content_is_still_sent_as_bytes(self):
+		"""Core's File.get_content() hands back str for anything valid as UTF-8.
+
+		An all-ASCII upload (the EICAR test file is one) reached the socket as
+		str, the send raised, and the row sat in Pending forever. The bytes must
+		go out whatever type the object came back as.
+		"""
+		fake = _FakeClamd(b"stream: Eicar-Test-Signature FOUND\x00")
+		scanning.socket.create_connection = fake
+		status, _ = scanning.scan_bytes("ID3 plain text payload")
+		self.assertEqual(status, scanning.SCAN_INFECTED)
+		self.assertIn(b"ID3 plain text payload", fake.sent)
+
+
+def _real_pdf() -> bytes:
+	from PIL import Image
+
+	out = io.BytesIO()
+	Image.new("RGB", (4, 4), (255, 255, 255)).save(out, format="PDF")
+	return out.getvalue()
+
+
+class TestCorruptPdf(FrappeTestCase):
+	"""A PDF the reader cannot open is refused with a reason, not a 500.
+
+	Core's File.check_content runs pypdf over every PDF to look for embedded
+	JavaScript and lets the parse error escape. Found with a %PDF header and no
+	cross-reference table: the upload came back as INTERNAL_ERROR.
+	"""
+
+	def test_a_readable_pdf_passes(self):
+		self.assertEqual(scanning.validate_upload("evidence.pdf", _real_pdf()).mime_type, "application/pdf")
+
+	def test_a_header_only_pdf_is_refused(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			scanning.validate_upload("evidence.pdf", PDF_HEADER + b"no body, no xref\n")
+		self.assertIn("not a readable PDF", str(caught.exception))
+
+	def test_the_check_only_runs_for_pdfs(self):
+		# A JPEG never goes near the PDF reader.
+		self.assertEqual(scanning.validate_upload("photo.jpg", _real_jpeg()).mime_type, "image/jpeg")

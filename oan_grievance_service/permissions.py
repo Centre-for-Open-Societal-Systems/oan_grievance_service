@@ -1,4 +1,4 @@
-"""FR-01 / 3.1.1 Role-Based Access Control, deny-by-default.
+"""Role-based access control, deny-by-default.
 
 The service runs on three capability roles and only three. A role answers *what actions
 exist for you*; it never answers *which cases you may touch*. That second question is
@@ -6,200 +6,188 @@ answered by the Grievance RBAC Assignment records for the user - region, departm
 category - applied as a permission query condition, so it filters list views, reports
 and the API uniformly rather than being re-checked per screen.
 
+A fourth role, Grievance Review Officer, is read-only oversight: it reads cases, officer
+statistics and administration data. It holds no write DocPerm and is left out of every
+mutating endpoint's `require_role` list, so Frappe's role permissions refuse it.
+
 Seniority is deliberately absent from the role list. The former L1 / L2 / Department
 Head roles were rungs of a hierarchy, not distinct capabilities, and are replaced by
 position in the reporting chain. See
 .docs/sla_workflows_and_lifecycle_specification.md §10.1.
 
-The FSD is explicit that routing eligibility does not by itself grant edit rights: an
+Routing eligibility does not by itself grant edit rights: an
 explicit case assignment or approval permission is required. That distinction is what
 this module enforces.
+
+What belongs here: access rules and their enforcement.
+- Role constants.
+- The Frappe hooks registered in hooks.py (`grievance_query_conditions`,
+  `has_grievance_permission`).
+- Predicates that answer "may this user see / do this", such as `outranks`.
+
+What does not belong here:
+- Data lookups (who holds which scope, which area contains which, which profiles a
+  user owns). Those live in the module of the doctype they read, and this module
+  imports them.
+- Role checks written inline elsewhere. An API or controller asks a predicate here
+  rather than inspecting `frappe.get_roles()` itself, so each rule has one copy.
 """
 
 import frappe
 
-ROLE_SUBMITTER = "Grievance Submitter"
-ROLE_OFFICER = "Grievance Officer"
-ROLE_ADMIN = "Grievance Admin"
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+	active_scopes,
+	current_level_of,
+	get_subordinate_officers,
+)
+from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+	profiles_of,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+	area_bounds,
+	is_in_area_subtree,
+)
+from oan_grievance_service.services.constants import (
+	ROLE_ADMIN,
+	ROLE_OFFICER,
+	ROLE_REVIEW_OFFICER,
+	ROLE_SUBMITTER,
+	STAFF_ROLES,
+)
 
 GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_SUBMITTER)
 
-# FSD Appendix F: administrators see all regions, departments and categories.
+# Administrators see all regions, departments and categories.
 UNRESTRICTED_ROLES = {ROLE_ADMIN, "System Manager", "Administrator"}
 
 
-def get_area_bounds(area_name: str) -> tuple[int | None, int | None]:
-	"""Return (lft, rgt) for an administrative area."""
-	if not area_name:
-		return (None, None)
-	row = frappe.db.get_value("Grievance Administrative Area", area_name, ["lft", "rgt"], as_dict=True)
-	if row and row.lft is not None and row.rgt is not None:
-		return (int(row.lft), int(row.rgt))
-	return (None, None)
+def session_user(user=None):
+	"""The signed-in user, or None for Guest / unauthenticated sessions."""
+	u = user or frappe.session.user
+	return None if u in ("Guest", None) else u
 
 
-def is_in_area_subtree(target_area_or_lft, ancestor_area: str) -> bool:
-	"""Check if target_area (name or lft int) falls within ancestor_area's subtree."""
-	if not ancestor_area or target_area_or_lft is None:
-		return False
-	anc_lft, anc_rgt = get_area_bounds(ancestor_area)
-	if anc_lft is None or anc_rgt is None:
-		return False
-	if isinstance(target_area_or_lft, int) or (
-		isinstance(target_area_or_lft, str) and target_area_or_lft.isdigit()
-	):
-		target_lft = int(target_area_or_lft)
-	else:
-		target_lft, _ = get_area_bounds(str(target_area_or_lft))
-	if target_lft is None:
-		return False
-	return anc_lft <= target_lft <= anc_rgt
+def is_staff(user=None):
+	"""Officers and administrators: anyone who works cases rather than files them."""
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & STAFF_ROLES)
 
 
-def query_active_officer_assignments(
-	user=None,
-	role_level=None,
-	reports_to_list=None,
-	fields=None,
-	order_by="c.is_primary DESC, p.modified DESC",
-	limit=None,
-):
-	"""Consolidated query builder for active Grievance RBAC Assignments & Officers."""
-	today = frappe.utils.today()
-	conditions = [
-		"c.active = 1",
-		"p.active = 1",
-		"p.effective_from <= %(today)s",
-		"(p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)",
-	]
-	params = {"today": today}
+def is_unrestricted(user=None):
+	"""Administrators, who see every region, department and category."""
+	return bool(set(frappe.get_roles(user or frappe.session.user)) & UNRESTRICTED_ROLES)
 
-	if user:
-		conditions.append("c.user = %(user)s")
-		params["user"] = user
-	if role_level:
-		conditions.append("c.role_level = %(role_level)s")
-		params["role_level"] = role_level
-	if reports_to_list:
-		conditions.append("c.reports_to IN %(reports_to_list)s")
-		params["reports_to_list"] = tuple(reports_to_list)
 
-	field_str = (
-		", ".join(fields)
-		if fields
-		else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, p.administrative_area_scope, p.department_scope, p.category_scope"
-	)
-	sql = f"""  # nosemgrep: frappe-sql-format-injection
-		SELECT {field_str}
-		FROM `tabGrievance RBAC Assignment Officer` c
-		JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-		WHERE {' AND '.join(conditions)}
+def can_see_identity(grievance, user=None):
+	"""Whether the submitter's name and contact details may be shown to `user`.
+
+	An anonymous case shows its identity only to administrators and to the submitter
+	whose profile is on the case. The record's creator and an assisting officer do not
+	count: filing on someone's behalf does not make their identity yours to see later.
 	"""
-	if order_by:
-		sql += f" ORDER BY {order_by}"
-	if limit:
-		sql += f" LIMIT {int(limit)}"
-
-	return frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: frappe-sql-format-injection
-
-
-def active_scopes(user=None):
-	"""The user's live RBAC assignments, honouring the effective date window."""
+	if not grievance.get("is_anonymous"):
+		return True
 	user = user or frappe.session.user
-	fields = [
-		"p.name AS assignment_name",
-		"p.administrative_area_scope",
-		"p.department_scope",
-		"p.category_scope",
-		"c.role_level",
-		"c.is_primary",
-		"c.max_open_cases",
-	]
-	return query_active_officer_assignments(user=user, fields=fields, order_by=None)
-
-
-def find_officer_by_role_level(role_level, department=None, administrative_area=None):
-	"""Dynamically resolve an officer user from active Grievance RBAC Assignments.
-
-	Honours role_level, geographic jurisdiction (area tree interval), line department
-	(NULL for nodal officers who cover all departments in an area), and primary post priority.
-	"""
-	fields = ["c.user", "c.is_primary", "p.administrative_area_scope", "p.department_scope"]
-	officers = query_active_officer_assignments(role_level=role_level, fields=fields)
-	if not officers:
-		return None
-
-	target_lft = None
-	if administrative_area:
-		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
-
-	for o in officers:
-		# Department filter: if assignment specifies a department, it must match.
-		if department and o.department_scope and o.department_scope != department:
-			continue
-		# Area filter: if assignment specifies an area, target area must be in its subtree.
-		if target_lft is not None and o.administrative_area_scope:
-			if not is_in_area_subtree(target_lft, o.administrative_area_scope):
-				continue
-		return o.user
-
-	return None
-
-
-def area_bounds(scopes):
-	"""Nested Set intervals for every area named by `scopes`, in one query."""
-	names = {
-		s.get("administrative_area_scope")
-		if isinstance(s, dict)
-		else getattr(s, "administrative_area_scope", None)
-		for s in scopes
-	}
-	names = {n for n in names if n}
-	if not names:
-		return {}
-	return {
-		a.name: (a.lft, a.rgt)
-		for a in frappe.get_all(
-			"Grievance Administrative Area",
-			filters={"name": ["in", list(names)]},
-			fields=["name", "lft", "rgt"],
-		)
-		if a.lft is not None and a.rgt is not None
-	}
+	if is_unrestricted(user):
+		return True
+	submitter = grievance.get("submitter")
+	if not submitter or user == "Guest":
+		return False
+	return bool(frappe.db.exists("Grievance Submitter Profile", {"name": submitter, "user": user}))
 
 
 def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
 
 
-def _submitter_profiles(user):
-	"""Profiles this user owns.
+def _scope_clauses(scopes):
+	"""SQL for the cases inside each of `scopes`, one parenthesised clause per scope."""
+	clauses = []
+	bounds = area_bounds(scopes)
+	for scope in scopes:
+		dept_scope = scope.get("department_scope")
+		cat_scope = scope.get("category_scope")
+		gtype_scope = scope.get("grievance_type_scope")
+		prov_scope = scope.get("service_provider_scope")
+		area_scope = scope.get("administrative_area_scope")
 
-	Resolved through the explicit `user` link rather than by matching a contact address,
-	so changing a contact email cannot transfer someone else's cases, and two profiles
-	sharing an address do not both match.
+		include_parts = []
+
+		if dept_scope:
+			include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
+		if cat_scope:
+			include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
+		if gtype_scope:
+			include_parts.append(f"`tabGrievance`.grievance_type = {frappe.db.escape(gtype_scope)}")
+		if prov_scope:
+			include_parts.append(
+				f"`tabGrievance`.associated_service_provider = {frappe.db.escape(prov_scope)}"
+			)
+		if area_scope:
+			area_lft, area_rgt = bounds.get(area_scope, (None, None))
+			if area_lft is not None and area_rgt is not None:
+				include_parts.append(
+					f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
+				)
+
+		if include_parts:
+			clauses.append("(`tabGrievance`.docstatus != 0 and " + " and ".join(include_parts) + ")")
+	return clauses
+
+
+def _scope_covers(doc, scopes) -> bool:
+	"""Whether the case falls inside any of `scopes`. A scope with no field set covers nothing."""
+	dept = doc.get("assigned_dept")
+	category = doc.get("service_category")
+	grievance_type = doc.get("grievance_type")
+	provider = doc.get("associated_service_provider")
+	area = doc.get("administrative_area")
+	case_lft = doc.get("area_lft")
+	if case_lft is None and area:
+		case_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
+
+	for scope in scopes:
+		dept_scope = scope.get("department_scope")
+		cat_scope = scope.get("category_scope")
+		gtype_scope = scope.get("grievance_type_scope")
+		prov_scope = scope.get("service_provider_scope")
+		area_scope = scope.get("administrative_area_scope")
+
+		if not (dept_scope or cat_scope or gtype_scope or prov_scope or area_scope):
+			continue
+
+		if dept_scope and dept != dept_scope:
+			continue
+		if cat_scope and category != cat_scope:
+			continue
+		if gtype_scope and grievance_type != gtype_scope:
+			continue
+		if prov_scope and provider != prov_scope:
+			continue
+		if area_scope:
+			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):
+				continue
+
+		return True
+
+	return False
+
+
+def _is_placed(user):
+	"""Whether `user` has been put on a desk at all, active or not."""
+	return bool(frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user}))
+
+
+def _reviewer_clause(user):
+	"""What a Review Officer reads: the cases in their desks' scopes, never an unsent draft.
+
+	A reviewer placed on a department's desks reads that department's cases only, and loses
+	access when every desk is retired. One who was never placed on a desk keeps the oversight
+	of every filed case that Review Officers had before desks were assigned to them.
 	"""
-	return frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name")
-
-
-def get_subordinate_officers(user):
-	"""Find all officers who report directly or indirectly to `user` (bottom-to-top hierarchy)."""
-	if not user:
-		return set()
-	subordinates = {user}
-	frontier = {user}
-	while frontier:
-		rows = query_active_officer_assignments(
-			reports_to_list=frontier,
-			fields=["DISTINCT c.user"],
-			order_by=None,
-		)
-		new_users = {r.user for r in rows if r.user and r.user not in subordinates}
-		if not new_users:
-			break
-		subordinates.update(new_users)
-		frontier = new_users
-	return subordinates
+	if not _is_placed(user):
+		return "`tabGrievance`.docstatus != 0"
+	scoped = _scope_clauses(active_scopes(user))
+	return "(" + " or ".join(scoped) + ")" if scoped else "1 = 0"
 
 
 def grievance_query_conditions(user=None):
@@ -208,6 +196,8 @@ def grievance_query_conditions(user=None):
 	- Submitters only see their own cases and assisted submissions.
 	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
 	- Admins see all cases.
+	- Review Officers see the cases in the scopes of the desks they are placed on, and every
+	  case that has left Draft if they were never placed on one.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -217,10 +207,14 @@ def grievance_query_conditions(user=None):
 
 	clauses = []
 
-	# FSD 3.1.1: a submitter reaches their own cases, and the assisted submissions they
+	# Oversight reads every filed case but never someone's unsent draft.
+	if ROLE_REVIEW_OFFICER in roles:
+		clauses.append(_reviewer_clause(user))
+
+	# A submitter reaches their own cases, and the assisted submissions they
 	# filed on someone else's behalf. Both arms belong to the one Submitter role.
 	if ROLE_SUBMITTER in roles:
-		profiles = _submitter_profiles(user)
+		profiles = profiles_of(user)
 		if profiles:
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
 		clauses.append(f"`tabGrievance`.assisted_by_officer = {frappe.db.escape(user)}")
@@ -228,47 +222,10 @@ def grievance_query_conditions(user=None):
 
 	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
-		scope_clauses = []
-		scopes = active_scopes(user)
-		bounds = area_bounds(scopes)
-		for scope in scopes:
-			dept_scope = (
-				scope.get("department_scope")
-				if isinstance(scope, dict)
-				else getattr(scope, "department_scope", None)
-			)
-			cat_scope = (
-				scope.get("category_scope")
-				if isinstance(scope, dict)
-				else getattr(scope, "category_scope", None)
-			)
-			area_scope = (
-				scope.get("administrative_area_scope")
-				if isinstance(scope, dict)
-				else getattr(scope, "administrative_area_scope", None)
-			)
-
-			include_parts = []
-
-			if dept_scope:
-				include_parts.append(f"`tabGrievance`.assigned_dept = {frappe.db.escape(dept_scope)}")
-			if cat_scope:
-				include_parts.append(f"`tabGrievance`.service_category = {frappe.db.escape(cat_scope)}")
-			if area_scope:
-				area_lft, area_rgt = bounds.get(area_scope, (None, None))
-				if area_lft is not None and area_rgt is not None:
-					include_parts.append(
-						f"(`tabGrievance`.area_lft >= {int(area_lft)} and `tabGrievance`.area_lft <= {int(area_rgt)})"
-					)
-
-			if include_parts:
-				scope_clauses.append(
-					"(`tabGrievance`.workflow_state != 'Draft' and " + " and ".join(include_parts) + ")"
-				)
-
+		scope_clauses = _scope_clauses(active_scopes(user))
 		team = get_subordinate_officers(user)
 		scope_clauses.append(
-			f"(`tabGrievance`.assigned_to in ({_quote(team)}) and `tabGrievance`.workflow_state != 'Draft')"
+			f"(`tabGrievance`.assigned_to in ({_quote(team)}) and `tabGrievance`.docstatus != 0)"
 		)
 		clauses.append("(" + " or ".join(scope_clauses) + ")")
 
@@ -285,16 +242,16 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if roles & UNRESTRICTED_ROLES:
 		return True
 
+	if ROLE_REVIEW_OFFICER in roles and ptype == "read" and int(doc.get("docstatus") or 0) != 0:
+		if not _is_placed(user) or _scope_covers(doc, active_scopes(user)):
+			return True
+
 	if ROLE_SUBMITTER in roles:
-		owner = doc.get("owner") if isinstance(doc, dict) else getattr(doc, "owner", None)
-		submitter = doc.get("submitter") if isinstance(doc, dict) else getattr(doc, "submitter", None)
-		assisted = (
-			doc.get("assisted_by_officer")
-			if isinstance(doc, dict)
-			else getattr(doc, "assisted_by_officer", None)
-		)
-		docstatus = doc.get("docstatus", 0) if isinstance(doc, dict) else getattr(doc, "docstatus", 0)
-		owns = (bool(submitter) and submitter in _submitter_profiles(user)) or (bool(owner) and owner == user)
+		owner = doc.get("owner")
+		submitter = doc.get("submitter")
+		assisted = doc.get("assisted_by_officer")
+		docstatus = doc.get("docstatus")
+		owns = (bool(submitter) and submitter in profiles_of(user)) or (bool(owner) and owner == user)
 		if owns or assisted == user:
 			if ptype == "read":
 				return True
@@ -303,126 +260,95 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if ROLE_OFFICER not in roles:
 		return False
 
-	status = doc.get("status") if isinstance(doc, dict) else getattr(doc, "status", None)
-	workflow_state = (
-		doc.get("workflow_state") if isinstance(doc, dict) else getattr(doc, "workflow_state", None)
-	)
-	if workflow_state == "Draft" or status == "Draft":
+	if int(doc.get("docstatus") or 0) == 0:
 		return False
 
 	team = get_subordinate_officers(user)
-	assigned = doc.get("assigned_to") if isinstance(doc, dict) else getattr(doc, "assigned_to", None)
+	assigned = doc.get("assigned_to")
 	if assigned and assigned in team:
 		# Visibility granted for all cases in reporting chain; editing permitted for assignee or supervisor
 		return True
 
-	dept = doc.get("assigned_dept") if isinstance(doc, dict) else getattr(doc, "assigned_dept", None)
-	category = (
-		doc.get("service_category") if isinstance(doc, dict) else getattr(doc, "service_category", None)
-	)
-	area = (
-		doc.get("administrative_area") if isinstance(doc, dict) else getattr(doc, "administrative_area", None)
-	)
-	case_lft = doc.get("area_lft") if isinstance(doc, dict) else getattr(doc, "area_lft", None)
-	if case_lft is None and area:
-		case_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
+	if ptype == "read" and frappe.db.exists(
+		"Grievance Change Request",
+		{"grievance": doc.get("name"), "status": "Pending", "pending_with": user},
+	):
+		return True
+
+	# Scope grants visibility; editing still needs the case assigned.
+	return ptype == "read" and _scope_covers(doc, active_scopes(user))
+
+
+def _template_scope_clause(scope):
+	"""SQL matching templates one RBAC scope may see: an empty template dimension
+	matches everyone, an empty scope dimension matches every template."""
+	parts = []
+	for scope_field, template_field in (
+		("department_scope", "department"),
+		("category_scope", "service_category"),
+	):
+		value = scope.get(scope_field)
+		if value:
+			parts.append(
+				f"ifnull(`tabGrievance Response Template`.{template_field}, '') in ('', {frappe.db.escape(value)})"
+			)
+	return "(" + " and ".join(parts) + ")" if parts else "1 = 1"
+
+
+def response_template_query_conditions(user=None):
+	"""Officers list the active templates within their department and category scope."""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & UNRESTRICTED_ROLES:
+		return ""
+	if ROLE_OFFICER not in roles:
+		return "1 = 0"
 
 	scopes = active_scopes(user)
-	for scope in scopes:
-		dept_scope = (
-			scope.get("department_scope")
-			if isinstance(scope, dict)
-			else getattr(scope, "department_scope", None)
+	clauses = [_template_scope_clause(scope) for scope in scopes] or [
+		(
+			"(ifnull(`tabGrievance Response Template`.department, '') = ''"
+			+ " and ifnull(`tabGrievance Response Template`.service_category, '') = '')"
 		)
-		cat_scope = (
-			scope.get("category_scope") if isinstance(scope, dict) else getattr(scope, "category_scope", None)
-		)
-		area_scope = (
-			scope.get("administrative_area_scope")
-			if isinstance(scope, dict)
-			else getattr(scope, "administrative_area_scope", None)
-		)
-
-		if not (dept_scope or cat_scope or area_scope):
-			continue
-
-		if dept_scope and dept != dept_scope:
-			continue
-		if cat_scope and category != cat_scope:
-			continue
-		if area_scope:
-			if case_lft is None or not is_in_area_subtree(case_lft, area_scope):
-				continue
-
-		# FSD 3.1.1: scope grants visibility; editing still needs the case assigned.
-		return ptype == "read"
-
-	return False
+	]
+	return "(`tabGrievance Response Template`.is_active = 1 and (" + " or ".join(clauses) + "))"
 
 
-def can_approve_reassignment(user=None, request_doc=None):
-	"""FSD 3.3.1: a reassignment is decided by a supervisor/admin, never by its requester.
-
-	Enforces segregation of duties:
-	1. The requester (initiated_by) cannot approve their own reassignment.
-	2. Approver must hold Grievance Admin / System Manager or be a supervising officer.
-	"""
+def has_response_template_permission(doc, ptype="read", user=None):
+	"""Per-document check. Mirrors the list conditions for a single template."""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
-
-	if not (roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES)):
+	if roles & UNRESTRICTED_ROLES:
+		return True
+	if ROLE_OFFICER not in roles or ptype != "read" or not doc.get("is_active"):
 		return False
 
-	# Enforce segregation of duties: non-admin requesters cannot self-approve
-	if request_doc and not (roles & UNRESTRICTED_ROLES):
-		requester = (
-			request_doc.get("initiated_by")
-			if isinstance(request_doc, dict)
-			else getattr(request_doc, "initiated_by", None)
-		) or (
-			request_doc.get("owner") if isinstance(request_doc, dict) else getattr(request_doc, "owner", None)
-		)
-		if requester and requester == user:
-			return False
+	def fits(scope):
+		for scope_field, template_field in (
+			("department_scope", "department"),
+			("category_scope", "service_category"),
+		):
+			value = scope.get(scope_field)
+			if value and doc.get(template_field) and doc.get(template_field) != value:
+				return False
+		return True
 
-	return True
+	scopes = active_scopes(user)
+	if not scopes:
+		return not doc.get("department") and not doc.get("service_category")
+	return any(fits(scope) for scope in scopes)
 
 
-def can_approve_deferral(user=None, assignee=None):
-	"""FSD 3.11.7: supervisor approval unless policy explicitly permits self-approval.
+def outranks(approver, assignee, if_unplaced=True):
+	"""True when the approver sits strictly higher in the escalation chain.
 
-	"Supervisor" is read off the escalation chain rather than a role name: the approver
-	must sit strictly above the assigned officer, which is the same `level_order` walk
-	escalation uses. Falling back to a role check when the chain cannot place either
-	party keeps a misconfigured assignment from deadlocking every deferral.
+	`if_unplaced` is the answer when the chain cannot place one of them. Pass False
+	where only positive proof of seniority will do.
 	"""
-	from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
-		requires_supervisor_approval,
-	)
-
-	user = user or frappe.session.user
-	roles = set(frappe.get_roles(user))
-	has_base_right = bool(roles & ({ROLE_OFFICER} | UNRESTRICTED_ROLES))
-
-	if not has_base_right:
-		return False
-	if not requires_supervisor_approval() or roles & UNRESTRICTED_ROLES:
-		return has_base_right
-	if not assignee or assignee == user:
-		# Self-approval is exactly what the policy is there to stop.
-		return assignee != user
-
-	return _outranks(user, assignee)
-
-
-def _outranks(approver, assignee):
-	"""True when the approver sits strictly higher in the escalation chain."""
-	from oan_grievance_service.services import sla
-
-	approver_level = sla.current_level_of(approver)
-	assignee_level = sla.current_level_of(assignee)
+	approver_level = current_level_of(approver)
+	assignee_level = current_level_of(assignee)
 	if not approver_level or not assignee_level:
-		return True  # Chain cannot place them; fall back to the role check already passed.
+		return if_unplaced
 
 	orders = {
 		row.name: row.level_order
@@ -431,3 +357,16 @@ def _outranks(approver, assignee):
 		)
 	}
 	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)
+
+
+def is_department_head(user, department, area=None):
+	"""Whether `user` holds the top active rung (department head) covering department and area."""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		holds_rung,
+		top_rung,
+	)
+
+	top = top_rung()
+	if not top:
+		return False
+	return holds_rung(user, top, department=department, area=area)

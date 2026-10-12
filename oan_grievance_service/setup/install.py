@@ -1,9 +1,8 @@
 """Seed data created on install and refreshed on migrate.
 
-Everything here is configuration the FSD names explicitly, so a fresh site comes up
-usable rather than empty: the three capability roles, the Appendix F escalation levels,
-the five service categories from 3.2.2, the Ethiopian regions from 3.11.8, and the full
-Appendix C notification matrix.
+A fresh site comes up usable rather than empty: the three capability roles, the
+escalation levels, the service categories, the Ethiopian regions, and the full
+notification matrix.
 """
 
 import gzip
@@ -13,7 +12,7 @@ import frappe
 
 from oan_grievance_service.services import constants as C
 
-# The three capability roles. Appendix F's L1 / L2 / Department Head were rungs of a
+# The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
 # reporting chain - see .docs/sla_workflows_and_lifecycle_specification.md §10.1.
 #
@@ -26,9 +25,11 @@ ROLES = [
 	("Grievance Submitter", 0),
 	("Grievance Officer", 0),
 	("Grievance Admin", 0),
+	("Grievance Dashboard Reader", 0),
+	(C.ROLE_REVIEW_OFFICER, 0),
 ]
 
-# FSD 3.4 as the Grievance Workflow: a native Frappe Workflow record, rebuilt from
+# The Grievance Workflow: a native Frappe Workflow record, rebuilt from
 # these tables on every migrate so they are the one place the lifecycle is written
 # down. The engine decides whether a move is legal and who may take it; the app
 # never keeps its own copy of that answer (tests/test_workflow_contracts.py).
@@ -37,44 +38,55 @@ ROLES = [
 # case is born Draft (0), becomes a submitted document (1) on the Submit action and
 # stays one; Rejected is a cancelled document (2). Frappe refuses a workflow that
 # goes 1 -> 0 or 0 -> 2, which is why every active state is 1 and Draft exists.
-# Closed and Rejected have no outbound transition: a reopen happens inside the
-# FSD 3.6 confirmation window, from Pending Submitter, and nowhere else.
+# Closed and Rejected have no outbound transition: a reopen happens from
+# Resolved, and nowhere else.
 WORKFLOW_NAME = "Grievance Workflow"
 
-# (state, docstatus, style). Order matters: Frappe treats the first row as where a
-# new document enters.
+# (state, docstatus, style, SLA category). Order matters: Frappe treats the first row
+# as where a new document enters.
+#
+# The SLA category is what arriving in the state does to the clock (services.sla):
+# Running keeps it going, Paused holds it while the case waits on the submitter, and
+# Stopped ends it for good.
 WORKFLOW_STATES = [
-	("Draft", "0", "Inverse"),
-	("Submitted", "1", "Info"),
-	("Assigned", "1", "Primary"),
-	("In Progress", "1", "Primary"),
-	("More Info Needed", "1", "Warning"),
-	("Pending Submitter", "1", "Warning"),
-	("Resolved", "1", "Success"),
-	("Closed", "1", "Success"),
-	("Rejected", "2", "Danger"),
+	(C.STATE_DRAFT, "0", "Inverse", "Running"),
+	(C.STATE_SUBMITTED, "1", "Info", "Running"),
+	(C.STATE_ASSIGNED, "1", "Primary", "Running"),
+	(C.STATE_IN_PROGRESS, "1", "Primary", "Running"),
+	(C.STATE_MORE_INFO_NEEDED, "1", "Warning", "Paused"),
+	(C.STATE_RESOLVED, "1", "Success", "Stopped"),
+	(C.STATE_CLOSED, "2", "Success", "Stopped"),
+	(C.STATE_REJECTED, "2", "Danger", "Stopped"),
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
-SUBMITTER_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+# Officers file on someone's behalf (assisted, walk-in, IVR), so filing is shared.
+# Replying, reopening and confirming a resolution are the submitter's word alone.
+FILING_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
+SUBMITTER_ROLES = ("Grievance Submitter",)
+SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
-	("Draft", "Submit", "Submitted", SUBMITTER_ROLES),
-	("Submitted", "Assign", "Assigned", OFFICER_ROLES),
-	("Submitted", "Reject", "Rejected", OFFICER_ROLES),
-	("Assigned", "Start Work", "In Progress", OFFICER_ROLES),
-	("Assigned", "Reject", "Rejected", OFFICER_ROLES),
-	("In Progress", "Request More Info", "More Info Needed", OFFICER_ROLES),
-	("In Progress", "Submit Response", "Pending Submitter", OFFICER_ROLES),
-	("In Progress", "Refer Onward", "Assigned", OFFICER_ROLES),
-	("In Progress", "Reject", "Rejected", OFFICER_ROLES),
-	("More Info Needed", "Submitter Reply", "In Progress", SUBMITTER_ROLES),
-	("More Info Needed", "Reject", "Rejected", OFFICER_ROLES),
-	("Pending Submitter", "Confirm Resolution", "Resolved", SUBMITTER_ROLES),
-	("Pending Submitter", "Reopen", "In Progress", SUBMITTER_ROLES),
-	("Pending Submitter", "Auto Close", "Closed", OFFICER_ROLES),
-	("Resolved", "Close Case", "Closed", SUBMITTER_ROLES),
+	(C.STATE_DRAFT, "Submit", C.STATE_SUBMITTED, FILING_ROLES),
+	(C.STATE_SUBMITTED, "Assign", C.STATE_ASSIGNED, SYSTEM_ROLES),
+	(C.STATE_SUBMITTED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	(C.STATE_RESOLVED, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
+	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
 
 # The escalation rungs of §10.1, as Grievance Role Level master records.
@@ -112,7 +124,17 @@ ROLE_LEVELS = [
 	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
 ]
 
-# FSD 3.2.2. The code is the 3-character CATEGORY segment of the ticket number
+# The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
+# Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
+# and `top_rung` read active levels only. Routing and the officer picker skip these rows.
+REVIEWER_ROLE_LEVEL = (
+	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"Review Officer",
+	910,
+	"Read-only oversight of a department. Not a step of the escalation chain.",
+)
+
+# Service categories. The code is the 3-character CATEGORY segment of the ticket number
 # (services.ticket_number). Three characters allow 32,768 categories, so a
 # service can later be split into much finer groups without the codes running
 # out. Assigned sequentially; a retired code is never reused.
@@ -122,6 +144,7 @@ SERVICE_CATEGORIES = [
 	("Payments", "003", 3),
 	("Credit", "004", 4),
 	("Markets", "005", 5),
+	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
 ]
 
 # The 1-character REGION segment of the ticket number, keyed by the official
@@ -160,6 +183,7 @@ GRIEVANCE_TYPES = [
 	("Interest Rate Discrepancy", "Credit"),
 	("Price Reporting Dispute", "Markets"),
 	("Market Access Obstruction", "Markets"),
+	(C.FALLBACK_GRIEVANCE_TYPE, C.FALLBACK_SERVICE_CATEGORY),
 ]
 
 # Submitter Types master
@@ -181,48 +205,67 @@ SUBMISSION_TYPES = [
 	("Development Agent Assisted", "DA"),
 ]
 
-# Master Grievance Response Types (Contract A: Dynamic Master Resolution)
-# (name, target_workflow_state, sla_behaviour, requires_referred_dept, workflow_action, description)
-RESPONSE_TYPES = [
+# Starting wording for each officer action, global (no department or category scope).
+# Seeded once; administrators edit, scope or deactivate them from there. The body is a
+# Jinja template rendered into the action's reason; see grievance_response_template.py
+# for the variables in scope.
+#
+# (title, workflow_action, body)
+RESPONSE_TEMPLATES = [
 	(
-		"Resolved",
-		"Pending Submitter",
-		"paused",
-		0,
-		"Submit Response",
-		"Full case resolution proposed to the submitter.",
+		"Resolved - standard",
+		"Resolve",
+		(
+			"Action Taken:\n"
+			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+			+ "on {{ service_category }} and took the following action:\n\n"
+			+ "Resolution Summary:\n"
+			+ "Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
+			+ "with the outcome, you can reopen it from the grievance page.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 	(
-		"Partially Resolved",
-		"Pending Submitter",
-		"paused",
-		0,
-		"Submit Response",
-		"Partial case resolution proposed to the submitter.",
+		"Partially resolved - standard",
+		"Partially Resolve",
+		(
+			"Action Taken:\n"
+			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
+			+ "on {{ service_category }} and took the following action:\n\n"
+			+ "Resolution Summary:\n"
+			+ "Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
+			+ "open and why:\n\n"
+			+ "If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 	(
-		"Referred to another dept",
-		"Assigned",
-		"running",
-		1,
-		"Refer Onward",
-		"Case referred onward to another responsible department.",
-	),
-	(
-		"Requires further info",
-		"More Info Needed",
-		"paused",
-		0,
+		"Request more information - standard",
 		"Request More Info",
-		"Clarification or additional evidence requested from submitter.",
+		(
+			"Dear {{ submitter_name }}, to continue working on your grievance {{ ticket_number }} "
+			+ "we need the following information:\n\n"
+			+ "Please reply from the grievance page. Your case will wait for your reply.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
+	),
+	(
+		"Referred - standard",
+		"Refer Onward",
+		(
+			"Dear {{ submitter_name }}, your grievance {{ ticket_number }} has been referred to the "
+			+ "department responsible for it, because:\n\n"
+			+ "You will be informed once an officer there takes it up.\n\n"
+			+ "{{ officer_name }}, {{ today }}"
+		),
 	),
 ]
 
-# FSD Appendix C, the complete notification matrix.
+# The complete notification matrix.
 #
 # Each row becomes one core Notification record per channel, so an administrator can
 # change the wording, channel, recipient or enable state from the desk without a
-# release (FSD 3.11.7). "SMS + Email" in the FSD is two records here, because core's
+# release. An "SMS + Email" event is two records here, because core's
 # channel is a single Select.
 #
 # Message bodies are wrapped in _() so the same record serves both languages: the
@@ -238,8 +281,17 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		("SMS", "Email"),
 		"Immediately on save",
-		"Your grievance {0} has been received under {1}. Expected response by {2}.",
-		("doc.ticket_number", "doc.service_category", "doc.sla_due_date"),
+		# The SLA clock starts at assignment, so a case that no routing rule matched
+		# has no due date yet. Without the fallback the message read "Expected
+		# response by None" -- seen in a real send on the dev bench.
+		{
+			"text": "Your grievance {0} has been received under {1}.",
+			"args": ("doc.ticket_number", "doc.service_category"),
+			"if": "doc.sla_due_date",
+			"then": ("Expected response by {0}.", ("doc.sla_due_date",)),
+			"else": ("You will be informed once an officer is assigned.", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
@@ -276,12 +328,48 @@ NOTIFICATION_EVENTS = [
 	),
 	(
 		C.EVENT_STATUS_IN_PROGRESS,
-		"Status changed to In Progress",
+		"Grievance Under Investigation",
 		"Submitter",
-		("SMS",),
-		"Officer accepts ticket",
-		"Your grievance {0} is now being handled by {1}.",
-		("doc.ticket_number", "doc.assigned_dept"),
+		("SMS", "Email"),
+		"Officer starts work",
+		"Your grievance {0} is now under investigation.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_CONFIRMED,
+		"Grievance Confirmed",
+		"Submitter",
+		("SMS", "Email"),
+		"Submitter confirms resolution",
+		"Grievance {0} confirmed resolved. Thank you for your feedback. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_AUTO_CLOSED,
+		"Grievance Auto-Closed",
+		"Submitter",
+		("SMS", "Email"),
+		"Confirmation window expires",
+		"Grievance {0} has been closed as no response was received within the confirmation window. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_CLOSED,
+		"Grievance Closed",
+		"Submitter",
+		("SMS", "Email"),
+		"Grievance closed",
+		"Grievance {0} is now closed. Thank you for your feedback. Please rate your satisfaction from 1 to 5.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_STATUS_REJECTED,
+		"Grievance Rejected",
+		"Submitter",
+		("SMS", "Email"),
+		"Officer rejects grievance",
+		"Your grievance {0} was not accepted.",
+		("doc.ticket_number",),
 	),
 	(
 		C.EVENT_MORE_INFO_REQUESTED,
@@ -290,6 +378,15 @@ NOTIFICATION_EVENTS = [
 		("SMS", "Email"),
 		"Officer sets More Info Needed",
 		"Additional information is needed for grievance {0}. Please respond via the portal.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_ANONYMITY_DISCLOSURE_REQUESTED,
+		"Anonymity Not Approved",
+		"Submitter",
+		("SMS", "Email"),
+		"Officer declines an anonymity request",
+		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
 		("doc.ticket_number",),
 	),
 	(
@@ -320,39 +417,12 @@ NOTIFICATION_EVENTS = [
 		("doc.ticket_number",),
 	),
 	(
-		C.EVENT_CONFIRMED,
-		"Grievance Confirmed",
-		"Submitter",
-		("SMS", "Email"),
-		"Submitter confirms",
-		"Grievance {0} has been marked resolved. Please rate your experience from 1 to 5.",
-		("doc.ticket_number",),
-	),
-	(
 		C.EVENT_REOPENED,
 		"Grievance Reopened",
 		"Department Officer",
 		("Email",),
 		"Submitter reopens",
 		"Grievance {0} has been reopened by the submitter and needs attention.",
-		("doc.ticket_number",),
-	),
-	(
-		C.EVENT_AUTO_CLOSED,
-		"Auto-closed (No Response)",
-		"Submitter",
-		("SMS", "Email"),
-		"Confirmation window expires",
-		"Grievance {0} has been closed as no objection was received.",
-		("doc.ticket_number",),
-	),
-	(
-		C.EVENT_CLOSED,
-		"Grievance Closed",
-		"Submitter",
-		("SMS", "Email"),
-		"On final closure",
-		"Grievance {0} is now closed. Thank you for your feedback.",
 		("doc.ticket_number",),
 	),
 	(
@@ -383,21 +453,12 @@ NOTIFICATION_EVENTS = [
 		("doc.ticket_number", "doc.sla_due_date"),
 	),
 	(
-		C.EVENT_SLA_BREACH_L1,
-		"SLA Breached - L1",
+		C.EVENT_SLA_BREACH,
+		"SLA Breached",
 		"Department Head",
 		("Email",),
 		"SLA deadline passed",
 		"Grievance {0} has breached its SLA and has been escalated. Immediate action is required.",
-		("doc.ticket_number",),
-	),
-	(
-		C.EVENT_SLA_BREACH_L2,
-		"SLA Breached - L2",
-		"Top Level Authority",
-		("Email",),
-		"2x SLA deadline passed",
-		"Grievance {0} has breached twice its SLA window and is escalated to second level.",
 		("doc.ticket_number",),
 	),
 	(
@@ -432,41 +493,85 @@ def after_migrate():
 def seed_all():
 	created = {
 		"roles": seed_roles(),
+		"sla_category_field": seed_sla_category_field(),
 		"workflow": seed_workflow(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
-		"response_types": seed_response_types(),
+		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
+		"holiday_list": seed_holiday_list(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
 	return created
 
 
-def seed_response_types():
+def seed_holiday_list():
+	"""Seed standard Ethiopian public holiday list if absent."""
+	name = "Ethiopian Public Holidays"
+	if frappe.db.exists("Grievance Holiday List", name):
+		return []
+
+	year = frappe.utils.now_datetime().year
+	from_date = f"{year}-01-01"
+	to_date = f"{year + 1}-12-31"
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Grievance Holiday List",
+			"holiday_list_name": name,
+			"from_date": from_date,
+			"to_date": to_date,
+			"weekly_off": "Sunday",
+			"is_default": 1,
+		}
+	)
+	holidays = [
+		(f"{year}-01-07", "Ethiopian Christmas (Genna)"),
+		(f"{year}-01-19", "Timkat (Epiphany)"),
+		(f"{year}-03-02", "Victory of Adwa"),
+		(f"{year}-05-01", "International Labour Day"),
+		(f"{year}-05-05", "Patriots' Victory Day"),
+		(f"{year}-05-28", "Downfall of Derg"),
+		(f"{year}-09-11", "Ethiopian New Year (Enkutatash)"),
+		(f"{year}-09-27", "Meskel (Finding of True Cross)"),
+		(f"{year + 1}-01-07", "Ethiopian Christmas (Genna)"),
+		(f"{year + 1}-01-19", "Timkat (Epiphany)"),
+		(f"{year + 1}-03-02", "Victory of Adwa"),
+		(f"{year + 1}-05-01", "International Labour Day"),
+		(f"{year + 1}-05-05", "Patriots' Victory Day"),
+		(f"{year + 1}-05-28", "Downfall of Derg"),
+		(f"{year + 1}-09-11", "Ethiopian New Year (Enkutatash)"),
+		(f"{year + 1}-09-27", "Meskel (Finding of True Cross)"),
+	]
+	for h_date, desc in holidays:
+		doc.append("holidays", {"holiday_date": h_date, "description": desc, "weekly_off": 0})
+	doc.populate_weekly_offs()
+	doc.insert(ignore_permissions=True)
+	return [name]
+
+
+def seed_response_templates():
 	made = []
-	for name, state, sla_behaviour, requires_dept, action, desc in RESPONSE_TYPES:
-		if frappe.db.exists("Grievance Response Type", name):
+	for title, workflow_action, body in RESPONSE_TEMPLATES:
+		if frappe.db.exists("Grievance Response Template", {"title": title}):
 			continue
-		frappe.get_doc(
+		doc = frappe.get_doc(
 			{
-				"doctype": "Grievance Response Type",
-				"response_type_name": name,
-				"target_workflow_state": state,
-				"sla_behaviour": sla_behaviour,
-				"requires_referred_dept": requires_dept,
-				"workflow_action": action,
+				"doctype": "Grievance Response Template",
+				"title": title,
+				"workflow_action": workflow_action,
+				"body": body,
 				"is_active": 1,
-				"description": desc,
 			}
 		).insert(ignore_permissions=True)
-		made.append(name)
+		made.append(doc.name)
 	return made
 
 
@@ -548,7 +653,7 @@ def seed_workflow():
 	Rebuilt rather than created-if-missing because the tables are the source of
 	truth: a row removed from them must disappear from the engine too.
 	"""
-	for state, _docstatus, style in WORKFLOW_STATES:
+	for state, _docstatus, style, _sla in WORKFLOW_STATES:
 		if not frappe.db.exists("Workflow State", state):
 			frappe.get_doc(
 				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
@@ -587,9 +692,12 @@ def seed_workflow():
 	# One state row per editing role: the desk makes the form read-only for anyone
 	# whose roles match none of a state's allow_edit rows. Submission itself is
 	# what locks a case; allow_edit only decides who sees an editable form.
-	for state, docstatus, _style in WORKFLOW_STATES:
+	for state, docstatus, _style, sla_category in WORKFLOW_STATES:
 		for role in OFFICER_ROLES:
-			workflow.append("states", {"state": state, "doc_status": docstatus, "allow_edit": role})
+			workflow.append(
+				"states",
+				{"state": state, "doc_status": docstatus, "allow_edit": role, "sla_category": sla_category},
+			)
 
 	for from_state, action, to_state, roles in WORKFLOW_TRANSITIONS:
 		for role in roles:
@@ -608,6 +716,33 @@ def seed_workflow():
 	return workflow.name
 
 
+def seed_sla_category_field():
+	"""What each state of the Grievance Workflow does to the SLA clock.
+
+	On Workflow Document State - the workflow's own state rows - rather than on
+	Workflow State, which is a global master: "Draft" or "Rejected" there is shared
+	with every other workflow on the site, and this is a fact about this one.
+	"""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	if frappe.db.exists("Custom Field", "Workflow Document State-sla_category"):
+		return []
+
+	create_custom_field(
+		"Workflow Document State",
+		{
+			"fieldname": "sla_category",
+			"label": "SLA Category",
+			"fieldtype": "Select",
+			"options": "\nRunning\nPaused\nStopped",
+			"insert_after": "doc_status",
+			"in_list_view": 1,
+			"description": "Running keeps the SLA clock going, Paused holds it, Stopped ends it.",
+		},
+	)
+	return ["Workflow Document State-sla_category"]
+
+
 def seed_role_levels():
 	made = []
 	for code, name, order, escalation_hours, description in ROLE_LEVELS:
@@ -622,6 +757,19 @@ def seed_role_levels():
 				"escalation_hours": escalation_hours,
 				"description": description,
 				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		made.append(code)
+	code, name, order, description = REVIEWER_ROLE_LEVEL
+	if not frappe.db.exists("Grievance Role Level", code):
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Role Level",
+				"level_code": code,
+				"level_name": name,
+				"level_order": order,
+				"description": description,
+				"is_active": 0,
 			}
 		).insert(ignore_permissions=True)
 		made.append(code)
@@ -646,6 +794,8 @@ def seed_categories():
 				"code": code,
 				"sort_order": order,
 				"is_active": 1,
+				# The catch-all is the default until an administrator names another.
+				"is_default": 1 if name == C.FALLBACK_SERVICE_CATEGORY else 0,
 			}
 		).insert(ignore_permissions=True)
 		made.append(name)
@@ -687,38 +837,58 @@ def seed_submission_types():
 
 
 def seed_recipient_custom_field():
-	"""The recipient role, as a Select on core Notification.
-
-	FSD 3.11.7 requires the recipient be changeable without a release, so it cannot be
-	hardcoded per event in our Python. Core's own receiver_by_document_field is not
-	usable for this: notification.js repopulates that Select's options with the target
-	doctype's fieldnames, so a role token stored there would fall outside the option
-	list and could be silently cleared the first time an admin opened the form.
-
-	A Custom Field is Frappe's supported way to extend a core doctype - it is a record,
-	not an edit to apps/frappe - and it gives admins a dropdown of exactly the six
-	Appendix C roles.
-	"""
+	"""The recipient type and dynamic role level, as fields on core Notification."""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
-	from oan_grievance_service.services.notifications import RECIPIENT_ROLES
+	from oan_grievance_service.services.notifications import RECIPIENT_ROLES, RECIPIENT_TYPES
 
-	if frappe.db.exists("Custom Field", "Notification-grievance_recipient"):
-		return []
+	created = []
+	if not frappe.db.exists("Custom Field", "Notification-grievance_recipient_type"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_recipient_type",
+				"label": "Grievance Recipient Type",
+				"fieldtype": "Select",
+				"options": "\n".join(("", *RECIPIENT_TYPES)),
+				"insert_after": "document_type",
+				"depends_on": 'eval:doc.document_type=="Grievance"',
+				"description": "Recipient classification (citizen, assigned officer, department mailbox, or organizational role level).",
+			},
+		)
+		created.append("Notification-grievance_recipient_type")
 
-	create_custom_field(
-		"Notification",
-		{
-			"fieldname": "grievance_recipient",
-			"label": "Grievance Recipient",
-			"fieldtype": "Select",
-			"options": "\n".join(("", *RECIPIENT_ROLES)),
-			"insert_after": "document_type",
-			"depends_on": 'eval:doc.document_type=="Grievance"',
-			"description": "FSD Appendix C recipient role. Resolved to a User at send time.",
-		},
-	)
-	return ["Notification-grievance_recipient"]
+	if not frappe.db.exists("Custom Field", "Notification-grievance_role_level"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_role_level",
+				"label": "Grievance Role Level",
+				"fieldtype": "Link",
+				"options": "Grievance Role Level",
+				"insert_after": "grievance_recipient_type",
+				"depends_on": 'eval:doc.document_type=="Grievance" && doc.grievance_recipient_type=="Role Level"',
+				"description": "Dynamic escalation tier from Grievance Role Level.",
+			},
+		)
+		created.append("Notification-grievance_role_level")
+
+	if not frappe.db.exists("Custom Field", "Notification-grievance_recipient"):
+		create_custom_field(
+			"Notification",
+			{
+				"fieldname": "grievance_recipient",
+				"label": "Grievance Recipient (Legacy)",
+				"fieldtype": "Select",
+				"options": "\n".join(("", *RECIPIENT_ROLES)),
+				"insert_after": "grievance_role_level",
+				"depends_on": 'eval:doc.document_type=="Grievance"',
+				"description": "Legacy recipient role.",
+			},
+		)
+		created.append("Notification-grievance_recipient")
+
+	return created
 
 
 def _translatable(source, args, context_key):
@@ -729,25 +899,78 @@ def _translatable(source, args, context_key):
 	Amharic Translation stops matching. The context key is passed to _() so the lookup
 	keys on something stable instead.
 	"""
+	if isinstance(source, dict):
+		return _translatable_with_fallback(source, context_key)
+	return _translatable_expr(source, args, context_key)
+
+
+def _translatable_expr(source, args, context_key):
 	call = f"_({source!r}, context={context_key!r})"
 	if args:
 		call += ".format(" + ", ".join(args) + ")"
 	return "{{ " + call + " }}"
 
 
+def _translatable_with_fallback(spec, context_key):
+	"""A base sentence followed by one of two translatable sentences, chosen by a
+	Jinja condition on the document.
+
+	    {"text": ..., "args": (...), "if": "doc.field",
+	     "then": (text, args), "else": (text, args)}
+
+	Each sentence is its own _() call with its own context key, so each has its own
+	Translation record. Only Jinja blocks and whitespace appear outside _(), which is
+	what `validate_notification` requires.
+	"""
+	base = _translatable_expr(spec["text"], spec.get("args", ()), context_key)
+	then_text, then_args = spec["then"]
+	else_text, else_args = spec["else"]
+	then_expr = _translatable_expr(then_text, then_args, f"{context_key}.then")
+	else_expr = _translatable_expr(else_text, else_args, f"{context_key}.else")
+	return f"{base} {{% if {spec['if']} %}}{then_expr}{{% else %}}{else_expr}{{% endif %}}"
+
+
 def seed_notifications():
-	"""One core Notification per (Appendix C event, channel).
+	"""One core Notification per (event, channel).
 
 	Carried on core's "Method" trigger: the lifecycle fires these explicitly from the
 	service layer rather than on Save or Value Change, so the event code is the method
 	name and notifications.queue() looks them up by it.
 	"""
+	from oan_grievance_service.services.notifications import (
+		RECIPIENT_ROLE_LEVEL,
+		RECIPIENT_TYPES,
+		ROLE_LEVEL_RECIPIENTS,
+		template_context,
+	)
+
 	made = []
 	for code, title, recipient, channels, _trigger, source, args in NOTIFICATION_EVENTS:
+		if recipient in ROLE_LEVEL_RECIPIENTS:
+			rec_type = RECIPIENT_ROLE_LEVEL
+			rec_role_level = ROLE_LEVEL_RECIPIENTS[recipient]
+		elif recipient in RECIPIENT_TYPES:
+			rec_type = recipient
+			rec_role_level = None
+		else:
+			rec_type = RECIPIENT_ROLE_LEVEL
+			rec_role_level = recipient
+
 		for channel in channels:
 			name = f"Grievance: {title} ({channel})"
 			if frappe.db.exists("Notification", name):
+				doc = frappe.get_doc("Notification", name)
+				needs_save = False
+				if not doc.get("grievance_recipient_type"):
+					doc.db_set("grievance_recipient_type", rec_type, update_modified=False)
+					needs_save = True
+				if rec_role_level and not doc.get("grievance_role_level"):
+					doc.db_set("grievance_role_level", rec_role_level, update_modified=False)
+					needs_save = True
+				if needs_save:
+					made.append(name)
 				continue
+			context_key = template_context(code, channel)
 			frappe.get_doc(
 				{
 					"doctype": "Notification",
@@ -755,18 +978,20 @@ def seed_notifications():
 					# Translatable like the body: the subject is rendered for email and
 					# reused as the in-app title, so a literal here reaches the
 					# recipient just as untranslated as a literal in the message.
-					"subject": _translatable(title, (), f"grievance.{code}.subject"),
+					"subject": _translatable(title, (), f"{context_key}.subject"),
 					"document_type": "Grievance",
 					"event": "Method",
 					"method": code,
 					"channel": channel,
 					"grievance_recipient": recipient,
-					"message": _translatable(source, args, f"grievance.{code}"),
+					"grievance_recipient_type": rec_type,
+					"grievance_role_level": rec_role_level,
+					"message": _translatable(source, args, context_key),
 					"message_type": "Plain Text",
 					# Deliberately not is_standard. A standard Notification loads its
 					# template from a file in the module folder and validate_standard()
 					# refuses edits outside developer mode, which is the opposite of the
-					# desk-editable wording FSD 3.11.7 asks for.
+					# desk-editable wording we need.
 					"is_standard": 0,
 					"enabled": 1,
 				}

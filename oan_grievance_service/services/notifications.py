@@ -1,14 +1,14 @@
-"""FR-08 Notifications and Communication, per the FSD Appendix C matrix.
+"""Notifications and communication.
 
 Configuration is a core Notification record per (event, channel). An administrator can
 change the channel, recipient, wording or enable state from the desk without a release,
-which is what FSD 3.11.7 asks for, and core gives us real Jinja rendering and a
+and core gives us real Jinja rendering and a
 condition expression for free.
 
 Delivery, however, is ours. Core renders a notification body exactly once, before it
 knows who it is addressed to (notification.py: the render at send_an_email precedes
 nothing that varies per recipient), and it never sets the language around that render.
-FSD 3.8 requires each citizen to be written to in their own language, so the send loop
+Each citizen is written to in their own language, so the send loop
 below does one render per recipient inside print_language(), which is the only point at
 which the recipient's language is known. Everything else - the template, the enable
 flag, the condition, the recipient role - stays in the admin-editable record.
@@ -18,7 +18,7 @@ per event, so both languages are editable from the desk. The consequence to reme
 the English source string is the translation key, so a stable context key is passed to
 _() and admins must edit the Amharic alongside any English rewording.
 
-The Appendix C closing note requires controls against redundant messaging, so a queued
+To guard against redundant messaging, a queued
 row is deduplicated on (grievance, event, recipient) and a disabled Notification, or one
 whose condition is false, sends nothing.
 """
@@ -35,6 +35,16 @@ from frappe.utils import now_datetime, strip_html_tags, validate_email_address
 RECIPIENT_SUBMITTER = "Submitter"
 RECIPIENT_ASSIGNED_OFFICER = "Assigned Officer"
 RECIPIENT_DEPARTMENT_OFFICER = "Department Officer"
+RECIPIENT_ROLE_LEVEL = "Role Level"
+
+RECIPIENT_TYPES = (
+	RECIPIENT_SUBMITTER,
+	RECIPIENT_ASSIGNED_OFFICER,
+	RECIPIENT_DEPARTMENT_OFFICER,
+	RECIPIENT_ROLE_LEVEL,
+)
+
+# Legacy aliases for backward compatibility with existing configs and tests
 RECIPIENT_NODAL_OFFICER = "Nodal Officer"
 RECIPIENT_DEPARTMENT_HEAD = "Department Head"
 RECIPIENT_TOP_LEVEL = "Top Level Authority"
@@ -54,6 +64,15 @@ ROLE_LEVEL_RECIPIENTS = {
 	RECIPIENT_DEPARTMENT_HEAD: "department_head",
 }
 
+# Flat recipient ids for the case participants. Every other recipient id is a
+# Grievance Role Level code.
+PARTICIPANT_IDS = {
+	RECIPIENT_SUBMITTER: "submitter",
+	RECIPIENT_ASSIGNED_OFFICER: "assigned_officer",
+	RECIPIENT_DEPARTMENT_OFFICER: "department_officer",
+}
+PARTICIPANTS_BY_ID = {recipient_id: recipient for recipient, recipient_id in PARTICIPANT_IDS.items()}
+
 CHANNEL_SMS = "SMS"
 CHANNEL_EMAIL = "Email"
 # Core's create_system_notification writes per-user Notification Log rows carrying
@@ -67,10 +86,329 @@ SUPPORTED_CHANNELS = (CHANNEL_SMS, CHANNEL_EMAIL, CHANNEL_SYSTEM)
 JINJA_BLOCK = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.DOTALL)
 
 
+ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
+	"ticket_number": {
+		"name": "ticket_number",
+		"label": "Ticket Number",
+		"description": "Canonical 9-character ticket reference",
+		"example": "3001002A0",
+	},
+	"service_category": {
+		"name": "service_category",
+		"label": "Service Category",
+		"description": "Name of the service category",
+		"example": "Fertilizer Distribution",
+	},
+	"grievance_type": {
+		"name": "grievance_type",
+		"label": "Grievance Type",
+		"description": "Specific grievance type",
+		"example": "Delayed Input Supply",
+	},
+	"assigned_dept": {
+		"name": "assigned_dept",
+		"label": "Assigned Department",
+		"description": "Responsible department handling the case",
+		"example": "Agricultural Inputs Bureau",
+	},
+	"department": {
+		"name": "department",
+		"label": "Department",
+		"description": "Alias for assigned department",
+		"example": "Agricultural Inputs Bureau",
+	},
+	"assigned_to": {
+		"name": "assigned_to",
+		"label": "Assigned Officer",
+		"description": "Email or User ID of the assigned officer",
+		"example": "officer.abebe@openagrinet.gov.et",
+	},
+	"sla_due_date": {
+		"name": "sla_due_date",
+		"label": "SLA Due Date",
+		"description": "Resolution deadline datetime",
+		"example": "2026-10-15 17:00:00",
+	},
+	"state_deadline": {
+		"name": "state_deadline",
+		"label": "State Deadline",
+		"description": "Confirmation window or state timer deadline",
+		"example": "2026-10-22 17:00:00",
+	},
+	"status": {
+		"name": "status",
+		"label": "Status",
+		"description": "Current lifecycle status of the grievance",
+		"example": "In Progress",
+	},
+	"submitter_name": {
+		"name": "submitter_name",
+		"label": "Submitter Name",
+		"description": "Name of citizen or organization",
+		"example": "Abebe Bikila",
+	},
+	"closure_reason": {
+		"name": "closure_reason",
+		"label": "Closure Reason",
+		"description": "Explanation provided upon case closure",
+		"example": "Resolved following input delivery",
+	},
+}
+
+
+def get_allowed_template_placeholders() -> set[str]:
+	"""Allowed fieldnames that can be used as placeholders in notification templates."""
+	return set(ALLOWED_TEMPLATE_PLACEHOLDERS.keys())
+
+
+def get_template_placeholders_metadata() -> list[dict[str, str]]:
+	"""Return curated placeholder metadata for API responses."""
+	return list(ALLOWED_TEMPLATE_PLACEHOLDERS.values())
+
+
+def simplify_jinja_expression(code: str) -> str:
+	"""Parse an AST inside {{ ... }} and return simplified text with {fieldname} placeholders."""
+	import ast
+
+	try:
+		node = ast.parse(code.strip(), mode="eval").body
+	except Exception:
+		return code
+
+	# Pattern 1: _('...', context='...').format(doc.a, doc.b)
+	if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+		inner = node.func.value
+		if isinstance(inner, ast.Call) and getattr(inner.func, "id", None) == "_" and inner.args:
+			source_text = getattr(inner.args[0], "value", None)
+			if isinstance(source_text, str):
+				args = []
+				for arg in node.args:
+					if isinstance(arg, ast.Attribute) and getattr(arg.value, "id", None) == "doc":
+						args.append(arg.attr)
+					elif isinstance(arg, ast.Name):
+						args.append(arg.id)
+					else:
+						args.append(ast.unparse(arg))
+				for i, arg_name in enumerate(args):
+					source_text = source_text.replace(f"{{{i}}}", f"{{{arg_name}}}")
+				return source_text
+
+	# Pattern 2: _('...', context='...')
+	if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args:
+		source_text = getattr(node.args[0], "value", None)
+		if isinstance(source_text, str):
+			return source_text
+
+	# Pattern 3: doc.fieldname
+	if isinstance(node, ast.Attribute) and getattr(node.value, "id", None) == "doc":
+		return f"{{{node.attr}}}"
+
+	return code
+
+
+def unpack_template(template_str: str) -> str:
+	"""Convert a compiled Jinja template into a clean user-facing template with {field} placeholders."""
+	if not template_str:
+		return ""
+
+	def _repl(m):
+		return simplify_jinja_expression(m.group(1))
+
+	res = re.sub(r"\{\{\s*(.*?)\s*\}\}", _repl, template_str)
+	return res.strip()
+
+
+def extract_placeholders(template_str: str) -> list[str]:
+	"""Extract placeholder names from a simplified or compiled template string."""
+	simplified = unpack_template(template_str)
+	raw_matches = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}", simplified)
+	unique_vars = []
+	for p in raw_matches:
+		clean = p.removeprefix("doc.")
+		if clean not in unique_vars:
+			unique_vars.append(clean)
+	return unique_vars
+
+
+def get_source_text(compiled: str) -> str:
+	"""Extract the source string from a compiled translatable Jinja expression."""
+	import ast
+
+	m = re.search(r"\{\{\s*(.*?)\s*\}\}", compiled)
+	if not m:
+		return compiled
+	expr = m.group(1)
+	try:
+		node = ast.parse(expr, mode="eval").body
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+			node = node.func.value
+		if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args:
+			val = getattr(node.args[0], "value", None)
+			if isinstance(val, str):
+				return val
+	except Exception:
+		pass
+	return compiled
+
+
+PLACEHOLDER = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_.]*)\}")
+
+
+def _placeholder_field(name: str, validate_fields: bool) -> str:
+	field = name.removeprefix("doc.")
+	allowed = get_allowed_template_placeholders()
+	if validate_fields and field not in allowed:
+		frappe.throw(
+			_("Unknown placeholder '{{{0}}}'. Use one of: {1}.").format(field, ", ".join(sorted(allowed))),
+			frappe.ValidationError,
+		)
+	return field
+
+
+def compile_simple_segment(text: str, context_key: str, validate_fields: bool = True) -> str:
+	"""Compile a plain text segment into {{ _('...', context='...').format(...) }}."""
+	text = text.strip()
+	if not text:
+		return ""
+
+	# Only {placeholder} may carry braces: a stray brace breaks .format() and a stray
+	# }} or %} breaks the Jinja the text is wrapped in.
+	if re.search(r"[{}]", PLACEHOLDER.sub("", text)):
+		frappe.throw(
+			_("Template text may only use braces for placeholders such as {ticket_number}."),
+			frappe.ValidationError,
+		)
+
+	unique_vars = list(
+		dict.fromkeys(_placeholder_field(p, validate_fields) for p in PLACEHOLDER.findall(text))
+	)
+
+	formatted_text = text
+	for i, var_name in enumerate(unique_vars):
+		formatted_text = re.sub(rf"\{{(?:doc\.)?{re.escape(var_name)}\}}", f"{{{i}}}", formatted_text)
+
+	call = f"_({formatted_text!r}, context={context_key!r})"
+	if unique_vars:
+		args_str = ", ".join("doc.assigned_dept" if v == "department" else f"doc.{v}" for v in unique_vars)
+		call += f".format({args_str})"
+
+	return f"{{{{ {call} }}}}"
+
+
+def compile_template(text: str, context_key: str, validate_fields: bool = True) -> str:
+	"""Compile user-facing simplified text into translatable Jinja format.
+
+	Accepts `{field}` placeholders and one optional `{% if field %}...{% else %}...{% endif %}`
+	tail, whose condition must itself be an allowed placeholder field.
+	"""
+	if not text:
+		return ""
+	text = text.strip()
+
+	m = re.match(
+		r"^(.*?)\s*\{%\s*if\s+(.+?)\s*%\}([\s\S]*?)\{%\s*else\s*%\}([\s\S]*?)\{%\s*endif\s*%\}$",
+		text,
+		re.DOTALL,
+	)
+	if m:
+		base_part, cond, then_part, else_part = m.groups()
+		if not re.fullmatch(r"(?:doc\.)?[a-zA-Z_][a-zA-Z0-9_]*", cond.strip()):
+			frappe.throw(
+				_("Condition '{0}' must be a single placeholder field.").format(cond.strip()),
+				frappe.ValidationError,
+			)
+		cond_field = _placeholder_field(cond.strip(), validate_fields)
+		if cond_field == "department":
+			cond_field = "assigned_dept"
+		base_compiled = compile_simple_segment(base_part, context_key, validate_fields)
+		then_compiled = compile_simple_segment(then_part, f"{context_key}.then", validate_fields)
+		else_compiled = compile_simple_segment(else_part, f"{context_key}.else", validate_fields)
+		return f"{base_compiled} {{% if doc.{cond_field} %}}{then_compiled}{{% else %}}{else_compiled}{{% endif %}}"
+
+	return compile_simple_segment(text, context_key, validate_fields)
+
+
+def template_context(event_code: str, channel: str) -> str:
+	"""Per-channel translation context, so one channel's edits never touch another's Translation rows."""
+	return f"grievance.{event_code}.{frappe.scrub(channel)}"
+
+
+def get_translations_for_event(event_code: str, channel: str) -> dict[str, dict[str, str]]:
+	"""Return existing translations mapped by language for one event and channel."""
+	if not event_code or not channel or not getattr(frappe, "db", None):
+		return {}
+
+	body_ctx = template_context(event_code, channel)
+	subj_ctx = f"{body_ctx}.subject"
+	rows = frappe.get_all(
+		"Translation",
+		filters={"context": ["in", [body_ctx, subj_ctx]]},
+		fields=["language", "context", "translated_text"],
+	)
+	res: dict[str, dict[str, str]] = {}
+	for row in rows:
+		lang = row["language"]
+		if lang not in res:
+			res[lang] = {}
+		if row["context"] == body_ctx:
+			res[lang]["body"] = row["translated_text"]
+		elif row["context"] == subj_ctx:
+			res[lang]["subject"] = row["translated_text"]
+	return res
+
+
+def sync_translation(
+	language: str,
+	source_text: str,
+	context: str,
+	translated_text: str | None = None,
+):
+	"""Keep a Translation record in sync when notification wording changes."""
+	if not source_text or not context:
+		return
+
+	existing = frappe.db.get_value(
+		"Translation",
+		{"language": language, "context": context},
+		"name",
+	)
+	if existing:
+		trans_doc = frappe.get_doc("Translation", existing)
+		trans_doc.source_text = source_text
+		if translated_text is not None:
+			trans_doc.translated_text = translated_text
+		trans_doc.save(ignore_permissions=True)
+	elif translated_text:
+		frappe.get_doc(
+			{
+				"doctype": "Translation",
+				"language": language,
+				"source_text": source_text,
+				"context": context,
+				"translated_text": translated_text,
+			}
+		).insert(ignore_permissions=True)
+
+
+def sync_translations(context: str, source_text: str, provided: dict[str, str], source_changed: bool):
+	"""Write the translations given for one template segment, in any language.
+
+	When the English changed, a translation not given here was written for the old
+	wording, so it is removed rather than left to render stale text.
+	"""
+	for language, translated_text in provided.items():
+		sync_translation(language, source_text, context, translated_text)
+	if not source_changed:
+		return
+	for row in frappe.get_all("Translation", filters={"context": context}, fields=["name", "language"]):
+		if row.language not in provided:
+			frappe.delete_doc("Translation", row.name, ignore_permissions=True, force=True)
+
+
 def validate_notification(doc, method=None):
 	"""Keep Grievance notification wording translatable. Registered on Notification.
 
-	FSD 3.8 requires citizen messages in Amharic and English. The send path renders once
+	Citizen messages go out in Amharic and English. The send path renders once
 	per recipient inside print_language(), which only moves strings marked with _();
 	literal text typed into a template renders identically in every language. So a
 	Grievance notification carrying bare literal text would quietly send English to
@@ -108,21 +446,37 @@ def validate_notification(doc, method=None):
 			)
 
 
-def resolve_recipient(grievance, recipient_role, override=None):
-	"""Turn a recipient role into a User, or into a bare address where there is no User.
+def resolve_recipient(grievance, recipient_role, override=None, role_level=None):
+	"""Turn a recipient role or (recipient_type, role_level) pair into a User, or into a bare address.
 
-	This is the Link traversal core cannot do: receiver_by_document_field iterates a
-	child table and has no way to follow a Link to another doctype, so the department
-	officers on Grievance Department are unreachable from a Notification. Doing it here
-	is also why no denormalised recipient columns are needed on Grievance.
-
-	Addresses are resolved at send time and never stored on the Notification, so a staff
-	change does not misdirect notifications on historic cases.
+	Supports:
+	- Direct case participants: Submitter, Assigned Officer, Department Officer
+	- Dynamic role level: recipient_role == "Role Level" with role_level
+	- Legacy aliases: "Nodal Officer", "Top Level Authority", "Department Head"
+	- Direct role level names from Grievance Role Level (e.g. "nodal_officer", "zonal_officer")
 	"""
 	if override:
 		return override
 
+	# Normalize legacy role names or direct role levels
+	if recipient_role in ROLE_LEVEL_RECIPIENTS:
+		role_level = role_level or ROLE_LEVEL_RECIPIENTS[recipient_role]
+		recipient_role = RECIPIENT_ROLE_LEVEL
+	elif (
+		not role_level
+		and recipient_role not in PARTICIPANT_IDS
+		and recipient_role != RECIPIENT_ROLE_LEVEL
+		and frappe.db.exists("Grievance Role Level", recipient_role)
+	):
+		role_level = recipient_role
+		recipient_role = RECIPIENT_ROLE_LEVEL
+
 	if recipient_role == RECIPIENT_SUBMITTER:
+		# If the case has no contact details on file (e.g. submitter opted out via can_request_more_info=False),
+		# do not notify the submitter.
+		if not grievance.contact_mobile and not grievance.contact_email:
+			return None
+
 		# submitter is a Link to Submitter Profile, so the User is one hop away. Fall
 		# back to the contact snapshot for submitters who never registered a User.
 		if grievance.submitter:
@@ -137,10 +491,11 @@ def resolve_recipient(grievance, recipient_role, override=None):
 	if not grievance.assigned_dept:
 		return None
 
-	from oan_grievance_service.permissions import find_officer_by_role_level
+	if recipient_role == RECIPIENT_ROLE_LEVEL and role_level:
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			find_officer_by_role_level,
+		)
 
-	role_level = ROLE_LEVEL_RECIPIENTS.get(recipient_role)
-	if role_level:
 		officer = find_officer_by_role_level(
 			role_level,
 			department=grievance.assigned_dept,
@@ -149,48 +504,45 @@ def resolve_recipient(grievance, recipient_role, override=None):
 		if officer:
 			return officer
 
-	dept = frappe.db.get_value(
-		"Grievance Department",
-		grievance.assigned_dept,
-		["email_account", "head_of_dept", "nodal_officer", "senior_officer"],
-		as_dict=True,
+	if recipient_role == RECIPIENT_DEPARTMENT_OFFICER:
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			find_officer_by_role_level,
+		)
+
+		officer = (
+			find_officer_by_role_level(
+				"department_head",
+				department=grievance.assigned_dept,
+				administrative_area=grievance.administrative_area,
+			)
+			or find_officer_by_role_level(
+				"nodal_officer",
+				department=grievance.assigned_dept,
+				administrative_area=grievance.administrative_area,
+			)
+			or (grievance.assigned_to if getattr(grievance, "assigned_to", None) else None)
+		)
+		if officer:
+			return officer
+
+	# Officers come only from Grievance RBAC Assignment now, so an unresolved
+	# recipient means no assignment covers this case's department and area. The
+	# notification is dropped either way; without this it is dropped invisibly.
+	target_label = role_level or recipient_role
+	frappe.log_error(
+		title=f"Grievance notification recipient unresolved: {target_label}",
+		message=(
+			f"No recipient could be resolved for role '{target_label}' on grievance "
+			f"{grievance.name} (department '{grievance.assigned_dept}', administrative area "
+			f"'{grievance.administrative_area}'). Check the Grievance RBAC Assignment "
+			f"covering this department and area."
+		),
 	)
-	if not dept:
-		return None
-
-	dept_fallback = {
-		# email_account is a Data field holding a mailbox, not a User link. Every
-		# Department Officer event in Appendix C is email-only, which is what makes
-		# that safe: there is no mobile number to look up for a bare address.
-		RECIPIENT_DEPARTMENT_OFFICER: dept.email_account,
-		RECIPIENT_DEPARTMENT_HEAD: dept.head_of_dept,
-		RECIPIENT_NODAL_OFFICER: dept.nodal_officer,
-		RECIPIENT_TOP_LEVEL: dept.senior_officer or dept.head_of_dept,
-	}
-	return dept_fallback.get(recipient_role)
-
-
-def notifications_for(event_code):
-	"""Every enabled Notification wired to an Appendix C event.
-
-	Events are carried on core's "Method" trigger rather than Save/Value Change: the
-	lifecycle fires them explicitly from the service layer, so there is one Notification
-	per (event, channel) and the channel Select decides which transport runs.
-	"""
-	return frappe.get_all(
-		"Notification",
-		filters={
-			"document_type": "Grievance",
-			"event": "Method",
-			"method": event_code,
-			"enabled": 1,
-		},
-		pluck="name",
-	)
+	return None
 
 
 def _recipient_language(recipient):
-	"""The language to render in, per FSD 3.8.
+	"""The language to render in.
 
 	get_user_lang carries core's own fallback chain (User.language, then System
 	Settings, then en), but it assumes the argument is a User. Bare addresses - the
@@ -203,9 +555,9 @@ def _recipient_language(recipient):
 
 
 def _already_queued(grievance_name, event_code, recipient, channel):
-	"""Appendix C note: guard against redundant messaging.
+	"""Guard against redundant messaging.
 
-	The key includes the channel. Appendix C's "SMS + Email" rows are two Notification
+	The key includes the channel. "SMS + Email" events are two Notification
 	records here, because core's channel is a single Select, and both are meant to go
 	out - so deduplicating on (grievance, event, recipient) alone would silently drop
 	whichever of the pair was queued second.
@@ -224,7 +576,7 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 
 
 def queue(grievance, event_code, recipient_override=None):
-	"""Write a Grievance Notification Log row for an Appendix C event.
+	"""Write a Grievance Notification Log row for an event.
 
 	Returns the log rows created, which is an empty list when every matching
 	Notification is disabled, fails its condition, or has already been sent for this
@@ -232,7 +584,14 @@ def queue(grievance, event_code, recipient_override=None):
 	"""
 	rows = []
 
-	for notification_name in notifications_for(event_code):
+	# Events use core's "Method" trigger rather than Save/Value Change: the lifecycle
+	# fires them explicitly, so there is one Notification per (event, channel).
+	notification_names = frappe.get_all(
+		"Notification",
+		filters={"document_type": "Grievance", "event": "Method", "method": event_code, "enabled": 1},
+		pluck="name",
+	)
+	for notification_name in notification_names:
 		notification = frappe.get_doc("Notification", notification_name)
 		context = get_context(grievance)
 
@@ -241,8 +600,18 @@ def queue(grievance, event_code, recipient_override=None):
 		if notification.condition and not frappe.safe_eval(notification.condition, None, context):
 			continue
 
-		recipient_role = notification.get("grievance_recipient") or RECIPIENT_SUBMITTER
-		recipient = resolve_recipient(grievance, recipient_role, recipient_override)
+		recipient_role = (
+			notification.get("grievance_recipient_type")
+			or notification.get("grievance_recipient")
+			or RECIPIENT_SUBMITTER
+		)
+		role_level = notification.get("grievance_role_level")
+		recipient = resolve_recipient(
+			grievance,
+			recipient_role,
+			role_level=role_level,
+			override=recipient_override,
+		)
 		if not recipient:
 			continue
 
@@ -280,18 +649,90 @@ def queue(grievance, event_code, recipient_override=None):
 	return rows
 
 
+# The auth service names every User it registers with a synthetic address in this
+# domain and keeps the real one in the custom `oan_login_email` field, because core's
+# User.validate copies `name` back into `email` on every save (user/user.py:222).
+# So `User.email` is never a mailbox for a registered submitter or officer.
+SYNTHETIC_ADDRESS_DOMAIN = "@id.openagrinet.internal"
+
+
+def _submitter_profile_for(recipient, grievance):
+	"""The submitter's profile name when the queued row is addressed to a registered
+	submitter, else None.
+
+	`resolve_recipient` hands back the submitter's User when they registered one.
+	When they did not, it hands back the bare contact snapshot from the case, and
+	this returns None: there is no registered contact to prefer.
+	"""
+	if not grievance.submitter:
+		return None
+	user = frappe.db.get_value("Grievance Submitter Profile", grievance.submitter, "user")
+	return grievance.submitter if user and user == recipient else None
+
+
+def _address_candidates(recipient, grievance, profile_field, user_fields, case_field):
+	"""Where to look for a recipient's contact, in order.
+
+	Precedence, agreed on PR #26 review: for a registered submitter the registered
+	contact always wins, first the profile (which the farmer can update) and then
+	the User record (from registration). The contact snapshot on the case is used
+	only for a submitter with no account, a walk-in or IVR caller that staff filed,
+	where the snapshot is the only contact there is. For staff recipients only the
+	User record applies. The snapshot is taken at filing time, so for a registered
+	farmer it can only ever equal or lag the profile, never lead it.
+	"""
+	candidates = []
+	profile = _submitter_profile_for(recipient, grievance)
+	if profile:
+		candidates.append(frappe.db.get_value("Grievance Submitter Profile", profile, profile_field))
+
+	if frappe.db.exists("User", recipient):
+		for fieldname in user_fields:
+			if frappe.db.has_column("User", fieldname):
+				candidates.append(frappe.db.get_value("User", recipient, fieldname))
+	else:
+		# No account: the row carries the contact snapshot itself.
+		candidates += [getattr(grievance, case_field, None), recipient]
+	return candidates
+
+
+def _deliverable_email(recipient, grievance):
+	"""The address a queued email row actually goes to.
+
+	Registered contact first (profile, then the User's login email), the case's
+	snapshot only for a submitter without an account. `User.email` is the last
+	resort and is skipped when it is the synthetic registration address. Found on
+	the dev bench: every acknowledgement email went to xxxx@id.openagrinet.internal,
+	which no mail server delivers.
+	"""
+	candidates = _address_candidates(
+		recipient, grievance, "contact_email", ("oan_login_email", "email"), "contact_email"
+	)
+	for address in candidates:
+		if not address:
+			continue
+		address = address.strip()
+		if address.lower().endswith(SYNTHETIC_ADDRESS_DOMAIN):
+			continue
+		if validate_email_address(address):
+			return address
+	raise ValueError(f"No deliverable email address for {recipient}")
+
+
+def _deliverable_mobile(recipient, grievance):
+	"""The number a queued SMS row actually goes to, same precedence as email."""
+	candidates = _address_candidates(recipient, grievance, "contact_mobile", ("mobile_no",), "contact_mobile")
+	for mobile in candidates:
+		if mobile and mobile.strip():
+			return mobile.strip()
+	raise ValueError(f"No mobile number for {recipient}")
+
+
 def _send_email_row(row, grievance):
 	"""Deliver one queued email row and return the Communication it threaded onto."""
 	from frappe.core.doctype.communication.email import _make as make_communication
 
-	recipient = row.recipient
-	# A User's name is its email address, but only when the User was registered with a
-	# real one. Submitters registered without an email carry a synthetic
-	# @id.openagrinet.internal address which is syntactically valid and undeliverable,
-	# so the address is checked before the send rather than after the bounce.
-	address = frappe.db.get_value("User", recipient, "email") or recipient
-	if not validate_email_address(address):
-		raise ValueError(f"{address} is not a deliverable email address")
+	address = _deliverable_email(row.recipient, grievance)
 
 	communication = make_communication(
 		doctype="Grievance",
@@ -316,23 +757,32 @@ def _send_email_row(row, grievance):
 	return {"communication": communication}
 
 
-def _send_sms_row(row):
+def _send_sms_row(row, grievance):
 	"""Deliver one queued SMS row.
 
 	Core writes an SMS Log only on gateway success, and not at all once a send_sms hook
 	is registered, so the Grievance Notification Log row is the durable evidence and the
 	sms_log link is opportunistic.
+
+	With no gateway configured, core's `_send_sms` only msgprints and returns, so a
+	row would be marked Sent for a message that never left. Found on the dev bench:
+	every SMS row read Sent with SMS Settings empty. Fail closed instead, so a
+	gateway that is missing or not answering shows up as Failed in the log.
 	"""
-	recipient = row.recipient
-	mobile = frappe.db.get_value("User", recipient, "mobile_no") or recipient
-	if not mobile:
-		raise ValueError(f"No mobile number for {recipient}")
+	mobile = _deliverable_mobile(row.recipient, grievance)
+	hooked = bool(frappe.get_hooks("send_sms"))
+
+	if not hooked and not frappe.db.get_single_value("SMS Settings", "sms_gateway_url"):
+		raise ValueError("No SMS gateway configured in SMS Settings; message not sent.")
 
 	before = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 	_send_sms([mobile], strip_html_tags(row.message), success_msg=False)
 	after = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 
-	return {"sms_log": after} if after and after != before else {}
+	delivered = bool(after and after != before)
+	if not hooked and not delivered:
+		raise ValueError("SMS gateway did not confirm delivery: no SMS Log was written.")
+	return {"sms_log": after} if delivered else {}
 
 
 def _send_system_row(row, grievance):
@@ -366,11 +816,14 @@ def _send_system_row(row, grievance):
 	return {}
 
 
-def dispatch_queued(limit=100):
+def dispatch_queued(limit=100, grievance=None):
 	"""Send whatever is queued. Called by the scheduler."""
+	filters = {"status": "Queued"}
+	if grievance:
+		filters["grievance"] = grievance
 	pending = frappe.get_all(
 		"Grievance Notification Log",
-		filters={"status": "Queued"},
+		filters=filters,
 		fields=["name", "grievance", "channel", "recipient", "message", "subject"],
 		limit=limit,
 		order_by="creation asc",
@@ -389,7 +842,7 @@ def dispatch_queued(limit=100):
 			if row.channel == CHANNEL_EMAIL:
 				update.update(_send_email_row(row, _get_cached_grievance(row.grievance)))
 			elif row.channel == CHANNEL_SMS:
-				update.update(_send_sms_row(row))
+				update.update(_send_sms_row(row, _get_cached_grievance(row.grievance)))
 			elif row.channel == CHANNEL_SYSTEM:
 				update.update(_send_system_row(row, _get_cached_grievance(row.grievance)))
 			else:

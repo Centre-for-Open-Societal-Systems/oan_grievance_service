@@ -2,10 +2,10 @@
 
 WHY THIS IS VERSIONED
 ---------------------
-FSD 3.2.1 specifies an offline-first Android app that "syncs when connectivity is
-restored", and FSD 7 targets farmers on low-connectivity and feature-phone channels.
-Both mean app builds stay in the field for months and cannot be force-upgraded. FSD
-section 6 additionally commits to bidirectional integration with ATI and MoA systems,
+The Android app is offline-first and syncs when connectivity is restored, and many
+farmers are on low-connectivity and feature-phone channels. Both mean app builds stay
+in the field for months and cannot be force-upgraded. The service also integrates
+bidirectionally with ATI and MoA systems,
 which are third-party release trains this project does not control.
 
 An unversioned endpoint would make every contract change a breaking change for every
@@ -37,7 +37,7 @@ VERSIONS = {
 		"status": "current",
 		"released_on": "2026-09-04",
 		"sunset_on": None,
-		"notes": "First public contract. FSD v1.3 D3 FR-02, FR-06, FR-07.",
+		"notes": "First public contract.",
 	},
 }
 
@@ -54,7 +54,6 @@ def version_meta(version=CURRENT_VERSION):
 from oan_grievance_service.api.router import (
 	ensure_routes_registered,
 	prefixed,
-	registered_routes,
 	rest,
 )
 
@@ -63,7 +62,6 @@ __all__ = [
 	"VERSIONS",
 	"ensure_routes_registered",
 	"prefixed",
-	"registered_routes",
 	"rest",
 	"version_meta",
 ]

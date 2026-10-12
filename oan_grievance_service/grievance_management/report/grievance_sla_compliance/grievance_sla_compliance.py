@@ -1,7 +1,7 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""FR-09 Reporting and Analytics: SLA compliance rates and average resolution times,
+"""SLA compliance rates and average resolution times,
 sliceable by category, region, department and date range.
 
 The report reads through the same permission query conditions as the list view, so a
@@ -11,6 +11,8 @@ department head sees their department's numbers and nobody sees more than their 
 import frappe
 from frappe import _
 from frappe.utils import flt, get_datetime
+
+from oan_grievance_service.services import constants as C
 
 
 def execute(filters=None):
@@ -99,7 +101,7 @@ def get_data(filters):
 			"Grievance Status History",
 			filters={
 				"grievance": ["in", [g.name for g in grievances]] if grievances else ["in", [""]],
-				"to_status": ["in", ["Resolved", "Closed"]],
+				"to_status": ["in", [C.STATE_RESOLVED, C.STATE_CLOSED]],
 			},
 			fields=["grievance", {"MIN": "timestamp", "as": "closed_at"}],
 			group_by="grievance",
@@ -137,7 +139,7 @@ def get_data(filters):
 
 
 def get_chart(rows):
-	"""FSD 3.9: SLA compliance rate as a headline figure."""
+	"""SLA compliance rate as a headline figure."""
 	met = sum(1 for r in rows if r["within_sla"] == "Yes")
 	missed = sum(1 for r in rows if r["within_sla"] == "No")
 	if not (met or missed):

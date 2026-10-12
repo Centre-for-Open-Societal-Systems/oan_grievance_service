@@ -143,12 +143,38 @@ class TestAdministrativeArea(FrappeTestCase):
 		self.assertIn("areas", res["data"])
 		self.assertGreaterEqual(res["data"]["count"], 1)
 
-		# Cascading drilldown with parent
+		# Cascading drilldown with single parent
 		res_child = get_areas(parent="region-ET14")
 		self.assertIn("data", res_child)
 		self.assertGreaterEqual(res_child["data"]["count"], 1)
 		for area in res_child["data"]["areas"]:
 			self.assertEqual(area["parent_administrative_area"], "region-ET14")
+
+		# Multi-parent drilldown as list
+		res_multi_list = get_areas(parent=["region-ET14", "region-ET07"])
+		self.assertIn("data", res_multi_list)
+		self.assertGreaterEqual(res_multi_list["data"]["count"], 1)
+		for area in res_multi_list["data"]["areas"]:
+			self.assertIn(area["parent_administrative_area"], ["region-ET14", "region-ET07"])
+
+		# Multi-parent drilldown as comma-separated string
+		res_multi_csv = get_areas(parent="region-ET14, region-ET07")
+		self.assertIn("data", res_multi_csv)
+		self.assertGreaterEqual(res_multi_csv["data"]["count"], 1)
+		for area in res_multi_csv["data"]["areas"]:
+			self.assertIn(area["parent_administrative_area"], ["region-ET14", "region-ET07"])
+
+		# Multi-parent drilldown with level_name filter (subtree intervals)
+		res_multi_tier = get_areas(parent=["region-ET14", "region-ET07"], level_name="Woreda")
+		self.assertIn("data", res_multi_tier)
+		for area in res_multi_tier["data"]["areas"]:
+			self.assertEqual(area["level_name"], "Woreda")
+
+		# Single level_name filtering
+		res_level = get_areas(level_name="Zone")
+		self.assertIn("data", res_level)
+		for area in res_level["data"]["areas"]:
+			self.assertEqual(area["level_name"], "Zone")
 
 		# Ancestor breadcrumbs lookup
 		res_ancestors = get_areas(ancestors_of="region-ET14")

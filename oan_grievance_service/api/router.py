@@ -13,7 +13,6 @@ from oan_auth_service.api.router import (
 	_exempt_paths,
 	_rules,
 	prefixed,
-	registered_routes,
 	rest,
 )
 from oan_auth_service.api.router import (
@@ -85,11 +84,20 @@ def _register() -> None:
 	from oan_grievance_service.api.v1 import (
 		administrative_area,
 		attachment,
+		category_assignment,
+		change_request,
+		charts,
 		dashboard,
 		draft,
 		grievance,
+		notification_template,
+		officer,
+		officer_statistics,
 		profile,
+		response_config,
+		sla_settings,
 		submitter,
+		taxonomy,
 	)
 
 	# An unbound copy each time. On a dev hot-reload Frappe rebuilds its URL map
