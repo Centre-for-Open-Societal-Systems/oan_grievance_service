@@ -180,6 +180,37 @@ class TestSlaSettings(FrappeTestCase):
 		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
 		self.assertEqual(config["sla_days"], 10)
 
+	def test_type_scoped_desk_department_is_included_in_sla_config_departments(self):
+		grievance_type = frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": "STG412 Sub Type",
+				"service_category": self.category,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": self.category,
+				"grievance_type_scope": grievance_type.name,
+				"department_scope": self.other_department,
+				"effective_from": frappe.utils.today(),
+				"active": 1,
+				"officers": [
+					{
+						"user": self.l1,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self._assign(sla_days=14)
+		config = self._config()
+		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
+
 	def test_update_changes_only_what_was_sent(self):
 		self._assign(sla_days=14)
 		config = self._config()
