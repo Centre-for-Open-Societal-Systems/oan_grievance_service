@@ -157,15 +157,11 @@ def _configuration_records(rows: list) -> list[dict]:
 	if departments:
 		for desk in frappe.get_all(
 			category_assignment.DOCTYPE,
-			filters={
-				"category_scope": ["in", list(departments)],
-				"active": 1,
-				"department_scope": ["is", "set"],
-			},
+			filters=category_assignment.serving_filters(category_scope=["in", list(departments)]),
 			fields=["category_scope", "department_scope"],
 			order_by="department_scope asc",
 		):
-			if desk.department_scope and desk.department_scope not in departments[desk.category_scope]:
+			if desk.department_scope not in departments[desk.category_scope]:
 				departments[desk.category_scope].append(desk.department_scope)
 	return [
 		SlaConfigurationRecord(
@@ -263,11 +259,9 @@ def list_sla_configurations(
 	if department:
 		served = frappe.get_all(
 			category_assignment.DOCTYPE,
-			filters={
-				"department_scope": resolve_department(department),
-				"active": 1,
-				"category_scope": ["is", "set"],
-			},
+			filters=category_assignment.serving_filters(
+				department_scope=resolve_department(department),
+			),
 			pluck="category_scope",
 		)
 		if "service_category" in filters:

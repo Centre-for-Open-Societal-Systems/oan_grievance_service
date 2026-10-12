@@ -124,6 +124,49 @@ class TestTaxonomy(FrappeTestCase):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 			self.assertEqual(update_service_category(CATEGORY)["code"], "VALIDATION_ERROR")
 
+	def test_create_service_category_with_sla_configuration(self):
+		name = "STG406 SLA Category"
+		code = "Q88"
+		res = create_service_category(
+			category_name=name,
+			code=code,
+			sla_days=14,
+			auto_escalate=True,
+			notify_on_breach=False,
+		)
+		self.assertEqual(res["status"], "success", msg=res)
+
+		sla_row = frappe.db.get_value(
+			"Grievance SLA Configuration",
+			{"service_category": name, "active": 1},
+			["name", "sla_days", "auto_escalate", "notify_on_breach", "active"],
+			as_dict=True,
+		)
+		self.assertIsNotNone(sla_row)
+		self.assertEqual(sla_row.sla_days, 14)
+		self.assertEqual(sla_row.auto_escalate, 1)
+		self.assertEqual(sla_row.notify_on_breach, 0)
+		self.assertEqual(sla_row.active, 1)
+
+	def test_create_service_category_with_invalid_sla_days(self):
+		with _keep_transaction():
+			for bad_sla in (0, -1):
+				res = create_service_category(
+					category_name="STG406 Bad SLA",
+					code="Q89",
+					sla_days=bad_sla,
+				)
+				self.assertEqual(res["code"], "VALIDATION_ERROR", msg=res)
+
+	def test_create_service_category_without_sla_days_leaves_sla_unconfigured(self):
+		name = "STG406 No SLA Category"
+		code = "Q90"
+		res = create_service_category(category_name=name, code=code)
+		self.assertEqual(res["status"], "success", msg=res)
+		self.assertFalse(
+			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
+		)
+
 	def test_missing_category_is_not_found(self):
 		for result in (
 			get_service_category("No such category"),

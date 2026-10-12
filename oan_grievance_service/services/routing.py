@@ -15,6 +15,9 @@ import frappe
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	get_area_bounds,
 )
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import sla
 
@@ -317,24 +320,38 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 	"""Pick an officer from the assignment's child officers based on routing_strategy.
 
 	Pass the grievance to restrict the pool to officers whose area covers it.
+	First-line cases go to the lowest available rung (L1 -> L2 -> L3 fallback).
+	Reviewers are read-only and are never assigned work.
 	"""
 	if not assignment_doc.get("officers"):
 		return None
 
-	# Only first-line officers take cases. A department head is reached by escalation and a
-	# reviewer only reads, so neither is assigned work here.
-	first_line = [
-		o
-		for o in assignment_doc.officers
-		if getattr(o, "active", 1) and getattr(o, "role_level", None) not in C.NON_ASSIGNEE_LEVELS
-	]
-	# Availability first: an officer on leave must not hide the next-nearest one.
-	active_officers = _covering_case(_available(first_line), grievance)
+	# Reviewers only read and are never assigned work.
+	eligible = _available(
+		[
+			o
+			for o in assignment_doc.officers
+			if getattr(o, "active", 1) and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER
+		]
+	)
+	if not eligible:
+		return None
+
+	# Cascade up the rungs (L1 nodal -> L2 senior -> L3 head): a higher rung only receives a case
+	# when no officer on a lower rung covering it is available. A rung no longer in the chain goes last.
+	order = {rung.name: rung.level_order for rung in GrievanceRoleLevel.get_chain()}
+	rank_of = {o.user: order.get(o.role_level, float("inf")) for o in eligible}
+	active_officers = []
+	for rank in sorted(set(rank_of.values())):
+		active_officers = _covering_case([o for o in eligible if rank_of[o.user] == rank], grievance)
+		if active_officers:
+			break
+
 	if not active_officers:
 		return None
 
-	# An officer others on the desk report to is the escalation tier: cases reach them by
-	# escalation, not as first-line assignments. If that leaves nobody, fall back to the roster.
+	# An officer others on the same rung report to is reached by escalation, not as a first-line
+	# assignment. If that leaves nobody, fall back to the rung.
 	supervisors = {o.reports_to for o in active_officers if getattr(o, "reports_to", None)}
 	active_officers = [o for o in active_officers if o.user not in supervisors] or active_officers
 

@@ -16,6 +16,9 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
 from oan_grievance_service.services.constants import NON_ASSIGNEE_LEVELS
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
@@ -32,6 +35,14 @@ def desk_filters(**extra) -> dict:
 		"category_scope": ["is", "set"],
 		"grievance_type_scope": ["is", "not set"],
 		"service_provider_scope": ["is", "not set"],
+		**extra,
+	}
+
+
+def serving_filters(**extra) -> dict:
+	"""Filters that select any active desk serving a category or department. Extra keys narrow or override them."""
+	return {
+		"active": 1,
 		**extra,
 	}
 
@@ -98,12 +109,12 @@ def create(
 	service_category: str,
 	department: str,
 	l1_officer: str,
-	l2_officer: str | None,
-	sla_days: int,
-	auto_escalate: bool,
-	active: bool,
+	l2_officer: str | None = None,
+	sla_days: int | None = None,
+	auto_escalate: bool = True,
+	active: bool = True,
 ):
-	"""Create the desk and set the category's SLA. Returns the desk."""
+	"""Create the desk, and set the category's SLA when `sla_days` is given. Returns the desk."""
 	state = {
 		"service_category": resolve_service_category(service_category),
 		"department": resolve_department(department),
@@ -119,7 +130,26 @@ def create(
 	desk.category_scope = state["service_category"]
 	_write_desk(desk, state, seats=(None, None))
 	desk.insert()
-	_save_sla(state["service_category"], sla_days, auto_escalate)
+	if sla_days is not None:
+		save_sla_configuration(state["service_category"], sla_days, auto_escalate)
+	return desk
+
+
+def open_desk(service_category: str, department: str, officer: dict):
+	"""Create the category-only desk of `department` for `service_category` with one officer row on it."""
+	desk = frappe.new_doc(DOCTYPE)
+	desk.update(
+		{
+			"category_scope": service_category,
+			"department_scope": department,
+			"effective_from": today(),
+			"routing_strategy": "Primary First",
+			"assigned_by": frappe.session.user,
+			"active": 1,
+		}
+	)
+	desk.append("officers", officer)
+	desk.insert()
 	return desk
 
 
@@ -139,11 +169,14 @@ def update(desk, changes: dict):
 	desk.save()
 	if {"sla_days", "auto_escalate"} & changes.keys():
 		sla = active_sla_rows([desk.category_scope]).get(desk.category_scope)
-		_save_sla(
-			desk.category_scope,
-			changes.get("sla_days", sla.sla_days if sla else None),
-			changes.get("auto_escalate", bool(sla.auto_escalate) if sla else None),
-		)
+		sla_days = changes.get("sla_days", sla.sla_days if sla else None)
+		# A category with no SLA yet gets one only once sla_days is given.
+		if sla_days is not None:
+			save_sla_configuration(
+				desk.category_scope,
+				sla_days,
+				changes.get("auto_escalate", bool(sla.auto_escalate) if sla else True),
+			)
 
 
 def _update_desk(desk, changes: dict):
@@ -221,13 +254,3 @@ def _assert_nobody_reports_to(desk, users: set, keep: dict):
 			),
 			frappe.ValidationError,
 		)
-
-
-def _save_sla(service_category: str, sla_days: int, auto_escalate: bool):
-	row = active_sla_rows([service_category]).get(service_category)
-	sla = frappe.get_doc(SLA_DOCTYPE, row.name) if row else frappe.new_doc(SLA_DOCTYPE)
-	sla.service_category = service_category
-	sla.sla_days = sla_days
-	sla.auto_escalate = 1 if auto_escalate else 0
-	sla.active = 1
-	sla.save()

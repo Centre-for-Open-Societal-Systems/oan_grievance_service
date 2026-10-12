@@ -4396,15 +4396,16 @@ paths:
       summary: Create an officer
       description: 'Make a login an officer or a Reviewer on the category desks of a department. role
         defaults to Officer. An Officer needs level (L1, L2 or L3), department, service_categories and
-        designation; level L3 makes a department head, who is reached by escalation and is not assigned
-        first-line cases. A Reviewer needs department and service_categories and takes no level or reports_to:
-        they read those desks'' cases only, are never assigned one and cannot change one. Every service
-        category must already have a category assignment for the department. reports_to is an L2 officer
-        and is only for an L1. The login is created when the email is new. An existing login keeps its
-        own roles and is given the officer or review role; a System Manager or Administrator is never
-        managed here. temporary_password is required: the account holder signs in with it only to replace
-        it through /api/v1/auth/password/initial. It is applied to a new login only. An email that already
-        has a login keeps its own password and the message says so.'
+        designation; level L3 makes a department head. A Reviewer needs department and service_categories
+        and takes no level or reports_to: they read those desks'' cases only, are never assigned one and
+        cannot change one. For an L1, L2 or Reviewer every service category must already have a category
+        assignment for the department. For an L3 a missing category assignment is created with the head
+        on it, and with create_department (default true) an unknown department is created too. reports_to
+        is an L2 officer and is only for an L1. The login is created when the email is new. An existing
+        login keeps its own roles and is given the officer or review role; a System Manager or Administrator
+        is never managed here. temporary_password is required: the account holder signs in with it only
+        to replace it through /api/v1/auth/password/initial. It is applied to a new login only. An email
+        that already has a login keeps its own password and the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -5781,7 +5782,8 @@ paths:
       description: Create a category with a name, a unique 3-character ticket code, a sort order and whether
         it is the default, the category unclassified cases fall to. Making it the default clears the flag
         on the previous default. The code uses the ticket alphabet, which excludes I, L, O and U. It cannot
-        change once tickets have been issued under the category.
+        change once tickets have been issued under the category. Optional sla_days, auto_escalate, and
+        notify_on_breach establish the category's SLA configuration atomically.
       operationId: post_api_v1_service_categories
       responses:
         '200':
@@ -8973,6 +8975,8 @@ components:
         sla_days:
           minimum: 1
           type: integer
+          default: null
+          nullable: true
         auto_escalate:
           default: true
           type: boolean
@@ -8983,7 +8987,6 @@ components:
       - service_category
       - department
       - l1_officer
-      - sla_days
       type: object
     UpdateCategoryAssignment:
       additionalProperties: false
@@ -9330,6 +9333,10 @@ components:
           type: string
           default: null
           nullable: true
+        create_department:
+          default: true
+          description: 'Department head (L3) only: create the department when no department matches it'
+          type: boolean
       required:
       - full_name
       - email
@@ -9641,6 +9648,18 @@ components:
         is_default:
           default: false
           description: Make this the category unclassified cases fall to
+          type: boolean
+        sla_days:
+          minimum: 1
+          type: integer
+          default: null
+          description: Resolution deadline in working days
+          nullable: true
+        auto_escalate:
+          default: true
+          type: boolean
+        notify_on_breach:
+          default: true
           type: boolean
       required:
       - category_name

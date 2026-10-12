@@ -20,6 +20,33 @@ def get_active_config(name: str):
 	return frappe.get_doc("Grievance SLA Configuration", name)
 
 
+def save_sla_configuration(
+	service_category: str,
+	sla_days: int,
+	auto_escalate: bool = True,
+	notify_on_breach: bool | None = None,
+):
+	"""Create or update the active SLA configuration for a service category."""
+	name = frappe.db.get_value(
+		"Grievance SLA Configuration",
+		{"service_category": service_category, "active": 1},
+		"name",
+	)
+	sla = (
+		frappe.get_doc("Grievance SLA Configuration", name)
+		if name
+		else frappe.new_doc("Grievance SLA Configuration")
+	)
+	sla.service_category = service_category
+	sla.sla_days = sla_days
+	sla.auto_escalate = 1 if auto_escalate else 0
+	if notify_on_breach is not None:
+		sla.notify_on_breach = 1 if notify_on_breach else 0
+	sla.active = 1
+	sla.save()
+	return sla
+
+
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
 		self.validate_one_active_row()

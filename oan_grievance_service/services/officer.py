@@ -14,7 +14,7 @@ read exactly what an admin edits here:
 
 A department head (L3) is an officer on the department's desks like the others, at the rung
 `department_head`: cases reach them by escalation and they approve the department's
-reassignments, so routing does not hand them first-line cases.
+reassignments, and take first-line cases only as a fallback if no junior or senior officer is available.
 
 A Reviewer is placed on the department's desks the same way, at the inactive level
 `review_officer`. They are not assigned cases and cannot change any, and what they read is
@@ -38,9 +38,13 @@ from frappe.query_builder.functions import Count
 from pypika.functions import Max
 from pypika.terms import Case
 
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+	top_rung,
+)
 from oan_grievance_service.services import account, category_assignment
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.resolvers import (
+	find_department,
 	resolve_administrative_area,
 	resolve_department,
 	resolve_service_category,
@@ -83,10 +87,14 @@ def create(
 	region: str | None = None,
 	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
+	create_department: bool = True,
 ) -> tuple[str, bool]:
 	"""Make `email` an officer, or a reviewer, on the category desks of `department`.
 
 	Returns the user id and whether `temporary_password` was applied.
+
+	A department head is how a department is staffed first: with `create_department` an unknown
+	department is created for them, and any of their categories without a desk there gets one.
 
 	An existing login with no desk rows is promoted, so an admin can staff someone who
 	already has an account. A login that is already an officer or reviewer is rejected, and so
@@ -99,7 +107,6 @@ def create(
 	tells the admin when that happened.
 	"""
 	_assert_status(role, status)
-	desks = _category_desks(resolve_department(department), service_categories)
 	existing = role_of(email)
 	if existing:
 		message = (
@@ -114,10 +121,18 @@ def create(
 	placement["administrative_area"] = _resolve_region(region)
 	placement["reports_to"] = _resolve_supervisor(reports_to, level)
 
+	is_head = _is_head(level)
+	if is_head and create_department and department and not find_department(department):
+		frappe.get_doc({"doctype": "Grievance Department", "dept_name": department.strip()}).insert()
+	department = resolve_department(department)
+	desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
+
 	user = account.new_or_existing_user(email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
+	for category in sorted(missing):
+		category_assignment.open_desk(category, department, {"user": user.name, **placement})
 	if not has_login:
 		account.issue_temporary_password(user.name, temporary_password)
 	if role == REVIEWER_ROLE and status == "Inactive":
@@ -209,20 +224,20 @@ def update(user_id: str, changes: dict) -> str:
 		row_changes["reports_to"] = _resolve_supervisor(changes["reports_to"], level)
 
 	department = resolve_department(changes["department"]) if "department" in changes else current.department
-	desks = _category_desks(department, changes.get("service_categories", current.categories))
+	desks, missing = _category_desks(
+		department, changes.get("service_categories", current.categories), allow_missing=_is_head(level)
+	)
 	target = {desk.name for desk in desks}
+	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
 		account.set_enabled(user_id, True)
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
-		_save_desk(
-			name,
-			user_id,
-			row_changes,
-			on_new={**_placement(role, level, status or current.status), "designation": designation},
-		)
+		_save_desk(name, user_id, row_changes, on_new=on_new)
+	for category in sorted(missing):
+		category_assignment.open_desk(category, department, {"user": user_id, **on_new, **row_changes})
 	if role == REVIEWER_ROLE and status == "Inactive":
 		# After the rows, so they are retired before the login stops existing for the desk.
 		account.set_enabled(user_id, False)
@@ -471,8 +486,17 @@ def _rows(user_ids: list[str], role: str | None = None) -> list:
 	)
 
 
-def _category_desks(department: str, categories: list[str]) -> list:
-	"""The category-only desk of `department` for each category. Every one must exist."""
+def _is_head(level: str | None) -> bool:
+	"""Whether `level` is the top rung, the department head who opens the desks their categories lack."""
+	top = top_rung()
+	return bool(top) and LEVEL_CODES.get(level) == top
+
+
+def _category_desks(department: str, categories: list[str], allow_missing: bool = False) -> tuple[list, set]:
+	"""The category-only desks of `department` for `categories`, and the categories that have none.
+
+	A missing desk is an error unless `allow_missing`.
+	"""
 	if not categories:
 		frappe.throw(_("An officer needs at least one service category."), frappe.ValidationError)
 	names = list(dict.fromkeys(resolve_service_category(value) for value in categories))
@@ -482,7 +506,7 @@ def _category_desks(department: str, categories: list[str]) -> list:
 		fields=["name", "category_scope", "department_scope"],
 	)
 	missing = set(names) - {desk.category_scope for desk in desks}
-	if missing:
+	if missing and not allow_missing:
 		frappe.throw(
 			_(
 				"{0} has no category assignment for: {1}. Create it first. "
@@ -490,7 +514,7 @@ def _category_desks(department: str, categories: list[str]) -> list:
 			).format(department, ", ".join(sorted(missing))),
 			frappe.ValidationError,
 		)
-	return desks
+	return desks, missing
 
 
 def _assert_status(role: str, status: str) -> None:

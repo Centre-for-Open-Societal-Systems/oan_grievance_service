@@ -98,7 +98,13 @@ Whenever you add, modify, or deprecate an API endpoint:
    ```bash
    python kong/generate_kong_config_from_spec.py
    ```
-5. **Update Postman Collection**: Maintain endpoint examples and automated tests in `postman/oan_grievance_rest_collection.json`.
+5. **Sync Postman Collection**: Run the sync utility to scaffold any newly added routes and verify parity:
+   ```bash
+   python postman/sync_postman_from_spec.py
+   # Or verify parity in CI mode:
+   python postman/sync_postman_from_spec.py --check
+   ```
+   Maintain scenario-specific endpoint examples and automated tests in `postman/oan_grievance_rest_collection.json`.
 
 ---
 

@@ -147,16 +147,19 @@ Response `200`:
 
 `POST /api/v1/service-categories`
 
-| Body field      | Type    | Required | Default       | Notes                                                     |
-| :-------------- | :------ | :------- | :------------ | :-------------------------------------------------------- |
-| `category_name` | string  | yes      |               | Up to 140 characters, unique, whitespace trimmed          |
-| `code`          | string  | yes      |               | 3-character ticket code (see section 3). Unique           |
-| `sort_order`    | integer | no       | last position | 0 or more. Omit to place the category at the end          |
-| `is_active`     | boolean | no       | `true`        | Must be `true` when `is_default` is `true`                |
-| `is_default`    | boolean | no       | `false`       | `true` makes this the default and clears the previous one |
+| Body field         | Type    | Required | Default       | Notes                                                     |
+| :----------------- | :------ | :------- | :------------ | :-------------------------------------------------------- |
+| `category_name`    | string  | yes      |               | Up to 140 characters, unique, whitespace trimmed          |
+| `code`             | string  | yes      |               | 3-character ticket code (see section 3). Unique           |
+| `sort_order`       | integer | no       | last position | 0 or more. Omit to place the category at the end          |
+| `is_active`        | boolean | no       | `true`        | Must be `true` when `is_default` is `true`                |
+| `is_default`       | boolean | no       | `false`       | `true` makes this the default and clears the previous one |
+| `sla_days`         | integer | no       |               | 1 or more. When set, creates an SLA configuration row     |
+| `auto_escalate`    | boolean | no       | `true`        | Whether cases auto-escalate when threshold is reached     |
+| `notify_on_breach` | boolean | no       | `true`        | Whether escalation sends a breach notification            |
 
 ```json
-{ "category_name": "Infrastructure", "code": "007", "sort_order": 7, "is_active": true, "is_default": false }
+{ "category_name": "Infrastructure", "code": "007", "sort_order": 7, "is_active": true, "is_default": false, "sla_days": 14, "auto_escalate": true, "notify_on_breach": true }
 ```
 
 Response `200`: `data.service_category` is the record.
@@ -531,6 +534,9 @@ export interface CreateServiceCategoryBody {
   sort_order?: number;
   is_active?: boolean;
   is_default?: boolean;
+  sla_days?: number;
+  auto_escalate?: boolean;
+  notify_on_breach?: boolean;
 }
 
 export type UpdateServiceCategoryBody = Partial<{
