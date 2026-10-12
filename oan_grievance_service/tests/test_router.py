@@ -1162,10 +1162,3 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# Clean up
 		frappe.db.delete("Grievance Response Template", {"name": tmpl_id})
-
-	def test_dashboard_statistics_route_is_registered(self):
-		from oan_auth_service.api.router import _rules
-
-		routes = {(r.endpoint._route["path"], r.endpoint._route["methods"]) for r in _rules}
-		self.assertIn(("/api/v1/dashboard-statistics", ("GET",)), routes)
-		self.assertIn(("/api/v1/dashboard-statistics/refresh", ("POST",)), routes)

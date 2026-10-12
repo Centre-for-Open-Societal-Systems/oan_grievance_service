@@ -5,10 +5,12 @@
 
 Each chart is a builder over the rollups (services.dashboard_rollup), or, for the
 few admin-only charts that must show a real case, a small indexed query over
-Grievance. Two views share the builders:
+Grievance. Three views share the builders:
 
-- admin: `GET /api/v1/charts`, Grievance Admin only; every chart, and live
+- admin: `GET /api/v1/charts`, Grievance Admin; every chart, and live
   case detail where a chart has it.
+- officer: `GET /api/v1/charts`, Grievance Officer; the public charts, narrowed to the
+  caller's RBAC desks (see `caller_scope`).
 - public: `GET /api/v1/charts/<chart_id>`, Grievance Dashboard Reader; only charts marked public,
   which are counts from the rollups and never name a case, a person or a text.
 
@@ -26,7 +28,9 @@ import frappe
 from frappe.query_builder.functions import Min, Sum
 from frappe.utils import add_months, get_datetime, getdate, now_datetime
 from oan_auth_service.api.utils import to_tz_aware_iso
+from pypika.terms import Criterion
 
+from oan_grievance_service import permissions as perms
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard_rollup as rollup
 
@@ -72,20 +76,100 @@ class Chart:
 
 
 class Context:
-	"""What a builder needs besides the parameters: the view and the snapshot day."""
+	"""What a builder needs besides the parameters: the view, the scope and the snapshot day."""
 
-	def __init__(self, params, admin):
+	def __init__(self, params, admin, scope=None):
 		self.params = params
 		self.admin = admin
+		self.scope = scope
 		self.today = getdate(now_datetime())
 		self.snapshot_date = _latest_snapshot_date()
+
+
+# Caller scope
+# ------------
+
+
+@dataclass(frozen=True)
+class Clause:
+	"""One RBAC desk as rollup filters. `regions` None means any region."""
+
+	regions: tuple | None = None
+	service_category: str | None = None
+	assigned_dept: str | None = None
+
+
+def caller_scope(user=None):
+	"""The rollup filters for what `user` may see: None for no restriction, else desk clauses.
+
+	Mirrors permissions.grievance_query_conditions, as far as the rollups can. They are
+	grouped by region, category and department only, so:
+
+	- A desk's area counts as the Regions inside it. A desk below Region level cannot be
+	  narrowed to part of a region, so it contributes nothing rather than its whole region.
+	- A desk narrowed by grievance type or service provider contributes nothing.
+	- Cases an officer holds only through the reporting chain are not counted.
+
+	All three err towards showing less, never more. A user with no usable desk gets an empty
+	tuple, which matches nothing.
+	"""
+	user = user or frappe.session.user
+	if set(frappe.get_roles(user)) & perms.UNRESTRICTED_ROLES:
+		return None
+
+	scopes = perms.active_scopes(user)
+	bounds = perms.area_bounds(scopes)
+	clauses = []
+	for scope in scopes:
+		if scope.grievance_type_scope or scope.service_provider_scope:
+			continue
+		if not (scope.administrative_area_scope or scope.department_scope or scope.category_scope):
+			continue
+		regions = None
+		if scope.administrative_area_scope:
+			lft_rgt = bounds.get(scope.administrative_area_scope)
+			if not lft_rgt:
+				continue
+			regions = tuple(
+				sorted(
+					frappe.get_all(
+						"Grievance Administrative Area",
+						filters={"level_name": "Region", "lft": ["between", list(lft_rgt)]},
+						pluck="code",
+					)
+				)
+			)
+			if not regions:
+				continue
+		clauses.append(Clause(regions, scope.category_scope or None, scope.department_scope or None))
+	return tuple(dict.fromkeys(clauses))
+
+
+def _apply_scope(query, table, scope):
+	if scope is None:
+		return query
+	if not scope:
+		# `name` is never null, so this matches no row and every chart reads as zero.
+		return query.where(table.name.isnull())
+	desks = []
+	for clause in scope:
+		parts = []
+		if clause.regions is not None:
+			parts.append(table.region.isin(clause.regions))
+		if clause.service_category:
+			parts.append(table.service_category == clause.service_category)
+		if clause.assigned_dept:
+			parts.append(table.assigned_dept == clause.assigned_dept)
+		desks.append(Criterion.all(parts))
+	return query.where(Criterion.any(desks))
 
 
 # Reading the rollups
 # -------------------
 
 
-def _apply_filters(query, table, params):
+def _apply_filters(query, table, params, scope=None):
+	query = _apply_scope(query, table, scope)
 	if params.region:
 		query = query.where(table.region.isin(params.region))
 	if params.service_category:
@@ -119,7 +203,7 @@ def _snapshot(ctx, group_by, on_date=None, params=None):
 		# while rows from a retired state are still being migrated.
 		.where(S.status.isin(STATUS_ORDER))
 	)
-	query = _apply_filters(query, S, params or ctx.params)
+	query = _apply_filters(query, S, params or ctx.params, ctx.scope)
 	if columns:
 		query = query.groupby(*columns)
 	return query.run(as_dict=True)
@@ -135,7 +219,7 @@ def _daily(ctx, start, end, group_by=("stat_date",)):
 		.where(D.stat_date >= start)
 		.where(D.stat_date <= end)
 	)
-	query = _apply_filters(query, D, ctx.params)
+	query = _apply_filters(query, D, ctx.params, ctx.scope)
 	if columns:
 		query = query.groupby(*columns)
 	return query.run(as_dict=True)
@@ -598,24 +682,35 @@ CHARTS = {
 PUBLIC_CHARTS = tuple(chart_id for chart_id, chart in CHARTS.items() if chart.public)
 
 
-def get_chart(chart_id, params, admin):
-	"""Rows and as_of for one chart, from cache when possible. Raises on failure."""
+def get_chart(chart_id, params, admin, scope=None):
+	"""Rows and as_of for one chart, from cache when possible. Raises on failure.
+
+	`scope` is caller_scope() for the officer view; None otherwise. The admin view is never
+	scoped, because its live charts read Grievance and would ignore it.
+	"""
+	if admin and scope is not None:
+		raise ValueError("The admin view cannot be scoped")
 	chart = CHARTS[chart_id]
 	live = admin and chart.live_for_admin
 	refreshed = rollup.as_of()
 	used = params.used_by(chart)
 
 	fingerprint = json.dumps(
-		{"used": used, "as_of": None if live else str(refreshed)}, sort_keys=True, default=str
+		{
+			"used": used,
+			"as_of": None if live else str(refreshed),
+			"scope": None if scope is None else sorted(repr(clause) for clause in scope),
+		},
+		sort_keys=True,
+		default=str,
 	)
-	key = "grievance:charts:{}:{}:{}".format(
-		chart_id, "admin" if admin else "public", hashlib.sha256(fingerprint.encode()).hexdigest()
-	)
+	view = "admin" if admin else "public" if scope is None else "officer"
+	key = "grievance:charts:{}:{}:{}".format(chart_id, view, hashlib.sha256(fingerprint.encode()).hexdigest())
 	cached = frappe.cache.get_value(key)
 	if cached is not None:
 		return cached
 
-	rows = chart.build(Context(params, admin))
+	rows = chart.build(Context(params, admin, scope))
 	stamp = now_datetime() if live else refreshed
 	result = {"rows": rows, "as_of": to_tz_aware_iso(stamp) if stamp else None}
 	frappe.cache.set_value(key, result, expires_in_sec=LIVE_TTL if live else ROLLUP_TTL)

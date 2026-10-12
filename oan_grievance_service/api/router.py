@@ -87,7 +87,6 @@ def _register() -> None:
 		category_assignment,
 		change_request,
 		charts,
-		dashboard,
 		draft,
 		grievance,
 		notification_template,

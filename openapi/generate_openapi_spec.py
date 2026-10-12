@@ -1496,7 +1496,6 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.category_assignment",
 		"oan_grievance_service.api.v1.change_request",
 		"oan_grievance_service.api.v1.charts",
-		"oan_grievance_service.api.v1.dashboard",
 		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.notification_template",

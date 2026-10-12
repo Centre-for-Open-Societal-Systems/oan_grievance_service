@@ -81,8 +81,6 @@ doc_events = {
 # ------------------
 # A background process monitors open grievances against their SLA deadlines.
 # The batch must complete within 30 minutes.
-# FR-09 / STG-330: hourly rebuild of the dashboard reporting projection
-# (admins can also POST /api/v1/dashboard-statistics/refresh).
 
 scheduler_events = {
 	"hourly": [
@@ -96,9 +94,6 @@ scheduler_events = {
 		"oan_grievance_service.tasks.scan_pending_attachments",
 		# Process unrouted submitted cases through the routing engine in the background
 		"oan_grievance_service.tasks.drain_routing_queue",
-		# FR-09 / STG-330: rebuild dashboard reporting projection so KPI reads
-		# stay off the live Grievance table (lag capped at ~1h).
-		"oan_grievance_service.tasks.refresh_dashboard_projection",
 	],
 	"daily": [
 		"oan_grievance_service.tasks.purge_expired_drafts",
