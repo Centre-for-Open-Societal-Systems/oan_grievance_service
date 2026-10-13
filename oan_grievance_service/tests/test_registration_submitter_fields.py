@@ -153,7 +153,9 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 		self.assertEqual(res["status"], "error")
 		self.assertEqual(res["code"], "VALIDATION_ERROR")
 		self.assertEqual(frappe.response["http_status_code"], 400)
-		self.assertIn("Carrier Pigeon", res["message"])
+		self.assertEqual(
+			res["message"], "Submission Channel 'Carrier Pigeon' does not exist or is not active."
+		)
 		self.assertIsNone(_user_for(payload["email"]))
 
 	def test_inactive_channel_is_rejected_and_creates_no_user(self):

@@ -83,6 +83,12 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	if "Grievance Submitter" not in user_roles:
 		return
 
+	# The User insert that just ran leaves notices in the message log (no outgoing email
+	# account, a taken username). The API error envelope joins the whole log into its
+	# message, so without this a rejected registration would open with them and bury the
+	# actual reason.
+	frappe.clear_messages()
+
 	user_name = user_doc.name if hasattr(user_doc, "name") else user_doc.get("name")
 	full_name = user_doc.full_name if hasattr(user_doc, "full_name") else user_doc.get("full_name")
 	mobile_no = user_doc.mobile_no if hasattr(user_doc, "mobile_no") else user_doc.get("mobile_no")
