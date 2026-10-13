@@ -372,6 +372,15 @@ class TestSlaSettings(FrappeTestCase):
 	def test_remove_obsolete_pending_submitter_timers_migrates_to_resolved(self):
 		from oan_grievance_service.patches.remove_obsolete_pending_submitter_timers import execute
 
+		if not frappe.db.exists("Workflow State", "Pending Submitter"):
+			ws = frappe.get_doc(
+				{
+					"doctype": "Workflow State",
+					"workflow_state_name": "Pending Submitter",
+				}
+			).insert(ignore_permissions=True, ignore_links=True)
+			self.addCleanup(frappe.db.delete, "Workflow State", {"name": ws.name})
+
 		self._assign(sla_days=14)
 		config_name = self._config()["name"]
 
@@ -386,7 +395,7 @@ class TestSlaSettings(FrappeTestCase):
 				"hours": 72,
 				"on_expiry": "Auto Close",
 			}
-		).insert(ignore_permissions=True)
+		).insert(ignore_permissions=True, ignore_links=True)
 
 		# Second category that already has a Resolved timer
 		self._assign(category=self.other_category, department=self.other_department, sla_days=10)
@@ -401,7 +410,7 @@ class TestSlaSettings(FrappeTestCase):
 				"hours": 48,
 				"on_expiry": "Auto Close",
 			}
-		).insert(ignore_permissions=True)
+		).insert(ignore_permissions=True, ignore_links=True)
 		frappe.get_doc(
 			{
 				"doctype": "Grievance State Timer",
@@ -412,7 +421,7 @@ class TestSlaSettings(FrappeTestCase):
 				"hours": 120,
 				"on_expiry": "Auto Close",
 			}
-		).insert(ignore_permissions=True)
+		).insert(ignore_permissions=True, ignore_links=True)
 
 		execute()
 
