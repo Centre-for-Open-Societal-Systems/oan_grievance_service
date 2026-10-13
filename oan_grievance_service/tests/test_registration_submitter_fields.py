@@ -63,12 +63,8 @@ def _forget(email: str):
 	user = _user_for(email)
 	if not user:
 		return
-	for profile in frappe.get_all(
-		"Grievance Submitter Profile", filters={"user": user}, pluck="name"
-	):
-		frappe.delete_doc(
-			"Grievance Submitter Profile", profile, force=True, ignore_permissions=True
-		)
+	for profile in frappe.get_all("Grievance Submitter Profile", filters={"user": user}, pluck="name"):
+		frappe.delete_doc("Grievance Submitter Profile", profile, force=True, ignore_permissions=True)
 	frappe.delete_doc("User", user, force=True, ignore_permissions=True)
 	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
@@ -122,15 +118,11 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 			self.assertEqual(res["status"], "success")
 			user = _user_for(payload["email"])
 			self.assertEqual(
-				frappe.db.get_value(
-					"Grievance Submitter Profile", {"user": user}, "submission_channel"
-				),
+				frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "submission_channel"),
 				"Web Portal",
 			)
 			frappe.set_user(user)
-			self.assertEqual(
-				get_me()["data"]["profiles"]["grievance"]["submission_channel"], "Web Portal"
-			)
+			self.assertEqual(get_me()["data"]["profiles"]["grievance"]["submission_channel"], "Web Portal")
 		finally:
 			_forget(payload["email"])
 
@@ -140,9 +132,7 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 			self.assertEqual(res["status"], "success")
 			user = _user_for(payload["email"])
 			self.assertEqual(
-				frappe.db.get_value(
-					"Grievance Submitter Profile", {"user": user}, "submission_channel"
-				),
+				frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "submission_channel"),
 				"Web Portal",
 			)
 		finally:
@@ -288,14 +278,10 @@ class TestSubmissionChannelOnProfile(IsolatedTestCase):
 		self.assertEqual(self._save().submission_channel, "Web Portal")
 
 	def test_insert_with_channel_stores_it(self):
-		self.assertEqual(
-			self._save(submission_channel="IVR Helpline").submission_channel, "IVR Helpline"
-		)
+		self.assertEqual(self._save(submission_channel="IVR Helpline").submission_channel, "IVR Helpline")
 
 	def test_channel_is_matched_to_its_canonical_name(self):
-		self.assertEqual(
-			self._save(submission_channel=" mobile app ").submission_channel, "Mobile App"
-		)
+		self.assertEqual(self._save(submission_channel=" mobile app ").submission_channel, "Mobile App")
 
 	def test_update_keeps_a_stored_channel_when_none_is_sent(self):
 		self._save(submission_channel="Mobile App")
@@ -309,15 +295,11 @@ class TestSubmissionChannelOnProfile(IsolatedTestCase):
 
 	def test_update_with_a_channel_replaces_the_stored_one(self):
 		self._save(submission_channel="Mobile App")
-		self.assertEqual(
-			self._save(submission_channel="Mobile Call").submission_channel, "Mobile Call"
-		)
+		self.assertEqual(self._save(submission_channel="Mobile Call").submission_channel, "Mobile Call")
 
 	def test_update_fills_a_profile_that_has_no_channel(self):
 		profile = self._save(submission_channel="Mobile App")
-		frappe.db.set_value(
-			"Grievance Submitter Profile", profile.name, "submission_channel", None
-		)
+		frappe.db.set_value("Grievance Submitter Profile", profile.name, "submission_channel", None)
 		self.assertEqual(self._save().submission_channel, "Web Portal")
 
 	def test_invalid_channel_raises_a_clear_validation_error(self):
@@ -376,16 +358,12 @@ class TestSubmissionChannelPatchesAndOptions(IsolatedTestCase):
 
 		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 0)
 		frappe.db.set_value("Grievance Submission Type", "Mobile App", "code", None)
-		frappe.delete_doc(
-			"Grievance Submission Type", "IVR Helpline", force=True, ignore_permissions=True
-		)
+		frappe.delete_doc("Grievance Submission Type", "IVR Helpline", force=True, ignore_permissions=True)
 
 		execute()
 
 		for name, code in SUBMISSION_TYPES:
-			row = frappe.db.get_value(
-				"Grievance Submission Type", name, ["is_active", "code"], as_dict=True
-			)
+			row = frappe.db.get_value("Grievance Submission Type", name, ["is_active", "code"], as_dict=True)
 			self.assertIsNotNone(row, name)
 			self.assertEqual(row.is_active, 1, name)
 			self.assertEqual(row.code, code, name)
