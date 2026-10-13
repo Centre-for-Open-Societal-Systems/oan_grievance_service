@@ -6,6 +6,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	active_scopes,
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
+from oan_grievance_service.services import organization
 
 
 def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
@@ -39,6 +40,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		"dedupe_key",
 		"administrative_area",
 		"administrative_unit",
+		"organization",
 	]
 	profile = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, fields, as_dict=True)
 	if profile:
@@ -51,7 +53,17 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
 		contact = mask_contact(profile, show_identity=True)
 
+		details = organization.profile_details(profile.get("organization"))
+		if details:
+			# NGOs, FPOs and cooperatives have no national ID. A profile that was a person's
+			# before the organization was registered may still be keyed by one; it stays out,
+			# and the organization is identified by its registration number alone.
+			identities = [{"scheme": "org", "value": details["registration_number"]}]
+
+		# An NGO, FPO or cooperative representative also gets the organization itself:
+		# the profile only carries the filing-time copy of its name and contacts.
 		return "grievance", {
+			**details,
 			"profile_id": profile.get("name"),
 			"type": profile.get("submitter_type"),
 			"submitter_name": profile.get("submitter_name"),

@@ -11,6 +11,7 @@
   "submitter_name",
   "dedupe_key",
   "user",
+  "organization",
   "col_contact",
   "contact_mobile",
   "contact_email",
@@ -51,6 +52,16 @@
    "fieldtype": "Link",
    "label": "User Account",
    "options": "User",
+   "search_index": 1
+  },
+  {
+   "description": "Set when this profile represents a registered NGO, FPO or Cooperative. Filing then needs that organization to be Active and this login to be its representative.",
+   "fieldname": "organization",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Organization",
+   "options": "Grievance Organization",
+   "read_only": 1,
    "search_index": 1
   },
   {

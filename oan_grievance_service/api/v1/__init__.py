@@ -24,6 +24,8 @@ Endpoints
                                     (/api/v1/service-categories, /api/v1/grievance-types)
     v1.officer                      L1 / L2 officer profiles (/api/v1/officers)
     v1.officer_statistics           live L1/L2 officer performance figures
+    v1.organization                 NGO / FPO / cooperative registration and verification
+                                    (/api/v1/orgs, /api/v1/orgs/me, /api/v1/orgs/<id>/status)
     v1.sla_settings                 global SLA policy and per-category SLA windows
                                     (/api/v1/sla-policy, /api/v1/sla-configurations)
 

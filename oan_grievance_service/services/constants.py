@@ -19,6 +19,14 @@ STATE_CLOSED = "Closed"
 STATE_REJECTED = "Rejected"
 
 
+# Organisation (NGO / FPO / Cooperative) verification lifecycle. Held on Grievance
+# Organization.verification_status; services/organization.py owns the legal moves.
+ORG_STATUS_IN_REVIEW = "In Review"
+ORG_STATUS_ACTIVE = "Active"
+ORG_STATUS_SUSPENDED = "Suspended"
+ORG_TYPES = ("NGO", "FPO", "Cooperative")
+
+
 # The groups the dashboards count by. Awaiting Action is every state in which an
 # officer owes the next move. More Info Needed waits on the submitter, so it is open
 # but not awaiting. Resolved on the dashboards means Resolved or Closed.

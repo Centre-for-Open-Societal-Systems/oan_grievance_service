@@ -240,7 +240,13 @@ def find_or_create_submitter(payload: dict) -> str | None:
 			return existing
 
 	if mobile:
-		existing = frappe.db.get_value("Grievance Submitter Profile", {"contact_mobile": mobile}, "name")
+		# An organization's profile carries the organization's phone, which is not the
+		# identity of whoever happens to call from it.
+		existing = frappe.db.get_value(
+			"Grievance Submitter Profile",
+			{"contact_mobile": mobile, "organization": ["is", "not set"]},
+			"name",
+		)
 		if existing:
 			return existing
 

@@ -1,0 +1,257 @@
+{
+ "actions": [],
+ "autoname": "format:ORG-{#####}",
+ "creation": "2026-10-13 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "legal_name",
+  "brand_name",
+  "org_type",
+  "entity_type",
+  "registration_number",
+  "col_status",
+  "verification_status",
+  "status_reason",
+  "verified_by",
+  "verified_on",
+  "sec_representative",
+  "representative_user",
+  "representative_name",
+  "sec_contact",
+  "contact_email",
+  "contact_phone",
+  "website",
+  "sec_address",
+  "street_address",
+  "kebele",
+  "woreda",
+  "col_address",
+  "zone",
+  "region",
+  "country",
+  "postal_code"
+ ],
+ "fields": [
+  {
+   "fieldname": "legal_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Legal Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand_name",
+   "fieldtype": "Data",
+   "label": "Brand Name"
+  },
+  {
+   "description": "NGO, FPO or Cooperative. Same names as the seeded Grievance Submitter Types.",
+   "fieldname": "org_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Organization Type",
+   "options": "\nNGO\nFPO\nCooperative",
+   "reqd": 1
+  },
+  {
+   "fieldname": "entity_type",
+   "fieldtype": "Data",
+   "label": "Entity Type",
+   "reqd": 1
+  },
+  {
+   "description": "Registration / licence number. It anchors the representative's profile as org:<number>.",
+   "fieldname": "registration_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Registration Number",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "col_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "In Review",
+   "description": "Moves only along the transitions in services/organization.py.",
+   "fieldname": "verification_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Verification Status",
+   "options": "In Review\nActive\nSuspended",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "depends_on": "eval:doc.verification_status != 'Active'",
+   "fieldname": "status_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Decision"
+  },
+  {
+   "fieldname": "verified_by",
+   "fieldtype": "Link",
+   "label": "Decided By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "verified_on",
+   "fieldtype": "Datetime",
+   "label": "Decided On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_representative",
+   "fieldtype": "Section Break",
+   "label": "Authorized Representative"
+  },
+  {
+   "description": "The only login that may file, or act, for this organization.",
+   "fieldname": "representative_user",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Representative Account",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "representative_name",
+   "fieldtype": "Data",
+   "label": "Representative Name"
+  },
+  {
+   "fieldname": "sec_contact",
+   "fieldtype": "Section Break",
+   "label": "Contact Details"
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email",
+   "reqd": 1
+  },
+  {
+   "description": "E.164 mobile validated by country via phonenumbers (libphonenumber)",
+   "fieldname": "contact_phone",
+   "fieldtype": "Data",
+   "label": "Contact Phone",
+   "reqd": 1
+  },
+  {
+   "fieldname": "website",
+   "fieldtype": "Data",
+   "label": "Website",
+   "length": 255
+  },
+  {
+   "fieldname": "sec_address",
+   "fieldtype": "Section Break",
+   "label": "Registered Address"
+  },
+  {
+   "fieldname": "street_address",
+   "fieldtype": "Data",
+   "label": "Street Address",
+   "reqd": 1
+  },
+  {
+   "fieldname": "kebele",
+   "fieldtype": "Data",
+   "label": "Kebele"
+  },
+  {
+   "fieldname": "woreda",
+   "fieldtype": "Data",
+   "label": "Woreda"
+  },
+  {
+   "fieldname": "col_address",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone",
+   "reqd": 1
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Region",
+   "reqd": 1
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country",
+   "reqd": 1
+  },
+  {
+   "fieldname": "postal_code",
+   "fieldtype": "Data",
+   "label": "Postal Code",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-13 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance Organization",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Review Officer"
+  },
+  {
+   "if_owner": 1,
+   "read": 1,
+   "role": "Grievance Submitter"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "legal_name,registration_number",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "legal_name",
+ "track_changes": 1
+}

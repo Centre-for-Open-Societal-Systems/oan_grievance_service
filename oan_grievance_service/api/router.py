@@ -92,6 +92,7 @@ def _register() -> None:
 		notification_template,
 		officer,
 		officer_statistics,
+		organization,
 		profile,
 		response_config,
 		sla_settings,

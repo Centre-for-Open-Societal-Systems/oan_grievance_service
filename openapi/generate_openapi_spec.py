@@ -1501,6 +1501,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.notification_template",
 		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",
+		"oan_grievance_service.api.v1.organization",
 		"oan_grievance_service.api.v1.profile",
 		"oan_grievance_service.api.v1.response_config",
 		"oan_grievance_service.api.v1.sla_settings",
@@ -1892,6 +1893,10 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			{
 				"name": "Administration",
 				"description": "Category-to-department routing rules, and the response templates officers respond with",
+			},
+			{
+				"name": "Organizations",
+				"description": "NGO, FPO and cooperative registration, profile, and the admin verification queue",
 			},
 			{
 				"name": "Dashboard Charts",

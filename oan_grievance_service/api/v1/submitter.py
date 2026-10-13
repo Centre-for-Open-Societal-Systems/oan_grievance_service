@@ -27,6 +27,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	split_dedupe_key,
 )
+from oan_grievance_service.services import organization
 from oan_grievance_service.services.constants import STAFF_ROLES
 from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
@@ -407,6 +408,8 @@ def unblock_submitter(profile_id: str, **kwargs):
 		)
 
 	profile = frappe.get_doc("Grievance Submitter Profile", profile_id)
+	# An organization's profile is unblocked by activating the organization, not here.
+	organization.assert_can_unblock(profile)
 	profile.db_set({"is_blocked": 0, "blocked_reason": None}, update_modified=False)
 
 	return success_response(

@@ -1023,7 +1023,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - officer-core
     - bearer
     plugins:
@@ -1053,7 +1053,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1076,7 +1076,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1099,7 +1099,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1122,7 +1122,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1145,7 +1145,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1168,7 +1168,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1191,7 +1191,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1214,7 +1214,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1237,7 +1237,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1260,7 +1260,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1283,7 +1283,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1306,7 +1306,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1329,7 +1329,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1352,7 +1352,7 @@ services:
     - oan
     - grievance
     - v1
-    - d10
+    - d11
     - public-dashboards
     - frappe-token
     plugins:
@@ -1826,6 +1826,186 @@ services:
     - grievance
     - v1
     - d09
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: post-api-v1-orgs
+    methods:
+    - POST
+    paths:
+    - ~/api/v1/orgs$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-orgs
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/orgs$
+    strip_path: false
+    regex_priority: 3
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-orgs-me
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/orgs/me$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-orgs-me
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/orgs/me$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - citizen-intake
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 60
+        hour: 1000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: get-api-v1-orgs-org_id
+    methods:
+    - GET
+    paths:
+    - ~/api/v1/orgs/(?<org_id>[^/]+)$
+    strip_path: false
+    regex_priority: 4
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
+    - officer-core
+    - bearer
+    plugins:
+    - name: rate-limiting
+      config:
+        minute: 300
+        hour: 10000
+        limit_by: consumer
+        policy: redis
+        fault_tolerant: true
+        hide_client_headers: false
+    - name: jwt
+      config:
+        claims_to_verify:
+        - exp
+        key_claim_name: iss
+        header_names:
+        - Authorization
+  - name: patch-api-v1-orgs-org_id-status
+    methods:
+    - PATCH
+    paths:
+    - ~/api/v1/orgs/(?<org_id>[^/]+)/status$
+    strip_path: false
+    regex_priority: 5
+    tags:
+    - oan
+    - grievance
+    - v1
+    - d10
     - officer-core
     - bearer
     plugins:
