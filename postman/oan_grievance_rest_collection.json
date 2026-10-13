@@ -978,6 +978,194 @@
             "description": "Deprecated endpoint to retrieve submitter profile. Prefer GET /api/v1/auth/me."
           },
           "response": []
+        },
+        {
+          "name": "Register or update submitter profile for authenticated user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/submitters",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "submitters"
+              ]
+            },
+            "description": "Register a Submitter Profile for the authenticated user.\n\nOnly creates/updates the Submitter Profile record and links it to the logged-in User.\nNon-farmer submitter types (Cooperative, Development Agent, NGO, FPO, etc.) are registered in\na blocked state (is_blocked=1) and require admin verification before filing grievances.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"Sample value\",\n  \"contact_mobile\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"phone_number\": \"Sample value\",\n  \"phone\": \"+251911000000\",\n  \"contact_email\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"administrative_unit\": \"Sample value\",\n  \"preferred_language\": \"Sample value\",\n  \"fayda_id\": \"Sample value\",\n  \"national_id\": \"Sample value\",\n  \"registration_number\": \"Sample value\",\n  \"org_number\": \"Sample value\",\n  \"farmer_id\": \"Sample value\",\n  \"dedupe_key\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register or update submitter profile for authenticated user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/submitters/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "submitters",
+                "register"
+              ]
+            },
+            "description": "Register a Submitter Profile for the authenticated user.\n\nOnly creates/updates the Submitter Profile record and links it to the logged-in User.\nNon-farmer submitter types (Cooperative, Development Agent, NGO, FPO, etc.) are registered in\na blocked state (is_blocked=1) and require admin verification before filing grievances.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"Sample value\",\n  \"contact_mobile\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"phone_number\": \"Sample value\",\n  \"phone\": \"+251911000000\",\n  \"contact_email\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"administrative_unit\": \"Sample value\",\n  \"preferred_language\": \"Sample value\",\n  \"fayda_id\": \"Sample value\",\n  \"national_id\": \"Sample value\",\n  \"registration_number\": \"Sample value\",\n  \"org_number\": \"Sample value\",\n  \"farmer_id\": \"Sample value\",\n  \"dedupe_key\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Unblock a submitter profile (Staff/Admin only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/submitters/{{profile_id}}/unblock",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "submitters",
+                "{{profile_id}}",
+                "unblock"
+              ]
+            },
+            "description": "Unblock a submitter profile, allowing them to file grievances."
+          },
+          "response": []
+        },
+        {
+          "name": "Block a submitter profile (Staff/Admin only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/submitters/{{profile_id}}/block",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "submitters",
+                "{{profile_id}}",
+                "block"
+              ]
+            },
+            "description": "Block a submitter profile, preventing new grievance submissions.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Standard processing\"\n}"
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -993,7 +1181,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first \u2014 Save Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Save Draft requires authentication.\");",
                   "}",
                   "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
                   "if (!uuid) {",
@@ -1077,7 +1265,7 @@
                 "exec": [
                   "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
                   "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first \u2014 Get Draft requires authentication.\");",
+                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1367,6 +1555,258 @@
               ]
             },
             "description": "List all uploaded attachments for a case."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload supporting documents",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "attachments"
+              ]
+            },
+            "description": "Upload one or more supporting documents against a grievance.\n\nRequires authentication (Grievance Submitter, Officer, or Admin role).\nAccepts single or multiple files in multipart form data.\nAlways returns a list of created attachment records."
+          },
+          "response": []
+        },
+        {
+          "name": "List a grievance's attachments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "attachments"
+              ]
+            },
+            "description": "List the evidence on a case, with each file's scan verdict.\n\nInfected and pending files are listed rather than hidden. An officer needs to\nknow something was submitted and what happened to it; silently omitting a row\nwould make the case look like it had less evidence than it did."
+          },
+          "response": []
+        },
+        {
+          "name": "Stream a clean attachment inline",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/view",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "view"
+              ],
+              "query": [
+                {
+                  "key": "download",
+                  "value": "False",
+                  "description": "Send Content-Disposition: attachment (Save As) instead of inline",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Serve the bytes of one attachment for display in the browser.\n\nThe private-file route that `file_url` points at sits outside the JWT\nnamespaces, so a bearer token does nothing there and a Next.js client cannot\nopen the URL it was handed. This route is under `/api/v1`, so the same token\nthat listed the case also fetches the file, and the scan gate is applied on\nthe way out. Inline by default so an image or PDF opens in the tab; pass\n`download=1` for a Save As."
+          },
+          "response": []
+        },
+        {
+          "name": "Get attachment download URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/download",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "download"
+              ]
+            },
+            "description": "Metadata for one attachment, but only once it has been scanned clean.\n\nKept for the desk and for clients with a Frappe session cookie, which can\nfetch `file_url` directly. API clients should use `/view`, which streams the\nbytes under the same gate."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete an attachment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}"
+              ]
+            },
+            "description": "Remove an attachment the submitter added by mistake.\n\nOnly while the case is still open: once it is resolved or closed, the evidence\nis part of what the decision rested on and removing it would rewrite the record\nafter the fact."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete an attachment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}"
+              ]
+            },
+            "description": "Remove an attachment the submitter added by mistake.\n\nOnly while the case is still open: once it is resolved or closed, the evidence\nis part of what the decision rested on and removing it would rewrite the record\nafter the fact."
           },
           "response": []
         }
@@ -1731,7 +2171,7 @@
           "raw": "{\n    \"additional_days\": 5,\n    \"reason\": \"Need more time\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/defer-sla",
           "host": [
             "{{base_url}}"
           ],
@@ -1775,7 +2215,7 @@
           "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/defer-sla/decide",
           "host": [
             "{{base_url}}"
           ],
@@ -1819,7 +2259,7 @@
           "raw": "{\n    \"target_department\": \"Legal\",\n    \"reason\": \"Wrong dept\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
           "host": [
             "{{base_url}}"
           ],
@@ -1863,7 +2303,7 @@
           "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign/decide",
           "host": [
             "{{base_url}}"
           ],
@@ -2652,7 +3092,7 @@
                 "service-categories"
               ]
             },
-            "description": "Create a category. Required: category_name, code. The code is the 3-character ticket segment, in the ticket alphabet (no I, L, O or U), and unique. sort_order is optional and defaults to the end of the list; is_active defaults to true. is_default (default false) true makes this the category unclassified cases fall to and clears the flag on the previous default; it needs is_active true. Duplicate name or code returns 409.",
+            "description": "Create a category. Required: category_name, code. The code is the 3-character ticket segment, in the ticket alphabet (no I, L, O or U), and unique. sort_order is optional and defaults to the end of the list; is_active defaults to true. is_default (default false) true makes this the category unclassified cases fall to and clears the flag on the previous default; it needs is_active true. Optional sla_days, auto_escalate, and notify_on_breach establish the category's SLA configuration atomically. Duplicate name or code returns 409.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"category_name\": \"Infrastructure\",\n  \"code\": \"007\",\n  \"sort_order\": 7,\n  \"is_active\": true,\n  \"is_default\": false\n}"
@@ -5070,6 +5510,552 @@
               ]
             },
             "description": "Reviewer accounts need an admin role to read. A Review Officer is refused with 403 PERMISSION_DENIED. Whether it should be allowed is a product decision still to be confirmed."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Grievances Core",
+      "item": [
+        {
+          "name": "Submit a new grievance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances"
+              ]
+            },
+            "description": "Submit a grievance in one request using the current draft flow.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_mobile\": \"Sample value\",\n  \"description\": \"Sample value\",\n  \"service_category\": \"Sample value\",\n  \"grievance_type\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"can_request_more_info\": true,\n  \"submitter_type\": \"Sample value\",\n  \"submitter_name\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"phone_number\": \"Sample value\",\n  \"phone\": \"+251911000000\",\n  \"contact_email\": \"Sample value\",\n  \"submission_channel\": \"Sample value\",\n  \"administrative_unit\": \"Sample value\",\n  \"associated_service_provider\": \"Sample value\",\n  \"desired_outcome\": \"Sample value\",\n  \"is_anonymous\": 0,\n  \"consent_given\": 1,\n  \"anonymity_justification\": \"Sample value\",\n  \"client_submission_uuid\": \"Sample value\",\n  \"client_uuid\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Submit citizen feedback / satisfaction rating",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "feedback"
+              ]
+            },
+            "description": "Submit satisfaction rating and feedback for a resolved or closed grievance.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"comments\": \"Sample value\",\n  \"feedback_type\": \"Resolution\",\n  \"feedback_channel\": \"Web Portal\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Change Requests",
+      "item": [
+        {
+          "name": "List change requests",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/change-requests",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "change-requests"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "Pending",
+                  "description": "Filter by request status",
+                  "disabled": true
+                },
+                {
+                  "key": "scope",
+                  "value": "pending_with_me",
+                  "description": "Scope: pending_with_me, raised_by_me, all",
+                  "disabled": true
+                },
+                {
+                  "key": "ticket_number",
+                  "value": "None",
+                  "description": "Filter by grievance ticket number",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "50",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "None",
+                  "description": "Legacy limit parameter",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Change requests visible to the caller.\n\nscope: `pending_with_me` (the caller's approval inbox, and the admin queue for\nadmins), `raised_by_me`, or `all` (admins only; everyone else falls back to the\nrequests they raised or hold)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get a change request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/change-requests/{{name}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "change-requests",
+                "{{name}}"
+              ]
+            },
+            "description": "Get a change request"
+          },
+          "response": []
+        },
+        {
+          "name": "Approve or reject a change request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/change-requests/{{name}}/decide",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "change-requests",
+                "{{name}}",
+                "decide"
+              ]
+            },
+            "description": "Rule on a request. Only the person it is pending with, or an admin, may decide.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"Approved\",\n  \"note\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Response Templates",
+      "item": [
+        {
+          "name": "List response templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "action",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "workflow_action",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "department",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "service_category",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Admin list of response templates with their usage counts."
+          },
+          "response": []
+        },
+        {
+          "name": "Create a response template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates"
+              ]
+            },
+            "description": "Create a response template for one workflow action, optionally scoped.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sample Title\",\n  \"action\": \"Sample value\",\n  \"workflow_action\": \"Sample value\",\n  \"department\": \"Sample value\",\n  \"service_category\": \"Sample value\",\n  \"reason\": \"Standard processing\",\n  \"body\": \"Response body content.\",\n  \"action_taken\": \"Sample value\",\n  \"resolution_summary\": \"Sample value\",\n  \"note\": \"Sample value\",\n  \"is_active\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get a response template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template}}"
+              ]
+            },
+            "description": "Return one response template, unrendered."
+          },
+          "response": []
+        },
+        {
+          "name": "Update a response template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template}}"
+              ]
+            },
+            "description": "Change a template's text, scope, workflow action or active flag. Edits are tracked.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sample Title\",\n  \"action\": \"Sample value\",\n  \"workflow_action\": \"Sample value\",\n  \"department\": \"Sample value\",\n  \"service_category\": \"Sample value\",\n  \"reason\": \"Standard processing\",\n  \"body\": \"Response body content.\",\n  \"action_taken\": \"Sample value\",\n  \"resolution_summary\": \"Sample value\",\n  \"note\": \"Sample value\",\n  \"is_active\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate a response template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "response-templates",
+                "{{template}}"
+              ]
+            },
+            "description": "Retire a template. Same as PATCH with is_active false; repeating it is a no-op."
           },
           "response": []
         }

@@ -104,8 +104,8 @@ PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})
 # rung of the escalation chain; it only says "this row is read-only oversight, not an assignee".
 ROLE_LEVEL_REVIEW_OFFICER = "review_officer"
 ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
-# Rows at these levels sit on a desk without taking first-line cases: a department head is
-# reached by escalation, and a reviewer is never assigned work.
+# Role levels excluded from category assignment primary/secondary (L1/L2) desk seats:
+# a department head is the escalation rung, and a reviewer is read-only oversight.
 NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
 
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})

@@ -151,6 +151,10 @@ class CreateOfficer(Body):
 	region: str | None = None
 	status: Status = "Active"
 	reports_to: str | None = None
+	create_department: bool = Field(
+		True,
+		description="Department head (L3) only: create the department when no department matches it",
+	)
 
 	_email = field_validator("email")(normalize_email)
 	_blank = field_validator(
@@ -371,11 +375,12 @@ def get_officer(officer: str, **kwargs):
 	summary="Create an officer",
 	description="Make a login an officer or a Reviewer on the category desks of a department. "
 	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3), department, "
-	+ "service_categories and designation; level L3 makes a department head, who is reached "
-	+ "by escalation and is not assigned first-line cases. A Reviewer needs department and "
+	+ "service_categories and designation; level L3 makes a department head. A Reviewer needs department and "
 	+ "service_categories and takes no level or reports_to: they read those desks' cases only, "
-	+ "are never assigned one and cannot change one. Every service category must already have "
-	+ "a category assignment for the department. reports_to is an L2 officer and is only for "
+	+ "are never assigned one and cannot change one. For an L1, L2 or Reviewer every service "
+	+ "category must already have a category assignment for the department. For an L3 a missing "
+	+ "category assignment is created with the head on it, and with create_department (default "
+	+ "true) an unknown department is created too. reports_to is an L2 officer and is only for "
 	+ "an L1. The login is created when the email is new. An existing login keeps its own "
 	+ "roles and is given the officer or review role; a System Manager or Administrator is "
 	+ "never managed here. temporary_password is required: the account holder signs in with it "
@@ -397,10 +402,12 @@ def create_officer(
 	region: str | None = None,
 	status: str = "Active",
 	reports_to: str | None = None,
+	create_department: bool = True,
 	**kwargs,
 ):
 	"""Create an officer, department head or reviewer."""
 	user_id, password_applied = service.create(
+		create_department=create_department,
 		role=role,
 		full_name=full_name,
 		designation=designation,

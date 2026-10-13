@@ -134,6 +134,6 @@ The mock's second toggle, "Notify on escalation", has no field. It repeats the s
 
 ## 5. Not covered here
 
-- There is no create or delete. A configuration is created with the first category assignment for a category (`POST /api/v1/category-assignments`).
+- There is no separate create or delete endpoint. A configuration is created either atomically with a service category (`POST /api/v1/service-categories` with `sla_days`) or with the first category assignment for a category (`POST /api/v1/category-assignments`).
 - First-response hours, update cadence, the holiday list and state timers stay on the Desk form.
 - The mock's grievance type dropdown has no effect on the SLA. One window applies to every grievance type in a category.

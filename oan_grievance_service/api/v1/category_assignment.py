@@ -75,7 +75,7 @@ class CreateCategoryAssignment(Body):
 	department: NonBlank
 	l1_officer: NonBlank
 	l2_officer: NonBlank | None = None
-	sla_days: int = Field(ge=1)
+	sla_days: int | None = Field(default=None, ge=1)
 	auto_escalate: bool = True
 	active: bool = True
 
@@ -248,7 +248,7 @@ def create_assignment(
 	service_category: str,
 	department: str,
 	l1_officer: str,
-	sla_days: int | str,
+	sla_days: int | str | None = None,
 	l2_officer: str | None = None,
 	auto_escalate: bool | str = True,
 	active: bool | str = True,

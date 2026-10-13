@@ -10,6 +10,9 @@ import os
 
 import frappe
 
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
 from oan_grievance_service.services import constants as C
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
@@ -145,6 +148,17 @@ SERVICE_CATEGORIES = [
 	("Credit", "004", 4),
 	("Markets", "005", 5),
 	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+]
+
+# Baseline SLA configurations for standard service categories.
+# Seeded on install and migrate so categories have operational SLA windows out of the box.
+DEFAULT_SLA_CONFIGURATIONS = [
+	("Inputs", 14),
+	("Schemes", 14),
+	("Payments", 7),
+	("Credit", 14),
+	("Markets", 10),
+	(C.FALLBACK_SERVICE_CATEGORY, 7),
 ]
 
 # The 1-character REGION segment of the ticket number, keyed by the official
@@ -506,6 +520,7 @@ def seed_all():
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
 		"holiday_list": seed_holiday_list(),
+		"sla_configurations": seed_sla_configurations(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
@@ -555,6 +570,19 @@ def seed_holiday_list():
 	doc.populate_weekly_offs()
 	doc.insert(ignore_permissions=True)
 	return [name]
+
+
+def seed_sla_configurations():
+	"""Seed baseline SLA configurations for standard service categories if absent."""
+	made = []
+	for category, sla_days in DEFAULT_SLA_CONFIGURATIONS:
+		if not frappe.db.exists("Grievance Service Category", category):
+			continue
+		if frappe.db.exists("Grievance SLA Configuration", {"service_category": category, "active": 1}):
+			continue
+		save_sla_configuration(service_category=category, sla_days=sla_days)
+		made.append(category)
+	return made
 
 
 def seed_response_templates():

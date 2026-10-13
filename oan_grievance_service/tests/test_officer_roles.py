@@ -180,7 +180,9 @@ class TestDepartmentHead(RoleCase):
 			result = create_officer(**base)
 			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 			self.assertLessEqual({"department", "service_categories"}, set(result["details"]))
-			no_assignment = create_officer(**base, department="S444", service_categories=["STG443 Credit"])
+			no_assignment = create_officer(
+				**{**base, "level": "L1"}, department="S444", service_categories=["STG443 Credit"]
+			)
 			self.assertEqual(no_assignment["code"], "VALIDATION_ERROR", msg=no_assignment)
 		self.assertFalse(frappe.db.exists("User", base["email"]))
 
@@ -192,7 +194,7 @@ class TestDepartmentHead(RoleCase):
 		self.assertEqual(self._ids(level="L1", q=PREFIX), [officer["name"]])
 		self.assertEqual(self._ids(level="L3", q=PREFIX, department="S444"), [])
 
-	def test_the_head_holds_the_top_rung_and_is_never_assigned_first_line_cases(self):
+	def test_the_head_holds_the_top_rung_and_is_fallback_when_lower_rungs_are_away(self):
 		head = self._head()
 		self.assertEqual(department_head_of(self.department), head["name"])
 		self.assertTrue(permissions.is_department_head(head["name"], self.department))
@@ -204,9 +206,27 @@ class TestDepartmentHead(RoleCase):
 		for row in desk.officers:
 			if row.user == self.l1_seed:
 				row.on_leave = 1
-		# The L1 is away, so the desk falls back to the L2 they report to. The head is never
-		# the fallback: they are reached by escalation, not assigned first-line cases.
+		# The L1 is away, so the desk falls back to the L2 they report to.
 		self.assertEqual(routing.pick_officer_by_strategy(desk), self.l2_seed)
+		for row in desk.officers:
+			if row.user == self.l2_seed:
+				row.on_leave = 1
+		# Both L1 and L2 are away, so the desk falls back to the L3 Department Head.
+		self.assertEqual(routing.pick_officer_by_strategy(desk), head["name"])
+		for row in desk.officers:
+			if row.user == head["name"]:
+				row.on_leave = 1
+		# Everyone is away, so routing returns None.
+		self.assertIsNone(routing.pick_officer_by_strategy(desk))
+
+	def test_desk_with_only_head_routes_to_head(self):
+		head = self._head(email=f"{PREFIX}solo_head@example.com")
+		desk_name = self._rows(head["name"])[0].parent
+		desk = frappe.get_doc(DESK, desk_name)
+		for row in desk.officers:
+			if row.user != head["name"]:
+				row.active = 0
+		self.assertEqual(routing.pick_officer_by_strategy(desk), head["name"])
 
 	def test_the_category_assignment_seats_ignore_a_head(self):
 		head = self._head()
@@ -253,6 +273,44 @@ class TestDepartmentHead(RoleCase):
 				temporary_password=PASSWORD,
 			)
 		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_creating_top_rung_head_auto_creates_department_and_category_desks(self):
+		new_dept_name = f"STG443 New Bureau {frappe.generate_hash(length=4)}"
+		head_email = f"{PREFIX}new_bureau_head@example.com"
+		result = create_officer(
+			full_name="Bureau Head",
+			designation="Director General",
+			level="L3",
+			department=new_dept_name,
+			email=head_email,
+			service_categories=[self.inputs],
+			temporary_password=PASSWORD,
+		)
+		self.assertEqual(result["status"], "success")
+		self.assertTrue(frappe.db.exists("Grievance Department", {"dept_name": new_dept_name}))
+		created_officer = result["data"]["officer"]
+		self.assertEqual(created_officer["level"], "L3")
+		self.assertEqual(created_officer["department"], new_dept_name)
+		desks = frappe.get_all(
+			DESK,
+			filters={"department_scope": new_dept_name, "category_scope": self.inputs},
+			pluck="name",
+		)
+		self.assertEqual(len(desks), 1)
+
+	def test_creating_non_top_rung_officer_fails_if_department_does_not_exist(self):
+		with _keep_transaction():
+			result = create_officer(
+				full_name="Junior Officer",
+				designation="Field Officer",
+				level="L1",
+				department="Completely Non Existent Dept",
+				email=f"{PREFIX}nonexistent_dept_l1@example.com",
+				service_categories=[self.inputs],
+				temporary_password=PASSWORD,
+			)
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("does not exist", result["message"])
 
 
 class TestReviewerOnTheDesk(RoleCase):

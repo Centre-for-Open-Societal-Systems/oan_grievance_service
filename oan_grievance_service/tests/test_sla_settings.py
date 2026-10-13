@@ -180,6 +180,62 @@ class TestSlaSettings(FrappeTestCase):
 		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
 		self.assertEqual(config["sla_days"], 10)
 
+	def test_type_scoped_desk_department_is_included_in_sla_config_departments(self):
+		grievance_type = frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": "STG412 Sub Type",
+				"service_category": self.category,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		# other_department has only a type-scoped desk
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": self.category,
+				"grievance_type_scope": grievance_type.name,
+				"department_scope": self.other_department,
+				"effective_from": frappe.utils.today(),
+				"active": 1,
+				"officers": [
+					{
+						"user": self.l1,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		# self.department has a category-only desk AND a type-scoped desk for the same category
+		self._assign(sla_days=14)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": self.category,
+				"grievance_type_scope": grievance_type.name,
+				"department_scope": self.department,
+				"effective_from": frappe.utils.today(),
+				"active": 1,
+				"officers": [
+					{
+						"user": self.l1,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		config = self._config()
+		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
+
+		# list_sla_configurations?department=<dept> matches when department only has type-scoped desk
+		filtered = list_sla_configurations(department=self.other_department)["data"]["sla_configurations"]
+		self.assertEqual(len(filtered), 1)
+		self.assertEqual(filtered[0]["service_category"], self.category)
+
 	def test_update_changes_only_what_was_sent(self):
 		self._assign(sla_days=14)
 		config = self._config()
@@ -312,3 +368,136 @@ class TestSlaSettings(FrappeTestCase):
 			grievance.reload()
 			# Escalation itself does not depend on the flag.
 			self.assertEqual(grievance.escalated, 1)
+
+	def test_remove_obsolete_pending_submitter_timers_migrates_to_resolved(self):
+		from oan_grievance_service.patches.remove_obsolete_pending_submitter_timers import execute
+
+		if not frappe.db.exists("Workflow State", "Pending Submitter"):
+			ws = frappe.get_doc(
+				{
+					"doctype": "Workflow State",
+					"workflow_state_name": "Pending Submitter",
+				}
+			).insert(ignore_permissions=True, ignore_links=True)
+			self.addCleanup(frappe.db.delete, "Workflow State", {"name": ws.name})
+
+		self._assign(sla_days=14)
+		config_name = self._config()["name"]
+
+		# Insert a legacy Pending Submitter timer on config
+		frappe.get_doc(
+			{
+				"doctype": "Grievance State Timer",
+				"parenttype": SLA_DOCTYPE,
+				"parent": config_name,
+				"parentfield": "state_timers",
+				"workflow_state": "Pending Submitter",
+				"hours": 72,
+				"on_expiry": "Auto Close",
+			}
+		).insert(ignore_permissions=True, ignore_links=True)
+
+		# Second category that already has a Resolved timer
+		self._assign(category=self.other_category, department=self.other_department, sla_days=10)
+		other_config_name = self._config(category=self.other_category)["name"]
+		frappe.get_doc(
+			{
+				"doctype": "Grievance State Timer",
+				"parenttype": SLA_DOCTYPE,
+				"parent": other_config_name,
+				"parentfield": "state_timers",
+				"workflow_state": "Resolved",
+				"hours": 48,
+				"on_expiry": "Auto Close",
+			}
+		).insert(ignore_permissions=True, ignore_links=True)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance State Timer",
+				"parenttype": SLA_DOCTYPE,
+				"parent": other_config_name,
+				"parentfield": "state_timers",
+				"workflow_state": "Pending Submitter",
+				"hours": 120,
+				"on_expiry": "Auto Close",
+			}
+		).insert(ignore_permissions=True, ignore_links=True)
+
+		execute()
+
+		# Assert Pending Submitter was converted to Resolved on config
+		timers = frappe.get_all(
+			"Grievance State Timer",
+			filters={"parent": config_name},
+			fields=["workflow_state", "hours", "on_expiry"],
+		)
+		self.assertEqual(len(timers), 1)
+		self.assertEqual(
+			(timers[0].workflow_state, timers[0].hours, timers[0].on_expiry),
+			("Resolved", 72, "Auto Close"),
+		)
+
+		# Assert other_config kept its original Resolved timer
+		other_timers = frappe.get_all(
+			"Grievance State Timer",
+			filters={"parent": other_config_name},
+			fields=["workflow_state", "hours", "on_expiry"],
+		)
+		self.assertEqual(len(other_timers), 1)
+		self.assertEqual(
+			(other_timers[0].workflow_state, other_timers[0].hours, other_timers[0].on_expiry),
+			("Resolved", 48, "Auto Close"),
+		)
+
+		# No Pending Submitter timers remain anywhere
+		self.assertEqual(frappe.db.count("Grievance State Timer", {"workflow_state": "Pending Submitter"}), 0)
+
+	def test_seed_sla_configurations_creates_baseline_rows_idempotently(self):
+		from oan_grievance_service.setup.install import (
+			DEFAULT_SLA_CONFIGURATIONS,
+			seed_sla_configurations,
+		)
+
+		# Ensure standard categories exist
+		for idx, (category, _days) in enumerate(DEFAULT_SLA_CONFIGURATIONS):
+			if not frappe.db.exists("Grievance Service Category", category):
+				frappe.get_doc(
+					{
+						"doctype": "Grievance Service Category",
+						"category_name": category,
+						"code": f"T{idx:02d}",
+						"is_active": 1,
+					}
+				).insert(ignore_permissions=True)
+
+		# Calling seed_sla_configurations ensures active SLA configurations exist
+		seed_sla_configurations()
+
+		for category, _expected_days in DEFAULT_SLA_CONFIGURATIONS:
+			row = frappe.db.get_value(
+				SLA_DOCTYPE,
+				{"service_category": category, "active": 1},
+				["name", "sla_days", "auto_escalate", "notify_on_breach"],
+				as_dict=True,
+			)
+			self.assertIsNotNone(row, msg=f"Missing SLA configuration for {category}")
+			self.assertGreater(row.sla_days, 0)
+			self.assertEqual(row.auto_escalate, 1)
+
+		# Second run is completely idempotent (no duplicates created)
+		re_run_made = seed_sla_configurations()
+		self.assertEqual(re_run_made, [])
+
+		# Test creation on a fresh category without an SLA configuration
+		fresh_cat = _category("STG412 Seed Category", "Z99")
+		for name in frappe.get_all(SLA_DOCTYPE, filters={"service_category": fresh_cat}, pluck="name"):
+			frappe.delete_doc(SLA_DOCTYPE, name, force=1, ignore_permissions=True)
+
+		with patch("oan_grievance_service.setup.install.DEFAULT_SLA_CONFIGURATIONS", [(fresh_cat, 11)]):
+			made = seed_sla_configurations()
+			self.assertIn(fresh_cat, made)
+			created_days = frappe.db.get_value(
+				SLA_DOCTYPE, {"service_category": fresh_cat, "active": 1}, "sla_days"
+			)
+			self.assertEqual(created_days, 11)
+			self.assertEqual(seed_sla_configurations(), [])

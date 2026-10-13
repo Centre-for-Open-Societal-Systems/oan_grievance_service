@@ -37,6 +37,9 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 	pending_rename,
 	queue_rename,
 )
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 from oan_grievance_service.services.resolvers import resolve_service_category
 
@@ -90,6 +93,9 @@ class CreateServiceCategory(Body):
 	sort_order: int | None = Field(None, ge=0, description="Omit to place the category last")
 	is_active: bool = True
 	is_default: bool = Field(False, description="Make this the category unclassified cases fall to")
+	sla_days: int | None = Field(None, ge=1, description="Resolution deadline in working days")
+	auto_escalate: bool = True
+	notify_on_breach: bool = True
 
 
 class UpdateServiceCategory(Body):
@@ -213,7 +219,8 @@ def get_service_category(category: str, **kwargs):
 	+ "whether it is the default, the category unclassified cases fall to. Making it the default clears "
 	+ "the flag on the previous default. "
 	+ "The code uses the ticket alphabet, which excludes I, L, O and U. It cannot change once "
-	+ "tickets have been issued under the category.",
+	+ "tickets have been issued under the category. "
+	+ "Optional sla_days, auto_escalate, and notify_on_breach establish the category's SLA configuration atomically.",
 	tags=["Administration"],
 	response_model=ServiceCategoryData,
 )
@@ -223,6 +230,9 @@ def create_service_category(
 	sort_order: int | str | None = None,
 	is_active: bool | str = True,
 	is_default: bool | str = False,
+	sla_days: int | None = None,
+	auto_escalate: bool = True,
+	notify_on_breach: bool = True,
 	**kwargs,
 ):
 	"""Create a service category."""
@@ -239,6 +249,8 @@ def create_service_category(
 			"is_default": 1 if is_default else 0,
 		}
 	).insert()
+	if sla_days is not None:
+		save_sla_configuration(doc.name, sla_days, auto_escalate, notify_on_breach)
 	return success_response(
 		data={"service_category": _category_records([doc])[0]}, message=_("Service category created")
 	)
