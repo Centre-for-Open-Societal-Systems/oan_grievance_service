@@ -9621,6 +9621,12 @@ components:
           default: null
           description: Explicit dedupe key
           nullable: true
+        submission_channel:
+          type: string
+          default: null
+          description: Intake channel the profile registered through (an active Grievance Submission Type).
+            Defaults to Web Portal.
+          nullable: true
       type: object
     BlockSubmitterRequest:
       additionalProperties: false

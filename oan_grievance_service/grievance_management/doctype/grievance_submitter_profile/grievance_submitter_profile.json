@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "submitter_type",
+  "submission_channel",
   "submitter_name",
   "dedupe_key",
   "user",
@@ -107,12 +108,20 @@
    "fieldname": "administrative_unit",
    "fieldtype": "Data",
    "label": "Administrative Unit"
+  },
+  {
+   "description": "The intake channel this profile registered through. Defaults to Web Portal.",
+   "fieldname": "submission_channel",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Submission Channel",
+   "options": "Grievance Submission Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-07 10:00:06.000000",
+ "modified": "2026-10-13 16:19:20.170371",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Submitter Profile",

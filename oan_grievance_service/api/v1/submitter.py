@@ -27,7 +27,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	split_dedupe_key,
 )
-from oan_grievance_service.services.constants import STAFF_ROLES
+from oan_grievance_service.services.constants import DEFAULT_SUBMISSION_CHANNEL, STAFF_ROLES
 from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
 	SCHEME_ORG,
@@ -62,6 +62,11 @@ class RegisterSubmitterRequest(BaseModel):
 	org_number: str | None = Field(default=None, description="Organization number alias")
 	farmer_id: str | None = Field(default=None, description="Farmer ID alias")
 	dedupe_key: str | None = Field(default=None, description="Explicit dedupe key")
+	submission_channel: str | None = Field(
+		default=None,
+		description="Intake channel the profile registered through (an active Grievance "
+		"Submission Type). Defaults to Web Portal.",
+	)
 
 
 class BlockSubmitterRequest(BaseModel):
@@ -75,6 +80,33 @@ def _is_farmer_submitter_type(submitter_type: str | None) -> bool:
 	if not submitter_type:
 		return False
 	return submitter_type.strip() == "Individual Farmer"
+
+
+def _resolve_submission_channel(submission_channel: str | None) -> str | None:
+	"""Return the canonical name of an active Submission Type, or None when none was sent.
+
+	A blank value counts as not sent. A value that names a missing or inactive channel is
+	rejected, so a typo cannot reach the Link field as a bare "does not exist" error.
+	"""
+	channel = str(submission_channel or "").strip()
+	if not channel:
+		return None
+
+	row = frappe.db.get_value(
+		"Grievance Submission Type", {"name": channel}, ["name", "is_active"], as_dict=True
+	)
+	if not row or not row.is_active:
+		frappe.throw(
+			_("Submission Channel '{0}' does not exist or is not active.").format(channel),
+			frappe.ValidationError,
+			title=_("Invalid Submission Channel"),
+		)
+	return row.name
+
+
+def _default_submission_channel() -> str:
+	"""The channel a profile gets when none was sent, checked as active like any other."""
+	return _resolve_submission_channel(DEFAULT_SUBMISSION_CHANNEL)
 
 
 def _create_or_update_submitter_profile(
@@ -92,6 +124,7 @@ def _create_or_update_submitter_profile(
 	org_number: str | None = None,
 	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
+	submission_channel: str | None = None,
 	**kwargs,
 ):
 	"""Internal helper to validate inputs and persist a Submitter Profile."""
@@ -103,6 +136,9 @@ def _create_or_update_submitter_profile(
 			frappe.ValidationError,
 			title=_("Invalid Submitter Type"),
 		)
+
+	# None means "not sent": an update then keeps the stored channel, an insert takes the default.
+	submission_channel = _resolve_submission_channel(submission_channel)
 
 	user_doc = (
 		frappe.get_doc("User", user) if user and user != "Guest" and frappe.db.exists("User", user) else None
@@ -200,6 +236,10 @@ def _create_or_update_submitter_profile(
 		profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
+		if submission_channel:
+			profile.submission_channel = submission_channel
+		elif not profile.submission_channel:
+			profile.submission_channel = _default_submission_channel()
 
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
@@ -224,6 +264,7 @@ def _create_or_update_submitter_profile(
 				"doctype": "Grievance Submitter Profile",
 				"user": user_doc.name if user_doc else None,
 				"submitter_type": submitter_type,
+				"submission_channel": submission_channel or _default_submission_channel(),
 				"submitter_name": submitter_name,
 				"contact_mobile": contact_mobile,
 				"contact_email": contact_email,
@@ -321,6 +362,7 @@ def register_submitter(
 	org_number: str | None = None,
 	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
+	submission_channel: str | None = None,
 	**kwargs,
 ):
 	"""Register a Submitter Profile for the authenticated user.
@@ -354,6 +396,7 @@ def register_submitter(
 		org_number=org_number,
 		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
+		submission_channel=submission_channel,
 		**kwargs,
 	)
 
@@ -367,6 +410,7 @@ def register_submitter(
 	data = {
 		"profile_id": profile.name,
 		"submitter_type": profile.submitter_type,
+		"submission_channel": profile.submission_channel,
 		"submitter_name": profile.submitter_name,
 		"contact_mobile": contact["contact_mobile"],
 		"country_code": contact["country_code"],
