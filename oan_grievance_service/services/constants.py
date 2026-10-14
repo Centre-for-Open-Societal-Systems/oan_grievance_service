@@ -90,6 +90,9 @@ DEFAULT_ESCALATION_THRESHOLD = 100
 ROLE_SUBMITTER = "Grievance Submitter"
 ROLE_OFFICER = "Grievance Officer"
 ROLE_ADMIN = "Grievance Admin"
+# A submitter in every respect (always holds ROLE_SUBMITTER too); the one difference is that
+# the grievances they file record them as assisted_by_officer.
+ROLE_DEVELOPMENT_AGENT = "Grievance Development Agent"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
@@ -117,11 +120,3 @@ ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 # Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
 # here is the whole change if the answer is yes.
 REVIEWER_READ_ROLES = ADMIN_ROLES
-ALLOWED_GRIEVANCE_ROLES = [
-	ROLE_SUBMITTER,
-	ROLE_OFFICER,
-	ROLE_ADMIN,
-	"System Manager",
-	"Administrator",
-]
-ALLOWED_GRIEVANCE_READ_ROLES = [*ALLOWED_GRIEVANCE_ROLES, ROLE_REVIEW_OFFICER]

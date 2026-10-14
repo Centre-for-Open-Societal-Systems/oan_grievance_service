@@ -203,6 +203,22 @@
    "share": 0,
    "print": 1,
    "email": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Development Agent",
+   "share": 1,
+   "submit": 0,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

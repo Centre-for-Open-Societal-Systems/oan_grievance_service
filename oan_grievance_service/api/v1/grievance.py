@@ -24,6 +24,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from oan_grievance_service import permissions
+from oan_grievance_service.api.v1._guards import require_permission
 from oan_grievance_service.api.v1._options import (
 	active_channels,
 	expand_status_filter,
@@ -208,8 +209,6 @@ class DeferSLARequest(BaseModel):
 	reason: str = Field(..., min_length=20)
 
 
-ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
-ALLOWED_GRIEVANCE_READ_ROLES = C.ALLOWED_GRIEVANCE_READ_ROLES
 STAFF_ROLES = C.STAFF_ROLES
 
 # Columns the server derives on submission. Accepting any of these from the caller
@@ -244,9 +243,10 @@ def _resolve_submitter_identity(kwargs):
 	those details directly, because there is nothing to copy from.
 	"""
 	user = frappe.session.user
-	is_staff = permissions.is_staff(user)
+	roles = set(frappe.get_roles(user))
+	is_da = C.ROLE_DEVELOPMENT_AGENT in roles
 
-	if is_staff:
+	if is_da:
 		profile_name = kwargs.get("submitter")
 		identity = {"submitter": profile_name, "assisted_by_officer": user}
 	else:
@@ -381,10 +381,9 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 
 
 @route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
-@frappe.whitelist()
 @validate_request(ListGrievancesRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def list_grievances(
 	page: int = 1,
 	page_size: int = 20,
@@ -790,10 +789,9 @@ def _current_state(doc, extra=None):
 
 
 @route("", methods=("POST",), summary="Submit a new grievance")
-@frappe.whitelist()
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "create")
 def submit(**kwargs):
 	"""Submit a grievance in one request using the current draft flow."""
 	from oan_grievance_service.api.v1 import draft
@@ -1043,10 +1041,9 @@ _ACTION_ENTRY_TYPES = {
 
 
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
-@frappe.whitelist()
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def action(
 	ticket_number: str,
 	action: str,
@@ -1223,10 +1220,9 @@ def _ensure_department(doc):
 @route(
 	"/<ticket_number>/feedback", methods=("POST",), summary="Submit citizen feedback / satisfaction rating"
 )
-@frappe.whitelist()
 @validate_request(GrievanceFeedbackRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def feedback(
 	ticket_number: str,
 	rating: int,
@@ -1281,9 +1277,8 @@ def feedback(
 
 
 @route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def timeline(
 	ticket_number: str,
 	is_internal: bool | str | None = None,
@@ -1524,10 +1519,9 @@ def timeline(
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
 )
-@frappe.whitelist()
 @validate_request(PostMessageRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def message(
 	ticket_number: str,
 	body: str,
@@ -1628,7 +1622,6 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 
 
 @route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
-@frappe.whitelist()
 @validate_request(ReassignGrievanceRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1688,10 +1681,9 @@ class DecideReassignmentRequest(BaseModel):
 	methods=("POST",),
 	summary="Approve or reject a pending reassignment request",
 )
-@frappe.whitelist()
 @validate_request(DecideReassignmentRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def decide_reassignment(ticket_number: str, decision: str, note: str | None = None, **kwargs):
 	"""Approve or reject a pending reassignment request for this grievance."""
 	doc = _load(ticket_number, ptype="read")
@@ -1706,7 +1698,6 @@ def decide_reassignment(ticket_number: str, decision: str, note: str | None = No
 
 
 @route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
-@frappe.whitelist()
 @validate_request(DeferSLARequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1756,10 +1747,9 @@ class DecideDeferralRequest(BaseModel):
 	methods=("POST",),
 	summary="Approve or reject a pending SLA deferral request",
 )
-@frappe.whitelist()
 @validate_request(DecideDeferralRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def decide_deferral(ticket_number: str, decision: str, note: str | None = None, **kwargs):
 	"""Approve or reject a pending SLA deferral request for this grievance."""
 	doc = _load(ticket_number, ptype="read")
@@ -1778,7 +1768,6 @@ def decide_deferral(ticket_number: str, decision: str, note: str | None = None, 
 	methods=("GET",),
 	summary="Response templates for a workflow action, filled in for this grievance",
 )
-@frappe.whitelist()
 @validate_request(ResponseTemplatesRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1840,9 +1829,8 @@ def _load(ticket_number, ptype="read"):
 
 
 @route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
@@ -1858,9 +1846,8 @@ def summary():
 
 
 @route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def options(
 	service_category: str | None = None,
 	category: str | None = None,

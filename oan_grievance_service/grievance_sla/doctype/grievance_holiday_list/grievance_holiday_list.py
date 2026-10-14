@@ -60,7 +60,6 @@ class GrievanceHolidayList(Document):
 			return {WEEKDAYS[self.weekly_off]}
 		return set()
 
-	@frappe.whitelist()
 	def populate_weekly_offs(self):
 		"""Auto-generate weekly offs between from_date and to_date."""
 		weekdays = self.get_weekly_off_weekdays()

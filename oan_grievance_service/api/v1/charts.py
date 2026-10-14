@@ -177,7 +177,6 @@ def _is_admin():
 
 
 @route("/charts", methods=("GET",), summary="Dashboard charts (Grievance Admin, Grievance Officer)")
-@frappe.whitelist(methods=["GET"])
 @handle_api_errors
 @require_role(CHARTS_ROLES)
 def get_charts(charts: str | None = None, **kwargs):

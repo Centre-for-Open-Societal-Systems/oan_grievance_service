@@ -24,7 +24,7 @@ class TestDraftModuleLoads(FrappeTestCase):
 			self.assertNotIn(path, middleware.EXEMPT_PATHS)
 
 		for fn in (draft.save, draft.load, draft.submit_draft, draft.discard):
-			self.assertIn(fn, frappe.whitelisted)
+			self.assertNotIn(fn, frappe.whitelisted)
 			self.assertNotIn(fn, frappe.guest_methods)
 
 

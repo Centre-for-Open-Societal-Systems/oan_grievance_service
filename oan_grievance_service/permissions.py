@@ -49,13 +49,17 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 )
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
+	ROLE_DEVELOPMENT_AGENT,
 	ROLE_OFFICER,
 	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
 	STAFF_ROLES,
 )
 
-GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_SUBMITTER)
+GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_DEVELOPMENT_AGENT, ROLE_SUBMITTER)
+
+# A Development Agent is a submitter whose filings also record them as the assisting officer.
+SUBMITTER_ROLES = {ROLE_SUBMITTER, ROLE_DEVELOPMENT_AGENT}
 
 # Administrators see all regions, departments and categories.
 UNRESTRICTED_ROLES = {ROLE_ADMIN, "System Manager", "Administrator"}
@@ -213,7 +217,7 @@ def grievance_query_conditions(user=None):
 
 	# A submitter reaches their own cases, and the assisted submissions they
 	# filed on someone else's behalf. Both arms belong to the one Submitter role.
-	if ROLE_SUBMITTER in roles:
+	if roles & SUBMITTER_ROLES:
 		profiles = profiles_of(user)
 		if profiles:
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
@@ -246,7 +250,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		if not _is_placed(user) or _scope_covers(doc, active_scopes(user)):
 			return True
 
-	if ROLE_SUBMITTER in roles:
+	if roles & SUBMITTER_ROLES:
 		owner = doc.get("owner")
 		submitter = doc.get("submitter")
 		assisted = doc.get("assisted_by_officer")

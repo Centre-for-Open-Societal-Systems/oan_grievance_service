@@ -175,7 +175,6 @@ def _to_record(row: dict, role_level_names: dict[str, str]) -> NotificationTempl
 
 
 @route("", methods=("GET",), summary="List grievance notification templates")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
 @validate_request(ListNotificationTemplates)
@@ -247,7 +246,6 @@ def list_notification_templates(
 
 
 @route("/options", methods=("GET",), summary="Get notification template options and metadata")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
 @api_doc(
@@ -294,7 +292,6 @@ def get_notification_template_options(**kwargs):
 
 
 @route("/placeholders", methods=("GET",), summary="Get available notification template placeholders")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
 @api_doc(
@@ -313,7 +310,6 @@ def get_notification_placeholders(**kwargs):
 
 
 @route("/<template>", methods=("GET",), summary="Get a notification template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
 @validate_request(TemplateRef)
@@ -342,7 +338,6 @@ def get_notification_template(template: str, **kwargs):
 
 
 @route("/<template>", methods=("PATCH",), summary="Update a notification template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateNotificationTemplate, exclude_unset=True)
