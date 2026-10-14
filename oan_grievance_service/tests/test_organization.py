@@ -57,6 +57,7 @@ def _payload(**overrides) -> dict:
 		"region": "Oromia",
 		"country": "Ethiopia",
 		"postal_code": "1000",
+		"consent_given": True,
 	}
 	payload.update(overrides)
 	return payload
@@ -178,11 +179,40 @@ class TestRegistration(OrganizationTestCase):
 		self.assertIn("status", result["details"])
 		self.assertFalse(frappe.db.exists(service.DOCTYPE, {"representative_user": self.rep}))
 
-	def test_entity_type_must_match_org_type(self):
+	def test_entity_type_is_free_text(self):
+		"""The reference screen has an open "Enter Entity type" field, not a fixed list."""
 		frappe.set_user(self.rep)
-		result = register_organization(**_payload(org_type="NGO", entity_type="Cooperative Union"))
-		self.assertEqual(result["code"], "VALIDATION_ERROR")
-		self.assertIn("Entity type", result["message"])
+		result = register_organization(**_payload(org_type="NGO", entity_type="Trade association"))
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertEqual(result["data"]["entity_type"], "Trade association")
+		frappe.set_user(self.other_rep)
+		self.assertEqual(register_organization(**_payload(entity_type="   "))["code"], "VALIDATION_ERROR")
+
+	def test_consent_is_required_and_recorded(self):
+		frappe.set_user(self.rep)
+		missing = _payload()
+		del missing["consent_given"]
+		for payload in (missing, _payload(consent_given=False), _payload(consent_given=None)):
+			result = register_organization(**payload)
+			self.assertEqual(result["code"], "VALIDATION_ERROR")
+			self.assertIn("consent_given", result["details"])
+		self.assertFalse(frappe.db.exists(service.DOCTYPE, {"representative_user": self.rep}))
+
+		org = register_organization(**_payload())["data"]
+		self.assertTrue(org["consent_given"])
+		self.assertTrue(org["consent_recorded_at"])
+		self.assertTrue(get_my_organization()["data"]["consent_given"])
+		# It is the registration's, not an editable profile field.
+		self.assertEqual(update_my_organization(consent_given=False)["code"], "VALIDATION_ERROR")
+
+	def test_a_bare_website_is_taken_as_https(self):
+		frappe.set_user(self.rep)
+		result = register_organization(**_payload(website="selam-coop.example.com"))
+		self.assertEqual(result["data"]["website"], "https://selam-coop.example.com")
+		result = update_my_organization(website="http://selam.example.org/about")
+		self.assertEqual(result["data"]["website"], "http://selam.example.org/about")
+		for bad in ("ftp://files.example.com", "not a site", "localhost"):
+			self.assertEqual(update_my_organization(website=bad)["code"], "VALIDATION_ERROR", msg=bad)
 
 	def test_phone_must_be_a_valid_number(self):
 		frappe.set_user(self.rep)

@@ -45,24 +45,6 @@ ADMIN_TARGET_STATUSES = (C.ORG_STATUS_ACTIVE, C.ORG_STATUS_SUSPENDED, C.ORG_STAT
 # Changing any of these voids a verification, because it is what the administrator checked.
 IDENTITY_FIELDS = ("legal_name", "org_type", "registration_number")
 
-_FPO_ENTITY_TYPES = (
-	"Farmer Producer Organisation",
-	"Primary Cooperative",
-	"Cooperative Union",
-	"Cooperative Federation",
-)
-# Mirrors the choices on the STG-450 registration screen.
-ENTITY_TYPES = {
-	"NGO": (
-		"Local NGO",
-		"International NGO",
-		"Community-Based Organisation",
-		"Civil Society Organisation",
-	),
-	"FPO": _FPO_ENTITY_TYPES,
-	"Cooperative": _FPO_ENTITY_TYPES,
-}
-
 # Fields a representative may send. Everything else is server-owned.
 PROFILE_FIELDS = (
 	"legal_name",
@@ -106,6 +88,8 @@ RECORD_FIELDS = [
 	"status_reason",
 	"verified_by",
 	"verified_on",
+	"consent_given",
+	"consent_recorded_at",
 	"creation",
 	"modified",
 ]
@@ -172,6 +156,14 @@ def create(user: str, values: dict):
 			title=_("Already Registered"),
 		)
 
+	if not values.get("consent_given"):
+		frappe.throw(
+			_("Confirm you are authorised to register this organization to continue."),
+			frappe.ValidationError,
+			title=_("Consent Required"),
+		)
+
+	consent = {"consent_given": 1, "consent_recorded_at": now_datetime()}
 	values = {key: values.get(key) for key in PROFILE_FIELDS if values.get(key) is not None}
 	if not values.get("representative_name"):
 		values["representative_name"] = frappe.db.get_value("User", user, "full_name") or user
@@ -180,6 +172,7 @@ def create(user: str, values: dict):
 		{
 			"doctype": DOCTYPE,
 			**values,
+			**consent,
 			"representative_user": user,
 			"verification_status": C.ORG_STATUS_IN_REVIEW,
 		}
@@ -470,7 +463,8 @@ def record(row) -> dict:
 	get = row.get
 	data = {field: get(field) for field in RECORD_FIELDS}
 	data["status"] = data.pop("verification_status")
-	for field in ("verified_on", "creation", "modified"):
+	data["consent_given"] = bool(data["consent_given"])
+	for field in ("verified_on", "consent_recorded_at", "creation", "modified"):
 		value = data[field]
 		data[field] = value.isoformat() if hasattr(value, "isoformat") else (str(value) if value else None)
 	return data

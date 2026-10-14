@@ -8824,6 +8824,13 @@ components:
           type: string
         postal_code:
           type: string
+        consent_given:
+          default: false
+          type: boolean
+        consent_recorded_at:
+          type: string
+          default: null
+          nullable: true
         status:
           type: string
         status_reason:
@@ -9957,6 +9964,10 @@ components:
           maxLength: 140
           minLength: 1
           type: string
+        consent_given:
+          description: The representative confirms they are authorised to register the organization and
+            agrees to the Privacy Policy. Must be true.
+          type: boolean
       required:
       - legal_name
       - org_type
@@ -9969,6 +9980,7 @@ components:
       - region
       - country
       - postal_code
+      - consent_given
       type: object
     UpdateOrganization:
       additionalProperties: false

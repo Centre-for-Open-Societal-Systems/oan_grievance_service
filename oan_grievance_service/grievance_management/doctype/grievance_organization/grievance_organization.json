@@ -31,7 +31,10 @@
   "zone",
   "region",
   "country",
-  "postal_code"
+  "postal_code",
+  "sec_consent",
+  "consent_given",
+  "consent_recorded_at"
  ],
  "fields": [
   {
@@ -200,6 +203,25 @@
    "fieldtype": "Data",
    "label": "Postal Code",
    "reqd": 1
+  },
+  {
+   "fieldname": "sec_consent",
+   "fieldtype": "Section Break",
+   "label": "Consent"
+  },
+  {
+   "default": "0",
+   "description": "The representative confirmed they are authorised to register this organization and agreed to the Privacy Policy.",
+   "fieldname": "consent_given",
+   "fieldtype": "Check",
+   "label": "Consent Given",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consent_recorded_at",
+   "fieldtype": "Datetime",
+   "label": "Consent Recorded At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

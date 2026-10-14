@@ -9,13 +9,7 @@ The product flow is in [organization_onboarding_flow.md](organization_onboarding
 - An **organization** is a registered NGO, FPO or Cooperative. Its **id** is `name`, for example `ORG-00012`. Use it in admin URLs.
 - The **authorized representative** is the login that registered it (`representative_user`). There is one representative per organization and one organization per login. Only that login may file for the organization.
 - **org_type** is `NGO`, `FPO` or `Cooperative`, the same names as the submitter types. The FPO screen sends `FPO`. `Cooperative` is accepted for callers that want to register one separately.
-- **entity_type** is the legal form, chosen from a list that depends on `org_type`:
-
-| `org_type`              | `entity_type` values                                                                         |
-| :---------------------- | :------------------------------------------------------------------------------------------- |
-| `NGO`                   | Local NGO, International NGO, Community-Based Organisation, Civil Society Organisation       |
-| `FPO` and `Cooperative` | Farmer Producer Organisation, Primary Cooperative, Cooperative Union, Cooperative Federation |
-
+- **entity_type** is the legal form, entered as free text (up to 140 characters). The registration screen suggests Local NGO, International NGO, Community-Based Organisation and Civil Society Organisation for an NGO, and Farmer Producer Organisation, Primary Cooperative, Cooperative Union and Cooperative Federation for an FPO or cooperative, but the server accepts any non-blank value.
 - **registration_number** is the registration or licence number. It is unique across organizations, stored in upper case, and 3 to 60 letters and digits with single `-` or `/` between groups. The registration screen sends it as `tax_registration_number`, which is accepted as an alias. Responses use `registration_number`.
 - **status** is the verification status. See section 3.
 - The representative's **Submitter Profile** is converted to the organization's type, name and contact details when the organization is registered, so `GET /auth/me` then reports the profile type as `NGO`, `FPO` or `Cooperative`. It stays blocked until the organization is Active.
@@ -88,11 +82,12 @@ Role: Grievance Submitter. Officers, reviewers and admins get 403.
   "zone": "East Shewa",
   "region": "Oromia",
   "country": "Ethiopia",
-  "postal_code": "1000"
+  "postal_code": "1000",
+  "consent_given": true
 }
 ```
 
-Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` needs `http://` or `https://`. Any other field, including `status`, is a 400.
+Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, and only `http` and `https` addresses are accepted. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy, and the server stores it with the time (`consent_recorded_at`). The registration screen's checkbox sends it, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
 
 Returns the organization with `status: "In Review"`.
 
@@ -162,6 +157,7 @@ The representative files through the same endpoints as any submitter. The server
 | `contact_email`, `contact_phone`, `website`            | Phone in E.164                                           |
 | `street_address`, `kebele`, `woreda`, `zone`, `region` |                                                          |
 | `country`, `postal_code`                               |                                                          |
+| `consent_given`, `consent_recorded_at`                 | The representative's confirmation at registration        |
 | `status`                                               | `In Review`, `Active` or `Suspended`                     |
 | `status_reason`                                        | Why it is not Active, or the last decision's note        |
 | `verified_by`, `verified_on`                           | The last administrator decision. Null until there is one |

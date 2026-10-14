@@ -24,6 +24,7 @@ class GrievanceOrganization(Document):
 	def validate(self):
 		self.normalise()
 		self.validate_types()
+		self.validate_consent()
 		self.validate_registration_number()
 		self.contact_phone = identity.validate_mobile(self.contact_phone, "contact_phone")
 		self.validate_representative()
@@ -40,18 +41,18 @@ class GrievanceOrganization(Document):
 		self.registration_number = service.normalise_registration_number(self.registration_number)
 
 	def validate_types(self):
-		allowed = service.ENTITY_TYPES.get(self.org_type)
-		if not allowed:
+		if self.org_type not in C.ORG_TYPES:
 			frappe.throw(
 				_("Organization type must be one of: {0}.").format(", ".join(C.ORG_TYPES)),
 				title=_("Invalid Organization Type"),
 			)
-		if self.entity_type not in allowed:
+
+	def validate_consent(self):
+		"""The representative confirms they may register the organization, once, at the start."""
+		if self.is_new() and not self.consent_given:
 			frappe.throw(
-				_("Entity type '{0}' is not valid for a {1}. Choose one of: {2}.").format(
-					self.entity_type, self.org_type, ", ".join(allowed)
-				),
-				title=_("Invalid Entity Type"),
+				_("Confirm you are authorised to register this organization to continue."),
+				title=_("Consent Required"),
 			)
 
 	def validate_registration_number(self):

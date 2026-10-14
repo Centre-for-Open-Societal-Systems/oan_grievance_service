@@ -6124,7 +6124,7 @@
             "description": "Register an NGO, FPO or cooperative with the caller as its authorized representative. It starts In Review and cannot file grievances until an administrator sets it Active. One organization per account, and one account per registration number. The registration number may also be sent as tax_registration_number.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"legal_name\": \"Selam Farmers Cooperative Union\",\n  \"brand_name\": \"Selam\",\n  \"org_type\": \"FPO\",\n  \"entity_type\": \"Cooperative Union\",\n  \"registration_number\": \"REG-2024-0042\",\n  \"representative_name\": \"Almaz Bekele\",\n  \"contact_email\": \"office@selam-coop.example.com\",\n  \"contact_phone\": \"+251911234567\",\n  \"website\": \"https://selam-coop.example.com\",\n  \"street_address\": \"Bole Road 12\",\n  \"kebele\": \"03\",\n  \"woreda\": \"Bishoftu\",\n  \"zone\": \"East Shewa\",\n  \"region\": \"Oromia\",\n  \"country\": \"Ethiopia\",\n  \"postal_code\": \"1000\"\n}"
+              "raw": "{\n  \"legal_name\": \"Selam Farmers Cooperative Union\",\n  \"brand_name\": \"Selam\",\n  \"org_type\": \"FPO\",\n  \"entity_type\": \"Cooperative Union\",\n  \"registration_number\": \"REG-2024-0042\",\n  \"representative_name\": \"Almaz Bekele\",\n  \"contact_email\": \"office@selam-coop.example.com\",\n  \"contact_phone\": \"+251911234567\",\n  \"website\": \"https://selam-coop.example.com\",\n  \"street_address\": \"Bole Road 12\",\n  \"kebele\": \"03\",\n  \"woreda\": \"Bishoftu\",\n  \"zone\": \"East Shewa\",\n  \"region\": \"Oromia\",\n  \"country\": \"Ethiopia\",\n  \"postal_code\": \"1000\",\n  \"consent_given\": true\n}"
             }
           },
           "response": []

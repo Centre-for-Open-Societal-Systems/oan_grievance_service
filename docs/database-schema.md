@@ -342,21 +342,22 @@ A **durable party record**, not a per-submission record.
 
 A registered NGO, FPO or cooperative and the state of its verification (STG-449). One authorised representative login per organisation, and one organisation per login. The representative's `submitters` row carries `organization_id`, takes the organisation's type, name and contact details, and is blocked unless the organisation is Active.
 
-| Column                                       | Type        | Key              | Description                                                                                          |
-| -------------------------------------------- | ----------- | ---------------- | ---------------------------------------------------------------------------------------------------- |
-| `id`                                         | uuid        | PK               | `ORG-00001` in the app                                                                               |
-| `legal_name`, `brand_name`                   | text        |                  | Registered name, and the name it trades under                                                        |
-| `org_type`                                   | enum        | IX               | `NGO` / `FPO` / `Cooperative`, the same names as the submitter types                                 |
-| `entity_type`                                | text        |                  | Legal form, one of a list per `org_type`                                                             |
-| `registration_number`                        | varchar(64) | UQ               | Registration or licence number. Anchors the representative as `org:<number>`                         |
-| `representative_user`                        | text        | FK → `users`, UQ | The authorised representative. The only login that may file for the organisation                     |
-| `representative_name`                        | text        |                  | Named representative                                                                                 |
-| `contact_email`, `contact_phone`, `website`  | text        |                  | Phone is E.164                                                                                       |
-| `street_address`, `kebele`, `woreda`, `zone` | text        |                  | Registered address, as entered                                                                       |
-| `region`, `country`, `postal_code`           | text        |                  |                                                                                                      |
-| `verification_status`                        | enum        | IX               | `In Review` / `Active` / `Suspended`. Moves only along the transitions in `services/organization.py` |
-| `status_reason`                              | text        |                  | Why it is not Active. Required for Suspended                                                         |
-| `verified_by`, `verified_on`                 | user, ts    |                  | The last administrator decision                                                                      |
+| Column                                       | Type        | Key              | Description                                                                                            |
+| -------------------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `id`                                         | uuid        | PK               | `ORG-00001` in the app                                                                                 |
+| `legal_name`, `brand_name`                   | text        |                  | Registered name, and the name it trades under                                                          |
+| `org_type`                                   | enum        | IX               | `NGO` / `FPO` / `Cooperative`, the same names as the submitter types                                   |
+| `entity_type`                                | text        |                  | Legal form, one of a list per `org_type`                                                               |
+| `registration_number`                        | varchar(64) | UQ               | Registration or licence number. Anchors the representative as `org:<number>`                           |
+| `representative_user`                        | text        | FK → `users`, UQ | The authorised representative. The only login that may file for the organisation                       |
+| `representative_name`                        | text        |                  | Named representative                                                                                   |
+| `contact_email`, `contact_phone`, `website`  | text        |                  | Phone is E.164                                                                                         |
+| `street_address`, `kebele`, `woreda`, `zone` | text        |                  | Registered address, as entered                                                                         |
+| `region`, `country`, `postal_code`           | text        |                  |                                                                                                        |
+| `verification_status`                        | enum        | IX               | `In Review` / `Active` / `Suspended`. Moves only along the transitions in `services/organization.py`   |
+| `status_reason`                              | text        |                  | Why it is not Active. Required for Suspended                                                           |
+| `verified_by`, `verified_on`                 | user, ts    |                  | The last administrator decision                                                                        |
+| `consent_given`, `consent_recorded_at`       | bool, ts    |                  | The representative's confirmation that they are authorised to register the organisation, with the time |
 
 ### `anonymous_requests`
 

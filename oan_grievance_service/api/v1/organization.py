@@ -72,6 +72,8 @@ class OrganizationRecord(BaseModel):
 	region: str
 	country: str
 	postal_code: str
+	consent_given: bool = False
+	consent_recorded_at: str | None = None
 	status: str
 	status_reason: str | None = None
 	verified_by: str | None = None
@@ -91,11 +93,19 @@ def _check_registration_number(value: str | None) -> str | None:
 	return value.upper() if value else value
 
 
+def _check_consent(value: bool) -> bool:
+	if value is not True:
+		raise ValueError("Confirm you are authorised to register this organization.")
+	return value
+
+
 def _check_website(value: str | None) -> str | None:
-	"""A web address with a scheme and a dotted host. The screen adds https:// itself."""
+	"""A web address with a dotted host. A bare "example.org" is taken as https://example.org."""
 	if value is None:
 		return value
 	value = value.strip()
+	if value and not re.match(r"^[a-z][a-z0-9+.-]*://", value, re.IGNORECASE):
+		value = f"https://{value}"
 	if len(value) > WEBSITE_MAX_LENGTH or not re.match(r"^https?://[^\s/.]+(\.[^\s/.]+)+(/\S*)?$", value):
 		raise ValueError("Website must be a valid http or https address.")
 	return value
@@ -129,6 +139,10 @@ class CreateOrganization(Body):
 	region: Text
 	country: Text
 	postal_code: Text
+	consent_given: bool = Field(
+		description="The representative confirms they are authorised to register the organization and "
+		"agrees to the Privacy Policy. Must be true."
+	)
 
 	_blank = field_validator(
 		"brand_name",
@@ -141,6 +155,7 @@ class CreateOrganization(Body):
 	_registration = field_validator("registration_number")(_check_registration_number)
 	_website = field_validator("website")(_check_website)
 	_postal = field_validator("postal_code")(_check_postal_code)
+	_consent = field_validator("consent_given")(_check_consent)
 
 
 class UpdateOrganization(Body):
@@ -229,6 +244,7 @@ def register_organization(
 	region: str,
 	country: str,
 	postal_code: str,
+	consent_given: bool | str | None,
 	brand_name: str | None = None,
 	representative_name: str | None = None,
 	website: str | None = None,
@@ -251,6 +267,7 @@ def register_organization(
 			"region": region,
 			"country": country,
 			"postal_code": postal_code,
+			"consent_given": consent_given,
 			"brand_name": brand_name,
 			"representative_name": representative_name,
 			"website": website,
