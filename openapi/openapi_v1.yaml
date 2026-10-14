@@ -8893,6 +8893,9 @@ components:
           type: string
           default: null
           nullable: true
+        members_affected:
+          default: 0
+          type: integer
         contact_email:
           type: string
         contact_phone:
@@ -10008,6 +10011,13 @@ components:
           type: string
           default: null
           nullable: true
+        members_affected:
+          maximum: 100000000
+          minimum: 0
+          type: integer
+          default: null
+          description: Members affected (Cooperative / FPO). Optional; 0 when not given.
+          nullable: true
         contact_email:
           type: string
           nullable: true
@@ -10103,6 +10113,13 @@ components:
           minLength: 1
           type: string
           default: null
+          nullable: true
+        members_affected:
+          maximum: 100000000
+          minimum: 0
+          type: integer
+          default: null
+          description: Members affected (Cooperative / FPO). Optional; 0 when not given.
           nullable: true
         contact_email:
           type: string

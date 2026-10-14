@@ -53,6 +53,7 @@ PROFILE_FIELDS = (
 	"entity_type",
 	"registration_number",
 	"representative_name",
+	"members_affected",
 	"contact_email",
 	"contact_phone",
 	"website",
@@ -74,6 +75,7 @@ RECORD_FIELDS = [
 	"registration_number",
 	"representative_user",
 	"representative_name",
+	"members_affected",
 	"contact_email",
 	"contact_phone",
 	"website",
@@ -196,6 +198,8 @@ def update(org, values: dict):
 		)
 
 	values = {key: values[key] for key in PROFILE_FIELDS if key in values}
+	if "members_affected" in values:
+		values["members_affected"] = values["members_affected"] or 0
 	if "registration_number" in values:
 		values["registration_number"] = normalise_registration_number(values["registration_number"])
 		taken = frappe.db.get_value(
@@ -433,6 +437,7 @@ def profile_details(org_name: str | None) -> dict:
 			"entity_type",
 			"registration_number",
 			"representative_name",
+			"members_affected",
 			"verification_status",
 			"status_reason",
 		],
@@ -451,6 +456,7 @@ def profile_details(org_name: str | None) -> dict:
 			"entity_type": row.entity_type,
 			"registration_number": row.registration_number,
 			"representative_name": row.representative_name,
+			"members_affected": row.members_affected,
 			"status": row.verification_status,
 			"status_reason": row.status_reason,
 			"can_file": row.verification_status == C.ORG_STATUS_ACTIVE,

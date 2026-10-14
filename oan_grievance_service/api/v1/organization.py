@@ -47,6 +47,7 @@ Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 
 POSTAL_CODE_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9]|[ -](?=[A-Za-z0-9])){1,8}[A-Za-z0-9]$"
 WEBSITE_MAX_LENGTH = 255
+MEMBERS_MAX = 100_000_000
 
 # What the registration screen sends the registration number as. The canonical name is
 # registration_number, which is also what the profile and the docs call it.
@@ -62,6 +63,7 @@ class OrganizationRecord(BaseModel):
 	registration_number: str
 	representative_user: str
 	representative_name: str | None = None
+	members_affected: int = 0
 	contact_email: str
 	contact_phone: str
 	website: str | None = None
@@ -129,6 +131,12 @@ class CreateOrganization(Body):
 		description="Registration / licence number. Also accepted as tax_registration_number.",
 	)
 	representative_name: Text | None = None
+	members_affected: int | None = Field(
+		default=None,
+		ge=0,
+		le=MEMBERS_MAX,
+		description="Members affected (Cooperative / FPO). Optional; 0 when not given.",
+	)
 	contact_email: SafeEmail
 	contact_phone: Text
 	website: str | None = None
@@ -147,6 +155,7 @@ class CreateOrganization(Body):
 	_blank = field_validator(
 		"brand_name",
 		"representative_name",
+		"members_affected",
 		"website",
 		"kebele",
 		"woreda",
@@ -171,6 +180,12 @@ class UpdateOrganization(Body):
 		description="Registration / licence number. Also accepted as tax_registration_number.",
 	)
 	representative_name: Text | None = None
+	members_affected: int | None = Field(
+		default=None,
+		ge=0,
+		le=MEMBERS_MAX,
+		description="Members affected (Cooperative / FPO). Optional; 0 when not given.",
+	)
 	contact_email: SafeEmail = None
 	contact_phone: Text = None
 	website: str | None = None
@@ -185,6 +200,7 @@ class UpdateOrganization(Body):
 	_blank = field_validator(
 		"brand_name",
 		"representative_name",
+		"members_affected",
 		"website",
 		"kebele",
 		"woreda",
@@ -247,6 +263,7 @@ def register_organization(
 	consent_given: bool | str | None,
 	brand_name: str | None = None,
 	representative_name: str | None = None,
+	members_affected: int | str | None = None,
 	website: str | None = None,
 	kebele: str | None = None,
 	woreda: str | None = None,
@@ -270,6 +287,7 @@ def register_organization(
 			"consent_given": consent_given,
 			"brand_name": brand_name,
 			"representative_name": representative_name,
+			"members_affected": members_affected,
 			"website": website,
 			"kebele": kebele,
 			"woreda": woreda,

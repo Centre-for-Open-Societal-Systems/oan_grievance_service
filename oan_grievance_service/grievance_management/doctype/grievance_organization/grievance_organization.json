@@ -19,6 +19,7 @@
   "sec_representative",
   "representative_user",
   "representative_name",
+  "members_affected",
   "sec_contact",
   "contact_email",
   "contact_phone",
@@ -128,6 +129,14 @@
    "fieldname": "representative_name",
    "fieldtype": "Data",
    "label": "Representative Name"
+  },
+  {
+   "default": "0",
+   "description": "Cooperative / FPO: how many members the representative says are affected. 0 when not given.",
+   "fieldname": "members_affected",
+   "fieldtype": "Int",
+   "label": "Members Affected",
+   "non_negative": 1
   },
   {
    "fieldname": "sec_contact",

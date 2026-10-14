@@ -73,6 +73,7 @@ Role: Grievance Submitter. Officers, reviewers and admins get 403.
   "entity_type": "Cooperative Union",
   "registration_number": "REG-2024-0042",
   "representative_name": "Almaz Bekele",
+  "members_affected": 120,
   "contact_email": "office@selam-coop.example.com",
   "contact_phone": "+251911234567",
   "website": "https://selam-coop.example.com",
@@ -87,7 +88,7 @@ Role: Grievance Submitter. Officers, reviewers and admins get 403.
 }
 ```
 
-Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, and only `http` and `https` addresses are accepted. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy, and the server stores it with the time (`consent_recorded_at`). The registration screen's checkbox sends it, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
+Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `members_affected` (Cooperative / FPO member count, a whole number from 0, default 0), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, and only `http` and `https` addresses are accepted. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy, and the server stores it with the time (`consent_recorded_at`). The registration screen's checkbox sends it, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
 
 Returns the organization with `status: "In Review"`.
 
@@ -97,7 +98,7 @@ The caller's organization, or 404 until one is registered. The screen shows the 
 
 ### `PATCH /orgs/me`
 
-Send only the fields to change. `brand_name`, `representative_name`, `website`, `kebele` and `woreda` accept `null` to clear. `status`, `representative_user` and the verification fields are not accepted.
+Send only the fields to change. `brand_name`, `representative_name`, `members_affected` (resets it to 0), `website`, `kebele` and `woreda` accept `null` to clear. `status`, `representative_user` and the verification fields are not accepted.
 
 - A `Suspended` organization is read-only: 403.
 - Changing `legal_name`, `org_type` or `registration_number` on an `Active` organization sets it back to `In Review` with a `status_reason` naming what changed, and the profile is blocked again. Tell the user before they save. Contact and address edits do not change the status.
@@ -153,6 +154,7 @@ The representative files through the same endpoints as any submitter. The server
 | `legal_name`, `brand_name`                             |                                                          |
 | `org_type`, `entity_type`                              | See section 1                                            |
 | `registration_number`                                  | Upper case                                               |
+| `members_affected`                                     | Members affected (Cooperative / FPO), 0 when not given   |
 | `representative_user`, `representative_name`           | The authorized representative                            |
 | `contact_email`, `contact_phone`, `website`            | Phone in E.164                                           |
 | `street_address`, `kebele`, `woreda`, `zone`, `region` |                                                          |

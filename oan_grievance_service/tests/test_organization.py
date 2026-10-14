@@ -205,6 +205,40 @@ class TestRegistration(OrganizationTestCase):
 		# It is the registration's, not an editable profile field.
 		self.assertEqual(update_my_organization(consent_given=False)["code"], "VALIDATION_ERROR")
 
+	def test_members_affected_is_optional_numeric_and_editable(self):
+		frappe.set_user(self.rep)
+		sent = register_organization(**_payload(members_affected="120", representative_name="Almaz Bekele"))
+		self.assertEqual(sent["status"], "success", msg=sent)
+		self.assertEqual(sent["data"]["members_affected"], 120)
+		self.assertEqual(sent["data"]["representative_name"], "Almaz Bekele")
+		self.assertEqual(get_my_organization()["data"]["members_affected"], 120)
+		self.assertEqual(update_my_organization(members_affected=45)["data"]["members_affected"], 45)
+		self.assertEqual(update_my_organization(members_affected=None)["data"]["members_affected"], 0)
+		for bad in (-1, "many", 1.5, 10**9):
+			result = update_my_organization(members_affected=bad)
+			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=bad)
+			self.assertIn("members_affected", result["details"])
+		# An update that does not mention it leaves it alone.
+		update_my_organization(members_affected=7)
+		self.assertEqual(update_my_organization(kebele="02")["data"]["members_affected"], 7)
+
+	def test_members_affected_defaults_to_zero_and_reaches_auth_me(self):
+		frappe.set_user(self.rep)
+		self.assertEqual(
+			register_organization(**_payload(members_affected=""))["data"]["members_affected"], 0
+		)
+		frappe.set_user(self.other_rep)
+		register_organization(**_payload(members_affected=30))
+		frappe.set_user("Administrator")
+		from oan_grievance_service.api.v1.profile import resolve_user_profile_hook
+
+		data = resolve_user_profile_hook(frappe.get_doc("User", self.other_rep))[1]
+		self.assertEqual(data["organization"]["members_affected"], 30)
+		self.assertEqual(
+			data["organization"]["representative_name"],
+			frappe.db.get_value("User", self.other_rep, "full_name"),
+		)
+
 	def test_a_bare_website_is_taken_as_https(self):
 		frappe.set_user(self.rep)
 		result = register_organization(**_payload(website="selam-coop.example.com"))
@@ -623,6 +657,7 @@ class TestAuthMeProfile(OrganizationTestCase):
 				"entity_type": "Local NGO",
 				"registration_number": org["registration_number"],
 				"representative_name": "Almaz Bekele",
+				"members_affected": 0,
 				"status": C.ORG_STATUS_IN_REVIEW,
 				"status_reason": None,
 				"can_file": False,
