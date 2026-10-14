@@ -131,11 +131,11 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		_is_farmer_submitter_type,
 	)
 
-	# The extra register fields arrive as JSON, so a number is possible: read them as text
+	# The extra register fields arrive as JSON, so a number is possible: read the IDs as text
 	# and let the format check report a bad Fayda ID instead of failing on .strip().
 	submitter_type = str(kwargs.get("submitter_type") or "Individual Farmer").strip()
-	fayda_id = _as_text(kwargs.get("fayda_id"))
-	national_id = _as_text(kwargs.get("national_id"))
+	fayda_id = str(kwargs.get("fayda_id") or "").strip() or None
+	national_id = str(kwargs.get("national_id") or "").strip() or None
 	dedupe_key = kwargs.get("dedupe_key")
 
 	if _is_farmer_submitter_type(submitter_type):
@@ -165,11 +165,5 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		org_number=kwargs.get("org_number"),
 		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,
-		submission_channel=_as_text(kwargs.get("submission_channel")),
+		submission_channel=kwargs.get("submission_channel"),
 	)
-
-
-def _as_text(value) -> str | None:
-	"""A stripped string, or None when the value is missing or blank."""
-	text = str(value).strip() if value is not None else ""
-	return text or None

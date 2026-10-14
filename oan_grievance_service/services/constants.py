@@ -3,10 +3,6 @@
 FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
 
-# The intake channel a submitter profile gets when registration does not name one. Seeded
-# and kept active by setup/install.py and the ensure_standard_submission_channels patch.
-DEFAULT_SUBMISSION_CHANNEL = "Web Portal"
-
 
 # Grievance Workflow states, seeded by setup/install.py (WORKFLOW_STATES). Code that
 # branches on where a case is compares against these, never a bare string.
