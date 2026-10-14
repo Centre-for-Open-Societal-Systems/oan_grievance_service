@@ -153,7 +153,7 @@ class TestDashboardCharts(FrappeTestCase):
 		self.assertEqual(self.delta("kpis", "total"), len(set(self.created)) - 1)
 
 	def test_awaiting_action_is_submitted_assigned_and_in_progress_only(self):
-		awaiting = sum(self.delta("statuses", s) for s in C.AWAITING_ACTION_STATES)
+		awaiting = sum(self.delta("statuses", s) for s in sla.awaiting_action_states())
 		self.assertEqual(self.delta("kpis", "awaiting_action"), awaiting)
 		self.assertEqual(self.delta("statuses", C.STATE_MORE_INFO_NEEDED), 1)
 
@@ -200,7 +200,7 @@ class TestDashboardCharts(FrappeTestCase):
 
 	def test_net_backlog_ends_at_todays_open_count(self):
 		rows = _chart("grvNetBacklogTrend")
-		open_now = sum(self.after["statuses"][s] for s in C.OPEN_STATES)
+		open_now = sum(self.after["statuses"][s] for s in sla.open_states())
 		self.assertEqual(rows[-1]["backlog"], open_now)
 
 	def test_refresh_is_idempotent(self):

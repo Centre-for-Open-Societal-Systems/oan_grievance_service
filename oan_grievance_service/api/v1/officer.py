@@ -254,7 +254,6 @@ class ListOfficers(PageParams, OfficerFilters):
 
 
 @route("", methods=("GET",), summary="List officers")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficers)
@@ -308,7 +307,6 @@ def list_officers(
 
 # Registered before `/<officer>` so the dynamic route never captures "status-counts".
 @route("/status-counts", methods=("GET",), summary="Count officers by status")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(StatusCountsQuery)
@@ -348,7 +346,6 @@ def officer_status_counts(
 
 
 @route("/<officer>", methods=("GET",), summary="Get an officer")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(OfficerRef)
@@ -367,7 +364,6 @@ def get_officer(officer: str, **kwargs):
 
 
 @route("", methods=("POST",), summary="Create an officer")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateOfficer)
@@ -430,7 +426,6 @@ def create_officer(
 
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateOfficer, exclude_unset=True)
@@ -456,7 +451,6 @@ def update_officer(officer: str, **kwargs):
 
 
 @route("/<officer>/password-resets", methods=("POST",), summary="Issue a new temporary password")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(ResetTemporaryPassword)

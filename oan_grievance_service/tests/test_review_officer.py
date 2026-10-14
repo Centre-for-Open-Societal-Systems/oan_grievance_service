@@ -181,10 +181,16 @@ class TestReviewOfficer(FrappeTestCase):
 				continue
 			checked += 1
 			roles = _require_role_list(fn)
-			if roles is None:
+			perm = _permission_gate(fn)
+			if roles is not None:
+				if C.ROLE_REVIEW_OFFICER in roles:
+					listed.append(f"{'/'.join(route['methods'])} {route['path']}")
+			elif perm is not None:
+				doctype, ptype = perm
+				if frappe.has_permission(doctype, ptype, user=self.reviewer):
+					listed.append(f"{'/'.join(route['methods'])} {route['path']} ({doctype}:{ptype})")
+			else:
 				ungated.add(f"{fn.__module__.rsplit('.', 1)[-1]}.{fn.__name__}")
-			elif C.ROLE_REVIEW_OFFICER in roles:
-				listed.append(f"{'/'.join(route['methods'])} {route['path']}")
 		self.assertGreater(checked, 20)
 		self.assertEqual(listed, [])
 		self.assertEqual(
@@ -241,5 +247,18 @@ def _require_role_list(fn):
 		code = getattr(fn, "__code__", None)
 		if code and "roles" in code.co_freevars:
 			return fn.__closure__[code.co_freevars.index("roles")].cell_contents
+		fn = getattr(fn, "__wrapped__", None)
+	return None
+
+
+def _permission_gate(fn):
+	"""The (doctype, ptype) a route's `require_permission` was given, or None."""
+	while fn is not None:
+		code = getattr(fn, "__code__", None)
+		if code and "doctype" in code.co_freevars and "ptype" in code.co_freevars:
+			return (
+				fn.__closure__[code.co_freevars.index("doctype")].cell_contents,
+				fn.__closure__[code.co_freevars.index("ptype")].cell_contents,
+			)
 		fn = getattr(fn, "__wrapped__", None)
 	return None

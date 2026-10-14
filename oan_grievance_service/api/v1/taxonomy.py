@@ -145,7 +145,6 @@ def _category_records(docs: list) -> list[dict]:
 
 
 @route("/service-categories", methods=("GET",), summary="List service categories")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListServiceCategories)
@@ -190,7 +189,6 @@ def list_service_categories(
 
 
 @route("/service-categories/<category>", methods=("GET",), summary="Get a service category")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(CategoryRef)
@@ -209,7 +207,6 @@ def get_service_category(category: str, **kwargs):
 
 
 @route("/service-categories", methods=("POST",), summary="Create a service category")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateServiceCategory)
@@ -257,7 +254,6 @@ def create_service_category(
 
 
 @route("/service-categories/<category>", methods=("PATCH",), summary="Update a service category")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateServiceCategory, exclude_unset=True)
@@ -296,7 +292,6 @@ def update_service_category(category: str, **kwargs):
 
 
 @route("/service-categories/<category>", methods=("DELETE",), summary="Deactivate a service category")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CategoryRef)
@@ -385,7 +380,6 @@ def _type_records(docs: list) -> list[dict]:
 
 
 @route("/grievance-types", methods=("GET",), summary="List grievance types")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListGrievanceTypes)
@@ -430,7 +424,6 @@ def list_grievance_types(
 
 
 @route("/grievance-types/<grievance_type>", methods=("GET",), summary="Get a grievance type")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(TypeRef)
@@ -449,7 +442,6 @@ def get_grievance_type(grievance_type: str, **kwargs):
 
 
 @route("/grievance-types", methods=("POST",), summary="Create a grievance type")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateGrievanceType)
@@ -481,7 +473,6 @@ def create_grievance_type(
 
 
 @route("/grievance-types/<grievance_type>", methods=("PATCH",), summary="Update a grievance type")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateGrievanceType, exclude_unset=True)
@@ -507,7 +498,6 @@ def update_grievance_type(grievance_type: str, **kwargs):
 
 
 @route("/grievance-types/<grievance_type>", methods=("DELETE",), summary="Deactivate a grievance type")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TypeRef)

@@ -316,6 +316,27 @@ def states_in_category(category):
 	}
 
 
+def open_states():
+	"""States a filed case can still leave: not Draft, and not one that Stops the clock.
+
+	In workflow order, read from the Grievance Workflow so a state added there counts
+	without a code change.
+	"""
+	return list(
+		dict.fromkeys(
+			row.state
+			for row in get_workflow("Grievance").states
+			if str(row.doc_status) != "0" and (row.get("sla_category") or RUNNING) != STOPPED
+		)
+	)
+
+
+def awaiting_action_states():
+	"""Open states where an officer owes the next move: those not Paused on the submitter."""
+	waiting = states_in_category(PAUSED)
+	return [state for state in open_states() if state not in waiting]
+
+
 def on_status_change(grievance, to_state, from_state=None):
 	"""Start, pause, resume or stop the clock for the state the case just entered.
 

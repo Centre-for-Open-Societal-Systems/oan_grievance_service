@@ -575,7 +575,7 @@ data(
 			),
 			"status": S(
 				example="Submitted",
-				description="Public workflow status (Submitted, Under Investigation, Require More Info, Resolved, Closed, Reopened, Rejected)",
+				description="Public workflow status (Submitted, Under Investigation, More Info Needed, Resolved, Closed, Reopened, Rejected)",
 			),
 			"service_category": S(example="Inputs"),
 			"grievance_type": S(example="Fertilizer Shortage"),
@@ -1492,12 +1492,12 @@ def _import_all_api_modules() -> None:
 	api_modules = [
 		"oan_grievance_service.api.router",
 		"oan_grievance_service.api.v1.administrative_area",
+		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.attachment",
 		"oan_grievance_service.api.v1.category_assignment",
 		"oan_grievance_service.api.v1.change_request",
 		"oan_grievance_service.api.v1.charts",
 		"oan_grievance_service.api.v1.draft",
-		"oan_grievance_service.api.v1.grievance",
 		"oan_grievance_service.api.v1.notification_template",
 		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",

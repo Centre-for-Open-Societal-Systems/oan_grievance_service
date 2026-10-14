@@ -57,7 +57,6 @@ class ListOfficerStatistics(PageParams, Body):
 
 
 @route("/statistics", methods=("GET",), summary="List officer statistics")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficerStatistics)

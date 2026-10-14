@@ -382,7 +382,7 @@
   },
   {
    "allow_on_submit": 1,
-   "description": "Starts at assignment by default; set site config grievance_sla_clock_start to \"creation\" to count from submission",
+   "description": "Set when the case is assigned to a department; the SLA window counts from here",
    "fieldname": "sla_start_at",
    "fieldtype": "Datetime",
    "label": "SLA Start",
@@ -546,7 +546,7 @@
   },
   {
    "cancel": 1,
-   "create": 1,
+   "create": 0,
    "delete": 1,
    "email": 1,
    "export": 1,
@@ -586,6 +586,20 @@
    "share": 0,
    "print": 1,
    "email": 0
+  },
+  {
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "role": "Grievance Assisted Submitter"
   }
  ],
  "row_format": "Dynamic",

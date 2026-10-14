@@ -14,13 +14,13 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	SafeEmail,
 	handle_api_errors,
-	require_role,
 	success_response,
 	validate_request,
 )
 from pydantic import BaseModel, Field, model_validator
 
 from oan_grievance_service import permissions
+from oan_grievance_service.api.v1._guards import require_permission
 from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
 	get_default_category,
 )
@@ -30,14 +30,6 @@ from oan_grievance_service.services import constants as C
 DRAFT_LIFETIME_DAYS = 30
 
 route = prefixed("/api/v1/drafts")
-
-ALLOWED_DRAFT_ROLES = [
-	"Grievance Submitter",
-	"Grievance Officer",
-	"Grievance Admin",
-	"System Manager",
-	"Administrator",
-]
 
 
 def _resolve_grievance_type(grievance_type, category):
@@ -103,10 +95,9 @@ class SaveDraftRequest(BaseModel):
 
 
 @route("", methods=("POST",), summary="Save a grievance draft")
-@frappe.whitelist()
 @validate_request(SaveDraftRequest)
 @handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
+@require_permission("Grievance", "create")
 def save(
 	client_submission_uuid: str | None = None,
 	client_uuid: str | None = None,
@@ -246,9 +237,8 @@ def save(
 
 
 @route("", methods=("GET",), summary="Get the authenticated user's latest grievance draft")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
+@require_permission("Grievance", "create")
 def load():
 	"""Return the caller's latest unsubmitted draft."""
 	user = permissions.session_user()
@@ -295,10 +285,9 @@ class SubmitDraftRequest(BaseModel):
 
 
 @route("/submit", methods=("POST",), summary="Submit a draft grievance into an active case")
-@frappe.whitelist()
 @validate_request(SubmitDraftRequest)
 @handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
+@require_permission("Grievance", "create")
 def submit_draft(
 	client_submission_uuid: str,
 	consent_given: int | bool = 1,
@@ -539,10 +528,9 @@ class DiscardDraftRequest(BaseModel):
 
 
 @route("", methods=("DELETE",), summary="Discard a grievance draft")
-@frappe.whitelist()
 @validate_request(DiscardDraftRequest)
 @handle_api_errors
-@require_role(ALLOWED_DRAFT_ROLES)
+@require_permission("Grievance", "create")
 def discard(client_submission_uuid: str):
 	"""Delete a draft the submitter abandoned."""
 	session_user = permissions.session_user()
