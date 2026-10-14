@@ -22,6 +22,7 @@ from frappe.utils import now_datetime
 
 from oan_grievance_service import permissions
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import identity
 
 DOCTYPE = "Grievance Organization"
 PROFILE = "Grievance Submitter Profile"
@@ -109,9 +110,10 @@ RECORD_FIELDS = [
 	"modified",
 ]
 
-# Prefix that marks a profile block as ours, so verifying an organization never lifts a
-# block an officer placed for another reason.
-BLOCK_PREFIX = "Organization"
+# Prefixes that mark a profile block as one verification lifts, so verifying an organization
+# never lifts a block an officer placed for another reason: this module's own reasons, and the
+# one `/submitters/register` gives every non-farmer type.
+BLOCK_PREFIXES = ("Organization", "Pending admin verification")
 
 
 def normalise_registration_number(value: str | None) -> str:
@@ -300,7 +302,7 @@ def sync_profile(org):
 	profile.active = 1
 
 	if org.verification_status == C.ORG_STATUS_ACTIVE:
-		if profile.is_blocked and (profile.blocked_reason or "").startswith(BLOCK_PREFIX):
+		if profile.is_blocked and (profile.blocked_reason or "").startswith(BLOCK_PREFIXES):
 			profile.is_blocked = 0
 			profile.blocked_reason = None
 	else:
@@ -309,6 +311,53 @@ def sync_profile(org):
 			org.verification_status, org.status_reason or _("pending verification.")
 		)
 	profile.save(ignore_permissions=True)
+
+
+def register_pending_profile(user: str, org_type: str, name: str, mobile: str | None, email: str | None):
+	"""The profile of an NGO, FPO or cooperative representative who has only signed up.
+
+	`/auth/register` carries a person's details and no registration number, so the
+	organization cannot exist yet. The profile takes the organization's type, which is what
+	sends the representative to the organization form at first sign-in (`/auth/me` reports
+	it as `type`), and is blocked until the organization is registered and verified. It is
+	keyed by phone for now; `sync_profile` re-keys it by registration number when
+	`POST /orgs` creates the organization.
+	"""
+	if org_type not in C.ORG_TYPES:
+		frappe.throw(
+			_("{0} is not an organization type.").format(org_type),
+			frappe.ValidationError,
+			title=_("Invalid Submitter Type"),
+		)
+	if frappe.db.exists(PROFILE, {"user": user}):
+		return frappe.get_doc(PROFILE, {"user": user})
+
+	mobile = identity.validate_mobile(mobile)
+	key = f"{identity.SCHEME_PHONE}:{mobile}"
+	if frappe.db.exists(PROFILE, {"dedupe_key": key}):
+		frappe.throw(
+			_("A Submitter Profile with dedupe key '{0}' is already registered.").format(key),
+			frappe.DuplicateEntryError,
+			title=_("Already Registered"),
+		)
+
+	profile = frappe.get_doc(
+		{
+			"doctype": PROFILE,
+			"user": user,
+			"submitter_type": org_type,
+			"submitter_name": name,
+			"contact_mobile": mobile,
+			"contact_email": email,
+			"dedupe_key": key,
+			"submission_channel": "Web Portal",
+			"active": 1,
+			"is_blocked": 1,
+			"blocked_reason": _("Organization registration is not complete."),
+		}
+	)
+	profile.insert(ignore_permissions=True)
+	return profile
 
 
 def assert_may_file(profile_name: str | None, user: str):

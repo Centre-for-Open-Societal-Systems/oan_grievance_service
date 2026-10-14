@@ -8,6 +8,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import organization
+from oan_grievance_service.services.constants import ORG_TYPES
 
 
 def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
@@ -70,8 +71,14 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			"type": profile.get("submitter_type"),
 			"submitter_type": profile.get("submitter_type"),
 			"submission_channel": profile.get("submission_channel"),
-			# Only a fayda-anchored profile has one; a phone or org key is not a Fayda ID.
-			"fayda_id": ident_val if scheme == SCHEME_FAYDA and ident_val else None,
+			# Only a fayda-anchored profile has one; a phone or org key is not a Fayda ID, and an
+			# NGO, FPO or cooperative has none even when its representative's profile began as
+			# a person's, keyed by one.
+			"fayda_id": (
+				ident_val
+				if scheme == SCHEME_FAYDA and ident_val and profile.get("submitter_type") not in ORG_TYPES
+				else None
+			),
 			"submitter_name": profile.get("submitter_name"),
 			"contact_mobile": contact["contact_mobile"],
 			"country_code": contact["country_code"],
@@ -149,6 +156,19 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	fayda_id = str(kwargs.get("fayda_id") or "").strip() or None
 	national_id = str(kwargs.get("national_id") or "").strip() or None
 	dedupe_key = kwargs.get("dedupe_key")
+
+	has_org_identifier = any(
+		str(kwargs.get(key) or "").strip() for key in ("registration_number", "org_number", "dedupe_key")
+	)
+	if submitter_type in ORG_TYPES and not has_org_identifier:
+		# An NGO, FPO or cooperative signs up as its representative, with no registration
+		# number and no Fayda ID. Its organization is registered at first sign-in
+		# (POST /api/v1/orgs), so only the blocked, typed profile exists until then. A sign-up
+		# that does bring a registration number takes the ordinary path below.
+		organization.register_pending_profile(
+			user_name, submitter_type, full_name or kwargs.get("submitter_name"), contact_mobile, email
+		)
+		return
 
 	if _is_farmer_submitter_type(submitter_type):
 		if not (fayda_id or national_id):

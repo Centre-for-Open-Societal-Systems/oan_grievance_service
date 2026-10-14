@@ -8,6 +8,7 @@ import random
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from oan_auth_service.api.v1.auth import get_me
 
 from oan_grievance_service.api.v1 import submitter
 from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
@@ -21,6 +22,10 @@ from oan_grievance_service.api.v1.organization import (
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import organization as service
+from oan_grievance_service.tests.test_registration_submitter_fields import (
+	_register,
+	_user_for,
+)
 
 PROFILE = "Grievance Submitter Profile"
 
@@ -614,7 +619,8 @@ class TestAuthMeProfile(OrganizationTestCase):
 		data = self.me(self.rep)
 		self.assertEqual(data["type"], "NGO")
 		self.assertEqual(data["identities"], [{"scheme": "org", "value": org["registration_number"]}])
-		self.assertNotIn("fayda", json.dumps(data).lower())
+		self.assertIsNone(data["fayda_id"])
+		self.assertNotIn("1122334455667788", json.dumps(data))
 		self.assertNotIn("fayda", json.dumps(org).lower())
 		frappe.set_user(self.rep)
 		self.assertNotIn("fayda", json.dumps(get_my_organization()["data"]).lower())
@@ -645,6 +651,143 @@ class TestAuthMeProfile(OrganizationTestCase):
 		self.assertNotIn("organization", data)
 		self.assertNotIn("registration_number", data)
 		self.assertNotIn("representative_name", data)
+
+
+class TestSignUpThenCompleteRegistration(FrappeTestCase):
+	"""POST /auth/register as an NGO, FPO or cooperative, then the organization form.
+
+	Registration commits, so every test removes what it made.
+	"""
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		for email in getattr(self, "emails", []):
+			user = _user_for(email)
+			if not user:
+				continue
+			for profile in frappe.get_all(PROFILE, filters={"user": user}, pluck="name"):
+				frappe.delete_doc(PROFILE, profile, force=True, ignore_permissions=True)
+			for org in frappe.get_all(service.DOCTYPE, filters={"representative_user": user}, pluck="name"):
+				frappe.delete_doc(service.DOCTYPE, org, force=True, ignore_permissions=True)
+			frappe.delete_doc("User", user, force=True, ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		super().tearDown()
+
+	def sign_up(self, **overrides):
+		"""The documented payload for an organization: no Fayda ID, no registration number."""
+		payload, res = _register(fayda_id=..., **overrides)
+		self.emails = [*getattr(self, "emails", []), payload["email"]]
+		self.assertEqual(res["status"], "success", msg=res)
+		user = _user_for(payload["email"])
+		return user, frappe.get_doc(PROFILE, frappe.db.get_value(PROFILE, {"user": user}))
+
+	def me(self, user):
+		frappe.set_user(user)
+		return get_me()["data"]["profiles"]["grievance"]
+
+	def test_each_organization_type_can_sign_up_without_a_registration_number(self):
+		for org_type in C.ORG_TYPES:
+			_user_name, profile = self.sign_up(submitter_type=org_type, full_name="Almaz Bekele")
+			self.assertEqual(profile.submitter_type, org_type)
+			self.assertEqual(profile.submitter_name, "Almaz Bekele")
+			self.assertEqual(profile.submission_channel, "Web Portal")
+			self.assertEqual(profile.is_blocked, 1)
+			self.assertIn("Organization", profile.blocked_reason)
+			self.assertTrue(profile.dedupe_key.startswith("phone:"))
+			self.assertFalse(profile.organization)
+
+	def test_me_reports_the_type_and_no_organization_yet(self):
+		user, _profile = self.sign_up(submitter_type="NGO")
+		data = self.me(user)
+		self.assertEqual(data["type"], "NGO")
+		self.assertEqual(data["submitter_type"], "NGO")
+		self.assertIsNone(data["fayda_id"])
+		self.assertNotIn("organization", data)
+		self.assertEqual(data["identities"][0]["scheme"], "phone")
+
+	def test_a_fayda_id_sent_with_an_organization_sign_up_is_not_kept(self):
+		_payload_, res = _register(submitter_type="FPO", fayda_id="1234567890123456")
+		email = _payload_["email"]
+		self.emails = [email]
+		self.assertEqual(res["status"], "success", msg=res)
+		profile = frappe.get_doc(PROFILE, frappe.db.get_value(PROFILE, {"user": _user_for(email)}))
+		self.assertTrue(profile.dedupe_key.startswith("phone:"))
+		frappe.set_user(profile.user)
+		data = get_me()["data"]["profiles"]["grievance"]
+		self.assertIsNone(data["fayda_id"])
+		self.assertNotIn("fayda", json.dumps(data).lower().replace("fayda_id", ""))
+
+	def test_orgs_me_is_404_until_the_form_is_completed_then_returns_the_record(self):
+		user, profile = self.sign_up(submitter_type="NGO")
+		frappe.set_user(user)
+		self.assertEqual(get_my_organization()["code"], "NOT_FOUND")
+
+		created = register_organization(
+			**_payload(org_type="NGO", entity_type="Local NGO", legal_name="Abay Water Trust")
+		)
+		self.assertEqual(created["status"], "success", msg=created)
+		org = created["data"]
+		self.assertEqual(org["status"], C.ORG_STATUS_IN_REVIEW)
+		self.assertEqual(org["representative_user"], user)
+		self.assertEqual(org["representative_name"], "Registration Fields Farmer")
+
+		again = get_my_organization()["data"]
+		self.assertEqual(again["name"], org["name"])
+		self.assertEqual(again["legal_name"], "Abay Water Trust")
+		self.assertEqual(again["status"], C.ORG_STATUS_IN_REVIEW)
+
+		# The sign-up profile became the organization's, not a second one.
+		self.assertEqual(frappe.db.count(PROFILE, {"user": user}), 1)
+		profile.reload()
+		self.assertEqual(profile.organization, org["name"])
+		self.assertEqual(profile.dedupe_key, f"org:{org['registration_number']}")
+		self.assertEqual(profile.submitter_name, "Abay Water Trust")
+
+		data = self.me(user)
+		self.assertEqual(data["type"], "NGO")
+		self.assertEqual(data["organization"]["id"], org["name"])
+		self.assertEqual(data["organization"]["status"], C.ORG_STATUS_IN_REVIEW)
+		self.assertFalse(data["organization"]["can_file"])
+		self.assertIsNone(data["fayda_id"])
+
+	def test_verified_organization_can_file_after_sign_up_registration(self):
+		user, profile = self.sign_up(submitter_type="FPO")
+		frappe.set_user(user)
+		org = register_organization(**_payload())["data"]
+		with self.assertRaises(frappe.PermissionError):
+			_resolve_submitter_identity({})
+
+		admin = _user("admin", C.ROLE_ADMIN)
+		self.emails.append(admin)
+		frappe.set_user(admin)
+		self.assertEqual(
+			set_organization_status(org["name"], C.ORG_STATUS_ACTIVE)["data"]["status"], C.ORG_STATUS_ACTIVE
+		)
+		frappe.set_user(user)
+		self.assertEqual(_resolve_submitter_identity({})["submitter"], profile.name)
+		self.assertTrue(self.me(user)["organization"]["can_file"])
+
+	def test_signup_block_reasons_do_not_outlive_verification(self):
+		"""The reason `/submitters/register` writes for every non-farmer type also lifts."""
+		user, profile = self.sign_up(submitter_type="NGO")
+		profile.blocked_reason = "Pending admin verification for non-farmer submitter type."
+		profile.save(ignore_permissions=True)
+		frappe.set_user(user)
+		org = register_organization(**_payload(org_type="NGO", entity_type="Local NGO"))["data"]["name"]
+		profile.reload()
+		profile.blocked_reason = "Pending admin verification for non-farmer submitter type."
+		profile.save(ignore_permissions=True)
+		doc = frappe.get_doc(service.DOCTYPE, org)
+		doc.verification_status = C.ORG_STATUS_ACTIVE
+		doc.save(ignore_permissions=True)
+		profile.reload()
+		self.assertEqual(profile.is_blocked, 0)
+		self.assertIsNone(profile.blocked_reason)
+
+	def test_farmers_still_need_a_fayda_id(self):
+		payload, res = _register(fayda_id=...)
+		self.emails = [payload["email"]]
+		self.assertEqual(res["status"], "error")
 
 
 class TestRestRoutes(OrganizationTestCase):

@@ -189,7 +189,40 @@ The representative files through the same endpoints as any submitter. The server
 
 The keys `registration_number`, `representative_name` and `organization` are absent for a profile with no organization, so farmers and development agents see the same response as before. NGOs, FPOs and cooperatives have no Fayda ID, so none is returned: `identities` holds only the `org` entry, even for a representative whose account had a Fayda-keyed personal profile before the organization was registered.
 
-## 9. Not available yet
+## 9. Sign-up, first sign-in and completing the registration
+
+An NGO, FPO or cooperative representative signs up like anyone else, then completes the organization form at first sign-in.
+
+| Step | Call                      | What happens                                                                                                                                            |
+| :--- | :------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | `POST /auth/register`     | Creates the account and a **blocked, typed profile**. No organization exists yet                                                                        |
+| 2    | `POST /auth/login`        | Signs in. Nothing organization-specific                                                                                                                 |
+| 3    | `GET /auth/me`            | `profiles.grievance.type` is `NGO`, `FPO` or `Cooperative` and there is no `profiles.grievance.organization`. Send the user to the organization form    |
+| 4    | `GET /orgs/me`            | 404 until the form is submitted. Use it to choose between the form and the status card                                                                  |
+| 5    | `POST /orgs`              | Registers the organization `In Review` and converts the profile (section 1). From now on `GET /orgs/me` and `profiles.grievance.organization` return it |
+| 6    | `PATCH /orgs/{id}/status` | An administrator activates it. Only then can the representative file                                                                                    |
+
+Sign-up payload for an organization. The same fields as any sign-up, with `submitter_type` set and no `fayda_id`:
+
+```json
+{
+  "full_name": "Almaz Bekele",
+  "email": "almaz@example.com",
+  "password": "<password>",
+  "country_code": "+251",
+  "phone_number": "911641538",
+  "role": "Grievance Submitter",
+  "submitter_type": "NGO"
+}
+```
+
+- `submitter_type` is `NGO`, `FPO` or `Cooperative`. An Individual Farmer still needs `fayda_id`.
+- An organization has no Fayda ID. One sent with an organization sign-up is not stored, and `fayda_id` in `GET /auth/me` is `null` for these types.
+- The profile is keyed by the phone number until `POST /orgs`, which re-keys it by registration number. The account's name stays the representative's: `representative_name` defaults to it.
+- A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, blocked until an administrator verifies it), but it creates no organization record. The user still completes `POST /orgs`, with the same registration number.
+- `GET /orgs/me` is the endpoint that returns the signed-in representative's organization. It identifies them from the bearer token, so it takes no id.
+
+## 10. Not available yet
 
 - Logo upload, KYC document upload and the separate contacts endpoint from the onboarding flow. The registration screen collects contact details inline and does not use them.
 - Notifying the representative when an administrator decides. They see the status when they next open the screen.
