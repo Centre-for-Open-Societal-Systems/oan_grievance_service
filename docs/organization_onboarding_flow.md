@@ -89,7 +89,7 @@ Organisation onboarding is an administrative gate before active participation. I
 The request and response contract is in [organization-registration-api.md](organization-registration-api.md). Where it differs from the sequence and table above:
 
 - Every route is under `/api/v1`, for example `POST /api/v1/orgs`.
-- Phase 1 sign-up takes `submitter_type` (`NGO`, `FPO` or `Cooperative`) and no registration number or Fayda ID. It leaves a blocked, typed profile, and `GET /orgs/me` is 404 until Phase 2 submits the organization.
+- Phase 1 sign-up takes `submitter_type` (`NGO`, `FPO` or `Cooperative`) and the representative's `fayda_id`, with no registration number. It leaves a blocked, typed profile, and `GET /orgs/me` is 404 until Phase 2 submits the organization.
 - The admin decision is `PATCH /api/v1/orgs/{org_id}/status` with `{status, reason}`, not `/orgs/me/status`: the administrator acts on someone else's organization, so `me` could not name it.
 - The status values are `In Review`, `Active` and `Suspended`. Rejecting a registration is a move to `Suspended` with a reason.
 - Contacts are fields of the organization (`contact_email`, `contact_phone`), not a separate `PUT /orgs/me/contacts`.

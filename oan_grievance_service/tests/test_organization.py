@@ -603,8 +603,8 @@ class TestAuthMeProfile(OrganizationTestCase):
 		self.assertEqual(data["contact_email"], org["contact_email"])
 		self.assertEqual(data["identities"], [{"scheme": "org", "value": org["registration_number"]}])
 
-	def test_organizations_expose_no_fayda_id(self):
-		"""A representative who had a Fayda-keyed personal profile first does not leak it."""
+	def test_the_representatives_fayda_id_survives_registering_the_organization(self):
+		"""A representative whose profile was keyed by their Fayda ID keeps it."""
 		frappe.get_doc(
 			{
 				"doctype": PROFILE,
@@ -618,12 +618,14 @@ class TestAuthMeProfile(OrganizationTestCase):
 		org = self.register(org_type="NGO", entity_type="Local NGO")["data"]
 		data = self.me(self.rep)
 		self.assertEqual(data["type"], "NGO")
-		self.assertEqual(data["identities"], [{"scheme": "org", "value": org["registration_number"]}])
-		self.assertIsNone(data["fayda_id"])
-		self.assertNotIn("1122334455667788", json.dumps(data))
-		self.assertNotIn("fayda", json.dumps(org).lower())
-		frappe.set_user(self.rep)
-		self.assertNotIn("fayda", json.dumps(get_my_organization()["data"]).lower())
+		self.assertEqual(data["fayda_id"], "1122334455667788")
+		self.assertEqual(
+			data["identities"],
+			[
+				{"scheme": "fayda", "value": "1122334455667788"},
+				{"scheme": "org", "value": org["registration_number"]},
+			],
+		)
 
 	def test_can_file_follows_the_verification_status(self):
 		org = self.register()["data"]["name"]
@@ -674,8 +676,8 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 		super().tearDown()
 
 	def sign_up(self, **overrides):
-		"""The documented payload for an organization: no Fayda ID, no registration number."""
-		payload, res = _register(fayda_id=..., **overrides)
+		"""The documented payload for an organization: the representative's Fayda ID, no registration number."""
+		payload, res = _register(**overrides)
 		self.emails = [*getattr(self, "emails", []), payload["email"]]
 		self.assertEqual(res["status"], "success", msg=res)
 		user = _user_for(payload["email"])
@@ -693,29 +695,32 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 			self.assertEqual(profile.submission_channel, "Web Portal")
 			self.assertEqual(profile.is_blocked, 1)
 			self.assertIn("Organization", profile.blocked_reason)
-			self.assertTrue(profile.dedupe_key.startswith("phone:"))
+			self.assertTrue(profile.dedupe_key.startswith("fayda:"))
 			self.assertFalse(profile.organization)
 
 	def test_me_reports_the_type_and_no_organization_yet(self):
-		user, _profile = self.sign_up(submitter_type="NGO")
+		user, profile = self.sign_up(submitter_type="NGO", fayda_id="6557092147530500")
 		data = self.me(user)
 		self.assertEqual(data["type"], "NGO")
 		self.assertEqual(data["submitter_type"], "NGO")
-		self.assertIsNone(data["fayda_id"])
+		self.assertEqual(data["fayda_id"], "6557092147530500")
+		self.assertEqual(data["identities"], [{"scheme": "fayda", "value": "6557092147530500"}])
 		self.assertNotIn("organization", data)
-		self.assertEqual(data["identities"][0]["scheme"], "phone")
+		self.assertEqual(profile.dedupe_key, "fayda:6557092147530500")
 
-	def test_a_fayda_id_sent_with_an_organization_sign_up_is_not_kept(self):
-		_payload_, res = _register(submitter_type="FPO", fayda_id="1234567890123456")
-		email = _payload_["email"]
-		self.emails = [email]
-		self.assertEqual(res["status"], "success", msg=res)
-		profile = frappe.get_doc(PROFILE, frappe.db.get_value(PROFILE, {"user": _user_for(email)}))
-		self.assertTrue(profile.dedupe_key.startswith("phone:"))
-		frappe.set_user(profile.user)
-		data = get_me()["data"]["profiles"]["grievance"]
-		self.assertIsNone(data["fayda_id"])
-		self.assertNotIn("fayda", json.dumps(data).lower().replace("fayda_id", ""))
+	def test_an_organization_sign_up_needs_a_valid_fayda_id(self):
+		for org_type in C.ORG_TYPES:
+			for bad in (..., "", None, "123", "65570921475305AB"):
+				payload, res = _register(submitter_type=org_type, fayda_id=bad)
+				self.emails = [*getattr(self, "emails", []), payload["email"]]
+				self.assertEqual(res["status"], "error", msg=(org_type, bad))
+				self.assertFalse(_user_for(payload["email"]), msg=(org_type, bad))
+
+	def test_two_accounts_cannot_share_a_fayda_id(self):
+		self.sign_up(submitter_type="NGO", fayda_id="6557092147530501")
+		payload, res = _register(submitter_type="FPO", fayda_id="6557092147530501")
+		self.emails.append(payload["email"])
+		self.assertEqual(res["status"], "error")
 
 	def test_orgs_me_is_404_until_the_form_is_completed_then_returns_the_record(self):
 		user, profile = self.sign_up(submitter_type="NGO")
@@ -740,15 +745,17 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 		self.assertEqual(frappe.db.count(PROFILE, {"user": user}), 1)
 		profile.reload()
 		self.assertEqual(profile.organization, org["name"])
-		self.assertEqual(profile.dedupe_key, f"org:{org['registration_number']}")
+		# The key stays the representative's Fayda ID; the registration number is on the organization.
+		self.assertTrue(profile.dedupe_key.startswith("fayda:"))
 		self.assertEqual(profile.submitter_name, "Abay Water Trust")
 
 		data = self.me(user)
 		self.assertEqual(data["type"], "NGO")
+		self.assertEqual(data["fayda_id"], profile.dedupe_key.removeprefix("fayda:"))
 		self.assertEqual(data["organization"]["id"], org["name"])
 		self.assertEqual(data["organization"]["status"], C.ORG_STATUS_IN_REVIEW)
 		self.assertFalse(data["organization"]["can_file"])
-		self.assertIsNone(data["fayda_id"])
+		self.assertEqual([i["scheme"] for i in data["identities"]], ["fayda", "org"])
 
 	def test_verified_organization_can_file_after_sign_up_registration(self):
 		user, profile = self.sign_up(submitter_type="FPO")

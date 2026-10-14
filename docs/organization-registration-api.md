@@ -187,7 +187,7 @@ The representative files through the same endpoints as any submitter. The server
 | `organization.status`, `status_reason`           | Verification status and the last decision's note        |
 | `organization.can_file`                          | `true` only while the status is `Active`                |
 
-The keys `registration_number`, `representative_name` and `organization` are absent for a profile with no organization, so farmers and development agents see the same response as before. NGOs, FPOs and cooperatives have no Fayda ID, so none is returned: `identities` holds only the `org` entry, even for a representative whose account had a Fayda-keyed personal profile before the organization was registered.
+The keys `registration_number`, `representative_name` and `organization` are absent for a profile with no organization, so farmers and development agents see the same response as before. For an NGO, FPO or cooperative, `fayda_id` is the representative's Fayda ID given at sign-up, and `identities` lists it (`fayda`) and the organization's registration number (`org`).
 
 ## 9. Sign-up, first sign-in and completing the registration
 
@@ -202,7 +202,7 @@ An NGO, FPO or cooperative representative signs up like anyone else, then comple
 | 5    | `POST /orgs`              | Registers the organization `In Review` and converts the profile (section 1). From now on `GET /orgs/me` and `profiles.grievance.organization` return it |
 | 6    | `PATCH /orgs/{id}/status` | An administrator activates it. Only then can the representative file                                                                                    |
 
-Sign-up payload for an organization. The same fields as any sign-up, with `submitter_type` set and no `fayda_id`:
+Sign-up payload for an organization. The same fields as any sign-up, with `submitter_type` set to the organization type and `fayda_id` set to the representative's Fayda ID:
 
 ```json
 {
@@ -212,14 +212,15 @@ Sign-up payload for an organization. The same fields as any sign-up, with `submi
   "country_code": "+251",
   "phone_number": "911641538",
   "role": "Grievance Submitter",
-  "submitter_type": "NGO"
+  "submitter_type": "NGO",
+  "fayda_id": "6557092147530500"
 }
 ```
 
-- `submitter_type` is `NGO`, `FPO` or `Cooperative`. An Individual Farmer still needs `fayda_id`.
-- An organization has no Fayda ID. One sent with an organization sign-up is not stored, and `fayda_id` in `GET /auth/me` is `null` for these types.
-- The profile is keyed by the phone number until `POST /orgs`, which re-keys it by registration number. The account's name stays the representative's: `representative_name` defaults to it.
-- A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, blocked until an administrator verifies it), but it creates no organization record. The user still completes `POST /orgs`, with the same registration number.
+- `submitter_type` is `NGO`, `FPO` or `Cooperative`. `fayda_id` is required, as for an Individual Farmer: 16 digits, and one account per Fayda ID.
+- The profile is keyed by that Fayda ID, and `GET /auth/me` returns it as `fayda_id` (and in `identities`) for `type` `NGO`, `FPO` or `Cooperative`, before and after the organization is registered.
+- `POST /orgs` keeps the Fayda key, so the organization's registration number lives on the organization, not on the profile. The account's name stays the representative's: `representative_name` defaults to it.
+- A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, with no Fayda ID, blocked until an administrator verifies it), but it creates no organization record. The registration screen does not send one. The user still completes `POST /orgs`, with the same registration number.
 - `GET /orgs/me` is the endpoint that returns the signed-in representative's organization. It identifies them from the bearer token, so it takes no id.
 
 ## 10. Not available yet

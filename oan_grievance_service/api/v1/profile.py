@@ -58,10 +58,10 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 
 		details = organization.profile_details(profile.get("organization"))
 		if details:
-			# NGOs, FPOs and cooperatives have no national ID. A profile that was a person's
-			# before the organization was registered may still be keyed by one; it stays out,
-			# and the organization is identified by its registration number alone.
-			identities = [{"scheme": "org", "value": details["registration_number"]}]
+			# The representative's own identity (their Fayda ID) stays; the organization adds
+			# its registration number, which the profile's key no longer carries.
+			identities = [i for i in identities if i["scheme"] != "org"]
+			identities.append({"scheme": "org", "value": details["registration_number"]})
 
 		# An NGO, FPO or cooperative representative also gets the organization itself:
 		# the profile only carries the filing-time copy of its name and contacts.
@@ -71,14 +71,9 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			"type": profile.get("submitter_type"),
 			"submitter_type": profile.get("submitter_type"),
 			"submission_channel": profile.get("submission_channel"),
-			# Only a fayda-anchored profile has one; a phone or org key is not a Fayda ID, and an
-			# NGO, FPO or cooperative has none even when its representative's profile began as
-			# a person's, keyed by one.
-			"fayda_id": (
-				ident_val
-				if scheme == SCHEME_FAYDA and ident_val and profile.get("submitter_type") not in ORG_TYPES
-				else None
-			),
+			# Only a fayda-anchored profile has one; a phone or org key is not a Fayda ID. An NGO,
+			# FPO or cooperative's is its representative's, given at sign-up.
+			"fayda_id": ident_val if scheme == SCHEME_FAYDA and ident_val else None,
 			"submitter_name": profile.get("submitter_name"),
 			"contact_mobile": contact["contact_mobile"],
 			"country_code": contact["country_code"],
@@ -161,12 +156,17 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		str(kwargs.get(key) or "").strip() for key in ("registration_number", "org_number", "dedupe_key")
 	)
 	if submitter_type in ORG_TYPES and not has_org_identifier:
-		# An NGO, FPO or cooperative signs up as its representative, with no registration
-		# number and no Fayda ID. Its organization is registered at first sign-in
+		# An NGO, FPO or cooperative signs up as its representative: their details and Fayda
+		# ID, and no registration number. Its organization is registered at first sign-in
 		# (POST /api/v1/orgs), so only the blocked, typed profile exists until then. A sign-up
 		# that does bring a registration number takes the ordinary path below.
 		organization.register_pending_profile(
-			user_name, submitter_type, full_name or kwargs.get("submitter_name"), contact_mobile, email
+			user_name,
+			submitter_type,
+			full_name or kwargs.get("submitter_name"),
+			contact_mobile,
+			email,
+			fayda_id or national_id,
 		)
 		return
 

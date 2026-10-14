@@ -313,15 +313,17 @@ def sync_profile(org):
 	profile.save(ignore_permissions=True)
 
 
-def register_pending_profile(user: str, org_type: str, name: str, mobile: str | None, email: str | None):
+def register_pending_profile(
+	user: str, org_type: str, name: str, mobile: str | None, email: str | None, fayda_id: str | None
+):
 	"""The profile of an NGO, FPO or cooperative representative who has only signed up.
 
-	`/auth/register` carries a person's details and no registration number, so the
-	organization cannot exist yet. The profile takes the organization's type, which is what
-	sends the representative to the organization form at first sign-in (`/auth/me` reports
-	it as `type`), and is blocked until the organization is registered and verified. It is
-	keyed by phone for now; `sync_profile` re-keys it by registration number when
-	`POST /orgs` creates the organization.
+	`/auth/register` carries the representative's details, including their Fayda ID, and no
+	registration number, so the organization cannot exist yet. The profile takes the
+	organization's type, which is what sends the representative to the organization form at
+	first sign-in (`/auth/me` reports it as `type`), and is blocked until the organization is
+	registered and verified. It is keyed by the representative's Fayda ID, as a farmer's is,
+	and `sync_profile` leaves that key alone when `POST /orgs` creates the organization.
 	"""
 	if org_type not in C.ORG_TYPES:
 		frappe.throw(
@@ -332,8 +334,22 @@ def register_pending_profile(user: str, org_type: str, name: str, mobile: str | 
 	if frappe.db.exists(PROFILE, {"user": user}):
 		return frappe.get_doc(PROFILE, {"user": user})
 
+	fayda_id = (fayda_id or "").strip()
+	if not fayda_id:
+		frappe.throw(
+			_("A Fayda ID is required to register as {0}.").format(org_type),
+			frappe.ValidationError,
+			title=_("Fayda ID Required"),
+		)
+	if not identity.FAYDA_PATTERN.match(fayda_id):
+		frappe.throw(
+			_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id),
+			frappe.ValidationError,
+			title=_("Invalid Fayda ID"),
+		)
+
 	mobile = identity.validate_mobile(mobile)
-	key = f"{identity.SCHEME_PHONE}:{mobile}"
+	key = f"{identity.SCHEME_FAYDA}:{fayda_id}"
 	if frappe.db.exists(PROFILE, {"dedupe_key": key}):
 		frappe.throw(
 			_("A Submitter Profile with dedupe key '{0}' is already registered.").format(key),
