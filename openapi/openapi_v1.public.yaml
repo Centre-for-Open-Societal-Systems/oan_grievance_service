@@ -282,7 +282,7 @@ paths:
         \ System Managers see all cases.\n\nSupports multi-select values (list, JSON array, or comma-separated\
         \ string) for status,\nservice_category/category, administrative_area/location/region/zone/woreda/kebele,\n\
         grievance_type, department, and submission_channel.\n\nStatus filters use the queue cards (All,\
-        \ In Progress, Require More Info, Rejected,\nResolved, Closed; officers also get Assigned). Draft\
+        \ In Progress, More Info Needed, Rejected,\nResolved, Closed; officers also get Assigned). Draft\
         \ is never returned. Workflow\nstages that are not a card are reported as the card they roll up\
         \ into."
       operationId: get_api_v1_grievances
@@ -1234,7 +1234,7 @@ paths:
       description: 'Counts of visible grievances on each queue status card.
 
 
-        Draft is excluded. The cards are All, In Progress, Require More Info, Rejected,
+        Draft is excluded. The cards are All, In Progress, More Info Needed, Rejected,
 
         Resolved and Closed. Officers also get an Assigned card. Any other workflow
 
@@ -6953,7 +6953,7 @@ components:
         status:
           type: string
           example: Submitted
-          description: Public workflow status (Submitted, Under Investigation, Require More Info, Resolved,
+          description: Public workflow status (Submitted, Under Investigation, More Info Needed, Resolved,
             Closed, Reopened, Rejected)
         service_category:
           type: string

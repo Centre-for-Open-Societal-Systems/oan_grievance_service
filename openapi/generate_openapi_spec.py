@@ -575,7 +575,7 @@ data(
 			),
 			"status": S(
 				example="Submitted",
-				description="Public workflow status (Submitted, Under Investigation, Require More Info, Resolved, Closed, Reopened, Rejected)",
+				description="Public workflow status (Submitted, Under Investigation, More Info Needed, Resolved, Closed, Reopened, Rejected)",
 			),
 			"service_category": S(example="Inputs"),
 			"grievance_type": S(example="Fertilizer Shortage"),

@@ -791,7 +791,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		status_names = [s["status"] for s in data["statuses"]]
 		self.assertEqual(
 			status_names,
-			["All", "Assigned", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+			["All", "Assigned", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
 		)
 		self.assertNotIn("Submitted", status_names)
 
@@ -812,7 +812,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertNotIn("Assigned", status_names)
 		self.assertEqual(
 			status_names,
-			["All", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+			["All", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
 		)
 
 	def test_unauthorized_user_cannot_access_options(self):
