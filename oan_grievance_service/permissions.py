@@ -49,17 +49,17 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 )
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
-	ROLE_DEVELOPMENT_AGENT,
+	ROLE_ASSISTED_SUBMITTER,
 	ROLE_OFFICER,
 	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
 	STAFF_ROLES,
 )
 
-GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_DEVELOPMENT_AGENT, ROLE_SUBMITTER)
+GRIEVANCE_ROLES = (ROLE_ADMIN, ROLE_OFFICER, ROLE_ASSISTED_SUBMITTER, ROLE_SUBMITTER)
 
-# A Development Agent is a submitter whose filings also record them as the assisting officer.
-SUBMITTER_ROLES = {ROLE_SUBMITTER, ROLE_DEVELOPMENT_AGENT}
+# An assisted submitter accesses their own cases and cases they assisted.
+SUBMITTER_ROLES = {ROLE_SUBMITTER, ROLE_ASSISTED_SUBMITTER}
 
 # Administrators see all regions, departments and categories.
 UNRESTRICTED_ROLES = {ROLE_ADMIN, "System Manager", "Administrator"}

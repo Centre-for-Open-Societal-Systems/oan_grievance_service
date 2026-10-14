@@ -19,11 +19,9 @@ STATE_CLOSED = "Closed"
 STATE_REJECTED = "Rejected"
 
 
-# The groups the dashboards count by. Awaiting Action is every state in which an
-# officer owes the next move. More Info Needed waits on the submitter, so it is open
-# but not awaiting. Resolved on the dashboards means Resolved or Closed.
-AWAITING_ACTION_STATES = (STATE_SUBMITTED, STATE_ASSIGNED, STATE_IN_PROGRESS)
-OPEN_STATES = (*AWAITING_ACTION_STATES, STATE_MORE_INFO_NEEDED)
+# The group the dashboards count as resolved: Resolved or Closed. The open and
+# awaiting-action groups are not listed here; sla.open_states() and
+# sla.awaiting_action_states() read them from the Grievance Workflow.
 RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
 
 
@@ -90,9 +88,10 @@ DEFAULT_ESCALATION_THRESHOLD = 100
 ROLE_SUBMITTER = "Grievance Submitter"
 ROLE_OFFICER = "Grievance Officer"
 ROLE_ADMIN = "Grievance Admin"
-# A submitter in every respect (always holds ROLE_SUBMITTER too); the one difference is that
-# the grievances they file record them as assisted_by_officer.
-ROLE_DEVELOPMENT_AGENT = "Grievance Development Agent"
+# An assisted submitter (e.g. Development Agent, call-centre operator, front-desk intake staff)
+# who files grievances on behalf of citizens, recorded as assisted_by_officer.
+# Granted via Keycloak.
+ROLE_ASSISTED_SUBMITTER = "Grievance Assisted Submitter"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"

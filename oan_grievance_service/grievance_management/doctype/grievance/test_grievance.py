@@ -539,6 +539,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	"""
 
 	def setUp(self):
+		from oan_grievance_service.setup.install import seed_roles
+
+		seed_roles()
 		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
 				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
@@ -547,7 +550,8 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.owner_user = self._user("owner.ownership@example.com", ["Grievance Submitter"])
 		self.other_user = self._user("other.ownership@example.com", ["Grievance Submitter"])
 		self.officer_user = self._user("officer.ownership@example.com", ["Grievance Officer"])
-		self.da_user = self._user("da.ownership@example.com", [C.ROLE_DEVELOPMENT_AGENT])
+		self.da_user = self._user("da.ownership@example.com", [C.ROLE_ASSISTED_SUBMITTER])
+		self.admin_user = self._user("admin.ownership@example.com", [C.ROLE_ADMIN])
 
 		self.owner_profile = self._profile(self.owner_user, "Alemayehu Bekele", "+251911000111")
 		self.other_profile = self._profile(self.other_user, "Hirut Tadesse", "+251911000222")
@@ -650,6 +654,18 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertIsNone(identity["submitter"])
 		self.assertEqual(identity["submitter_name"], "Walk In Caller")
 		self.assertEqual(identity["assisted_by_officer"], self.da_user)
+
+	def test_admin_files_on_behalf_and_is_recorded_as_assisting(self):
+		"""Grievance Admin may also file on behalf of a submitter."""
+		frappe.set_user(self.admin_user)
+
+		identity = _resolve_submitter_identity(
+			{"submitter": self.other_profile.name, "submitter_name": "Ignored"}
+		)
+
+		self.assertEqual(identity["submitter"], self.other_profile.name)
+		self.assertEqual(identity["submitter_name"], "Hirut Tadesse")
+		self.assertEqual(identity["assisted_by_officer"], self.admin_user)
 
 	def test_officer_cannot_create_or_submit_grievance(self):
 		"""Grievance Officers work cases and cannot file them."""

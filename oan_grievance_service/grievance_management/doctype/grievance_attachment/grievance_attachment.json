@@ -237,7 +237,7 @@
   {
    "create": 1,
    "read": 1,
-   "role": "Grievance Development Agent"
+   "role": "Grievance Assisted Submitter"
   }
  ],
  "row_format": "Dynamic",

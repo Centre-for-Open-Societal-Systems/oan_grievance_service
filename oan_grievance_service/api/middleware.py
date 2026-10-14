@@ -11,10 +11,7 @@ API_NAMESPACE = "/api/method/oan_grievance_service."
 
 # Endpoints reachable without a bearer token. Kept explicit rather than pattern
 # matched so adding one is a visible diff.
-EXEMPT_PATHS: list[str] = [
-	"/api/method/oan_grievance_service.api.v1.submitter.options",
-	"/api/method/oan_grievance_service.api.v1.administrative_area.get_areas",
-]
+EXEMPT_PATHS: list[str] = []
 
 # Frappe's socket server learns who a connecting socket is by calling this endpoint
 # with the client's headers. Registered so a bearer JWT resolves to its user rather

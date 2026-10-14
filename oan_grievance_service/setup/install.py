@@ -28,7 +28,7 @@ ROLES = [
 	("Grievance Submitter", 0),
 	("Grievance Officer", 0),
 	("Grievance Admin", 0),
-	(C.ROLE_DEVELOPMENT_AGENT, 0),
+	(C.ROLE_ASSISTED_SUBMITTER, 0),
 	("Grievance Dashboard Reader", 0),
 	(C.ROLE_REVIEW_OFFICER, 0),
 ]
@@ -64,9 +64,9 @@ WORKFLOW_STATES = [
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
-# Citizens and Development Agents file grievances. Officers investigate and resolve cases.
-FILING_ROLES = ("Grievance Submitter", C.ROLE_DEVELOPMENT_AGENT)
-SUBMITTER_ROLES = ("Grievance Submitter",)
+# Citizens and Assisted Submitters (e.g. Development Agents) file grievances. Officers investigate and resolve cases.
+FILING_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
+SUBMITTER_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
 SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)

@@ -233,9 +233,10 @@ def _resolve_submitter_identity(kwargs):
 	"""Decide who a grievance belongs to, server-side, and snapshot their profile.
 
 	A submitter always files as themselves: the session decides the owning profile,
-	never the request. Staff may file on someone's behalf for the assisted and call
-	centre channels, in which case the named submitter stays the owner and the staff
-	member is recorded as the assisting officer for the audit trail.
+	never the request. Assisted submitters (Development Agents, call centre, walk-in
+	intake staff) and administrators may file on someone's behalf, in which case the
+	named submitter stays the owner and the filing user is recorded as the assisting
+	officer for the audit trail.
 
 	The name and contact columns are a filing-time copy of the profile, so a case
 	keeps showing who reported it even after they later change their phone number.
@@ -244,9 +245,11 @@ def _resolve_submitter_identity(kwargs):
 	"""
 	user = frappe.session.user
 	roles = set(frappe.get_roles(user))
-	is_da = C.ROLE_DEVELOPMENT_AGENT in roles
+	is_assisted_filer = bool(
+		roles & {C.ROLE_ASSISTED_SUBMITTER, C.ROLE_ADMIN, "System Manager", "Administrator"}
+	)
 
-	if is_da:
+	if is_assisted_filer:
 		profile_name = kwargs.get("submitter")
 		identity = {"submitter": profile_name, "assisted_by_officer": user}
 	else:
@@ -722,18 +725,6 @@ ACTIONS_REQUIRING_REASON = {
 	"Submitter Reply",
 }
 
-ACTION_CODES = {
-	"Close Case": "close_case",
-	"Reopen": "reopen",
-	"Resolve": "resolve",
-	"Partially Resolve": "partially_resolve",
-	"Reject": "reject",
-	"Refer Onward": "refer_onward",
-	"Request More Info": "request_more_info",
-	"Submitter Reply": "submitter_reply",
-	"In Progress": "in_progress",
-}
-
 ACTIONS_REQUIRING_RATING = {"Close Case"}
 
 
@@ -755,7 +746,7 @@ def _get_available_actions_for_user(doc):
 		result.append(
 			{
 				"action": act,
-				"action_code": ACTION_CODES.get(act, frappe.scrub(act)),
+				"action_code": frappe.scrub(act),
 				"label": _(act),
 				"requires_reason": act in ACTIONS_REQUIRING_REASON,
 				"requires_rating": act in ACTIONS_REQUIRING_RATING,
