@@ -165,5 +165,4 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		org_number=kwargs.get("org_number"),
 		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,
-		submission_channel=kwargs.get("submission_channel"),
 	)

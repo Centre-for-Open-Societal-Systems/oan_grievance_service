@@ -561,7 +561,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"full_name\": \"{{submitter_name}}\",\n    \"email\": \"{{user_email}}\",\n    \"phone_number\": \"{{contact_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Individual Farmer\",\n    \"fayda_id\": \"{{fayda_id}}\",\n    \"submission_channel\": \"Web Portal\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
+              "raw": "{\n    \"full_name\": \"{{submitter_name}}\",\n    \"email\": \"{{user_email}}\",\n    \"phone_number\": \"{{contact_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Individual Farmer\",\n    \"fayda_id\": \"{{fayda_id}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/auth/register",
@@ -575,7 +575,7 @@
                 "register"
               ]
             },
-            "description": "Registers an Individual Farmer account. fayda_id (16 digits, unique across profiles) is required for an Individual Farmer and becomes the dedupe_key 'fayda:<fayda_id>'. submitter_type must be an existing Grievance Submitter Type (default Individual Farmer) and submission_channel an active Grievance Submission Type (default Web Portal). An invalid type, channel or Fayda ID returns 400, a duplicate Fayda ID returns 409, and no user is created. Initializes the Submitter Profile and issues access/refresh tokens."
+            "description": "Registers an Individual Farmer account. fayda_id (16 digits, unique across profiles) is required for an Individual Farmer and becomes the dedupe_key 'fayda:<fayda_id>'. submitter_type must be an existing Grievance Submitter Type (default Individual Farmer). Registration takes no channel: the profile is filed under Web Portal. An invalid type or Fayda ID returns 400, a duplicate Fayda ID returns 409, and no user is created. Initializes the Submitter Profile and issues access/refresh tokens."
           },
           "response": []
         },

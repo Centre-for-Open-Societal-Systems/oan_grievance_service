@@ -6,7 +6,7 @@
 Covers POST /api/v1/auth/register through the on_user_registered hook, the three keys under
 profiles.grievance in GET /api/v1/auth/me, the channel rules on the profile (field default,
 update behaviour, active check in the controller), the channel seed patch, and the channels
-offered by GET /api/v1/submitters/options.
+offered by GET /api/v1/submitters/options. Registration itself takes no channel.
 """
 
 import secrets
@@ -75,11 +75,9 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 		frappe.set_user("Administrator")
 		super().tearDown()
 
-	def test_register_stores_type_fayda_and_channel_and_me_returns_them(self):
+	def test_register_stores_type_and_fayda_and_me_returns_all_three_keys(self):
 		fayda = _fayda()
-		payload, res = _register(
-			fayda_id=fayda, submitter_type="Individual Farmer", submission_channel="Mobile App"
-		)
+		payload, res = _register(fayda_id=fayda, submitter_type="Individual Farmer")
 		try:
 			self.assertEqual(res["status"], "success")
 			user = _user_for(payload["email"])
@@ -88,14 +86,14 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 				frappe.db.get_value("Grievance Submitter Profile", {"user": user}),
 			)
 			self.assertEqual(profile.submitter_type, "Individual Farmer")
-			self.assertEqual(profile.submission_channel, "Mobile App")
+			self.assertEqual(profile.submission_channel, "Web Portal")
 			self.assertEqual(profile.dedupe_key, f"fayda:{fayda}")
 
 			frappe.set_user(user)
 			grievance = get_me()["data"]["profiles"]["grievance"]
 			self.assertEqual(grievance["type"], "Individual Farmer")
 			self.assertEqual(grievance["submitter_type"], "Individual Farmer")
-			self.assertEqual(grievance["submission_channel"], "Mobile App")
+			self.assertEqual(grievance["submission_channel"], "Web Portal")
 			self.assertEqual(grievance["fayda_id"], fayda)
 			self.assertEqual(grievance["identities"], [{"scheme": "fayda", "value": fayda}])
 			# The keys that existed before the change are still there.
@@ -113,52 +111,20 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 		finally:
 			_forget(payload["email"])
 
-	def test_register_without_channel_defaults_to_web_portal(self):
-		payload, res = _register()
-		try:
-			self.assertEqual(res["status"], "success")
-			user = _user_for(payload["email"])
-			self.assertEqual(
-				frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "submission_channel"),
-				"Web Portal",
-			)
-			frappe.set_user(user)
-			self.assertEqual(get_me()["data"]["profiles"]["grievance"]["submission_channel"], "Web Portal")
-		finally:
-			_forget(payload["email"])
-
-	def test_register_with_blank_channel_defaults_to_web_portal(self):
-		payload, res = _register(submission_channel="   ")
-		try:
-			self.assertEqual(res["status"], "success")
-			user = _user_for(payload["email"])
-			self.assertEqual(
-				frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "submission_channel"),
-				"Web Portal",
-			)
-		finally:
-			_forget(payload["email"])
-
-	def test_invalid_channel_is_rejected_and_creates_no_user(self):
-		payload, res = _register(submission_channel="Carrier Pigeon")
-		self.assertEqual(res["status"], "error")
-		self.assertEqual(res["code"], "VALIDATION_ERROR")
-		self.assertEqual(frappe.response["http_status_code"], 400)
-		# Frappe's own Link check names the missing value; no notice from the User insert
-		# should come ahead of it.
-		self.assertEqual(res["message"], "Could not find Submission Channel: Carrier Pigeon")
-		self.assertIsNone(_user_for(payload["email"]))
-
-	def test_inactive_channel_is_rejected_and_creates_no_user(self):
-		frappe.db.set_value("Grievance Submission Type", "IVR Helpline", "is_active", 0)
-		try:
-			payload, res = _register(submission_channel="IVR Helpline")
-			self.assertEqual(res["status"], "error")
-			self.assertEqual(frappe.response["http_status_code"], 400)
-			self.assertEqual(res["message"], "Submission Channel 'IVR Helpline' is not active.")
-			self.assertIsNone(_user_for(payload["email"]))
-		finally:
-			frappe.db.set_value("Grievance Submission Type", "IVR Helpline", "is_active", 1)
+	def test_register_always_files_the_profile_under_web_portal(self):
+		# Registration does not take a channel: a value sent anyway, valid or not, is ignored.
+		for sent in (..., "Mobile App", "Carrier Pigeon"):
+			payload, res = _register(submission_channel=sent)
+			try:
+				self.assertEqual(res["status"], "success", sent)
+				user = _user_for(payload["email"])
+				self.assertEqual(
+					frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "submission_channel"),
+					"Web Portal",
+					sent,
+				)
+			finally:
+				_forget(payload["email"])
 
 	def test_unknown_submitter_type_is_rejected_and_creates_no_user(self):
 		payload, res = _register(submitter_type="Space Farmer")
