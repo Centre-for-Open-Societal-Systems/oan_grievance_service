@@ -20,7 +20,25 @@ from oan_grievance_service.services import identity
 class GrievanceSubmitterProfile(Document):
 	def validate(self):
 		self.validate_required_identity()
+		self.validate_submission_channel()
 		self.set_dedupe_key()
+
+	def validate_submission_channel(self):
+		"""A channel set on this save must be an active Submission Type.
+
+		The Link field already rejects a name that does not exist, but not an inactive one.
+		Only a new or changed value is checked, so deactivating a channel later does not stop
+		profiles that already carry it from being saved.
+		"""
+		if not self.submission_channel:
+			return
+		if not (self.is_new() or self.has_value_changed("submission_channel")):
+			return
+		if not frappe.db.get_value("Grievance Submission Type", self.submission_channel, "is_active"):
+			frappe.throw(
+				_("Submission Channel '{0}' is not active.").format(self.submission_channel),
+				title=_("Inactive Submission Channel"),
+			)
 
 	def validate_required_identity(self):
 		"""Enforce the registration requirements for this submitter type."""

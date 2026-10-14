@@ -1,6 +1,7 @@
 """Profile resolution and hook integration for OAN Grievance Service."""
 
 import frappe
+from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
@@ -34,6 +35,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 	fields = [
 		"name",
 		"submitter_type",
+		"submission_channel",
 		"submitter_name",
 		"contact_mobile",
 		"contact_email",
@@ -47,7 +49,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 			split_dedupe_key,
 		)
-		from oan_grievance_service.services.identity import mask_contact
+		from oan_grievance_service.services.identity import SCHEME_FAYDA, mask_contact
 
 		scheme, ident_val = split_dedupe_key(profile.get("dedupe_key"))
 		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
@@ -66,6 +68,10 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			**details,
 			"profile_id": profile.get("name"),
 			"type": profile.get("submitter_type"),
+			"submitter_type": profile.get("submitter_type"),
+			"submission_channel": profile.get("submission_channel"),
+			# Only a fayda-anchored profile has one; a phone or org key is not a Fayda ID.
+			"fayda_id": ident_val if scheme == SCHEME_FAYDA and ident_val else None,
 			"submitter_name": profile.get("submitter_name"),
 			"contact_mobile": contact["contact_mobile"],
 			"country_code": contact["country_code"],
@@ -88,6 +94,12 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	user_roles = set(roles or ([role] if role else []))
 	if "Grievance Submitter" not in user_roles:
 		return
+
+	# The User insert that just ran leaves notices in the message log (no outgoing email
+	# account, a taken username). The API error envelope joins the whole log into its
+	# message, so without this a rejected registration would open with them and bury the
+	# actual reason.
+	frappe.clear_messages()
 
 	user_name = user_doc.name if hasattr(user_doc, "name") else user_doc.get("name")
 	full_name = user_doc.full_name if hasattr(user_doc, "full_name") else user_doc.get("full_name")
@@ -126,21 +138,46 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	if not email:
 		email = kwargs.get("contact_email") or kwargs.get("email")
 
-	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
+	from oan_grievance_service.api.v1.submitter import (
+		_create_or_update_submitter_profile,
+		_is_farmer_submitter_type,
+	)
+
+	# The extra register fields arrive as JSON, so a number is possible: read the IDs as text
+	# and let the format check report a bad Fayda ID instead of failing on .strip().
+	submitter_type = str(kwargs.get("submitter_type") or "Individual Farmer").strip()
+	fayda_id = str(kwargs.get("fayda_id") or "").strip() or None
+	national_id = str(kwargs.get("national_id") or "").strip() or None
+	dedupe_key = kwargs.get("dedupe_key")
+
+	if _is_farmer_submitter_type(submitter_type):
+		if not (fayda_id or national_id):
+			frappe.throw(
+				_("A Fayda ID is required to register as an Individual Farmer."),
+				frappe.ValidationError,
+				title=_("Fayda ID Required"),
+			)
+		# An explicit key outranks the Fayda ID when the dedupe key is derived, so a caller
+		# could register a farmer with no Fayda ID on the profile. Registration takes the
+		# Fayda ID and nothing else for a farmer.
+		dedupe_key = None
 
 	_create_or_update_submitter_profile(
 		user=user_name,
-		submitter_type=kwargs.get("submitter_type") or "Individual Farmer",
+		submitter_type=submitter_type,
 		submitter_name=full_name or kwargs.get("submitter_name"),
 		contact_mobile=contact_mobile,
 		contact_email=email,
 		administrative_area=kwargs.get("administrative_area") or kwargs.get("region"),
 		administrative_unit=kwargs.get("administrative_unit") or kwargs.get("woreda"),
 		preferred_language=kwargs.get("preferred_language"),
-		fayda_id=kwargs.get("fayda_id"),
-		national_id=kwargs.get("national_id"),
+		fayda_id=fayda_id,
+		national_id=national_id,
 		registration_number=kwargs.get("registration_number"),
 		org_number=kwargs.get("org_number"),
 		farmer_id=kwargs.get("farmer_id"),
-		dedupe_key=kwargs.get("dedupe_key"),
+		dedupe_key=dedupe_key,
+		# Set here and not as a field default: a profile created anywhere else (an IVR or
+		# webhook intake, a desk entry) must not be filed under Web Portal by accident.
+		submission_channel="Web Portal",
 	)

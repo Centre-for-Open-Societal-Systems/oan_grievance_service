@@ -63,6 +63,11 @@ class RegisterSubmitterRequest(BaseModel):
 	org_number: str | None = Field(default=None, description="Organization number alias")
 	farmer_id: str | None = Field(default=None, description="Farmer ID alias")
 	dedupe_key: str | None = Field(default=None, description="Explicit dedupe key")
+	submission_channel: str | None = Field(
+		default=None,
+		description="Intake channel the profile registered through (an active Grievance "
+		"Submission Type). Left empty when not sent.",
+	)
 
 
 class BlockSubmitterRequest(BaseModel):
@@ -93,6 +98,7 @@ def _create_or_update_submitter_profile(
 	org_number: str | None = None,
 	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
+	submission_channel: str | None = None,
 	**kwargs,
 ):
 	"""Internal helper to validate inputs and persist a Submitter Profile."""
@@ -104,6 +110,10 @@ def _create_or_update_submitter_profile(
 			frappe.ValidationError,
 			title=_("Invalid Submitter Type"),
 		)
+
+	# None means "not sent": the profile is saved without a channel, or keeps the one it has.
+	# The profile controller checks that a channel that is sent is active.
+	submission_channel = str(submission_channel or "").strip() or None
 
 	user_doc = (
 		frappe.get_doc("User", user) if user and user != "Guest" and frappe.db.exists("User", user) else None
@@ -201,6 +211,8 @@ def _create_or_update_submitter_profile(
 		profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
+		if submission_channel:
+			profile.submission_channel = submission_channel
 
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
@@ -225,6 +237,7 @@ def _create_or_update_submitter_profile(
 				"doctype": "Grievance Submitter Profile",
 				"user": user_doc.name if user_doc else None,
 				"submitter_type": submitter_type,
+				"submission_channel": submission_channel,
 				"submitter_name": submitter_name,
 				"contact_mobile": contact_mobile,
 				"contact_email": contact_email,
@@ -322,6 +335,7 @@ def register_submitter(
 	org_number: str | None = None,
 	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
+	submission_channel: str | None = None,
 	**kwargs,
 ):
 	"""Register a Submitter Profile for the authenticated user.
@@ -355,6 +369,7 @@ def register_submitter(
 		org_number=org_number,
 		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
+		submission_channel=submission_channel,
 		**kwargs,
 	)
 
@@ -368,6 +383,7 @@ def register_submitter(
 	data = {
 		"profile_id": profile.name,
 		"submitter_type": profile.submitter_type,
+		"submission_channel": profile.submission_channel,
 		"submitter_name": profile.submitter_name,
 		"contact_mobile": contact["contact_mobile"],
 		"country_code": contact["country_code"],

@@ -1,6 +1,8 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
+import secrets
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -8,6 +10,11 @@ from oan_grievance_service.grievance_management.doctype.grievance_submitter_prof
 	build_dedupe_key,
 	split_dedupe_key,
 )
+
+
+def _random_fayda() -> str:
+	"""A 16-digit Fayda ID that no other test or profile on the site is likely to hold."""
+	return "".join(secrets.choice("0123456789") for _ in range(16))
 
 
 class TestSubmitterProfile(FrappeTestCase):
@@ -500,6 +507,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				role="Grievance Submitter",
 				roles=["Grievance Submitter"],
 				administrative_unit="Adama",
+				fayda_id=_random_fayda(),
 			)
 
 			profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
@@ -507,6 +515,7 @@ class TestSubmitterProfile(FrappeTestCase):
 
 			profile = frappe.get_doc("Grievance Submitter Profile", profile_name)
 			self.assertEqual(profile.submitter_type, "Individual Farmer")
+			self.assertEqual(profile.submission_channel, "Web Portal")
 			self.assertEqual(profile.submitter_name, "Registered Farmer")
 			self.assertEqual(profile.contact_mobile, phone)
 			self.assertEqual(profile.contact_email, email)
@@ -578,6 +587,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				phone_number=national_no,
 				role="Grievance Submitter",
 				administrative_unit="Bishoftu",
+				fayda_id=_random_fayda(),
 			)
 			self.assertEqual(res["status"], "success")
 			user_id = res["data"]["user"]
