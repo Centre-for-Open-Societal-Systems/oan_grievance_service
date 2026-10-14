@@ -9706,7 +9706,7 @@ components:
           type: string
           default: null
           description: Intake channel the profile registered through (an active Grievance Submission Type).
-            Defaults to Web Portal.
+            Left empty when not sent.
           nullable: true
       type: object
     BlockSubmitterRequest:

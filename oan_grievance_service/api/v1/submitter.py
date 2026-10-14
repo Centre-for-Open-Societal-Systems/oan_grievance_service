@@ -65,7 +65,7 @@ class RegisterSubmitterRequest(BaseModel):
 	submission_channel: str | None = Field(
 		default=None,
 		description="Intake channel the profile registered through (an active Grievance "
-		"Submission Type). Defaults to Web Portal.",
+		"Submission Type). Left empty when not sent.",
 	)
 
 
@@ -110,8 +110,8 @@ def _create_or_update_submitter_profile(
 			title=_("Invalid Submitter Type"),
 		)
 
-	# None means "not sent": an insert then takes the field default, an update keeps the stored
-	# channel. The profile controller checks that a channel that is sent is active.
+	# None means "not sent": the profile is saved without a channel, or keeps the one it has.
+	# The profile controller checks that a channel that is sent is active.
 	submission_channel = str(submission_channel or "").strip() or None
 
 	user_doc = (

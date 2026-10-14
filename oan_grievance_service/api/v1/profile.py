@@ -165,4 +165,7 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		org_number=kwargs.get("org_number"),
 		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,
+		# Set here and not as a field default: a profile created anywhere else (an IVR or
+		# webhook intake, a desk entry) must not be filed under Web Portal by accident.
+		submission_channel="Web Portal",
 	)

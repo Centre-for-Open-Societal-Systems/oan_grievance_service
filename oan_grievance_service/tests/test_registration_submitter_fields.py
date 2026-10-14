@@ -4,9 +4,10 @@
 """STG-456: submitter type, submission channel and Fayda ID at registration.
 
 Covers POST /api/v1/auth/register through the on_user_registered hook, the three keys under
-profiles.grievance in GET /api/v1/auth/me, the channel rules on the profile (field default,
-update behaviour, active check in the controller), the channel seed patch, and the channels
-offered by GET /api/v1/submitters/options. Registration itself takes no channel.
+profiles.grievance in GET /api/v1/auth/me, the channel rules on the profile (no field
+default, update behaviour, active check in the controller), the two channel patches, and the
+channels offered by GET /api/v1/submitters/options. Registration takes no channel from the
+caller; the hook files the profile under Web Portal.
 """
 
 import secrets
@@ -126,6 +127,17 @@ class TestRegistrationSubmitterFields(FrappeTestCase):
 			finally:
 				_forget(payload["email"])
 
+	def test_register_is_rejected_when_web_portal_is_not_active(self):
+		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 0)
+		try:
+			payload, res = _register()
+			self.assertEqual(res["status"], "error")
+			self.assertEqual(frappe.response["http_status_code"], 400)
+			self.assertEqual(res["message"], "Submission Channel 'Web Portal' is not active.")
+			self.assertIsNone(_user_for(payload["email"]))
+		finally:
+			frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 1)
+
 	def test_unknown_submitter_type_is_rejected_and_creates_no_user(self):
 		payload, res = _register(submitter_type="Space Farmer")
 		self.assertEqual(res["status"], "error")
@@ -242,15 +254,21 @@ class TestSubmissionChannelOnProfile(IsolatedTestCase):
 			**kwargs,
 		)
 
-	def test_insert_without_channel_takes_the_default(self):
-		self.assertEqual(self._save().submission_channel, "Web Portal")
+	def test_insert_without_channel_leaves_it_empty(self):
+		# A caller that fails to send a channel (an IVR or webhook intake, say) must not be
+		# filed under Web Portal by default.
+		profile = self._save()
+		self.assertFalse(profile.submission_channel)
+		self.assertFalse(
+			frappe.db.get_value("Grievance Submitter Profile", profile.name, "submission_channel")
+		)
 
 	def test_insert_with_channel_stores_it(self):
 		self.assertEqual(self._save(submission_channel="IVR Helpline").submission_channel, "IVR Helpline")
 
-	def test_the_field_default_is_web_portal(self):
+	def test_the_field_has_no_default(self):
 		field = frappe.get_meta("Grievance Submitter Profile").get_field("submission_channel")
-		self.assertEqual(field.default, "Web Portal")
+		self.assertFalse(field.default)
 
 	def test_update_keeps_a_stored_channel_when_none_is_sent(self):
 		self._save(submission_channel="Mobile App")
@@ -303,14 +321,38 @@ class TestSubmissionChannelOnProfile(IsolatedTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			self._save(submission_channel="Mobile Call")
 
-	def test_inactive_default_channel_raises_a_clear_validation_error(self):
-		frappe.db.set_value("Grievance Submission Type", "Web Portal", "is_active", 0)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			self._save()
-		self.assertIn("Web Portal", str(ctx.exception))
-
 
 class TestSubmissionChannelPatchesAndOptions(IsolatedTestCase):
+	def test_backfill_patch_sets_web_portal_only_where_blank(self):
+		from oan_grievance_service.patches.set_web_portal_on_existing_submitter_profiles import (
+			execute,
+		)
+
+		def make(channel):
+			return frappe.get_doc(
+				{
+					"doctype": "Grievance Submitter Profile",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "Backfill Farmer",
+					"contact_mobile": "+251" + _national_phone(),
+					"submission_channel": channel,
+				}
+			).insert(ignore_permissions=True)
+
+		legacy_null = make(None).name
+		legacy_blank = make(None).name
+		kept = make("Mobile App").name
+		frappe.db.set_value("Grievance Submitter Profile", legacy_blank, "submission_channel", "")
+
+		execute()
+
+		def channel(name):
+			return frappe.db.get_value("Grievance Submitter Profile", name, "submission_channel")
+
+		self.assertEqual(channel(legacy_null), "Web Portal")
+		self.assertEqual(channel(legacy_blank), "Web Portal")
+		self.assertEqual(channel(kept), "Mobile App")
+
 	def test_channel_patch_creates_reactivates_and_codes_the_standard_channels(self):
 		from oan_grievance_service.patches.ensure_standard_submission_channels import execute
 		from oan_grievance_service.setup.install import SUBMISSION_TYPES
