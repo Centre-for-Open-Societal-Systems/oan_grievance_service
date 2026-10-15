@@ -41,10 +41,11 @@ from pypika.terms import Case
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	top_rung,
 )
+from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import account, category_assignment
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.resolvers import (
-	find_department,
+	new_or_resolved_department,
 	resolve_administrative_area,
 	resolve_department,
 	resolve_service_category,
@@ -87,13 +88,14 @@ def create(
 	region: str | None = None,
 	status: str = DEFAULT_STATUS,
 	reports_to: str | None = None,
-	create_department: bool = True,
+	create_department: bool = False,
+	desk_names: list[str] | None = None,
 ) -> tuple[str, bool]:
 	"""Make `email` an officer, or a reviewer, on the category desks of `department`.
 
 	Returns the user id and whether `temporary_password` was applied.
 
-	A department head is how a department is staffed first: with `create_department` an unknown
+	A department head is how a department is staffed first: with `create_department` the
 	department is created for them, and any of their categories without a desk there gets one.
 
 	An existing login with no desk rows is promoted, so an admin can staff someone who
@@ -122,10 +124,13 @@ def create(
 	placement["reports_to"] = _resolve_supervisor(reports_to, level)
 
 	is_head = _is_head(level)
-	if is_head and create_department and department and not find_department(department):
-		frappe.get_doc({"doctype": "Grievance Department", "dept_name": department.strip()}).insert()
-	department = resolve_department(department)
-	desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
+	if desk_names is not None:
+		desks, missing = [frappe._dict(name=name) for name in desk_names], set()
+	else:
+		department = (
+			new_or_resolved_department(department, is_head and create_department) if department else None
+		)
+		desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
 
 	user = account.new_or_existing_user(email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
@@ -137,6 +142,7 @@ def create(
 		account.issue_temporary_password(user.name, temporary_password)
 	if role == REVIEWER_ROLE and status == "Inactive":
 		account.set_enabled(user.name, False)
+	_sync_desk_head_role(user.name)
 	return user.name, not has_login
 
 
@@ -223,11 +229,20 @@ def update(user_id: str, changes: dict) -> str:
 	if "reports_to" in changes:
 		row_changes["reports_to"] = _resolve_supervisor(changes["reports_to"], level)
 
-	department = resolve_department(changes["department"]) if "department" in changes else current.department
-	desks, missing = _category_desks(
-		department, changes.get("service_categories", current.categories), allow_missing=_is_head(level)
-	)
-	target = {desk.name for desk in desks}
+	if "department" in changes:
+		department = resolve_department(changes["department"]) if changes["department"] else None
+	else:
+		department = current.department
+	if "desk_names" in changes:
+		target, missing = set(changes["desk_names"]), set()
+	else:
+		categories = changes.get("service_categories")
+		if categories is None:
+			categories = current.categories
+			if _is_head(level) and department != current.department:
+				categories = _head_categories_in(department, categories)
+		desks, missing = _category_desks(department, categories, allow_missing=_is_head(level))
+		target = {desk.name for desk in desks}
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
@@ -241,6 +256,7 @@ def update(user_id: str, changes: dict) -> str:
 	if role == REVIEWER_ROLE and status == "Inactive":
 		# After the rows, so they are retired before the login stops existing for the desk.
 		account.set_enabled(user_id, False)
+	_sync_desk_head_role(user_id)
 	return user_id
 
 
@@ -444,7 +460,7 @@ def _current(user_id: str, role: str) -> SimpleNamespace:
 	return SimpleNamespace(
 		level=CODE_LEVELS.get(max(rows, key=lambda row: row.level_order).role_level),
 		department=rows[0].department_scope,
-		categories=sorted({row.category_scope for row in rows}),
+		categories=sorted({row.category_scope for row in rows if row.category_scope}),
 		desks={row.parent for row in rows},
 		status=_status(rows),
 		designation=next((row.designation for row in rows if row.designation), None),
@@ -486,26 +502,38 @@ def _rows(user_ids: list[str], role: str | None = None) -> list:
 	)
 
 
+def _head_categories_in(department: str | None, own: list[str]) -> list[str]:
+	"""A head moving to `department` keeps their categories and takes on the department's (a union)."""
+	theirs = frappe.get_all(
+		DESK,
+		filters=category_assignment.desk_filters(department_scope=department or ["is", "not set"], active=1),
+		pluck="category_scope",
+	)
+	return sorted(set(own) | set(theirs))
+
+
 def _is_head(level: str | None) -> bool:
 	"""Whether `level` is the top rung, the department head who opens the desks their categories lack."""
 	top = top_rung()
 	return bool(top) and LEVEL_CODES.get(level) == top
 
 
-def _category_desks(department: str, categories: list[str], allow_missing: bool = False) -> tuple[list, set]:
+def _category_desks(
+	department: str | None, categories: list[str] | None, allow_missing: bool = False
+) -> tuple[list, set]:
 	"""The category-only desks of `department` for `categories`, and the categories that have none.
 
 	A missing desk is an error unless `allow_missing`.
 	"""
-	if not categories:
+	if not categories and not allow_missing:
 		frappe.throw(_("An officer needs at least one service category."), frappe.ValidationError)
-	names = list(dict.fromkeys(resolve_service_category(value) for value in categories))
-	desks = frappe.get_all(
-		DESK,
-		filters=category_assignment.desk_filters(department_scope=department, category_scope=["in", names]),
-		fields=["name", "category_scope", "department_scope"],
+	names = list(dict.fromkeys(resolve_service_category(value) for value in categories or [])) or [None]
+	filters = category_assignment.desk_filters(
+		department_scope=department or ["is", "not set"],
+		category_scope=["in", names] if names != [None] else ["is", "not set"],
 	)
-	missing = set(names) - {desk.category_scope for desk in desks}
+	desks = frappe.get_all(DESK, filters=filters, fields=["name", "category_scope", "department_scope"])
+	missing = set(names) - {desk.category_scope or None for desk in desks}
 	if missing and not allow_missing:
 		frappe.throw(
 			_(
@@ -568,7 +596,7 @@ def _change_level(user_id: str, old: str, new: str) -> dict:
 	Only an L1 reports to an L2, so any move clears the officer's own supervisor, and an L2
 	cannot change level while L1 officers still report to them: escalation would climb to an L1.
 	"""
-	if old == "L2" and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK}):
+	if old in ("L2", "L3") and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK}):
 		frappe.throw(
 			_("{0} cannot change level while other officers report to them.").format(user_id),
 			frappe.ValidationError,
@@ -589,15 +617,101 @@ def _resolve_region(value: str | None) -> str | None:
 	return name
 
 
+SUPERVISOR_LEVELS = {"L1": ("L2", "L3"), "L2": ("L3",)}
+
+
 def _resolve_supervisor(user_id: str | None, level: str | None) -> str | None:
-	"""Only an L1 reports to someone, and that someone is an L2 officer: escalation climbs to them."""
+	"""An L1 reports to an L2 or L3 and an L2 to an L3: escalation climbs to them."""
 	if not user_id:
 		return None
-	if level != "L1":
-		frappe.throw(_("Only an L1 officer reports to an L2 officer."), frappe.ValidationError)
-	if not frappe.db.exists(ROW, {"user": user_id, "parenttype": DESK, "role_level": LEVEL_CODES["L2"]}):
-		frappe.throw(_("{0} is not an L2 officer.").format(user_id), frappe.ValidationError)
+	above = SUPERVISOR_LEVELS.get(level)
+	if not above:
+		frappe.throw(_("Only an L1 or L2 officer reports to someone."), frappe.ValidationError)
+	codes = [LEVEL_CODES[code] for code in above]
+	if not frappe.db.exists(ROW, {"user": user_id, "parenttype": DESK, "role_level": ["in", codes]}):
+		frappe.throw(
+			_("{0} is not an officer above {1} ({2}).").format(user_id, level, ", ".join(above)),
+			frappe.ValidationError,
+		)
 	return user_id
+
+
+def _sync_desk_head_role(user_id: str) -> None:
+	top = top_rung()
+	holds = bool(top) and frappe.db.exists(
+		ROW, {"user": user_id, "parenttype": DESK, "role_level": top, "active": 1}
+	)
+	user = frappe.get_doc("User", user_id)
+	has = any(row.role == C.ROLE_DESK_HEAD for row in user.roles)
+	if holds and not has:
+		user.append_roles(C.ROLE_DESK_HEAD)
+	elif has and not holds:
+		user.set("roles", [row for row in user.roles if row.role != C.ROLE_DESK_HEAD])
+	else:
+		return
+	user.save(ignore_permissions=True)
+
+
+def _head_records(caller: str) -> list:
+	top = top_rung()
+	return [row for row in _rows([caller], DEFAULT_ROLE) if row.role_level == top and row.active]
+
+
+def scope_create(caller: str, fields: dict) -> dict:
+	"""Seat a Desk Head's new officer on the head's own RBAC records, reporting to them by default.
+
+	Admins pass through. `department` and `service_categories` narrow which of the head's
+	records the officer joins; without them the officer joins all of them.
+	"""
+	if is_unrestricted(caller):
+		return fields
+	if fields.get("role", DEFAULT_ROLE) != DEFAULT_ROLE or fields.get("level") not in SUPERVISOR_LEVELS:
+		frappe.throw(_("A desk head can only create L1 and L2 officers."), frappe.PermissionError)
+	if fields.get("create_department"):
+		frappe.throw(_("A desk head cannot create departments."), frappe.PermissionError)
+	records = _narrow(_head_records(caller), fields.get("department"), fields.get("service_categories"))
+	return {
+		**fields,
+		"desk_names": [row.parent for row in records],
+		"reports_to": fields.get("reports_to") or caller,
+	}
+
+
+def scope_update(caller: str, user_id: str, changes: dict) -> dict:
+	"""A Desk Head edits only L1 and L2 officers who sit on nothing but the head's records."""
+	if is_unrestricted(caller):
+		return changes
+	if role_of(user_id) != DEFAULT_ROLE:
+		frappe.throw(_("A desk head can only manage officers."), frappe.PermissionError)
+	current = _current(user_id, DEFAULT_ROLE)
+	if current.level not in SUPERVISOR_LEVELS or changes.get("level", current.level) not in SUPERVISOR_LEVELS:
+		frappe.throw(_("A desk head can only manage L1 and L2 officers."), frappe.PermissionError)
+	if "department" in changes:
+		frappe.throw(_("A desk head cannot move officers between departments."), frappe.PermissionError)
+	records = _head_records(caller)
+	if not current.desks <= {row.parent for row in records}:
+		frappe.throw(
+			_("{0} also sits on RBAC records you are not the head of.").format(user_id),
+			frappe.PermissionError,
+		)
+	if "service_categories" not in changes:
+		return changes
+	scoped = {key: value for key, value in changes.items() if key != "service_categories"}
+	scoped["desk_names"] = [row.parent for row in _narrow(records, None, changes["service_categories"])]
+	return scoped
+
+
+def _narrow(records: list, department: str | None, categories: list[str] | None) -> list:
+	"""The head's records in `department` and `categories`; refused when none match."""
+	if department:
+		dept = resolve_department(department)
+		records = [row for row in records if row.department_scope == dept]
+	if categories:
+		names = {resolve_service_category(value) for value in categories}
+		records = [row for row in records if row.category_scope in names]
+	if not records:
+		frappe.throw(_("None of your RBAC records match."), frappe.PermissionError)
+	return records
 
 
 def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):

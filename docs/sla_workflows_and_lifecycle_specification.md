@@ -322,7 +322,7 @@ role. Replace with a chain test:
 | Gate                  | Current rule                          | Chain rule                                                                                                          |
 | :-------------------- | :------------------------------------ | :------------------------------------------------------------------------------------------------------------------ |
 | Reassignment approval | Caller holds`L2 Senior Nodal Officer` | Caller is an ancestor of the current assignee**and** of the target officer — i.e. a common supervisor of both       |
-| SLA deferral approval | Caller holds`L2` or `Department Head` | Caller is an ancestor of the assignee. Self-approval only when`grievance_allow_self_deferral` is set in site config |
+| SLA deferral approval | Caller holds`L2` or `Category Admin`  | Caller is an ancestor of the assignee. Self-approval only when`grievance_allow_self_deferral` is set in site config |
 
 The chain rule is strictly more precise: "supervisor" means _this officer's_ supervisor,
 which no role can express.

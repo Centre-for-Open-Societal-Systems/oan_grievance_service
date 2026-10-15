@@ -214,20 +214,37 @@ class GrievanceChangeRequest(Document):
 		if self.decision_note:
 			body += f"\nNote: {self.decision_note}"
 
-		# A new handler is something the submitter sees; the rest is internal housekeeping.
-		reassigned = self.status == "Approved" and any(
-			row.fieldname in ("assigned_dept", "assigned_to") for row in self.changes
-		)
 		# Callers that answer with the timeline event (the API) read it off the flags.
 		self.flags.timeline_entry = GrievanceTimeline.record(
 			grievance=self.grievance,
-			entry_type="assignment" if reassigned else "note",
-			is_internal=not reassigned,
+			entry_type="note",
+			is_internal=True,
 			body=body,
 			author_user=self.decided_by,
 			ref_doctype=self.doctype,
 			ref_docname=self.name,
 		)
+
+		# Only a plain line: the body above holds officer emails and internal reasons.
+		if self.status == "Approved" and any(
+			row.fieldname in ("assigned_dept", "assigned_to") for row in self.changes
+		):
+			dept = frappe.db.get_value("Grievance", self.grievance, "assigned_dept")
+			dept_name = frappe.db.get_value("Grievance Department", dept, "dept_name") if dept else None
+			public_body = (
+				_("Your grievance has been reassigned to {0}.").format(dept_name)
+				if dept_name
+				else _("Your grievance has been reassigned.")
+			)
+			GrievanceTimeline.record(
+				grievance=self.grievance,
+				entry_type="assignment",
+				is_internal=False,
+				body=public_body,
+				author_user=self.decided_by,
+				ref_doctype=self.doctype,
+				ref_docname=self.name,
+			)
 
 	def _grievance(self):
 		return frappe.get_doc("Grievance", self.grievance)
@@ -263,6 +280,7 @@ def approver_above(user, grievance):
 		user,
 		department=grievance.assigned_dept,
 		administrative_area=grievance.administrative_area,
+		category=grievance.service_category,
 	)
 	return user_above
 
@@ -295,6 +313,7 @@ def requester_may_decide(user, grievance, request):
 			department=grievance.assigned_dept,
 			administrative_area=grievance.administrative_area,
 			strict=True,
+			category=grievance.service_category,
 		)
 		if supervisor == user or outranks(user, assignee, if_unplaced=False):
 			return True
