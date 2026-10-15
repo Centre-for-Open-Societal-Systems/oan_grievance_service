@@ -24,16 +24,20 @@ OFFICER_ROLES = {"Grievance Officer", "Grievance Admin", "Grievance Review Offic
 # Scope fields that make a desk more specific than a category-only desk. Area is not one:
 # it sits on each officer row, because an officer is assigned to a region, not a desk.
 NARROWING_SCOPES = ("grievance_type_scope", "service_provider_scope")
+UNBOUNDED_SPAN = 999999999
 
 
 class GrievanceRBACAssignment(Document):
 	def validate(self):
 		# Type- and provider-scoped desks predate these rules and are left alone.
-		if self.is_category_only():
+		if self.is_unnarrowed():
 			self.validate_no_repeated_officer()
 			self.reject_duplicate_desk()
 			if self.active and self.links_changed():
 				self.validate_links()
+
+	def is_unnarrowed(self) -> bool:
+		return not any(self.get(field) for field in NARROWING_SCOPES)
 
 	def is_category_only(self) -> bool:
 		return bool(self.category_scope) and not any(self.get(field) for field in NARROWING_SCOPES)
@@ -48,14 +52,18 @@ class GrievanceRBACAssignment(Document):
 	def reject_duplicate_desk(self):
 		"""One category-only desk per (category, department), inactive desks included.
 
+		A desk with no department serves the category in every department, and there is
+		one of those per category too.
+
 		A check-then-insert race would let two concurrent saves both pass, and no unique
 		index can cover this partial scope. So the category row is locked first: the second
 		save waits for the first to commit, then its locking read sees the new desk.
 		"""
-		frappe.db.get_value("Grievance Service Category", self.category_scope, "name", for_update=True)
+		if self.category_scope:
+			frappe.db.get_value("Grievance Service Category", self.category_scope, "name", for_update=True)
 		filters = {
-			"category_scope": self.category_scope,
-			"department_scope": self.department_scope,
+			"category_scope": self.category_scope or ["is", "not set"],
+			"department_scope": self.department_scope or ["is", "not set"],
 			"grievance_type_scope": ["is", "not set"],
 			"service_provider_scope": ["is", "not set"],
 		}
@@ -65,7 +73,9 @@ class GrievanceRBACAssignment(Document):
 		if existing:
 			frappe.throw(
 				_("A category assignment already exists for {0} in {1} ({2}).").format(
-					self.category_scope, self.department_scope, existing
+					self.category_scope or _("every category"),
+					self.department_scope or _("every department"),
+					existing,
 				),
 				frappe.DuplicateEntryError,
 			)
@@ -85,7 +95,10 @@ class GrievanceRBACAssignment(Document):
 		for row in self.officers:
 			if row.active:
 				_assert_officer(row.user)
-		_assert_active("Grievance Service Category", self.category_scope, "is_active", _("Service category"))
+		if self.category_scope:
+			_assert_active(
+				"Grievance Service Category", self.category_scope, "is_active", _("Service category")
+			)
 		if self.department_scope and not frappe.db.exists("Grievance Department", self.department_scope):
 			frappe.throw(
 				_("Department '{0}' does not exist.").format(self.department_scope), frappe.ValidationError
@@ -229,37 +242,60 @@ def active_scopes(user=None):
 	return query_active_officer_assignments(user=user, fields=fields, order_by=None, include_reviewers=True)
 
 
-def find_officer_by_role_level(role_level, department=None, administrative_area=None):
-	"""Dynamically resolve an officer user from active Grievance RBAC Assignments.
+def covering_rows(rows, department=None, category=None, administrative_area=None):
+	"""The rows whose desk covers the case, most specific first. Empty scopes are wildcards."""
+	areas = {row.get("administrative_area_scope") for row in rows} | {administrative_area}
+	areas.discard(None)
+	areas.discard("")
+	bounds = (
+		{
+			area.name: (area.lft, area.rgt)
+			for area in frappe.get_all(
+				"Grievance Administrative Area",
+				filters={"name": ["in", list(areas)]},
+				fields=["name", "lft", "rgt"],
+			)
+			if area.lft is not None and area.rgt is not None
+		}
+		if areas and administrative_area
+		else {}
+	)
+	target_lft = bounds.get(administrative_area, (None, None))[0] if administrative_area else None
 
-	Honours role_level, geographic jurisdiction (area tree interval), line department
-	(NULL for nodal officers who cover all departments in an area), and primary post priority.
-	"""
+	ranked = []
+	for index, row in enumerate(rows):
+		dept, cat = row.get("department_scope"), row.get("category_scope")
+		if department and dept and dept != department:
+			continue
+		if category and cat and cat != category:
+			continue
+		span = UNBOUNDED_SPAN
+		area = row.get("administrative_area_scope")
+		if target_lft is not None and area:
+			lft, rgt = bounds.get(area, (None, None))
+			if lft is None or not lft <= target_lft <= rgt:
+				continue
+			span = rgt - lft
+		specificity = bool(department and dept) + bool(category and cat)
+		ranked.append((-specificity, span, index, row))
+	ranked.sort(key=lambda item: item[:3])
+	return [row for *_key, row in ranked]
+
+
+def find_officer_by_role_level(role_level, department=None, administrative_area=None, category=None):
+	"""The officer at `role_level` whose desk covers the case most specifically (`covering_rows`)."""
 	fields = [
 		"c.user",
 		"c.is_primary",
 		"c.administrative_area AS administrative_area_scope",
 		"p.department_scope",
+		"p.category_scope",
 	]
-	officers = query_active_officer_assignments(role_level=role_level, fields=fields)
-	if not officers:
-		return None
-
-	target_lft = None
-	if administrative_area:
-		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
-
-	for o in officers:
-		# Department filter: if assignment specifies a department, it must match.
-		if department and o.department_scope and o.department_scope != department:
-			continue
-		# Area filter: if assignment specifies an area, target area must be in its subtree.
-		if target_lft is not None and o.administrative_area_scope:
-			if not is_in_area_subtree(target_lft, o.administrative_area_scope):
-				continue
-		return o.user
-
-	return None
+	officers = query_active_officer_assignments(
+		role_level=role_level, fields=fields, department=department, category=category
+	)
+	best = covering_rows(officers, department, category, administrative_area)
+	return best[0].user if best else None
 
 
 def top_rung():
@@ -272,37 +308,31 @@ def top_rung():
 	return chain[-1].name if chain else None
 
 
-def department_head_of(department, area=None):
-	"""Find the department head officer user for this department and area."""
+def department_head_of(department, area=None, category=None):
+	"""Find the department head officer user for this department, category and area."""
 	top = top_rung()
 	if not top:
 		return None
-	return find_officer_by_role_level(top, department=department, administrative_area=area)
+	return find_officer_by_role_level(top, department=department, administrative_area=area, category=category)
 
 
-def holds_rung(user, role_level, department=None, area=None):
-	"""Whether `user` has a live desk at `role_level` covering `department` and `area`."""
+def holds_rung(user, role_level, department=None, area=None, category=None):
+	"""Whether `user` has a live desk at `role_level` covering `department`, `category` and `area`."""
 	if not user or not role_level:
 		return False
 	rows = query_active_officer_assignments(
 		user=user,
 		role_level=role_level,
-		fields=["p.department_scope", "c.administrative_area AS administrative_area_scope"],
+		fields=[
+			"p.department_scope",
+			"p.category_scope",
+			"c.administrative_area AS administrative_area_scope",
+		],
 		order_by=None,
+		department=department,
+		category=category,
 	)
-	if not rows:
-		return False
-	target_lft = None
-	if area:
-		target_lft = frappe.db.get_value("Grievance Administrative Area", area, "lft")
-	for r in rows:
-		if department and r.department_scope and r.department_scope != department:
-			continue
-		if target_lft is not None and r.administrative_area_scope:
-			if not is_in_area_subtree(target_lft, r.administrative_area_scope):
-				continue
-		return True
-	return False
+	return bool(covering_rows(rows, department, category, area))
 
 
 def get_subordinate_officers(user):
@@ -345,7 +375,7 @@ def current_level_of(user):
 	return rows[0].role_level if rows else None
 
 
-def get_officer_supervisor(user, department=None, administrative_area=None, strict=False):
+def get_officer_supervisor(user, department=None, administrative_area=None, strict=False, category=None):
 	"""Find direct supervisor (reports_to) configured on the officer's RBAC assignment.
 
 	With `strict`, only an assignment covering the given department and area counts,
@@ -357,22 +387,18 @@ def get_officer_supervisor(user, department=None, administrative_area=None, stri
 
 	rows = query_active_officer_assignments(
 		user=user,
-		fields=["c.reports_to", "p.department_scope", "c.administrative_area AS administrative_area_scope"],
+		fields=[
+			"c.reports_to",
+			"p.department_scope",
+			"p.category_scope",
+			"c.administrative_area AS administrative_area_scope",
+		],
 	)
 	rows = [r for r in rows if r.reports_to]
 	if not rows:
 		return None
 
-	target_lft = None
-	if administrative_area:
-		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
-
-	for r in rows:
-		if department and r.department_scope and r.department_scope != department:
-			continue
-		if target_lft is not None and r.administrative_area_scope:
-			if not is_in_area_subtree(target_lft, r.administrative_area_scope):
-				continue
-		return r.reports_to
-
+	best = covering_rows(rows, department, category, administrative_area)
+	if best:
+		return best[0].reports_to
 	return None if strict else rows[0].reports_to

@@ -41,8 +41,11 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import officer as service
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
+
+DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 
 route = prefixed("/api/v1/officers")
 
@@ -133,7 +136,8 @@ class OfficerRef(Body):
 class CreateOfficer(Body):
 	"""An officer needs a level; a Reviewer is placed on the same desks without one.
 
-	`designation`, `level`, `department` and `service_categories` are required for an Officer.
+	`level`, `department` and `service_categories` are required for an Officer; an L3 may omit
+	the department and categories.
 	A Reviewer needs the department and categories whose desks they read, and has no level or
 	supervisor, so those are refused for them. The checks are in one model validator because
 	they depend on `role`.
@@ -152,8 +156,8 @@ class CreateOfficer(Body):
 	status: Status = "Active"
 	reports_to: str | None = None
 	create_department: bool = Field(
-		True,
-		description="Department head (L3) only: create the department when no department matches it",
+		False,
+		description="Department head (L3) only: create the department; refused when it already exists",
 	)
 
 	_email = field_validator("email")(normalize_email)
@@ -165,14 +169,16 @@ class CreateOfficer(Body):
 	@model_validator(mode="after")
 	def _fields_follow_role(self):
 		errors = {}
-		if not self.department:
-			errors["department"] = f"Required when role is {self.role}"
-		if not self.service_categories:
-			errors["service_categories"] = f"Required when role is {self.role}: give at least one"
+		# An Officer's department and categories are checked once the caller is known: a Desk
+		# Head's officers go on the head's own records.
+		if self.role != "Officer":
+			if not self.department:
+				errors["department"] = f"Required when role is {self.role}"
+			if not self.service_categories:
+				errors["service_categories"] = f"Required when role is {self.role}: give at least one"
 		if self.role == "Officer":
-			for field in ("designation", "level"):
-				if not getattr(self, field):
-					errors[field] = "Required when role is Officer"
+			if not self.level:
+				errors["level"] = "Required when role is Officer"
 		else:
 			for field in ("level", "reports_to"):
 				if getattr(self, field):
@@ -198,7 +204,7 @@ class UpdateOfficer(Body):
 	level: Level = None
 	full_name: NonBlank = None
 	designation: NonBlank = None
-	department: NonBlank = None
+	department: NonBlank | None = None
 	phone: str | None = None
 	region: str | None = None
 	status: Status = None
@@ -365,18 +371,20 @@ def get_officer(officer: str, **kwargs):
 
 @route("", methods=("POST",), summary="Create an officer")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(DESK_HEAD_ROLES)
 @validate_request(CreateOfficer)
 @api_doc(
 	summary="Create an officer",
 	description="Make a login an officer or a Reviewer on the category desks of a department. "
-	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3), department, "
-	+ "service_categories and designation; level L3 makes a department head. A Reviewer needs department and "
+	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3), department and "
+	+ "service_categories; designation is optional. Level L3 makes a department head, who may leave "
+	+ "out the department (every department) and the service_categories (a last-resort desk for every "
+	+ "case); a more specific head always wins over them. A Reviewer needs department and "
 	+ "service_categories and takes no level or reports_to: they read those desks' cases only, "
 	+ "are never assigned one and cannot change one. For an L1, L2 or Reviewer every service "
 	+ "category must already have a category assignment for the department. For an L3 a missing "
 	+ "category assignment is created with the head on it, and with create_department (default "
-	+ "true) an unknown department is created too. reports_to is an L2 officer and is only for "
+	+ "false) the department is created too, refused when it already exists. reports_to is an L2 officer and is only for "
 	+ "an L1. The login is created when the email is new. An existing login keeps its own "
 	+ "roles and is given the officer or review role; a System Manager or Administrator is "
 	+ "never managed here. temporary_password is required: the account holder signs in with it "
@@ -398,25 +406,38 @@ def create_officer(
 	region: str | None = None,
 	status: str = "Active",
 	reports_to: str | None = None,
-	create_department: bool = True,
+	create_department: bool = False,
 	**kwargs,
 ):
 	"""Create an officer, department head or reviewer."""
-	user_id, password_applied = service.create(
-		create_department=create_department,
-		role=role,
-		full_name=full_name,
-		designation=designation,
-		level=level,
-		department=department,
-		email=email,
-		service_categories=service_categories,
-		temporary_password=temporary_password,
-		phone=phone,
-		region=region,
-		status=status,
-		reports_to=reports_to,
+	caller = frappe.session.user
+	fields = service.scope_create(
+		caller,
+		{
+			"create_department": create_department,
+			"role": role,
+			"full_name": full_name,
+			"designation": designation,
+			"level": level,
+			"department": department,
+			"email": email,
+			"service_categories": service_categories,
+			"temporary_password": temporary_password,
+			"phone": phone,
+			"region": region,
+			"status": status,
+			"reports_to": reports_to,
+		},
 	)
+	if is_unrestricted(caller) and role == "Officer" and level != "L3":
+		missing = {
+			field: "Required for an L1 or L2 officer"
+			for field, value in (("department", department), ("service_categories", service_categories))
+			if not value
+		}
+		if missing:
+			field_errors(CreateOfficer, missing)
+	user_id, password_applied = service.create(**fields)
 	message = _("{0} created").format(role)
 	if not password_applied:
 		message = _("{0} created. {1} already had a login, so their existing password is unchanged.").format(
@@ -427,7 +448,7 @@ def create_officer(
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(DESK_HEAD_ROLES)
 @validate_request(UpdateOfficer, exclude_unset=True)
 @api_doc(
 	summary="Update an officer",
@@ -446,7 +467,7 @@ def update_officer(officer: str, **kwargs):
 	"""Update an account. `kwargs` holds only the fields the client sent."""
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	service.update(officer, kwargs)
+	service.update(officer, service.scope_update(frappe.session.user, officer, kwargs))
 	return success_response(data={"officer": service.record(officer)}, message=_("Officer updated"))
 
 

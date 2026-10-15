@@ -43,7 +43,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 from oan_grievance_service.services import category_assignment, routing
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
-from oan_grievance_service.setup.install import seed_role_levels
+from oan_grievance_service.setup.install import seed_role_levels, seed_roles
 from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_service_category
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
@@ -65,6 +65,7 @@ class RoleCase(FrappeTestCase):
 		commit = mock.patch.object(frappe.db, "commit")
 		commit.start()
 		self.addCleanup(commit.stop)
+		seed_roles()
 		seed_role_levels()
 		frappe.cache.delete_value("grievance_role_level_chain")
 		self.department = _department("STG443 Inputs Agency", "S443")
@@ -168,18 +169,18 @@ class TestDepartmentHead(RoleCase):
 		self.assertEqual({(r.role_level, r.is_primary, r.active) for r in rows}, {("department_head", 0, 1)})
 		self.assertEqual(get_officer(head["name"])["data"]["officer"], head)
 
-	def test_a_department_head_needs_a_department_and_categories(self):
+	def test_an_officer_below_the_head_needs_categories(self):
 		base = {
 			"full_name": "X",
 			"designation": "Head",
-			"level": "L3",
+			"level": "L1",
 			"email": f"{PREFIX}x@example.com",
 			"temporary_password": PASSWORD,
 		}
 		with _keep_transaction():
 			result = create_officer(**base)
 			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
-			self.assertLessEqual({"department", "service_categories"}, set(result["details"]))
+			self.assertLessEqual({"service_categories"}, set(result["details"]))
 			no_assignment = create_officer(
 				**{**base, "level": "L1"}, department="S444", service_categories=["STG443 Credit"]
 			)
@@ -285,6 +286,7 @@ class TestDepartmentHead(RoleCase):
 			email=head_email,
 			service_categories=[self.inputs],
 			temporary_password=PASSWORD,
+			create_department=True,
 		)
 		self.assertEqual(result["status"], "success")
 		self.assertTrue(frappe.db.exists("Grievance Department", {"dept_name": new_dept_name}))
