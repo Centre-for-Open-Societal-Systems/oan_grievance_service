@@ -183,7 +183,6 @@ def _configuration_record(name: str) -> dict:
 
 
 @route("/sla-policy", methods=("GET",), summary="Get the global SLA policy")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @api_doc(
@@ -204,7 +203,6 @@ def get_global_policy(**kwargs):
 
 
 @route("/sla-policy", methods=("PATCH",), summary="Update the global SLA policy")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateGlobalSlaPolicy, exclude_unset=True)
@@ -227,7 +225,6 @@ def update_global_policy(**kwargs):
 
 
 @route("/sla-configurations", methods=("GET",), summary="List per-category SLA settings")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListSlaConfigurations)
@@ -287,7 +284,6 @@ def list_sla_configurations(
 
 
 @route("/sla-configurations/<config>", methods=("PATCH",), summary="Update a category's SLA settings")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateSlaConfiguration, exclude_unset=True)

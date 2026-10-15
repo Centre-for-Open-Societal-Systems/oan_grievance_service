@@ -215,7 +215,7 @@ def _rebuild_daily(start, end):
 
 def _rebuild_snapshot(today, now):
 	params = {
-		"open": C.OPEN_STATES,
+		"open": tuple(sla.open_states()),
 		# An empty IN () is a syntax error; no state is named "".
 		"paused": tuple(sla.states_in_category(sla.PAUSED)) or ("",),
 		"now": now,

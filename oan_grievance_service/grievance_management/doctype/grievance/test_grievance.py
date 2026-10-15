@@ -14,6 +14,7 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 	validate_submission_payload,
 )
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing, ticket_number
 from oan_grievance_service.tests.fixtures import a_grievance_type, a_leaf_area, discard_grievance
 
@@ -538,6 +539,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	"""
 
 	def setUp(self):
+		from oan_grievance_service.setup.install import seed_roles
+
+		seed_roles()
 		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
 			frappe.get_doc(
 				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
@@ -546,6 +550,8 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.owner_user = self._user("owner.ownership@example.com", ["Grievance Submitter"])
 		self.other_user = self._user("other.ownership@example.com", ["Grievance Submitter"])
 		self.officer_user = self._user("officer.ownership@example.com", ["Grievance Officer"])
+		self.da_user = self._user("da.ownership@example.com", [C.ROLE_ASSISTED_SUBMITTER])
+		self.admin_user = self._user("admin.ownership@example.com", [C.ROLE_ADMIN])
 
 		self.owner_profile = self._profile(self.owner_user, "Alemayehu Bekele", "+251911000111")
 		self.other_profile = self._profile(self.other_user, "Hirut Tadesse", "+251911000222")
@@ -626,9 +632,9 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			_resolve_submitter_identity({})
 
-	def test_officer_files_on_behalf_and_is_recorded_as_assisting(self):
-		"""The named submitter stays the owner; the officer is the audit trail."""
-		frappe.set_user(self.officer_user)
+	def test_development_agent_files_on_behalf_and_is_recorded_as_assisting(self):
+		"""The named submitter stays the owner; the agent is the audit trail."""
+		frappe.set_user(self.da_user)
 
 		identity = _resolve_submitter_identity(
 			{"submitter": self.other_profile.name, "submitter_name": "Ignored"}
@@ -636,10 +642,10 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 		self.assertEqual(identity["submitter"], self.other_profile.name)
 		self.assertEqual(identity["submitter_name"], "Hirut Tadesse")
-		self.assertEqual(identity["assisted_by_officer"], self.officer_user)
+		self.assertEqual(identity["assisted_by_officer"], self.da_user)
 
-	def test_officer_may_supply_details_for_a_walk_in_without_a_profile(self):
-		frappe.set_user(self.officer_user)
+	def test_development_agent_may_supply_details_for_a_walk_in_without_a_profile(self):
+		frappe.set_user(self.da_user)
 
 		identity = _resolve_submitter_identity(
 			{"submitter_name": "Walk In Caller", "contact_mobile": "+251911000333"}
@@ -647,7 +653,25 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 		self.assertIsNone(identity["submitter"])
 		self.assertEqual(identity["submitter_name"], "Walk In Caller")
-		self.assertEqual(identity["assisted_by_officer"], self.officer_user)
+		self.assertEqual(identity["assisted_by_officer"], self.da_user)
+
+	def test_admin_files_on_behalf_and_is_recorded_as_assisting(self):
+		"""Grievance Admin may also file on behalf of a submitter."""
+		frappe.set_user(self.admin_user)
+
+		identity = _resolve_submitter_identity(
+			{"submitter": self.other_profile.name, "submitter_name": "Ignored"}
+		)
+
+		self.assertEqual(identity["submitter"], self.other_profile.name)
+		self.assertEqual(identity["submitter_name"], "Hirut Tadesse")
+		self.assertEqual(identity["assisted_by_officer"], self.admin_user)
+
+	def test_officer_cannot_create_or_submit_grievance(self):
+		"""Grievance Officers work cases and cannot file them."""
+		self.assertFalse(frappe.has_permission("Grievance", "create", user=self.officer_user))
+		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.owner_user))
+		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.da_user))
 
 	def test_server_owned_fields_are_stripped_from_the_request(self):
 		"""The area snapshot and ownership columns are not settable by the caller."""
@@ -767,7 +791,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		status_names = [s["status"] for s in data["statuses"]]
 		self.assertEqual(
 			status_names,
-			["All", "Assigned", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+			["All", "Assigned", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
 		)
 		self.assertNotIn("Submitted", status_names)
 
@@ -788,7 +812,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertNotIn("Assigned", status_names)
 		self.assertEqual(
 			status_names,
-			["All", "In Progress", "Require More Info", "Rejected", "Resolved", "Closed"],
+			["All", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
 		)
 
 	def test_unauthorized_user_cannot_access_options(self):

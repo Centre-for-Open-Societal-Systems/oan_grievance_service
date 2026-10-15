@@ -261,7 +261,6 @@ def _create_or_update_submitter_profile(
 	summary="Dropdown options and reference data for submitters",
 )
 # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
-@frappe.whitelist(allow_guest=True)
 @handle_api_errors
 def options(
 	search_country: str | None = None,
@@ -315,7 +314,6 @@ def options(
 	methods=("POST",),
 	summary="Register or update submitter profile for authenticated user",
 )
-@frappe.whitelist()
 @validate_request(RegisterSubmitterRequest)
 @handle_api_errors
 def register_submitter(
@@ -413,7 +411,6 @@ def register_submitter(
 	methods=("POST",),
 	summary="Unblock a submitter profile (Staff/Admin only)",
 )
-@frappe.whitelist()
 @handle_api_errors
 @require_role(STAFF_ROLES)
 def unblock_submitter(profile_id: str, **kwargs):
@@ -444,7 +441,6 @@ def unblock_submitter(profile_id: str, **kwargs):
 	methods=("POST",),
 	summary="Block a submitter profile (Staff/Admin only)",
 )
-@frappe.whitelist()
 @validate_request(BlockSubmitterRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)

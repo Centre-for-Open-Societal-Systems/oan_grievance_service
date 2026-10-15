@@ -572,15 +572,22 @@ class TestFilingRights(OrganizationTestCase):
 			service.assert_may_file(profile, "Guest")
 		service.assert_may_file(profile, self.rep)
 
-	def test_staff_may_file_for_an_active_organization_but_not_a_pending_one(self):
+	def test_assisted_filers_may_file_for_an_active_organization_but_not_a_pending_one(self):
+		assisted = _user("assisted", C.ROLE_ASSISTED_SUBMITTER)
 		org = self.register()["data"]["name"]
 		profile = self.profile_of(self.rep).name
-		with self.assertRaises(frappe.PermissionError):
-			service.assert_may_file(profile, self.officer)
+		for user in (assisted, self.admin, self.officer, self.other_rep):
+			with self.assertRaises(frappe.PermissionError, msg=user):
+				service.assert_may_file(profile, user)
 		self.activate(org)
-		service.assert_may_file(profile, self.officer)
+		service.assert_may_file(profile, assisted)
+		service.assert_may_file(profile, self.admin)
+		# Officers do not file, and neither does another submitter.
+		for user in (self.officer, self.other_rep):
+			with self.assertRaises(frappe.PermissionError, msg=user):
+				service.assert_may_file(profile, user)
 
-	def test_a_representative_filing_as_a_staff_named_profile_is_refused(self):
+	def test_a_representative_filing_as_a_named_profile_is_refused(self):
 		"""The submitter named in the request is ignored for a non-staff caller."""
 		org = self.register()["data"]["name"]
 		self.activate(org)

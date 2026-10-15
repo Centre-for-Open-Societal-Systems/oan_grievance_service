@@ -33,14 +33,17 @@ from pypika.terms import Criterion
 from oan_grievance_service import permissions as perms
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard_rollup as rollup
+from oan_grievance_service.services import sla
 
 ROLLUP_TTL = 15 * 60
 LIVE_TTL = 60
 TITLE_LENGTH = 80
 
-# Every state but Draft, in lifecycle order, so the donut always has the same
-# segments whether or not a state currently holds a case.
-STATUS_ORDER = (*C.OPEN_STATES, *C.RESOLVED_STATES, C.STATE_REJECTED)
+
+def status_order():
+	"""Every state but Draft, in lifecycle order, so the donut always has the same
+	segments whether or not a state currently holds a case."""
+	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED)
 
 
 @dataclass(frozen=True)
@@ -201,7 +204,7 @@ def _snapshot(ctx, group_by, on_date=None, params=None):
 		.where(S.snapshot_date == day)
 		# Only today's workflow states, so every chart adds up to the same total even
 		# while rows from a retired state are still being migrated.
-		.where(S.status.isin(STATUS_ORDER))
+		.where(S.status.isin(status_order()))
 	)
 	query = _apply_filters(query, S, params or ctx.params, ctx.scope)
 	if columns:
@@ -231,7 +234,7 @@ def _total(rows, metric):
 
 
 def _by_status(rows):
-	counts = dict.fromkeys(STATUS_ORDER, 0)
+	counts = dict.fromkeys(status_order(), 0)
 	for row in rows:
 		if row.status in counts:
 			counts[row.status] += int(row.grievances or 0)
@@ -269,7 +272,7 @@ def build_kpis(ctx):
 	"""Total / Awaiting Action / Resolved / Escalated cards with their deltas."""
 	by_status = _by_status(_snapshot(ctx, ("status",)))
 	escalated = _total(
-		[r for r in _snapshot(ctx, ("status", "escalated")) if r.escalated and r.status in C.OPEN_STATES],
+		[r for r in _snapshot(ctx, ("status", "escalated")) if r.escalated and r.status in sla.open_states()],
 		"grievances",
 	)
 	total = sum(by_status.values())
@@ -286,7 +289,7 @@ def build_kpis(ctx):
 		{"metric": "total", "value": total, "delta_pct": delta_pct, "compare": "prev_month"},
 		{
 			"metric": "awaiting_action",
-			"value": sum(by_status[s] for s in C.AWAITING_ACTION_STATES),
+			"value": sum(by_status[s] for s in sla.awaiting_action_states()),
 			"delta": int(_total(this_week, "submitted_count")),
 			"compare": "this_week_new",
 		},
@@ -447,7 +450,7 @@ def build_net_backlog_trend(ctx):
 
 	metrics = ("submitted_count", "resolved_count", "rejected_count")
 	keys, buckets = _bucketed(ctx, start, end, granularity, metrics)
-	open_now = sum(_by_status(_snapshot(ctx, ("status",)))[s] for s in C.OPEN_STATES)
+	open_now = sum(_by_status(_snapshot(ctx, ("status",)))[s] for s in sla.open_states())
 
 	rows = []
 	backlog = open_now
@@ -523,7 +526,7 @@ def build_sla_risk(ctx):
 	"""At risk (due within 24 hours), breached, and escalated; a case may be in several."""
 	counts = {"at_risk": 0, "breached": 0, "escalated": 0}
 	for r in _snapshot(ctx, ("status", "sla_state", "escalated")):
-		if r.status not in C.OPEN_STATES:
+		if r.status not in sla.open_states():
 			continue
 		n = int(r.grievances or 0)
 		if r.sla_state in ("at_risk", "breached"):
@@ -545,7 +548,7 @@ def build_oldest_open(ctx):
 	"""The longest-open case that is not escalated: its age, and for an admin, which case."""
 	now = now_datetime()
 	if ctx.admin:
-		rows = _live_grievances(ctx, statuses=C.OPEN_STATES, escalated=0, limit=1, order="asc")
+		rows = _live_grievances(ctx, statuses=sla.open_states(), escalated=0, limit=1, order="asc")
 		return [
 			{
 				"ticket_number": r.ticket_number,

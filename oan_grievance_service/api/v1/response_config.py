@@ -234,7 +234,6 @@ def _get_template(name: str):
 
 
 @route("", methods=("GET",), summary="List response templates")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(ListResponseTemplatesRequest)
@@ -290,7 +289,6 @@ def list_response_templates(
 
 
 @route("/<template>", methods=("GET",), summary="Get a response template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)
@@ -309,7 +307,6 @@ def get_response_template(template: str, **kwargs):
 
 
 @route("", methods=("POST",), summary="Create a response template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateResponseTemplateRequest)
@@ -357,7 +354,6 @@ def create_response_template(
 
 
 @route("/<template>", methods=("PATCH",), summary="Update a response template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateResponseTemplateRequest, exclude_unset=True)
@@ -388,7 +384,6 @@ def update_response_template(template: str, **kwargs):
 
 
 @route("/<template>", methods=("DELETE",), summary="Deactivate a response template")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)

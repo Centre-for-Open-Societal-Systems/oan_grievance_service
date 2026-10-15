@@ -235,7 +235,6 @@ class ListOrganizations(PageParams, Body):
 
 
 @route("", methods=("POST",), summary="Register an organization")
-@frappe.whitelist()
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @validate_request(CreateOrganization)
@@ -300,7 +299,6 @@ def register_organization(
 
 
 @route("/me", methods=("GET",), summary="Get my organization")
-@frappe.whitelist()
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @api_doc(
@@ -317,7 +315,6 @@ def get_my_organization(**kwargs):
 
 
 @route("/me", methods=("PATCH",), summary="Update my organization")
-@frappe.whitelist()
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @validate_request(UpdateOrganization, exclude_unset=True)
@@ -340,7 +337,6 @@ def update_my_organization(**kwargs):
 
 
 @route("", methods=("GET",), summary="List organizations")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOrganizations)
@@ -381,7 +377,6 @@ def list_organizations(
 
 
 @route("/<org_id>", methods=("GET",), summary="Get an organization")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(OrganizationRef)
@@ -398,7 +393,6 @@ def get_organization(org_id: str, **kwargs):
 
 
 @route("/<org_id>/status", methods=("PATCH",), summary="Set an organization's verification status")
-@frappe.whitelist()
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(SetOrganizationStatus)

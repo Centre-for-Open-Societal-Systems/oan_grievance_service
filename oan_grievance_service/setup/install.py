@@ -28,6 +28,7 @@ ROLES = [
 	("Grievance Submitter", 0),
 	("Grievance Officer", 0),
 	("Grievance Admin", 0),
+	(C.ROLE_ASSISTED_SUBMITTER, 0),
 	("Grievance Dashboard Reader", 0),
 	(C.ROLE_REVIEW_OFFICER, 0),
 ]
@@ -63,10 +64,9 @@ WORKFLOW_STATES = [
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
-# Officers file on someone's behalf (assisted, walk-in, IVR), so filing is shared.
-# Replying, reopening and confirming a resolution are the submitter's word alone.
-FILING_ROLES = ("Grievance Submitter", *OFFICER_ROLES)
-SUBMITTER_ROLES = ("Grievance Submitter",)
+# Citizens and Assisted Submitters (e.g. Development Agents) file grievances. Officers investigate and resolve cases.
+FILING_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
+SUBMITTER_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
 SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
@@ -578,7 +578,7 @@ def seed_sla_configurations():
 	for category, sla_days in DEFAULT_SLA_CONFIGURATIONS:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
-		if frappe.db.exists("Grievance SLA Configuration", {"service_category": category, "active": 1}):
+		if frappe.db.exists("Grievance SLA Configuration", {"service_category": category}):
 			continue
 		save_sla_configuration(service_category=category, sla_days=sla_days)
 		made.append(category)
@@ -681,6 +681,7 @@ def seed_workflow():
 	Rebuilt rather than created-if-missing because the tables are the source of
 	truth: a row removed from them must disappear from the engine too.
 	"""
+	seed_roles()
 	for state, _docstatus, style, _sla in WORKFLOW_STATES:
 		if not frappe.db.exists("Workflow State", state):
 			frappe.get_doc(

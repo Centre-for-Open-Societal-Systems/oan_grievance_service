@@ -27,11 +27,9 @@ ORG_STATUS_SUSPENDED = "Suspended"
 ORG_TYPES = ("NGO", "FPO", "Cooperative")
 
 
-# The groups the dashboards count by. Awaiting Action is every state in which an
-# officer owes the next move. More Info Needed waits on the submitter, so it is open
-# but not awaiting. Resolved on the dashboards means Resolved or Closed.
-AWAITING_ACTION_STATES = (STATE_SUBMITTED, STATE_ASSIGNED, STATE_IN_PROGRESS)
-OPEN_STATES = (*AWAITING_ACTION_STATES, STATE_MORE_INFO_NEEDED)
+# The group the dashboards count as resolved: Resolved or Closed. The open and
+# awaiting-action groups are not listed here; sla.open_states() and
+# sla.awaiting_action_states() read them from the Grievance Workflow.
 RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
 
 
@@ -98,6 +96,10 @@ DEFAULT_ESCALATION_THRESHOLD = 100
 ROLE_SUBMITTER = "Grievance Submitter"
 ROLE_OFFICER = "Grievance Officer"
 ROLE_ADMIN = "Grievance Admin"
+# An assisted submitter (e.g. Development Agent, call-centre operator, front-desk intake staff)
+# who files grievances on behalf of citizens, recorded as assisted_by_officer.
+# Granted via Keycloak.
+ROLE_ASSISTED_SUBMITTER = "Grievance Assisted Submitter"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
@@ -116,6 +118,10 @@ ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
 # a department head is the escalation rung, and a reviewer is read-only oversight.
 NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
 
+# Who may file on someone else's behalf: assisted submitters (Development Agents, call centre,
+# walk-in intake) and administrators. Officers do not file. The named submitter stays the
+# owner of the case and the filing user is recorded as the assisting officer.
+ASSISTED_FILER_ROLES = frozenset({ROLE_ASSISTED_SUBMITTER, ROLE_ADMIN, "System Manager", "Administrator"})
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
 ADMIN_ROLES = [ROLE_ADMIN, "System Manager", "Administrator"]
 # Admin endpoints that only read: the Review Officer joins the admins here and nowhere
@@ -125,11 +131,3 @@ ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 # Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
 # here is the whole change if the answer is yes.
 REVIEWER_READ_ROLES = ADMIN_ROLES
-ALLOWED_GRIEVANCE_ROLES = [
-	ROLE_SUBMITTER,
-	ROLE_OFFICER,
-	ROLE_ADMIN,
-	"System Manager",
-	"Administrator",
-]
-ALLOWED_GRIEVANCE_READ_ROLES = [*ALLOWED_GRIEVANCE_ROLES, ROLE_REVIEW_OFFICER]

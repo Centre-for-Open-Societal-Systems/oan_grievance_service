@@ -28,7 +28,6 @@ from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	handle_api_errors,
-	require_role,
 	success_response,
 	validate_request,
 )
@@ -154,7 +153,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 )
 from oan_grievance_service.services import audit, scanning, sla
 
-from .grievance import ALLOWED_GRIEVANCE_READ_ROLES, ALLOWED_GRIEVANCE_ROLES
+from ._guards import require_permission
 
 route = prefixed("/api/v1/attachments")
 
@@ -346,10 +345,9 @@ class SubmitDocumentsRequest(BaseModel):
 
 @grievance_route("/<ticket_number>/attachments", methods=("POST",), summary="Upload supporting documents")
 @route("", methods=("POST",), summary="Upload supporting documents")
-@frappe.whitelist(methods=["POST"])
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def submit_documents(
 	ticket_number: str | None = None,
 	grievance: str | None = None,
@@ -375,9 +373,8 @@ def submit_documents(
 
 @grievance_route("/<ticket_number>/attachments", methods=("GET",), summary="List a grievance's attachments")
 @route("", methods=("GET",), summary="List attachments for a grievance")
-@frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
 	"""List the evidence on a case, with each file's scan verdict.
 
@@ -415,9 +412,8 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 
 
 @route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
-@frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def view(
 	attachment_id: str | None = None,
 	attachment: str | None = None,
@@ -460,9 +456,8 @@ def view(
 
 
 @route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
-@frappe.whitelist(methods=["GET"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def download(attachment_id: str | None = None, attachment: str | None = None):
 	"""Metadata for one attachment, but only once it has been scanned clean.
 
@@ -506,9 +501,8 @@ def _servable(attachment: str):
 
 
 @route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment")
-@frappe.whitelist(methods=["DELETE", "POST"])
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def delete(attachment_id: str | None = None, attachment: str | None = None):
 	"""Remove an attachment the submitter added by mistake.
 

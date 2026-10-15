@@ -18,7 +18,7 @@
   "variable": [
     {
       "key": "base_url",
-      "value": "http://localhost:8000",
+      "value": "http://mysite.localhost:8000",
       "type": "string"
     },
     {
@@ -179,9 +179,1213 @@
     {
       "key": "sla_configuration",
       "value": ""
+    },
+    {
+      "key": "admin_email",
+      "value": "gr@admin.com"
+    },
+    {
+      "key": "admin_password",
+      "value": "admin@123"
+    },
+    {
+      "key": "admin_access_token",
+      "value": ""
+    },
+    {
+      "key": "admin_refresh_token",
+      "value": ""
+    },
+    {
+      "key": "department",
+      "value": ""
+    },
+    {
+      "key": "dept_head_email",
+      "value": ""
+    },
+    {
+      "key": "officer_email",
+      "value": ""
+    },
+    {
+      "key": "officer",
+      "value": ""
+    },
+    {
+      "key": "officer_temp_password",
+      "value": "TempPass#2026"
+    },
+    {
+      "key": "officer_new_password",
+      "value": "OfficerPass#2026"
+    },
+    {
+      "key": "officer_access_token",
+      "value": ""
+    },
+    {
+      "key": "officer_refresh_token",
+      "value": ""
+    },
+    {
+      "key": "farmer_access_token",
+      "value": ""
+    },
+    {
+      "key": "farmer_refresh_token",
+      "value": ""
     }
   ],
   "item": [
+    {
+      "name": "0. Full Happy Path (E2E Runner)",
+      "description": "Self-contained, order-dependent smoke flow. Needs only 3 starting credentials: base_url, admin_email, admin_password (all collection variables). Logs in as admin; creates a fresh service category, grievance type, department (via L3 head), L1 officer, category assignment; registers a farmer; submits a grievance; officer resolves; farmer reopens it (only valid from Resolved -- once Closed the case is final and a new grievance must be filed instead); officer resolves again; farmer closes for good. Run top-to-bottom with Collection Runner / newman against a site with `bench worker` running (first auto-route after submit is a background queue job).",
+      "item": [
+        {
+          "name": "E0. Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "if (data && data.access_token) {",
+                  "    pm.collectionVariables.set(\"admin_access_token\", data.access_token);",
+                  "    pm.collectionVariables.set(\"access_token\", data.access_token);",
+                  "}",
+                  "if (data && data.refresh_token) { pm.collectionVariables.set(\"admin_refresh_token\", data.refresh_token); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "E2E: log in as the Grievance Admin. Every taxonomy/officer/category-assignment create below needs this role.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{admin_email}}\",\n  \"pwd\": \"{{admin_password}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E1. Create Service Category",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
+                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
+                  "pm.collectionVariables.set(\"e2e_category_name\", \"E2E Category \" + rand);",
+                  "var alphabet = \"0123456789ABCDEFGHJKMNPQRSTVWXYZ\"; // ticket codes exclude I, L, O, U",
+                  "var code3 = \"\"; for (var i = 0; i < 3; i++) { code3 += alphabet[Math.floor(Math.random() * alphabet.length)]; }",
+                  "pm.collectionVariables.set(\"e2e_category_code\", code3);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.service_category) {",
+                  "    pm.collectionVariables.set(\"taxonomy_category\", body.data.service_category.category_name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/service-categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "service-categories"
+              ]
+            },
+            "description": "E2E: create a fresh service category for this run (admin only).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_name\": \"{{e2e_category_name}}\",\n  \"code\": \"{{e2e_category_code}}\",\n  \"sort_order\": 50,\n  \"is_active\": true,\n  \"is_default\": false\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E2. Create Grievance Type",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
+                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
+                  "pm.collectionVariables.set(\"e2e_type_name\", \"E2E Grievance Type \" + rand);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.grievance_type) {",
+                  "    pm.collectionVariables.set(\"taxonomy_grievance_type\", body.data.grievance_type.grievance_type_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievance-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievance-types"
+              ]
+            },
+            "description": "E2E: create a grievance type under the category just created (admin only).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"type_name\": \"{{e2e_type_name}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E3. Create Department Head (L3) - auto-creates department",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
+                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
+                  "pm.collectionVariables.set(\"department\", \"E2E Dept \" + rand);",
+                  "pm.collectionVariables.set(\"dept_head_email\", \"e2e.depthead.\" + rand + \"@example.com\");"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "E2E: create an L3 department head with create_department=true, which creates the Grievance Department master the L1 officer and category assignment below need (admin only).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"E2E Department Head\",\n  \"designation\": \"Department Head\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\",\n  \"create_department\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E4. Create Officer (L1)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
+                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
+                  "pm.collectionVariables.set(\"officer_email\", \"e2e.officer.\" + rand + \"@example.com\");"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.officer) {",
+                  "    pm.collectionVariables.set(\"officer\", body.data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "E2E: create the L1 officer who resolves the grievance, in the department just created (admin only).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"E2E Nodal Officer\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{officer_email}}\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E5. Set Officer Initial Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/password/initial",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "password",
+                "initial"
+              ]
+            },
+            "description": "E2E: an admin-issued temporary password cannot log in directly (must_change_password); replace it before the officer can authenticate.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"current_password\": \"{{officer_temp_password}}\",\n  \"new_password\": \"{{officer_new_password}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E6. Officer Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "if (data && data.access_token) { pm.collectionVariables.set(\"officer_access_token\", data.access_token); }",
+                  "if (data && data.refresh_token) { pm.collectionVariables.set(\"officer_refresh_token\", data.refresh_token); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "E2E: log the new officer in and save their token separately from admin's/farmer's.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"pwd\": \"{{officer_new_password}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E7. Create Category Assignment",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Assignment created, or already auto-created by the officer create (409)\", function () {",
+                  "    pm.expect([200, 409]).to.include(pm.response.code);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "if (body.data && body.data.assignment) { pm.collectionVariables.set(\"category_assignment\", body.data.assignment.name); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/category-assignments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "category-assignments"
+              ]
+            },
+            "description": "E2E: route the category to the department/officer just created, so a submitted grievance auto-assigns to them (admin only). Creating the department head/officer already seeds this desk, so a 409 duplicate here is expected and fine.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"department\": \"{{department}}\",\n  \"l1_officer\": \"{{officer_email}}\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E8. Register Farmer",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
+                  "pm.collectionVariables.set(\"e2e_farmer_email\", \"e2e.farmer.\" + rand + \"@example.com\");",
+                  "pm.collectionVariables.set(\"e2e_farmer_mobile\", \"+2519\" + rand.slice(-8));",
+                  "pm.collectionVariables.set(\"e2e_farmer_fayda\", \"9\" + (Date.now().toString() + Math.floor(Math.random()*1e9)).padEnd(15, \"0\").slice(0, 15));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "if (data && data.access_token) {",
+                  "    pm.collectionVariables.set(\"access_token\", data.access_token);",
+                  "    pm.collectionVariables.set(\"farmer_access_token\", data.access_token);",
+                  "}",
+                  "if (data && data.refresh_token) {",
+                  "    pm.collectionVariables.set(\"refresh_token\", data.refresh_token);",
+                  "    pm.collectionVariables.set(\"farmer_refresh_token\", data.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "E2E: register a fresh farmer account; this is who files, closes and reopens the grievance.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"E2E Test Farmer\",\n  \"email\": \"{{e2e_farmer_email}}\",\n  \"phone_number\": \"{{e2e_farmer_mobile}}\",\n  \"password\": \"{{user_password}}\",\n  \"role\": \"Grievance Submitter\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"fayda_id\": \"{{e2e_farmer_fayda}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"preferred_language\": \"{{preferred_language}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E9. Save Draft (Farmer)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));",
+                  "var uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36));",
+                  "pm.collectionVariables.set(\"e2e_client_uuid\", uuid);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Draft saved as Draft\", function () { pm.expect(data.workflow_state).to.eql(\"Draft\"); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/drafts",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts"
+              ]
+            },
+            "description": "E2E: save the draft as the farmer, against the category/type created above.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_submission_uuid\": \"{{e2e_client_uuid}}\",\n  \"submission_channel\": \"Mobile App\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"E2E Test Farmer\",\n  \"contact_mobile\": \"{{e2e_farmer_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"grievance_type\": \"{{taxonomy_grievance_type}}\",\n  \"description\": \"E2E runner: fertilizer voucher never arrived for this cycle.\",\n  \"desired_outcome\": \"Reissue the fertilizer voucher.\",\n  \"is_anonymous\": 0,\n  \"validate\": false\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E10. Submit Draft (Farmer)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Ticket number issued, status Submitted\", function () {",
+                  "    pm.expect(data).to.have.property(\"ticket_number\");",
+                  "    pm.expect(data.status).to.eql(\"Submitted\");",
+                  "});",
+                  "if (data.ticket_number) { pm.collectionVariables.set(\"ticket_number\", data.ticket_number); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/drafts/submit",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "drafts",
+                "submit"
+              ]
+            },
+            "description": "E2E: final submission; this mints the ticket_number every later step uses.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_submission_uuid\": \"{{e2e_client_uuid}}\",\n  \"consent_given\": 1,\n  \"is_anonymous\": 0\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E11. Resolve Grievance (Officer)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"officer_access_token\"));",
+                  "function getState() {",
+                  "    return new Promise((resolve) => {",
+                  "        pm.sendRequest({",
+                  "            url: pm.collectionVariables.get(\"base_url\") + \"/api/v1/grievances/\" + pm.collectionVariables.get(\"ticket_number\"),",
+                  "            method: \"GET\",",
+                  "            header: { Authorization: \"Bearer \" + pm.collectionVariables.get(\"officer_access_token\") },",
+                  "        }, (err, res) => {",
+                  "            if (err) return resolve(null);",
+                  "            try {",
+                  "                var json = res.json();",
+                  "                var data = json.data || json;",
+                  "                resolve(data.workflow_state || data.status);",
+                  "            } catch (e) { resolve(null); }",
+                  "        });",
+                  "    });",
+                  "}",
+                  "(async () => {",
+                  "    var tries = 0, state = null;",
+                  "    while (tries < 15) {",
+                  "        state = await getState();",
+                  "        if (state === \"Assigned\") break;",
+                  "        await new Promise((r) => setTimeout(r, 1000));",
+                  "        tries++;",
+                  "    }",
+                  "    console.log(\"[Pre-request] grievance state before resolve:\", state);",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Resolved\", function () { pm.expect(data.status).to.eql(\"Resolved\"); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "description": "E2E: the officer resolves the case. Polls up to ~15s for the background auto-route job to assign it first.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Replacement fertilizer voucher issued at the Woreda desk.\",\n  \"resolution_summary\": \"Voucher reissued; case resolved pending farmer confirmation.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E12. Reopen Grievance (Farmer) - allowed only from Resolved, not Closed",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance reopened\", function () { pm.expect(data).to.have.property(\"status\"); console.log(\"[E13] status after reopen:\", data.status); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "description": "E2E: the farmer reopens the case while it is still Resolved (the grace-period window). Reopen is refused once the farmer has already confirmed Close Case -- at that point the case is final and a new grievance must be filed instead.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Reopen\",\n  \"reason\": \"The replacement voucher could not be redeemed locally.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E13. Resolve Grievance Again (Officer)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"officer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Resolved again\", function () { pm.expect(data.status).to.eql(\"Resolved\"); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "description": "E2E: reopen lands the case back on an assignable state synchronously, so the officer resolves it again right away (no routing-queue wait needed here).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Verified the voucher was fixed at the distribution center.\",\n  \"resolution_summary\": \"Confirmed redeemable; case resolved again.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E14. Close Case (Farmer, confirm resolution) - happy path complete",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Closed\", function () { pm.expect(data.status).to.eql(\"Closed\"); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "description": "E2E: the farmer confirms and closes the resolved case.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Close Case\",\n  \"rating\": 5,\n  \"reason\": \"Issue resolved. Thank you!\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E15. Officer Logout (Cleanup)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"officer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "E2E cleanup: log the officer session out.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{officer_refresh_token}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E16. Farmer Logout (Cleanup)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "E2E cleanup: log the farmer session out.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{farmer_refresh_token}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
     {
       "name": "Public Reference Data",
       "item": [
@@ -541,6 +1745,12 @@
                   "            pm.environment.set(\"refresh_token\", data.refresh_token);",
                   "        }",
                   "        console.log(\"[Post-response] Saved refresh_token:\", data.refresh_token);",
+                  "    }",
+                  "    if (data && data.access_token) {",
+                  "        pm.collectionVariables.set(\"farmer_access_token\", data.access_token);",
+                  "    }",
+                  "    if (data && data.refresh_token) {",
+                  "        pm.collectionVariables.set(\"farmer_refresh_token\", data.refresh_token);",
                   "    }",
                   "}"
                 ],
@@ -2467,7 +3677,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"comments\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
+          "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"reason\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
         },
         "url": {
           "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",

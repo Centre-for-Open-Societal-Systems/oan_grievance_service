@@ -24,6 +24,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from oan_grievance_service import permissions
+from oan_grievance_service.api.v1._guards import require_permission
 from oan_grievance_service.api.v1._options import (
 	active_channels,
 	expand_status_filter,
@@ -216,8 +217,6 @@ class DeferSLARequest(BaseModel):
 	reason: str = Field(..., min_length=20)
 
 
-ALLOWED_GRIEVANCE_ROLES = C.ALLOWED_GRIEVANCE_ROLES
-ALLOWED_GRIEVANCE_READ_ROLES = C.ALLOWED_GRIEVANCE_READ_ROLES
 STAFF_ROLES = C.STAFF_ROLES
 
 # Columns the server derives on submission. Accepting any of these from the caller
@@ -242,9 +241,10 @@ def _resolve_submitter_identity(kwargs):
 	"""Decide who a grievance belongs to, server-side, and snapshot their profile.
 
 	A submitter always files as themselves: the session decides the owning profile,
-	never the request. Staff may file on someone's behalf for the assisted and call
-	centre channels, in which case the named submitter stays the owner and the staff
-	member is recorded as the assisting officer for the audit trail.
+	never the request. Assisted submitters (Development Agents, call centre, walk-in
+	intake staff) and administrators may file on someone's behalf, in which case the
+	named submitter stays the owner and the filing user is recorded as the assisting
+	officer for the audit trail.
 
 	The name and contact columns are a filing-time copy of the profile, so a case
 	keeps showing who reported it even after they later change their phone number.
@@ -252,9 +252,10 @@ def _resolve_submitter_identity(kwargs):
 	those details directly, because there is nothing to copy from.
 	"""
 	user = frappe.session.user
-	is_staff = permissions.is_staff(user)
+	roles = set(frappe.get_roles(user))
+	is_assisted_filer = bool(roles & C.ASSISTED_FILER_ROLES)
 
-	if is_staff:
+	if is_assisted_filer:
 		profile_name = kwargs.get("submitter")
 		identity = {"submitter": profile_name, "assisted_by_officer": user}
 	else:
@@ -393,10 +394,9 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 
 
 @route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
-@frappe.whitelist()
 @validate_request(ListGrievancesRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def list_grievances(
 	page: int = 1,
 	page_size: int = 20,
@@ -442,7 +442,7 @@ def list_grievances(
 	service_category/category, administrative_area/location/region/zone/woreda/kebele,
 	grievance_type, department, and submission_channel.
 
-	Status filters use the queue cards (All, In Progress, Require More Info, Rejected,
+	Status filters use the queue cards (All, In Progress, More Info Needed, Rejected,
 	Resolved, Closed; officers also get Assigned). Draft is never returned. Workflow
 	stages that are not a card are reported as the card they roll up into.
 	"""
@@ -735,18 +735,6 @@ ACTIONS_REQUIRING_REASON = {
 	"Submitter Reply",
 }
 
-ACTION_CODES = {
-	"Close Case": "close_case",
-	"Reopen": "reopen",
-	"Resolve": "resolve",
-	"Partially Resolve": "partially_resolve",
-	"Reject": "reject",
-	"Refer Onward": "refer_onward",
-	"Request More Info": "request_more_info",
-	"Submitter Reply": "submitter_reply",
-	"In Progress": "in_progress",
-}
-
 ACTIONS_REQUIRING_RATING = {"Close Case"}
 
 
@@ -768,7 +756,7 @@ def _get_available_actions_for_user(doc):
 		result.append(
 			{
 				"action": act,
-				"action_code": ACTION_CODES.get(act, frappe.scrub(act)),
+				"action_code": frappe.scrub(act),
 				"label": _(act),
 				"requires_reason": act in ACTIONS_REQUIRING_REASON,
 				"requires_rating": act in ACTIONS_REQUIRING_RATING,
@@ -802,10 +790,9 @@ def _current_state(doc, extra=None):
 
 
 @route("", methods=("POST",), summary="Submit a new grievance")
-@frappe.whitelist()
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "create")
 def submit(**kwargs):
 	"""Submit a grievance in one request using the current draft flow."""
 	from oan_grievance_service.api.v1 import draft
@@ -1055,10 +1042,9 @@ _ACTION_ENTRY_TYPES = {
 
 
 @route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
-@frappe.whitelist()
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def action(
 	ticket_number: str,
 	action: str,
@@ -1235,10 +1221,9 @@ def _ensure_department(doc):
 @route(
 	"/<ticket_number>/feedback", methods=("POST",), summary="Submit citizen feedback / satisfaction rating"
 )
-@frappe.whitelist()
 @validate_request(GrievanceFeedbackRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def feedback(
 	ticket_number: str,
 	rating: int,
@@ -1293,9 +1278,8 @@ def feedback(
 
 
 @route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def timeline(
 	ticket_number: str,
 	is_internal: bool | str | None = None,
@@ -1536,10 +1520,9 @@ def timeline(
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
 )
-@frappe.whitelist()
 @validate_request(PostMessageRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def message(
 	ticket_number: str,
 	body: str,
@@ -1640,7 +1623,6 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 
 
 @route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
-@frappe.whitelist()
 @validate_request(ReassignGrievanceRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1700,10 +1682,9 @@ class DecideReassignmentRequest(BaseModel):
 	methods=("POST",),
 	summary="Approve or reject a pending reassignment request",
 )
-@frappe.whitelist()
 @validate_request(DecideReassignmentRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def decide_reassignment(ticket_number: str, decision: str, note: str | None = None, **kwargs):
 	"""Approve or reject a pending reassignment request for this grievance."""
 	doc = _load(ticket_number, ptype="read")
@@ -1718,7 +1699,6 @@ def decide_reassignment(ticket_number: str, decision: str, note: str | None = No
 
 
 @route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
-@frappe.whitelist()
 @validate_request(DeferSLARequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1768,10 +1748,9 @@ class DecideDeferralRequest(BaseModel):
 	methods=("POST",),
 	summary="Approve or reject a pending SLA deferral request",
 )
-@frappe.whitelist()
 @validate_request(DecideDeferralRequest)
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_ROLES)
+@require_permission("Grievance", "write")
 def decide_deferral(ticket_number: str, decision: str, note: str | None = None, **kwargs):
 	"""Approve or reject a pending SLA deferral request for this grievance."""
 	doc = _load(ticket_number, ptype="read")
@@ -1790,7 +1769,6 @@ def decide_deferral(ticket_number: str, decision: str, note: str | None = None, 
 	methods=("GET",),
 	summary="Response templates for a workflow action, filled in for this grievance",
 )
-@frappe.whitelist()
 @validate_request(ResponseTemplatesRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1852,13 +1830,12 @@ def _load(ticket_number, ptype="read"):
 
 
 @route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
-	Draft is excluded. The cards are All, In Progress, Require More Info, Rejected,
+	Draft is excluded. The cards are All, In Progress, More Info Needed, Rejected,
 	Resolved and Closed. Officers also get an Assigned card. Any other workflow
 	state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
@@ -1870,9 +1847,8 @@ def summary():
 
 
 @route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
-@frappe.whitelist()
 @handle_api_errors
-@require_role(ALLOWED_GRIEVANCE_READ_ROLES)
+@require_permission("Grievance", "read")
 def options(
 	service_category: str | None = None,
 	category: str | None = None,

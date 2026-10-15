@@ -20,7 +20,6 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from oan_grievance_service import permissions
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import identity
 
@@ -378,7 +377,7 @@ def assert_may_file(profile_name: str | None, user: str):
 
 	A profile with no organization is not this module's business. One that has an
 	organization may file only while that organization is Active, and only for its
-	authorized representative or for staff filing on a caller's behalf.
+	authorized representative or for an assisted filer acting on their behalf.
 	"""
 	if not profile_name:
 		return
@@ -393,7 +392,7 @@ def assert_may_file(profile_name: str | None, user: str):
 			frappe.PermissionError,
 			title=_("Organization Not Verified"),
 		)
-	if org.representative_user != user and not permissions.is_staff(user):
+	if org.representative_user != user and not set(frappe.get_roles(user)) & C.ASSISTED_FILER_ROLES:
 		frappe.throw(
 			_("You are not the authorized representative of this organization."),
 			frappe.PermissionError,

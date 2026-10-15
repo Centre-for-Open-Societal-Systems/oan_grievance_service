@@ -142,7 +142,7 @@ One organization with the representative and contact details, for the review scr
 The representative files through the same endpoints as any submitter. The server decides:
 
 - A profile linked to an organization may file only while the organization is `Active`, and only for its representative. Otherwise the request is a 403 `PERMISSION_DENIED`, "This organization is not verified" or "You are not the authorized representative".
-- Staff filing on a caller's behalf are held to the organization's status too.
+- Assisted filers (Development Agents, call centre and walk-in intake, and administrators) filing on the organization's behalf are held to its status too. Officers do not file.
 - A suspended organization's representative can still open and answer the cases already filed.
 - `POST /submitters/{id}/unblock` refuses a profile whose organization is not `Active`. Activate the organization instead.
 
