@@ -6,9 +6,12 @@ actually exists — `services/routing.py`, `services/sla.py::higher_authority_of
 `Grievance RBAC Assignment` / `Grievance RBAC Assignment Officer` / `Grievance Role Level`
 doctypes — not an aspirational design.
 
+Desk scoping rules, authority lookups (`covering_rows`), the Unrouted fallback desk and
+submitter privacy are described in [`desk-scoping-and-authority.md`](desk-scoping-and-authority.md).
+
 ## 1. The core records
 
-- **`Grievance RBAC Assignment`** ("desk"): one row per (department, optional category,
+- **`Grievance RBAC Assignment`** ("desk"): one row per (optional department, optional category,
   optional grievance type, optional service provider, optional administrative area via its
   officer rows). Fields: `department_scope`, `category_scope`, `grievance_type_scope`,
   `service_provider_scope`, `routing_strategy`, `active`, `effective_from`/`effective_to`.
@@ -68,11 +71,27 @@ the _officers on the one desk that won_ step 2 — this is not a walk across des
 ## 4. What this cascade is **not**
 
 - Not a walk up a tree of _desks_ (e.g. a woreda desk escalating to a zone desk to a
-  region desk). Desk selection (§2) happens once, picks one desk, and officer selection
-  (§3) never leaves it. If that one desk has nobody available at any rung, the case is
-  simply left unassigned — there is no fallback to a different, broader desk.
+  region desk). Desks are tried in the order of §4a; the first desk that yields an officer
+  wins, and officer selection (§3) never leaves it.
 - Not keyed off whether an officer has subordinates. A leaf L2/L3 (nobody reports to them)
   is exactly as eligible as a non-leaf one — see §3 step 5.
+
+### 4a. Desk fallback order
+
+`routing.ranked_assignments` returns desks best first, and `apply_routing` takes the first
+one that yields an officer:
+
+1. Desks whose category, type and provider scopes all match the case.
+2. Then desks matching category and type, ignoring the provider scope.
+3. Then desks matching the category only.
+4. Last, the **Unrouted** desk: the `Unrouted` department, held by the seeded
+   `unrouted@grievance.local` officer on the default category (`seed_unrouted_desk`).
+
+Within each step, desks with more matching scopes rank first, then the desk whose officers
+cover the case's area most tightly. Region is the last thing given up: a desk with no
+officer covering the case's area still qualifies, because the officer pick climbs rungs
+until one has no area (usually the department head). If a desk has no officer at all, the
+next desk is tried. A case only stays unassigned when the Unrouted desk is deactivated.
 
 ## 5. Escalation — what happens after assignment, on SLA breach
 
@@ -83,6 +102,14 @@ Separate mechanism from desk/officer routing, in `sla.py::higher_authority_of`:
    `find_officer_by_role_level`.
 3. `GrievanceRoleLevel.get_chain()` supplies rung order; walking stops at the top of the
    chain (returns `None, None`) or logs an unstaffed rung via `log_unstaffed_for`.
+
+Every "who holds this rung for this case" lookup (`find_officer_by_role_level`, `holds_rung`,
+`get_officer_supervisor`, and so `department_head_of` and `is_department_head`) ranks the
+candidate desks with `covering_rows`. An empty department, category or area on a desk is a
+wildcard, but the most specific desk wins: one naming the case's department and category beats
+one naming either, which beats a desk naming neither; then the narrowest covering area. So a
+department head with no department or no category is a last resort, never a shortcut past the
+department's own head.
 
 This is the only place `reports_to` does real work — a single L1→L2 hop. Everything past
 that hop is resolved by rung lookup against the department/area, not by chasing a

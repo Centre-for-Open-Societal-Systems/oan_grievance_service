@@ -2,6 +2,8 @@
 # not pick one. Seeded by setup/install.py; draft intake defaults to them by name.
 FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
+UNROUTED_DEPARTMENT = "Unrouted"
+UNROUTED_OFFICER = "unrouted@grievance.local"
 
 
 # Grievance Workflow states, seeded by setup/install.py (WORKFLOW_STATES). Code that
@@ -88,6 +90,8 @@ DEFAULT_ESCALATION_THRESHOLD = 100
 ROLE_SUBMITTER = "Grievance Submitter"
 ROLE_OFFICER = "Grievance Officer"
 ROLE_ADMIN = "Grievance Admin"
+# Granted and revoked by services/officer.py with the top rung; RBAC records decide the scope.
+ROLE_DESK_HEAD = "Grievance Desk Head"
 # An assisted submitter (e.g. Development Agent, call-centre operator, front-desk intake staff)
 # who files grievances on behalf of citizens, recorded as assisted_by_officer.
 # Granted via Keycloak.

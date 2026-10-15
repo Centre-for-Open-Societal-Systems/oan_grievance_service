@@ -172,6 +172,67 @@ def find_matching_assignment(grievance):
 	return candidates[0][2]
 
 
+def _field_of(grievance, fieldname):
+	if isinstance(grievance, dict) or hasattr(grievance, "get"):
+		return grievance.get(fieldname)
+	return getattr(grievance, fieldname, None)
+
+
+def _active_assignments():
+	today = frappe.utils.today()
+	return frappe.get_all(
+		"Grievance RBAC Assignment",
+		filters={"active": 1, "effective_from": ["<=", today]},
+		or_filters=[["effective_to", "is", "not set"], ["effective_to", ">=", today]],
+		fields=[
+			"name",
+			"department_scope",
+			"category_scope",
+			"grievance_type_scope",
+			"service_provider_scope",
+			"routing_strategy",
+			"reassignment_requires_approval",
+			"creation",
+		],
+	)
+
+
+def ranked_assignments(grievance):
+	"""Every desk that may take the case, best first, ending with the unrouted desk."""
+	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
+	assignments = [a for a in _active_assignments() if a.department_scope != C.UNROUTED_DEPARTMENT]
+
+	seen = set()
+	for checked in (MATCH_FIELDS, MATCH_FIELDS[:2], MATCH_FIELDS[:1]):
+		scoped = []
+		for a in assignments:
+			if a.name in seen:
+				continue
+			if all(not a.get(scope) or a.get(scope) == _field_of(grievance, doc) for scope, doc in checked):
+				matched = sum(1 for scope, doc in checked if a.get(scope))
+				scoped.append((a, matched))
+		fits = _desk_area_fits([a.name for a, _ in scoped], case_area, case_lft, case_rgt)
+		ordered = sorted(
+			scoped,
+			key=lambda row: (
+				fits.get(row[0].name, (UNBOUNDED, False))[0],
+				-row[1],
+				str(row[0].creation),
+				row[0].name,
+			),
+		)
+		for a, _matched in ordered:
+			seen.add(a.name)
+			yield a
+
+	for a in assignments_for_unrouted():
+		yield a
+
+
+def assignments_for_unrouted():
+	return [a for a in _active_assignments() if a.department_scope == C.UNROUTED_DEPARTMENT]
+
+
 def officer_desks(grievance, department, officer):
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 		query_active_officer_assignments,
@@ -355,11 +416,18 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 def apply_routing(grievance, commit_status=True):
 	from oan_grievance_service.services import lifecycle, notifications
 
-	assignment = find_matching_assignment(grievance)
-	doc = frappe.get_doc("Grievance RBAC Assignment", assignment.name) if assignment else None
-	officer_user = pick_officer_by_strategy(doc, grievance) if doc else None
+	doc = officer_user = None
+	for assignment in ranked_assignments(grievance):
+		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
+		if not candidate.department_scope:
+			continue
+		# No officer covers the case's region: any officer on the desk beats none.
+		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)
+		if officer_user:
+			doc = candidate
+			break
 
-	if not doc or not doc.department_scope:
+	if not doc:
 		if hasattr(grievance, "db_set"):
 			grievance.db_set("routed_automatically", 0, update_modified=False)
 		return None
@@ -368,9 +436,8 @@ def apply_routing(grievance, commit_status=True):
 		"assigned_dept": doc.department_scope,
 		"routing_rule": doc.name,
 		"routed_automatically": 1,
+		"assigned_to": officer_user,
 	}
-	if officer_user:
-		updates["assigned_to"] = officer_user
 	if hasattr(grievance, "db_set"):
 		grievance.db_set(updates, update_modified=False)
 

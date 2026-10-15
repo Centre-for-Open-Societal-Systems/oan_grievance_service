@@ -120,8 +120,8 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 	"assigned_to": {
 		"name": "assigned_to",
 		"label": "Assigned Officer",
-		"description": "Email or User ID of the assigned officer",
-		"example": "officer.abebe@openagrinet.gov.et",
+		"description": "Full name of the assigned officer",
+		"example": "Abebe Kebede",
 	},
 	"sla_due_date": {
 		"name": "sla_due_date",
@@ -156,6 +156,28 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 }
 
 
+# `assigned_to` renders the name: the User id is an email, which must not reach a submitter.
+PLACEHOLDER_EXPRESSIONS = {
+	"department": "doc.assigned_dept",
+	"assigned_to": "frappe.db.get_value('User', doc.assigned_to, 'full_name')",
+}
+
+
+def _placeholder_of(arg) -> str:
+	"""The placeholder a compiled `.format()` argument stands for."""
+	import ast
+
+	code = ast.unparse(arg)
+	for name, expression in PLACEHOLDER_EXPRESSIONS.items():
+		if name != "department" and code == ast.unparse(ast.parse(expression, mode="eval").body):
+			return name
+	if isinstance(arg, ast.Attribute) and getattr(arg.value, "id", None) == "doc":
+		return arg.attr
+	if isinstance(arg, ast.Name):
+		return arg.id
+	return code
+
+
 def get_allowed_template_placeholders() -> set[str]:
 	"""Allowed fieldnames that can be used as placeholders in notification templates."""
 	return set(ALLOWED_TEMPLATE_PLACEHOLDERS.keys())
@@ -181,14 +203,7 @@ def simplify_jinja_expression(code: str) -> str:
 		if isinstance(inner, ast.Call) and getattr(inner.func, "id", None) == "_" and inner.args:
 			source_text = getattr(inner.args[0], "value", None)
 			if isinstance(source_text, str):
-				args = []
-				for arg in node.args:
-					if isinstance(arg, ast.Attribute) and getattr(arg.value, "id", None) == "doc":
-						args.append(arg.attr)
-					elif isinstance(arg, ast.Name):
-						args.append(arg.id)
-					else:
-						args.append(ast.unparse(arg))
+				args = [_placeholder_of(arg) for arg in node.args]
 				for i, arg_name in enumerate(args):
 					source_text = source_text.replace(f"{{{i}}}", f"{{{arg_name}}}")
 				return source_text
@@ -289,7 +304,7 @@ def compile_simple_segment(text: str, context_key: str, validate_fields: bool = 
 
 	call = f"_({formatted_text!r}, context={context_key!r})"
 	if unique_vars:
-		args_str = ", ".join("doc.assigned_dept" if v == "department" else f"doc.{v}" for v in unique_vars)
+		args_str = ", ".join(PLACEHOLDER_EXPRESSIONS.get(v, f"doc.{v}") for v in unique_vars)
 		call += f".format({args_str})"
 
 	return f"{{{{ {call} }}}}"
@@ -500,6 +515,7 @@ def resolve_recipient(grievance, recipient_role, override=None, role_level=None)
 			role_level,
 			department=grievance.assigned_dept,
 			administrative_area=grievance.administrative_area,
+			category=grievance.service_category,
 		)
 		if officer:
 			return officer
@@ -508,20 +524,27 @@ def resolve_recipient(grievance, recipient_role, override=None, role_level=None)
 		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 			find_officer_by_role_level,
 		)
-
-		officer = (
-			find_officer_by_role_level(
-				"department_head",
-				department=grievance.assigned_dept,
-				administrative_area=grievance.administrative_area,
-			)
-			or find_officer_by_role_level(
-				"nodal_officer",
-				department=grievance.assigned_dept,
-				administrative_area=grievance.administrative_area,
-			)
-			or (grievance.assigned_to if getattr(grievance, "assigned_to", None) else None)
+		from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+			GrievanceRoleLevel,
 		)
+
+		chain = GrievanceRoleLevel.get_chain()
+		rungs = dict.fromkeys(rung.name for rung in (chain[-1:] + chain[:1]))
+		officer = next(
+			(
+				found
+				for rung in rungs
+				if (
+					found := find_officer_by_role_level(
+						rung,
+						department=grievance.assigned_dept,
+						administrative_area=grievance.administrative_area,
+						category=grievance.service_category,
+					)
+				)
+			),
+			None,
+		) or (grievance.assigned_to if getattr(grievance, "assigned_to", None) else None)
 		if officer:
 			return officer
 
