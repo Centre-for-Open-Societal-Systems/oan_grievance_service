@@ -602,6 +602,8 @@ def seed_response_templates():
 def seed_grievance_types():
 	made = []
 	for name, category in GRIEVANCE_TYPES:
+		if not frappe.db.exists("Grievance Service Category", category):
+			continue
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
 		frappe.get_doc(
@@ -810,7 +812,10 @@ def seed_categories():
 	"""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
-		if frappe.db.exists("Grievance Service Category", name):
+		# An admin may have renamed a seeded category; its code still marks it as seeded.
+		if frappe.db.exists("Grievance Service Category", name) or frappe.db.exists(
+			"Grievance Service Category", {"code": code}
+		):
 			continue
 		frappe.get_doc(
 			{
