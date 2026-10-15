@@ -443,7 +443,7 @@
           "response": []
         },
         {
-          "name": "E3. Create Department Head (L3) - auto-creates department",
+          "name": "E3. Create Category Admin (L3) - auto-creates department",
           "event": [
             {
               "listen": "prerequest",
@@ -492,7 +492,7 @@
             "description": "E2E: create an L3 department head with create_department=true, which creates the Grievance Department master the L1 officer and category assignment below need (admin only).",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"E2E Department Head\",\n  \"designation\": \"Department Head\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\",\n  \"create_department\": true\n}"
+              "raw": "{\n  \"full_name\": \"E2E Category Admin\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\",\n  \"create_department\": true\n}"
             },
             "auth": {
               "type": "bearer",
@@ -4715,7 +4715,7 @@
     },
     {
       "name": "Officers",
-      "description": "STG-430 admin CRUD for officers, extended by STG-443. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. level is L1 (Nodal), L2 (Senior Nodal) or L3 (Department Head, the Admin tab). role is Officer (default) or Reviewer: a Reviewer is placed on the department's desks with read-only access to that department and is never assigned a case. Requires a Grievance Admin bearer token. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
+      "description": "STG-430 admin CRUD for officers, extended by STG-443. An officer is a User placed on category desks, so the id is the officer's email and every service category must already have a category assignment for the department. level is L1 (Nodal), L2 (Senior Nodal) or L3 (Category Admin, the Admin tab). role is Officer (default) or Reviewer: a Reviewer is placed on the department's desks with read-only access to that department and is never assigned a case. Requires a Grievance Admin bearer token. Accounts are deactivated by updating status, not deleted. Performance metrics come from the statistics API.",
       "item": [
         {
           "name": "List officers",
@@ -5215,7 +5215,7 @@
             "description": "Create a department head. level L3 places the head on the department's desks for the given categories as its final escalation rung. They approve the department's reassignments and are not assigned first-line cases. reports_to is not accepted.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Hana Tesfaye\",\n  \"designation\": \"Department Head\",\n  \"level\": \"L3\",\n  \"department\": \"MoA\",\n  \"email\": \"hana.tesfaye@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"full_name\": \"Hana Tesfaye\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"MoA\",\n  \"email\": \"hana.tesfaye@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
             }
           },
           "response": []

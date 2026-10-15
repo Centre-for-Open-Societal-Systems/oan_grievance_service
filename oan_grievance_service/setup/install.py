@@ -31,6 +31,7 @@ ROLES = [
 	(C.ROLE_ASSISTED_SUBMITTER, 0),
 	("Grievance Dashboard Reader", 0),
 	(C.ROLE_REVIEW_OFFICER, 0),
+	(C.ROLE_DESK_HEAD, 0),
 ]
 
 # The Grievance Workflow: a native Frappe Workflow record, rebuilt from
@@ -117,13 +118,7 @@ ORG_WORKFLOW_TRANSITIONS = [
 #
 # §10.1 retired `L1 Nodal Officer`, `L2 Senior Nodal Officer` and `Department Head` as
 # *roles* - seniority is not a capability - but the rungs themselves remain, because
-# escalation and remand still have to name where a case is going. They are three, and
-# they map 1:1 onto the Grievance Department slots that notifications.py and sla.py
-# already read:
-#
-#     nodal_officer         -> Grievance Department.nodal_officer
-#     senior_nodal_officer  -> Grievance Department.senior_officer
-#     department_head       -> Grievance Department.head_of_dept
+# escalation and remand still have to name where a case is going. They are three.
 #
 # The older lists in database-schema.md §57 / §245 and verifier_management_schema_and_flow.md
 # §93 also carried `l1_case_officer` and `l2_supervisor`. Those are not rungs of this
@@ -145,7 +140,7 @@ ROLE_LEVELS = [
 		24,
 		"L2. Senior coordination; first rung above the nodal officer.",
 	),
-	("department_head", "Department Head", 30, 0, "Final internal escalation rung for the department."),
+	("department_head", "Category Admin", 30, 0, "Final internal escalation rung for the department."),
 ]
 
 # The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
@@ -533,6 +528,7 @@ def seed_all():
 		"organization_workflow": seed_organization_workflow(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
+		"unrouted_desk": seed_unrouted_desk(),
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
@@ -628,6 +624,8 @@ def seed_response_templates():
 def seed_grievance_types():
 	made = []
 	for name, category in GRIEVANCE_TYPES:
+		if not frappe.db.exists("Grievance Service Category", category):
+			continue
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
 		frappe.get_doc(
@@ -886,7 +884,10 @@ def seed_categories():
 	"""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
-		if frappe.db.exists("Grievance Service Category", name):
+		# An admin may have renamed a seeded category; its code still marks it as seeded.
+		if frappe.db.exists("Grievance Service Category", name) or frappe.db.exists(
+			"Grievance Service Category", {"code": code}
+		):
 			continue
 		frappe.get_doc(
 			{
@@ -900,6 +901,44 @@ def seed_categories():
 			}
 		).insert(ignore_permissions=True)
 		made.append(name)
+	return made
+
+
+def seed_unrouted_desk():
+	"""Seed the desk that takes a case no other desk can."""
+	made = []
+	if not frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
+		frappe.get_doc({"doctype": "Grievance Department", "dept_name": C.UNROUTED_DEPARTMENT}).insert(
+			ignore_permissions=True
+		)
+		made.append("department")
+	if not frappe.db.exists("User", C.UNROUTED_OFFICER):
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": C.UNROUTED_OFFICER,
+				"first_name": "Unrouted",
+				"last_name": "Officer",
+				"send_welcome_email": 0,
+				"enabled": 1,
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+		made.append("officer")
+	if not frappe.db.exists("Grievance RBAC Assignment", {"department_scope": C.UNROUTED_DEPARTMENT}):
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": C.UNROUTED_DEPARTMENT,
+				"category_scope": C.FALLBACK_SERVICE_CATEGORY,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{"user": C.UNROUTED_OFFICER, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+		made.append("desk")
 	return made
 
 

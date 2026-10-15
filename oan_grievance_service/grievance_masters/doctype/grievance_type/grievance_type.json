@@ -139,6 +139,18 @@
    "share": 1,
    "print": 1,
    "email": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Grievance Desk Head",
+   "share": 0,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",
