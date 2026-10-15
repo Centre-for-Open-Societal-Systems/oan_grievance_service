@@ -34,6 +34,7 @@ What does not belong here:
 """
 
 import frappe
+from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
@@ -50,6 +51,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
 	ROLE_ASSISTED_SUBMITTER,
+	ROLE_DESK_HEAD,
 	ROLE_OFFICER,
 	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
@@ -363,8 +365,106 @@ def outranks(approver, assignee, if_unplaced=True):
 	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)
 
 
-def is_department_head(user, department, area=None):
-	"""Whether `user` holds the top active rung (department head) covering department and area."""
+def head_scopes(user) -> list[tuple[str | None, str | None]]:
+	"""(department, category) of each top-rung record `user` holds; None is every one."""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		query_active_officer_assignments,
+		top_rung,
+	)
+
+	top = top_rung()
+	if not top or ROLE_DESK_HEAD not in frappe.get_roles(user):
+		return []
+	rows = query_active_officer_assignments(
+		user=user, role_level=top, fields=["p.department_scope", "p.category_scope"], order_by=None
+	)
+	return [(row.department_scope or None, row.category_scope or None) for row in rows]
+
+
+def heads_category(user, category) -> bool:
+	"""Whether `user` heads `category`: a record with no category covers the categories its
+	department serves, or all of them with no department."""
+	if is_unrestricted(user):
+		return True
+	for dept, cat in head_scopes(user):
+		if cat == category:
+			return True
+		if cat is None and (
+			dept is None
+			or frappe.db.exists(
+				"Grievance RBAC Assignment",
+				{"department_scope": dept, "category_scope": category, "active": 1},
+			)
+		):
+			return True
+	return False
+
+
+def assert_heads_category(user, category) -> None:
+	if not heads_category(user, category):
+		frappe.throw(_("You are not the desk head for {0}.").format(category), frappe.PermissionError)
+
+
+# What a Desk Head's DocPerm rows on Grievance Type and Grievance RBAC Assignment grant, so
+# the API's own saves pass. The hooks below narrow them to the head's records for any caller,
+# so Frappe's generic /api/resource cannot reach past what the officer and taxonomy APIs allow.
+WRITE_PTYPES = frozenset({"write", "create", "delete", "submit", "cancel", "amend"})
+
+
+def _desk_head_restricted(ptype, user) -> bool:
+	"""Whether `user` is a Desk Head, not an admin, asking for a write."""
+	return ptype in WRITE_PTYPES and not is_unrestricted(user) and ROLE_DESK_HEAD in frappe.get_roles(user)
+
+
+def has_rbac_assignment_permission(doc, ptype="read", user=None):
+	"""A Desk Head writes only a record they head. Everyone else is left to the DocPerm rows.
+
+	Frappe treats a falsy result as a denial, so "not my business" is True, not None.
+	"""
+	user = user or frappe.session.user
+	if not _desk_head_restricted(ptype, user):
+		return True
+	if doc.is_new() or not doc.name:
+		return False
+	return doc.name in _head_desks(user)
+
+
+def has_grievance_type_permission(doc, ptype="read", user=None):
+	"""A Desk Head writes only types of categories they head, and cannot move one out of them."""
+	user = user or frappe.session.user
+	if not _desk_head_restricted(ptype, user):
+		return True
+	categories = {doc.get("service_category")}
+	if not doc.is_new() and doc.name:
+		categories.add(frappe.db.get_value("Grievance Type", doc.name, "service_category"))
+	return all(category and heads_category(user, category) for category in categories)
+
+
+def _head_desks(user) -> set[str]:
+	"""The RBAC records on which `user` holds an active top-rung row (as `officer._head_records`)."""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		top_rung,
+	)
+
+	top = top_rung()
+	if not top:
+		return set()
+	return set(
+		frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={
+				"user": user,
+				"role_level": top,
+				"active": 1,
+				"parenttype": "Grievance RBAC Assignment",
+			},
+			pluck="parent",
+		)
+	)
+
+
+def is_department_head(user, department, area=None, category=None):
+	"""Whether `user` holds the top active rung (department head) covering department, category and area."""
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 		holds_rung,
 		top_rung,
@@ -373,4 +473,4 @@ def is_department_head(user, department, area=None):
 	top = top_rung()
 	if not top:
 		return False
-	return holds_rung(user, top, department=department, area=area)
+	return holds_rung(user, top, department=department, area=area, category=category)

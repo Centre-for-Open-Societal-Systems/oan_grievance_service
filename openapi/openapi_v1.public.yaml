@@ -1946,10 +1946,11 @@ paths:
       tags:
       - Administration
       summary: Create a category assignment
-      description: Create the category-only Grievance RBAC Assignment for one department and service category.
-        One rule per department and category, including inactive rules. The SLA window and auto-escalate
-        flag belong to the service category, not to this rule. Departments that serve the same category
-        share one SLA row, so changing them here changes them for every department's rule on that category.
+      description: Create the category-only Grievance RBAC Assignment for a service category, in one department
+        or, with no department, in every department. One rule per department and category, including inactive
+        rules. Officers are optional and can be added later. The SLA window and auto-escalate flag belong
+        to the service category, not to this rule. Departments that serve the same category share one
+        SLA row, so changing them here changes them for every department's rule on that category.
       operationId: post_api_v1_category_assignments
       responses:
         '200':
@@ -4402,14 +4403,16 @@ paths:
       - Administration
       summary: Create an officer
       description: 'Make a login an officer or a Reviewer on the category desks of a department. role
-        defaults to Officer. An Officer needs level (L1, L2 or L3), department, service_categories and
-        designation; level L3 makes a department head. A Reviewer needs department and service_categories
-        and takes no level or reports_to: they read those desks'' cases only, are never assigned one and
-        cannot change one. For an L1, L2 or Reviewer every service category must already have a category
-        assignment for the department. For an L3 a missing category assignment is created with the head
-        on it, and with create_department (default true) an unknown department is created too. reports_to
-        is an L2 officer and is only for an L1. The login is created when the email is new. An existing
-        login keeps its own roles and is given the officer or review role; a System Manager or Administrator
+        defaults to Officer. An Officer needs level (L1, L2 or L3), department and service_categories;
+        designation is optional. Level L3 makes a department head, who may leave out the department (every
+        department) and the service_categories (a last-resort desk for every case); a more specific head
+        always wins over them. A Reviewer needs department and service_categories and takes no level or
+        reports_to: they read those desks'' cases only, are never assigned one and cannot change one.
+        For an L1, L2 or Reviewer every service category must already have a category assignment for the
+        department. For an L3 a missing category assignment is created with the head on it, and with create_department
+        (default false) the department is created too, refused when it already exists. reports_to is an
+        L2 officer and is only for an L1. The login is created when the email is new. An existing login
+        keeps its own roles and is given the officer or review role; a System Manager or Administrator
         is never managed here. temporary_password is required: the account holder signs in with it only
         to replace it through /api/v1/auth/password/initial. It is applied to a new login only. An email
         that already has a login keeps its own password and the message says so.'
@@ -5790,7 +5793,9 @@ paths:
         it is the default, the category unclassified cases fall to. Making it the default clears the flag
         on the previous default. The code uses the ticket alphabet, which excludes I, L, O and U. It cannot
         change once tickets have been issued under the category. Optional sla_days, auto_escalate, and
-        notify_on_breach establish the category's SLA configuration atomically.
+        notify_on_breach establish the category's SLA configuration atomically. Optional department also
+        creates the category assignment for that department, with no officers yet; with create_department
+        the department is created too, refused when it already exists.
       operationId: post_api_v1_service_categories
       responses:
         '200':
@@ -5842,7 +5847,9 @@ paths:
       tags:
       - Administration
       summary: Get a service category
-      description: One service category, by name or ticket code.
+      description: One service category, by name or ticket code, with the departments that have a category
+        assignment for it (null is every department), its SLA and its grievance types. A Desk Head reads
+        only the categories they head.
       operationId: get_api_v1_service_categories_category
       responses:
         '200':
@@ -5850,7 +5857,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceCategoryResponse'
+                $ref: '#/components/schemas/ServiceCategoryDetailResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -7992,6 +7999,8 @@ components:
           type: string
         department:
           type: string
+          default: null
+          nullable: true
         l1_officer:
           type: string
           default: null
@@ -8033,7 +8042,6 @@ components:
       required:
       - name
       - service_category
-      - department
       - active
       type: object
     NotificationTemplateRecord:
@@ -8589,13 +8597,6 @@ components:
       - service_categories
       - pagination
       type: object
-    ServiceCategoryData:
-      properties:
-        service_category:
-          $ref: '#/components/schemas/ServiceCategoryRecord'
-      required:
-      - service_category
-      type: object
     GrievanceTypeRecord:
       properties:
         grievance_type_id:
@@ -8614,6 +8615,77 @@ components:
       - service_category
       - is_active
       - has_grievances
+      type: object
+    ServiceCategoryDetail:
+      properties:
+        category_name:
+          type: string
+        code:
+          type: string
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        is_default:
+          type: boolean
+        grievance_type_count:
+          type: integer
+        assignment_count:
+          type: integer
+        response_template_count:
+          type: integer
+        has_grievances:
+          type: boolean
+        code_locked:
+          type: boolean
+        renaming_to:
+          type: string
+          default: null
+          nullable: true
+        departments:
+          items:
+            type: string
+            nullable: true
+          type: array
+        sla_days:
+          type: integer
+          default: null
+          nullable: true
+        auto_escalate:
+          type: boolean
+          default: null
+          nullable: true
+        grievance_types:
+          items:
+            $ref: '#/components/schemas/GrievanceTypeRecord'
+          type: array
+      required:
+      - category_name
+      - code
+      - sort_order
+      - is_active
+      - is_default
+      - grievance_type_count
+      - assignment_count
+      - response_template_count
+      - has_grievances
+      - code_locked
+      - departments
+      - grievance_types
+      type: object
+    ServiceCategoryDetailData:
+      properties:
+        service_category:
+          $ref: '#/components/schemas/ServiceCategoryDetail'
+      required:
+      - service_category
+      type: object
+    ServiceCategoryData:
+      properties:
+        service_category:
+          $ref: '#/components/schemas/ServiceCategoryRecord'
+      required:
+      - service_category
       type: object
     GrievanceTypeListData:
       properties:
@@ -8971,9 +9043,13 @@ components:
         department:
           minLength: 1
           type: string
+          default: null
+          nullable: true
         l1_officer:
           minLength: 1
           type: string
+          default: null
+          nullable: true
         l2_officer:
           minLength: 1
           type: string
@@ -8992,19 +9068,22 @@ components:
           type: boolean
       required:
       - service_category
-      - department
-      - l1_officer
       type: object
     UpdateCategoryAssignment:
       additionalProperties: false
-      description: Partial update. Omitted fields stay as they are, so only l2_officer accepts null.
+      description: Partial update. Omitted fields stay as they are; department, l1_officer and l2_officer
+        accept null.
       properties:
         department:
           minLength: 1
           type: string
+          default: null
+          nullable: true
         l1_officer:
           minLength: 1
           type: string
+          default: null
+          nullable: true
         l2_officer:
           minLength: 1
           type: string
@@ -9273,7 +9352,9 @@ components:
       description: 'An officer needs a level; a Reviewer is placed on the same desks without one.
 
 
-        `designation`, `level`, `department` and `service_categories` are required for an Officer.
+        `level`, `department` and `service_categories` are required for an Officer; an L3 may omit
+
+        the department and categories.
 
         A Reviewer needs the department and categories whose desks they read, and has no level or
 
@@ -9341,8 +9422,8 @@ components:
           default: null
           nullable: true
         create_department:
-          default: true
-          description: 'Department head (L3) only: create the department when no department matches it'
+          default: false
+          description: 'Department head (L3) only: create the department; refused when it already exists'
           type: boolean
       required:
       - full_name
@@ -9368,6 +9449,8 @@ components:
         department:
           minLength: 1
           type: string
+          default: null
+          nullable: true
         phone:
           type: string
           default: null
@@ -9673,6 +9756,16 @@ components:
           type: boolean
         notify_on_breach:
           default: true
+          type: boolean
+        department:
+          minLength: 1
+          type: string
+          default: null
+          description: Also create the category assignment (RBAC desk) for this department
+          nullable: true
+        create_department:
+          default: false
+          description: Create the department; refused when it already exists
           type: boolean
       required:
       - category_name
@@ -10860,6 +10953,31 @@ components:
       - status
       - data
       description: ServiceCategoryListData response
+    ServiceCategoryDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ServiceCategoryDetailData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: ServiceCategoryDetailData response
     ServiceCategoryResponse:
       type: object
       properties:

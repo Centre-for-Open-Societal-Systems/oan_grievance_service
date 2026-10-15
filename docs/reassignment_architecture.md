@@ -71,13 +71,13 @@ flowchart TD
     CheckDeskFlag -- No (Flag OFF) --> ImmediateApprove
     CheckDeskFlag -- Yes (Flag ON) --> CheckTargetDept{"Is Move Within Same Department or Cross-Department?"}
 
-    CheckTargetDept -- "Within Same Dept" --> CheckDeptHead{"Is Requester the Department Head?"}
+    CheckTargetDept -- "Within Same Dept" --> CheckDeptHead{"Is Requester the Category Admin?"}
     CheckDeptHead -- Yes --> ImmediateApprove
-    CheckDeptHead -- No --> RouteOwnHead["Route to Source Department Head"]
+    CheckDeptHead -- No --> RouteOwnHead["Route to Source Category Admin"]
 
-    CheckTargetDept -- "Cross-Department" --> CheckTargetHead{"Is Requester the Target Department Head?"}
+    CheckTargetDept -- "Cross-Department" --> CheckTargetHead{"Is Requester the Target Category Admin?"}
     CheckTargetHead -- Yes --> ImmediateApprove
-    CheckTargetHead -- No --> RouteTargetHead["Route to Target Department Head"]
+    CheckTargetHead -- No --> RouteTargetHead["Route to Target Category Admin"]
 
     RouteOwnHead --> PendingQueue["Staged in Pending Queue"]
     RouteTargetHead --> PendingQueue
@@ -98,7 +98,7 @@ flowchart TD
 ### 3. Actor Authority & Role Levels
 
 - **Unrestricted Administrators:** Bypass approval constraints, acting directly on any department and case.
-- **Department Head:** Evaluated dynamically as the officer holding the top active leadership rank covering the target department and the grievance's administrative jurisdiction.
+- **Category Admin (`department_head` rung):** Evaluated dynamically as the officer holding the top active leadership rank covering the target department and the grievance's administrative jurisdiction.
 - **Self-Approval Prohibition:** A requester can never approve their own pending change request, ensuring separation of duties.
 
 ---
