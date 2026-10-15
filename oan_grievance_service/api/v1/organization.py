@@ -3,18 +3,14 @@
 
 """Organization (NGO / FPO / Cooperative) registration and verification endpoints.
 
-A representative registers one organization for their login, keeps its profile up to
-date and reads its verification status (`/orgs`, `/orgs/me`). Administrators work a
-queue of registrations and decide each one (`/orgs`, `/orgs/<org_id>`,
-`/orgs/<org_id>/status`). The organization is In Review until an administrator
-activates it; only then may its representative file grievances.
-
-Handlers stay thin. Field and format rules live in the Grievance Organization
-controller, and the lifecycle and the link to the representative's submitter profile live
-in `services/organization.py`.
+A representative registers one organization for their login and keeps it up to date
+(`/orgs`, `/orgs/me`). Administrators work the queue of registrations and decide each
+one (`/orgs`, `/orgs/<org_id>`, `/orgs/<org_id>/status`). An organization is In Review
+until an administrator activates it; only then may its representative file grievances.
 """
 
 import re
+from datetime import datetime
 from typing import Annotated, Literal
 
 import frappe
@@ -30,7 +26,7 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import AliasChoices, BaseModel, Field, StringConstraints, field_validator
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import organization as service
@@ -42,16 +38,33 @@ route = prefixed("/api/v1/orgs")
 OrgType = Literal["NGO", "FPO", "Cooperative"]
 OrgStatus = Literal["In Review", "Active", "Suspended"]
 
+
+def _registration_number(value: str) -> str:
+	if not REGISTRATION_PATTERN.match(value):
+		raise ValueError("Registration number is not in a valid format.")
+	return value
+
+
+def _website(value: str | None) -> str | None:
+	"""A bare "example.org" is taken as https://example.org."""
+	if value is None:
+		return value
+	if not re.match(r"^[a-z][a-z0-9+.-]*://", value, re.IGNORECASE):
+		value = f"https://{value}"
+	if len(value) > 255 or not re.match(r"^https?://[^\s/.]+(\.[^\s/.]+)+(/\S*)?$", value):
+		raise ValueError("Website must be a valid http or https address.")
+	return value
+
+
 # Frappe's Data length, which is what the columns hold.
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=140)]
-
-POSTAL_CODE_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9]|[ -](?=[A-Za-z0-9])){1,8}[A-Za-z0-9]$"
-WEBSITE_MAX_LENGTH = 255
-MEMBERS_MAX = 100_000_000
-
-# What the registration screen sends the registration number as. The canonical name is
-# registration_number, which is also what the profile and the docs call it.
-REGISTRATION_ALIASES = AliasChoices("registration_number", "tax_registration_number")
+RegistrationNumber = Annotated[Text, AfterValidator(_registration_number)]
+# 3 to 10 letters and digits, with spaces or hyphens inside.
+PostalCode = Annotated[
+	str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$")
+]
+Website = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_website)]
+Reason = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
 
 
 class OrganizationRecord(BaseModel):
@@ -74,14 +87,10 @@ class OrganizationRecord(BaseModel):
 	region: str
 	country: str
 	postal_code: str
-	consent_given: bool = False
-	consent_recorded_at: str | None = None
 	status: str
 	status_reason: str | None = None
-	verified_by: str | None = None
-	verified_on: str | None = None
-	creation: str | None = None
-	modified: str | None = None
+	creation: datetime
+	modified: datetime
 
 
 class OrganizationListData(BaseModel):
@@ -89,126 +98,56 @@ class OrganizationListData(BaseModel):
 	pagination: dict
 
 
-def _check_registration_number(value: str | None) -> str | None:
-	if value is not None and not REGISTRATION_PATTERN.match(value):
-		raise ValueError("Registration number is not in a valid format.")
-	return value.upper() if value else value
+# What the list reads: the record's own columns, and the workflow state as `status`.
+LIST_FIELDS = [name for name in OrganizationRecord.model_fields if name != "status"] + [
+	"workflow_state as status"
+]
 
 
-def _check_consent(value: bool) -> bool:
-	if value is not True:
-		raise ValueError("Confirm you are authorised to register this organization.")
-	return value
+class OptionalFields(Body):
+	"""What a registration may leave out, and the rules for each, shared by create and update."""
 
-
-def _check_website(value: str | None) -> str | None:
-	"""A web address with a dotted host. A bare "example.org" is taken as https://example.org."""
-	if value is None:
-		return value
-	value = value.strip()
-	if value and not re.match(r"^[a-z][a-z0-9+.-]*://", value, re.IGNORECASE):
-		value = f"https://{value}"
-	if len(value) > WEBSITE_MAX_LENGTH or not re.match(r"^https?://[^\s/.]+(\.[^\s/.]+)+(/\S*)?$", value):
-		raise ValueError("Website must be a valid http or https address.")
-	return value
-
-
-def _check_postal_code(value: str | None) -> str | None:
-	if value is not None and not re.match(POSTAL_CODE_PATTERN, value):
-		raise ValueError("Postal code is not valid.")
-	return value
-
-
-class CreateOrganization(Body):
-	"""Everything the registration screen collects. Status and verification fields are not accepted."""
-
-	legal_name: Text
 	brand_name: Text | None = None
-	org_type: OrgType
-	entity_type: Text
-	registration_number: Text = Field(
-		validation_alias=REGISTRATION_ALIASES,
-		description="Registration / licence number. Also accepted as tax_registration_number.",
-	)
 	representative_name: Text | None = None
-	members_affected: int | None = Field(
-		default=None,
-		ge=0,
-		le=MEMBERS_MAX,
-		description="Members affected (Cooperative / FPO). Optional; 0 when not given.",
-	)
-	contact_email: SafeEmail
-	contact_phone: Text
-	website: str | None = None
-	street_address: Text
+	members_affected: int | None = Field(default=None, ge=0, le=100_000_000)
+	website: Website | None = None
 	kebele: Text | None = None
 	woreda: Text | None = None
+
+	_blank = field_validator(
+		"brand_name", "representative_name", "members_affected", "website", "kebele", "woreda", mode="before"
+	)(blank_to_none)
+
+
+class CreateOrganization(OptionalFields):
+	legal_name: Text
+	org_type: OrgType
+	entity_type: Text
+	registration_number: RegistrationNumber
+	contact_email: SafeEmail
+	contact_phone: Text
+	street_address: Text
 	zone: Text
 	region: Text
 	country: Text
-	postal_code: Text
-	consent_given: bool = Field(
-		description="The representative confirms they are authorised to register the organization and "
-		"agrees to the Privacy Policy. Must be true."
-	)
-
-	_blank = field_validator(
-		"brand_name",
-		"representative_name",
-		"members_affected",
-		"website",
-		"kebele",
-		"woreda",
-		mode="before",
-	)(blank_to_none)
-	_registration = field_validator("registration_number")(_check_registration_number)
-	_website = field_validator("website")(_check_website)
-	_postal = field_validator("postal_code")(_check_postal_code)
-	_consent = field_validator("consent_given")(_check_consent)
+	postal_code: PostalCode
+	consent_given: Literal[True]
 
 
-class UpdateOrganization(Body):
-	"""Partial update. Omitted fields stay as they are; the optional ones accept null to clear."""
+class UpdateOrganization(OptionalFields):
+	"""Partial update: omitted fields stay as they are, and the optional ones accept null."""
 
 	legal_name: Text = None
-	brand_name: Text | None = None
 	org_type: OrgType = None
 	entity_type: Text = None
-	registration_number: Text = Field(
-		default=None,
-		validation_alias=REGISTRATION_ALIASES,
-		description="Registration / licence number. Also accepted as tax_registration_number.",
-	)
-	representative_name: Text | None = None
-	members_affected: int | None = Field(
-		default=None,
-		ge=0,
-		le=MEMBERS_MAX,
-		description="Members affected (Cooperative / FPO). Optional; 0 when not given.",
-	)
+	registration_number: RegistrationNumber = None
 	contact_email: SafeEmail = None
 	contact_phone: Text = None
-	website: str | None = None
 	street_address: Text = None
-	kebele: Text | None = None
-	woreda: Text | None = None
 	zone: Text = None
 	region: Text = None
 	country: Text = None
-	postal_code: Text = None
-
-	_blank = field_validator(
-		"brand_name",
-		"representative_name",
-		"members_affected",
-		"website",
-		"kebele",
-		"woreda",
-		mode="before",
-	)(blank_to_none)
-	_registration = field_validator("registration_number")(_check_registration_number)
-	_website = field_validator("website")(_check_website)
-	_postal = field_validator("postal_code")(_check_postal_code)
+	postal_code: PostalCode = None
 
 
 class OrganizationRef(Body):
@@ -218,9 +157,16 @@ class OrganizationRef(Body):
 class SetOrganizationStatus(Body):
 	org_id: NonBlank
 	status: OrgStatus
-	reason: str | None = Field(default=None, max_length=500)
+	reason: Reason | None = Field(default=None, validate_default=True)
 
 	_blank = field_validator("reason", mode="before")(blank_to_none)
+
+	@field_validator("reason")
+	@classmethod
+	def _suspension_needs_a_reason(cls, value, info):
+		if info.data.get("status") == "Suspended" and not value:
+			raise ValueError("A reason is required to suspend an organization.")
+		return value
 
 
 class ListOrganizations(PageParams, Body):
@@ -234,6 +180,11 @@ class ListOrganizations(PageParams, Body):
 	_blank = field_validator("status", "org_type", "search", mode="before")(blank_to_none)
 
 
+def organization_record(org) -> dict:
+	"""The organization as the API shows it: the document, with its workflow state as `status`."""
+	return {**org.as_dict(), "status": org.workflow_state}
+
+
 @route("", methods=("POST",), summary="Register an organization")
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
@@ -243,58 +194,15 @@ class ListOrganizations(PageParams, Body):
 	description="Register an NGO, FPO or cooperative with the caller as its authorized "
 	+ "representative. It starts In Review and cannot file grievances until an administrator "
 	+ "sets it Active. One organization per account, and one account per registration number. "
-	+ "The registration number may also be sent as tax_registration_number.",
+	+ "consent_given must be true.",
 	tags=["Organizations"],
 	response_model=OrganizationRecord,
 )
-def register_organization(
-	legal_name: str,
-	org_type: str,
-	entity_type: str,
-	registration_number: str,
-	contact_email: str,
-	contact_phone: str,
-	street_address: str,
-	zone: str,
-	region: str,
-	country: str,
-	postal_code: str,
-	consent_given: bool | str | None,
-	brand_name: str | None = None,
-	representative_name: str | None = None,
-	members_affected: int | str | None = None,
-	website: str | None = None,
-	kebele: str | None = None,
-	woreda: str | None = None,
-	**kwargs,
-):
-	"""Create the caller's organization In Review and block its profile until it is verified."""
-	org = service.create(
-		frappe.session.user,
-		{
-			"legal_name": legal_name,
-			"org_type": org_type,
-			"entity_type": entity_type,
-			"registration_number": registration_number,
-			"contact_email": contact_email,
-			"contact_phone": contact_phone,
-			"street_address": street_address,
-			"zone": zone,
-			"region": region,
-			"country": country,
-			"postal_code": postal_code,
-			"consent_given": consent_given,
-			"brand_name": brand_name,
-			"representative_name": representative_name,
-			"members_affected": members_affected,
-			"website": website,
-			"kebele": kebele,
-			"woreda": woreda,
-		},
-	)
+def register_organization(**kwargs):
+	kwargs.pop("consent_given")
+	org = service.create(frappe.session.user, kwargs)
 	return success_response(
-		data=service.record(org),
-		message=_("Organization registered and awaiting verification"),
+		data=organization_record(org), message=_("Organization registered and awaiting verification")
 	)
 
 
@@ -309,9 +217,8 @@ def register_organization(
 	response_model=OrganizationRecord,
 )
 def get_my_organization(**kwargs):
-	"""Return the caller's own organization."""
-	org = service.require_for_user(frappe.session.user)
-	return success_response(data=service.record(org), message=_("Organization retrieved"))
+	org = service.get_for_user(frappe.session.user)
+	return success_response(data=organization_record(org), message=_("Organization retrieved"))
 
 
 @route("/me", methods=("PATCH",), summary="Update my organization")
@@ -328,12 +235,10 @@ def get_my_organization(**kwargs):
 	response_model=OrganizationRecord,
 )
 def update_my_organization(**kwargs):
-	"""Update the caller's organization. `kwargs` holds only the fields the client sent."""
-	org = service.require_for_user(frappe.session.user)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	service.update(org, kwargs)
-	return success_response(data=service.record(org), message=_("Organization updated"))
+	org = service.update(service.get_for_user(frappe.session.user), kwargs)
+	return success_response(data=organization_record(org), message=_("Organization updated"))
 
 
 @route("", methods=("GET",), summary="List organizations")
@@ -348,30 +253,11 @@ def update_my_organization(**kwargs):
 	tags=["Organizations"],
 	response_model=OrganizationListData,
 )
-def list_organizations(
-	status: str | None = None,
-	org_type: str | None = None,
-	search: str | None = None,
-	sort: str = "newest",
-	page: int | str = 1,
-	page_size: int | str = 20,
-	**kwargs,
-):
-	"""One page of organizations, filtered, ordered and paged in SQL."""
-	params = PageParams(page=page, page_size=page_size)
-	rows, total = service.list_orgs(
-		status=status,
-		org_type=org_type,
-		search=search,
-		sort=sort,
-		start=params.start,
-		page_length=params.page_size,
-	)
+def list_organizations(**kwargs):
+	params = PageParams(page=kwargs.pop("page"), page_size=kwargs.pop("page_size"))
+	rows, total = service.list_orgs(LIST_FIELDS, start=params.start, page_length=params.page_size, **kwargs)
 	return success_response(
-		data={
-			"organizations": rows,
-			"pagination": page_meta(total, params.page, params.page_size),
-		},
+		data={"organizations": rows, "pagination": page_meta(total, params.page, params.page_size)},
 		message=_("Organizations retrieved"),
 	)
 
@@ -388,8 +274,9 @@ def list_organizations(
 	response_model=OrganizationRecord,
 )
 def get_organization(org_id: str, **kwargs):
-	"""Return one organization by id."""
-	return success_response(data=service.record(service.get_org(org_id)), message=_("Organization retrieved"))
+	return success_response(
+		data=organization_record(service.get_org(org_id)), message=_("Organization retrieved")
+	)
 
 
 @route("/<org_id>/status", methods=("PATCH",), summary="Set an organization's verification status")
@@ -398,18 +285,16 @@ def get_organization(org_id: str, **kwargs):
 @validate_request(SetOrganizationStatus)
 @api_doc(
 	summary="Set an organization's verification status",
-	description="The administrator's decision. In Review to Active verifies it and lets its "
-	+ "representative file grievances. Active or In Review to Suspended withdraws or rejects "
-	+ "it and needs a reason. Suspended to Active reinstates it, and Suspended to In Review "
-	+ "reopens the review. Other moves are refused. Review Officers cannot decide.",
+	description="The administrator's decision, taken through the Organization Workflow. "
+	+ "In Review to Active verifies it and lets its representative file grievances. Active or "
+	+ "In Review to Suspended withdraws or rejects it and needs a reason. Suspended to Active "
+	+ "reinstates it, and Suspended to In Review reopens the review. Other moves are refused. "
+	+ "Review Officers cannot decide.",
 	tags=["Organizations"],
 	response_model=OrganizationRecord,
 )
 def set_organization_status(org_id: str, status: str, reason: str | None = None, **kwargs):
-	"""Move an organization to `status`, recording who decided and why."""
-	org = service.get_org(org_id)
-	service.set_status(org, status, reason)
+	org = service.set_status(service.get_org(org_id), status, reason)
 	return success_response(
-		data=service.record(org),
-		message=_("Organization status set to {0}").format(status),
+		data=organization_record(org), message=_("Organization status set to {0}").format(status)
 	)

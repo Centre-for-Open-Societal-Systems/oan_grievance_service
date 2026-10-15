@@ -7,6 +7,7 @@ import json
 import random
 
 import frappe
+from frappe.model.workflow import WorkflowPermissionError
 from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.v1.auth import get_me
 
@@ -105,7 +106,7 @@ class OrganizationTestCase(FrappeTestCase):
 
 
 class TestRegistration(OrganizationTestCase):
-	def test_register_creates_org_in_review_and_blocked_profile(self):
+	def test_register_creates_org_in_review_and_links_the_profile(self):
 		result = self.register(brand_name="Selam", website="https://selam-coop.example.com")
 		self.assertEqual(result["status"], "success", msg=result)
 		org = result["data"]
@@ -114,23 +115,27 @@ class TestRegistration(OrganizationTestCase):
 		self.assertEqual(org["representative_user"], self.rep)
 		self.assertTrue(org["representative_name"])
 		self.assertEqual(org["brand_name"], "Selam")
-		self.assertIsNone(org["verified_by"])
 
 		profile = self.profile_of(self.rep)
 		self.assertEqual(profile.organization, org["name"])
 		self.assertEqual(profile.submitter_type, "FPO")
 		self.assertEqual(profile.submitter_name, org["legal_name"])
 		self.assertEqual(profile.dedupe_key, f"org:{org['registration_number']}")
-		self.assertEqual(profile.is_blocked, 1)
-		self.assertIn("In Review", profile.blocked_reason)
+		# The organization's status, not the profile's block, says it may not file yet.
+		self.assertEqual(profile.is_blocked, 0)
+		with self.assertRaises(frappe.PermissionError):
+			service.assert_may_file(profile.name, self.rep)
 
-	def test_registration_number_is_normalised_and_alias_accepted(self):
+	def test_registration_number_is_stored_in_upper_case_under_one_name(self):
 		payload = _payload()
 		number = payload.pop("registration_number")
 		frappe.set_user(self.rep)
-		result = register_organization(**payload, tax_registration_number=number.lower())
+		result = register_organization(**payload, registration_number=number.lower())
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(result["data"]["registration_number"], number)
+		frappe.set_user(self.other_rep)
+		other = register_organization(**payload, tax_registration_number=number)
+		self.assertEqual(other["code"], "VALIDATION_ERROR")
 
 	def test_cooperative_type_is_accepted_with_its_entity_types(self):
 		result = self.register(org_type="Cooperative", entity_type="Primary Cooperative")
@@ -152,7 +157,7 @@ class TestRegistration(OrganizationTestCase):
 		profile = self.profile_of(self.rep)
 		self.assertEqual(profile.name, farmer.name)
 		self.assertTrue(profile.dedupe_key.startswith("org:"))
-		self.assertEqual(profile.is_blocked, 1)
+		self.assertEqual(profile.is_blocked, 0)
 
 	def test_validation_errors_are_keyed_by_field(self):
 		frappe.set_user(self.rep)
@@ -188,7 +193,7 @@ class TestRegistration(OrganizationTestCase):
 		frappe.set_user(self.other_rep)
 		self.assertEqual(register_organization(**_payload(entity_type="   "))["code"], "VALIDATION_ERROR")
 
-	def test_consent_is_required_and_recorded(self):
+	def test_consent_is_required(self):
 		frappe.set_user(self.rep)
 		missing = _payload()
 		del missing["consent_given"]
@@ -198,10 +203,7 @@ class TestRegistration(OrganizationTestCase):
 			self.assertIn("consent_given", result["details"])
 		self.assertFalse(frappe.db.exists(service.DOCTYPE, {"representative_user": self.rep}))
 
-		org = register_organization(**_payload())["data"]
-		self.assertTrue(org["consent_given"])
-		self.assertTrue(org["consent_recorded_at"])
-		self.assertTrue(get_my_organization()["data"]["consent_given"])
+		self.assertEqual(register_organization(**_payload())["status"], "success")
 		# It is the registration's, not an editable profile field.
 		self.assertEqual(update_my_organization(consent_given=False)["code"], "VALIDATION_ERROR")
 
@@ -256,7 +258,8 @@ class TestRegistration(OrganizationTestCase):
 	def test_one_organization_per_account(self):
 		self.register()
 		again = self.register()
-		self.assertEqual(again["code"], "DUPLICATE_ENTRY")
+		self.assertEqual(again["code"], "VALIDATION_ERROR")
+		self.assertIn("Representative Account must be unique", again["message"])
 		self.assertEqual(frappe.db.count(service.DOCTYPE, {"representative_user": self.rep}), 1)
 
 	def test_registration_number_is_unique_across_accounts(self):
@@ -264,7 +267,8 @@ class TestRegistration(OrganizationTestCase):
 		clash = self.register(
 			user=self.other_rep, registration_number=first["data"]["registration_number"].lower()
 		)
-		self.assertEqual(clash["code"], "DUPLICATE_ENTRY")
+		self.assertEqual(clash["code"], "VALIDATION_ERROR")
+		self.assertIn("Registration Number must be unique", clash["message"])
 		self.assertIsNone(frappe.db.get_value(PROFILE, {"user": self.other_rep}, "organization"))
 
 	def test_only_submitters_register(self):
@@ -326,7 +330,7 @@ class TestMyOrganization(OrganizationTestCase):
 			self.assertIn(field, result["details"])
 		frappe.set_user("Administrator")
 		self.assertEqual(
-			frappe.db.get_value(service.DOCTYPE, {"representative_user": self.rep}, "verification_status"),
+			frappe.db.get_value(service.DOCTYPE, {"representative_user": self.rep}, "workflow_state"),
 			C.ORG_STATUS_IN_REVIEW,
 		)
 
@@ -335,12 +339,13 @@ class TestMyOrganization(OrganizationTestCase):
 		self.register()
 		frappe.set_user(self.rep)
 		result = update_my_organization(registration_number=taken)
-		self.assertEqual(result["code"], "DUPLICATE_ENTRY")
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("Registration Number must be unique", result["message"])
 
 	def test_changing_identity_of_an_active_organization_returns_it_to_review(self):
 		org = self.register()["data"]
 		self.activate(org["name"])
-		self.assertEqual(self.profile_of(self.rep).is_blocked, 0)
+		service.assert_may_file(self.profile_of(self.rep).name, self.rep)
 
 		frappe.set_user(self.rep)
 		result = update_my_organization(contact_email="new@selam-coop.example.com")
@@ -349,7 +354,8 @@ class TestMyOrganization(OrganizationTestCase):
 		result = update_my_organization(legal_name="Selam Union (renamed)")
 		self.assertEqual(result["data"]["status"], C.ORG_STATUS_IN_REVIEW)
 		self.assertIn("Legal Name", result["data"]["status_reason"])
-		self.assertEqual(self.profile_of(self.rep).is_blocked, 1)
+		with self.assertRaises(frappe.PermissionError):
+			service.assert_may_file(self.profile_of(self.rep).name, self.rep)
 
 	def test_correcting_the_registration_number_reanchors_the_profile(self):
 		self.register()
@@ -369,72 +375,100 @@ class TestMyOrganization(OrganizationTestCase):
 
 
 class TestVerificationWorkflow(OrganizationTestCase):
-	def test_admin_activation_unblocks_the_profile_and_records_the_decision(self):
+	def may_file(self, user):
+		try:
+			service.assert_may_file(self.profile_of(self.rep).name, user)
+		except frappe.PermissionError:
+			return False
+		return True
+
+	def test_admin_activation_lets_the_representative_file_and_is_audited(self):
 		org = self.register()["data"]
+		self.assertFalse(self.may_file(self.rep))
 		result = self.activate(org["name"])
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(result["data"]["status"], C.ORG_STATUS_ACTIVE)
-		self.assertEqual(result["data"]["verified_by"], self.admin)
-		self.assertTrue(result["data"]["verified_on"])
-		profile = self.profile_of(self.rep)
-		self.assertEqual(profile.is_blocked, 0)
-		self.assertIsNone(profile.blocked_reason)
-
-	def test_suspending_needs_a_reason_and_blocks_the_profile(self):
-		org = self.register()["data"]
-		frappe.set_user(self.admin)
-		self.assertEqual(
-			set_organization_status(org["name"], C.ORG_STATUS_SUSPENDED)["code"], "VALIDATION_ERROR"
+		self.assertTrue(self.may_file(self.rep))
+		# The engine records who made the move.
+		comments = frappe.get_all(
+			"Comment",
+			filters={
+				"reference_doctype": service.DOCTYPE,
+				"reference_name": org["name"],
+				"comment_type": "Workflow",
+			},
+			pluck="owner",
 		)
+		self.assertEqual(comments, [self.admin])
+
+	def test_suspending_needs_a_reason_and_stops_filing(self):
+		org = self.register()["data"]
+		self.activate(org["name"])
+		frappe.set_user(self.admin)
+		missing = set_organization_status(org["name"], C.ORG_STATUS_SUSPENDED)
+		self.assertEqual(missing["code"], "VALIDATION_ERROR")
+		self.assertIn("reason", missing["details"])
 		result = set_organization_status(org["name"], C.ORG_STATUS_SUSPENDED, "Licence expired")
 		self.assertEqual(result["data"]["status"], C.ORG_STATUS_SUSPENDED)
 		self.assertEqual(result["data"]["status_reason"], "Licence expired")
-		profile = self.profile_of(self.rep)
-		self.assertEqual(profile.is_blocked, 1)
-		self.assertIn("Licence expired", profile.blocked_reason)
+		self.assertFalse(self.may_file(self.rep))
 
 	def test_full_lifecycle_reinstate_and_reopen(self):
 		org = self.register()["data"]["name"]
 		frappe.set_user(self.admin)
 		set_organization_status(org, C.ORG_STATUS_ACTIVE)
+		self.assertTrue(self.may_file(self.rep))
 		set_organization_status(org, C.ORG_STATUS_SUSPENDED, "Under investigation")
 		reopened = set_organization_status(org, C.ORG_STATUS_IN_REVIEW, "Documents resubmitted")
 		self.assertEqual(reopened["data"]["status"], C.ORG_STATUS_IN_REVIEW)
-		self.assertEqual(self.profile_of(self.rep).is_blocked, 1)
+		self.assertFalse(self.may_file(self.rep))
 		set_organization_status(org, C.ORG_STATUS_SUSPENDED, "Rejected after review")
 		reinstated = set_organization_status(org, C.ORG_STATUS_ACTIVE)
 		self.assertEqual(reinstated["data"]["status"], C.ORG_STATUS_ACTIVE)
-		self.assertEqual(self.profile_of(self.rep).is_blocked, 0)
+		self.assertTrue(self.may_file(self.rep))
 
 	def test_repeating_the_current_status_is_not_a_transition(self):
 		org = self.register()["data"]["name"]
 		self.activate(org)
 		frappe.set_user(self.admin)
-		again = set_organization_status(org, C.ORG_STATUS_ACTIVE)
-		self.assertEqual(again["status"], "success")
-		self.assertEqual(
-			frappe.db.get_value(service.DOCTYPE, org, "verification_status"), C.ORG_STATUS_ACTIVE
-		)
+		self.assertEqual(set_organization_status(org, C.ORG_STATUS_ACTIVE)["status"], "success")
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, org, "workflow_state"), C.ORG_STATUS_ACTIVE)
 
-	def test_the_transition_table_guards_every_save(self):
-		org = frappe.get_doc(service.DOCTYPE, self.register()["data"]["name"])
-		org.verification_status = "Archived"
-		with self.assertRaises(frappe.ValidationError):
-			org.save(ignore_permissions=True)
-		self.assertEqual(
-			{status for _from, status in service.TRANSITIONS},
-			{C.ORG_STATUS_IN_REVIEW, C.ORG_STATUS_ACTIVE, C.ORG_STATUS_SUSPENDED},
-		)
+	def test_an_administrator_cannot_send_an_active_organization_back_to_review(self):
+		"""Active to In Review is the system's move, taken when a representative edits what was verified."""
+		org = self.register()["data"]["name"]
+		self.activate(org)
+		frappe.set_user(self.admin)
+		result = set_organization_status(org, C.ORG_STATUS_IN_REVIEW)
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("cannot move", result["message"])
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, org, "workflow_state"), C.ORG_STATUS_ACTIVE)
 
-	def test_verifying_does_not_lift_a_block_an_officer_placed(self):
+	def test_a_save_cannot_skip_the_workflow(self):
+		org = self.register()["data"]["name"]
+		frappe.set_user(self.rep)
+		doc = frappe.get_doc(service.DOCTYPE, org)
+		doc.workflow_state = C.ORG_STATUS_ACTIVE
+		with self.assertRaises(WorkflowPermissionError):
+			doc.save(ignore_permissions=True)
+
+	def test_an_officers_block_survives_edits_and_activation(self):
+		"""Verifying or editing an organization never lifts a block, or a deactivation, an officer placed."""
 		org = self.register()["data"]["name"]
 		profile = self.profile_of(self.rep)
-		profile.blocked_reason = "Demonstrated abuse"
+		profile.update({"is_blocked": 1, "blocked_reason": "Demonstrated abuse", "active": 0})
 		profile.save(ignore_permissions=True)
+
+		frappe.set_user(self.rep)
+		self.assertEqual(update_my_organization(kebele="09")["status"], "success")
 		self.activate(org)
 		profile.reload()
-		self.assertEqual(profile.is_blocked, 1)
-		self.assertEqual(profile.blocked_reason, "Demonstrated abuse")
+		self.assertEqual(
+			(profile.is_blocked, profile.active, profile.blocked_reason), (1, 0, "Demonstrated abuse")
+		)
+		frappe.set_user(self.rep)
+		with self.assertRaises(frappe.ValidationError):
+			_resolve_submitter_identity({})
 
 	def test_unknown_organization_is_404(self):
 		frappe.set_user(self.admin)
@@ -455,15 +489,13 @@ class TestPermissions(OrganizationTestCase):
 			result = set_organization_status(org, C.ORG_STATUS_ACTIVE)
 			self.assertEqual(result["code"], "PERMISSION_DENIED", msg=user)
 		frappe.set_user("Administrator")
-		self.assertEqual(
-			frappe.db.get_value(service.DOCTYPE, org, "verification_status"), C.ORG_STATUS_IN_REVIEW
-		)
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, org, "workflow_state"), C.ORG_STATUS_IN_REVIEW)
 
 	def test_the_representative_cannot_verify_their_own_organization(self):
 		org = self.register()["data"]["name"]
 		frappe.set_user(self.rep)
 		self.assertEqual(set_organization_status(org, C.ORG_STATUS_ACTIVE)["code"], "PERMISSION_DENIED")
-		self.assertEqual(self.profile_of(self.rep).is_blocked, 1)
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, org, "workflow_state"), C.ORG_STATUS_IN_REVIEW)
 
 	def test_queue_and_dossier_are_for_admins_and_reviewers(self):
 		org = self.register()["data"]["name"]
@@ -622,16 +654,15 @@ class TestFilingRights(OrganizationTestCase):
 		frappe.set_user(self.other_rep)
 		self.assertEqual(_resolve_submitter_identity({})["submitter"], farmer.name)
 
-	def test_staff_cannot_unblock_an_unverified_organizations_profile(self):
+	def test_unblocking_does_not_let_an_unverified_organization_file(self):
 		org = self.register()["data"]["name"]
 		profile = self.profile_of(self.rep).name
-		for user in (self.officer, self.admin):
-			frappe.set_user(user)
-			result = submitter.unblock_submitter(profile)
-			self.assertEqual(result["code"], "PERMISSION_DENIED", msg=user)
-		self.assertEqual(frappe.db.get_value(PROFILE, profile, "is_blocked"), 1)
+		frappe.set_user(self.admin)
+		self.assertEqual(submitter.unblock_submitter(profile)["status"], "success")
+		with self.assertRaises(frappe.PermissionError):
+			service.assert_may_file(profile, self.rep)
 		self.activate(org)
-		self.assertEqual(frappe.db.get_value(PROFILE, profile, "is_blocked"), 0)
+		service.assert_may_file(profile, self.rep)
 
 
 class TestAuthMeProfile(OrganizationTestCase):
@@ -654,21 +685,10 @@ class TestAuthMeProfile(OrganizationTestCase):
 		self.assertEqual(data["submitter_name"], org["legal_name"])
 		self.assertEqual(data["registration_number"], org["registration_number"])
 		self.assertEqual(data["representative_name"], "Almaz Bekele")
+		# The organization is its whole record, and whether it may file.
 		self.assertEqual(
-			data["organization"],
-			{
-				"id": org["name"],
-				"legal_name": org["legal_name"],
-				"brand_name": None,
-				"org_type": "NGO",
-				"entity_type": "Local NGO",
-				"registration_number": org["registration_number"],
-				"representative_name": "Almaz Bekele",
-				"members_affected": 0,
-				"status": C.ORG_STATUS_IN_REVIEW,
-				"status_reason": None,
-				"can_file": False,
-			},
+			{k: v for k, v in data["organization"].items() if k not in ("creation", "modified")},
+			{**{k: v for k, v in org.items() if k not in ("creation", "modified")}, "can_file": False},
 		)
 		# What the screen already read is still there.
 		self.assertEqual(data["contact_mobile"], org["contact_phone"])
@@ -766,7 +786,7 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 			self.assertEqual(profile.submitter_name, "Almaz Bekele")
 			self.assertEqual(profile.submission_channel, "Web Portal")
 			self.assertEqual(profile.is_blocked, 1)
-			self.assertIn("Organization", profile.blocked_reason)
+			self.assertIn("Pending admin verification", profile.blocked_reason)
 			self.assertTrue(profile.dedupe_key.startswith("fayda:"))
 			self.assertFalse(profile.organization)
 
@@ -824,7 +844,8 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 		data = self.me(user)
 		self.assertEqual(data["type"], "NGO")
 		self.assertEqual(data["fayda_id"], profile.dedupe_key.removeprefix("fayda:"))
-		self.assertEqual(data["organization"]["id"], org["name"])
+		self.assertEqual(profile.is_blocked, 0)
+		self.assertEqual(data["organization"]["name"], org["name"])
 		self.assertEqual(data["organization"]["status"], C.ORG_STATUS_IN_REVIEW)
 		self.assertFalse(data["organization"]["can_file"])
 		self.assertEqual([i["scheme"] for i in data["identities"]], ["fayda", "org"])
@@ -846,22 +867,22 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 		self.assertEqual(_resolve_submitter_identity({})["submitter"], profile.name)
 		self.assertTrue(self.me(user)["organization"]["can_file"])
 
-	def test_signup_block_reasons_do_not_outlive_verification(self):
-		"""The reason `/submitters/register` writes for every non-farmer type also lifts."""
+	def test_the_signup_block_lifts_when_the_organization_registers(self):
 		user, profile = self.sign_up(submitter_type="NGO")
-		profile.blocked_reason = "Pending admin verification for non-farmer submitter type."
+		self.assertEqual(profile.is_blocked, 1)
+		frappe.set_user(user)
+		register_organization(**_payload(org_type="NGO", entity_type="Local NGO"))
+		profile.reload()
+		self.assertEqual((profile.is_blocked, profile.blocked_reason), (0, None))
+
+	def test_an_officers_block_at_sign_up_survives_registering_the_organization(self):
+		user, profile = self.sign_up(submitter_type="FPO")
+		profile.blocked_reason = "Demonstrated abuse"
 		profile.save(ignore_permissions=True)
 		frappe.set_user(user)
-		org = register_organization(**_payload(org_type="NGO", entity_type="Local NGO"))["data"]["name"]
+		register_organization(**_payload())
 		profile.reload()
-		profile.blocked_reason = "Pending admin verification for non-farmer submitter type."
-		profile.save(ignore_permissions=True)
-		doc = frappe.get_doc(service.DOCTYPE, org)
-		doc.verification_status = C.ORG_STATUS_ACTIVE
-		doc.save(ignore_permissions=True)
-		profile.reload()
-		self.assertEqual(profile.is_blocked, 0)
-		self.assertIsNone(profile.blocked_reason)
+		self.assertEqual((profile.is_blocked, profile.blocked_reason), (1, "Demonstrated abuse"))
 
 	def test_farmers_still_need_a_fayda_id(self):
 		payload, res = _register(fayda_id=...)
@@ -903,7 +924,7 @@ class TestRestRoutes(OrganizationTestCase):
 		self.assertEqual((code, body["data"]["status"]), (200, "Active"))
 
 		code, body = self.call(self.admin, f"/api/v1/orgs/{org['name']}")
-		self.assertEqual((code, body["data"]["verified_by"]), (200, self.admin))
+		self.assertEqual((code, body["data"]["status"]), (200, "Active"))
 
 	def test_me_is_not_captured_by_the_id_route(self):
 		code, body = self.call(self.admin, "/api/v1/orgs/me")

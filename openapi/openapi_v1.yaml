@@ -4901,8 +4901,7 @@ paths:
       summary: Register an organization
       description: Register an NGO, FPO or cooperative with the caller as its authorized representative.
         It starts In Review and cannot file grievances until an administrator sets it Active. One organization
-        per account, and one account per registration number. The registration number may also be sent
-        as tax_registration_number.
+        per account, and one account per registration number. consent_given must be true.
       operationId: post_api_v1_orgs
       responses:
         '200':
@@ -5217,10 +5216,10 @@ paths:
       tags:
       - Organizations
       summary: Set an organization's verification status
-      description: The administrator's decision. In Review to Active verifies it and lets its representative
-        file grievances. Active or In Review to Suspended withdraws or rejects it and needs a reason.
-        Suspended to Active reinstates it, and Suspended to In Review reopens the review. Other moves
-        are refused. Review Officers cannot decide.
+      description: The administrator's decision, taken through the Organization Workflow. In Review to
+        Active verifies it and lets its representative file grievances. Active or In Review to Suspended
+        withdraws or rejects it and needs a reason. Suspended to Active reinstates it, and Suspended to
+        In Review reopens the review. Other moves are refused. Review Officers cannot decide.
       operationId: patch_api_v1_orgs_org_id_status
       responses:
         '200':
@@ -8922,35 +8921,18 @@ components:
           type: string
         postal_code:
           type: string
-        consent_given:
-          default: false
-          type: boolean
-        consent_recorded_at:
-          type: string
-          default: null
-          nullable: true
         status:
           type: string
         status_reason:
           type: string
           default: null
           nullable: true
-        verified_by:
-          type: string
-          default: null
-          nullable: true
-        verified_on:
-          type: string
-          default: null
-          nullable: true
         creation:
+          format: date-time
           type: string
-          default: null
-          nullable: true
         modified:
+          format: date-time
           type: string
-          default: null
-          nullable: true
       required:
       - name
       - legal_name
@@ -8966,6 +8948,8 @@ components:
       - country
       - postal_code
       - status
+      - creation
+      - modified
       type: object
     OrganizationListData:
       properties:
@@ -9977,34 +9961,13 @@ components:
       type: object
     CreateOrganization:
       additionalProperties: false
-      description: Everything the registration screen collects. Status and verification fields are not
-        accepted.
       properties:
-        legal_name:
-          maxLength: 140
-          minLength: 1
-          type: string
         brand_name:
           maxLength: 140
           minLength: 1
           type: string
           default: null
           nullable: true
-        org_type:
-          enum:
-          - NGO
-          - FPO
-          - Cooperative
-          type: string
-        entity_type:
-          maxLength: 140
-          minLength: 1
-          type: string
-        registration_number:
-          description: Registration / licence number. Also accepted as tax_registration_number.
-          maxLength: 140
-          minLength: 1
-          type: string
         representative_name:
           maxLength: 140
           minLength: 1
@@ -10016,23 +9979,11 @@ components:
           minimum: 0
           type: integer
           default: null
-          description: Members affected (Cooperative / FPO). Optional; 0 when not given.
           nullable: true
-        contact_email:
-          type: string
-          nullable: true
-        contact_phone:
-          maxLength: 140
-          minLength: 1
-          type: string
         website:
           type: string
           default: null
           nullable: true
-        street_address:
-          maxLength: 140
-          minLength: 1
-          type: string
         kebele:
           maxLength: 140
           minLength: 1
@@ -10045,6 +9996,35 @@ components:
           type: string
           default: null
           nullable: true
+        legal_name:
+          maxLength: 140
+          minLength: 1
+          type: string
+        org_type:
+          enum:
+          - NGO
+          - FPO
+          - Cooperative
+          type: string
+        entity_type:
+          maxLength: 140
+          minLength: 1
+          type: string
+        registration_number:
+          maxLength: 140
+          minLength: 1
+          type: string
+        contact_email:
+          type: string
+          nullable: true
+        contact_phone:
+          maxLength: 140
+          minLength: 1
+          type: string
+        street_address:
+          maxLength: 140
+          minLength: 1
+          type: string
         zone:
           maxLength: 140
           minLength: 1
@@ -10058,13 +10038,12 @@ components:
           minLength: 1
           type: string
         postal_code:
-          maxLength: 140
-          minLength: 1
+          pattern: ^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$
           type: string
         consent_given:
-          description: The representative confirms they are authorised to register the organization and
-            agrees to the Privacy Policy. Must be true.
           type: boolean
+          enum:
+          - true
       required:
       - legal_name
       - org_type
@@ -10081,33 +10060,14 @@ components:
       type: object
     UpdateOrganization:
       additionalProperties: false
-      description: Partial update. Omitted fields stay as they are; the optional ones accept null to clear.
+      description: 'Partial update: omitted fields stay as they are, and the optional ones accept null.'
       properties:
-        legal_name:
-          maxLength: 140
-          minLength: 1
-          type: string
         brand_name:
           maxLength: 140
           minLength: 1
           type: string
           default: null
           nullable: true
-        org_type:
-          enum:
-          - NGO
-          - FPO
-          - Cooperative
-          type: string
-        entity_type:
-          maxLength: 140
-          minLength: 1
-          type: string
-        registration_number:
-          description: Registration / licence number. Also accepted as tax_registration_number.
-          maxLength: 140
-          minLength: 1
-          type: string
         representative_name:
           maxLength: 140
           minLength: 1
@@ -10119,24 +10079,11 @@ components:
           minimum: 0
           type: integer
           default: null
-          description: Members affected (Cooperative / FPO). Optional; 0 when not given.
           nullable: true
-        contact_email:
-          type: string
-          default: null
-          nullable: true
-        contact_phone:
-          maxLength: 140
-          minLength: 1
-          type: string
         website:
           type: string
           default: null
           nullable: true
-        street_address:
-          maxLength: 140
-          minLength: 1
-          type: string
         kebele:
           maxLength: 140
           minLength: 1
@@ -10149,6 +10096,36 @@ components:
           type: string
           default: null
           nullable: true
+        legal_name:
+          maxLength: 140
+          minLength: 1
+          type: string
+        org_type:
+          enum:
+          - NGO
+          - FPO
+          - Cooperative
+          type: string
+        entity_type:
+          maxLength: 140
+          minLength: 1
+          type: string
+        registration_number:
+          maxLength: 140
+          minLength: 1
+          type: string
+        contact_email:
+          type: string
+          default: null
+          nullable: true
+        contact_phone:
+          maxLength: 140
+          minLength: 1
+          type: string
+        street_address:
+          maxLength: 140
+          minLength: 1
+          type: string
         zone:
           maxLength: 140
           minLength: 1
@@ -10162,8 +10139,7 @@ components:
           minLength: 1
           type: string
         postal_code:
-          maxLength: 140
-          minLength: 1
+          pattern: ^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$
           type: string
       type: object
     SetOrganizationStatus:

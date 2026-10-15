@@ -12,10 +12,8 @@
   "entity_type",
   "registration_number",
   "col_status",
-  "verification_status",
+  "workflow_state",
   "status_reason",
-  "verified_by",
-  "verified_on",
   "sec_representative",
   "representative_user",
   "representative_name",
@@ -32,10 +30,7 @@
   "zone",
   "region",
   "country",
-  "postal_code",
-  "sec_consent",
-  "consent_given",
-  "consent_recorded_at"
+  "postal_code"
  ],
  "fields": [
   {
@@ -80,15 +75,15 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "In Review",
-   "description": "Moves only along the transitions in services/organization.py.",
-   "fieldname": "verification_status",
-   "fieldtype": "Select",
+   "description": "Verification status, driven by the Organization Workflow (setup/install.py).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "Verification Status",
-   "options": "In Review\nActive\nSuspended",
-   "reqd": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "read_only": 1,
    "search_index": 1
   },
   {
@@ -96,19 +91,6 @@
    "fieldname": "status_reason",
    "fieldtype": "Small Text",
    "label": "Reason for Decision"
-  },
-  {
-   "fieldname": "verified_by",
-   "fieldtype": "Link",
-   "label": "Decided By",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "verified_on",
-   "fieldtype": "Datetime",
-   "label": "Decided On",
-   "read_only": 1
   },
   {
    "fieldname": "sec_representative",
@@ -212,25 +194,6 @@
    "fieldtype": "Data",
    "label": "Postal Code",
    "reqd": 1
-  },
-  {
-   "fieldname": "sec_consent",
-   "fieldtype": "Section Break",
-   "label": "Consent"
-  },
-  {
-   "default": "0",
-   "description": "The representative confirmed they are authorised to register this organization and agreed to the Privacy Policy.",
-   "fieldname": "consent_given",
-   "fieldtype": "Check",
-   "label": "Consent Given",
-   "read_only": 1
-  },
-  {
-   "fieldname": "consent_recorded_at",
-   "fieldtype": "Datetime",
-   "label": "Consent Recorded At",
-   "read_only": 1
   }
  ],
  "grid_page_length": 50,

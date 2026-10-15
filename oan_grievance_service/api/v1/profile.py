@@ -3,12 +3,12 @@
 import frappe
 from frappe import _
 
+from oan_grievance_service.api.v1.organization import OrganizationRecord, organization_record
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
-from oan_grievance_service.services import organization
-from oan_grievance_service.services.constants import ORG_TYPES
+from oan_grievance_service.services.constants import ORG_STATUS_ACTIVE, ORG_TYPES
 
 
 def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
@@ -56,15 +56,22 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
 		contact = mask_contact(profile, show_identity=True)
 
-		details = organization.profile_details(profile.get("organization"))
-		if details:
-			# The representative's own identity (their Fayda ID) stays; the organization adds
-			# its registration number, which the profile's key no longer carries.
+		# An NGO, FPO or cooperative representative also gets the organization itself: the
+		# profile only carries the filing-time copy of its name and contacts.
+		details = {}
+		if profile.get("organization"):
+			org = frappe.get_doc("Grievance Organization", profile.organization)
+			record = OrganizationRecord.model_validate(organization_record(org)).model_dump(mode="json")
+			details = {
+				"registration_number": org.registration_number,
+				"representative_name": org.representative_name,
+				"organization": {**record, "can_file": org.workflow_state == ORG_STATUS_ACTIVE},
+			}
+			# The representative's own identity (their Fayda ID) stays; the organization adds its
+			# registration number, which the profile's key may not carry.
 			identities = [i for i in identities if i["scheme"] != "org"]
-			identities.append({"scheme": "org", "value": details["registration_number"]})
+			identities.append({"scheme": "org", "value": org.registration_number})
 
-		# An NGO, FPO or cooperative representative also gets the organization itself:
-		# the profile only carries the filing-time copy of its name and contacts.
 		return "grievance", {
 			**details,
 			"profile_id": profile.get("name"),
@@ -152,34 +159,22 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	national_id = str(kwargs.get("national_id") or "").strip() or None
 	dedupe_key = kwargs.get("dedupe_key")
 
-	has_org_identifier = any(
-		str(kwargs.get(key) or "").strip() for key in ("registration_number", "org_number", "dedupe_key")
+	registration_number = kwargs.get("registration_number")
+	# An organization signs up as its representative, with their Fayda ID and no registration
+	# number: the organization itself is registered at first sign-in (POST /api/v1/orgs).
+	needs_fayda = _is_farmer_submitter_type(submitter_type) or (
+		submitter_type in ORG_TYPES and not registration_number
 	)
-	if submitter_type in ORG_TYPES and not has_org_identifier:
-		# An NGO, FPO or cooperative signs up as its representative: their details and Fayda
-		# ID, and no registration number. Its organization is registered at first sign-in
-		# (POST /api/v1/orgs), so only the blocked, typed profile exists until then. A sign-up
-		# that does bring a registration number takes the ordinary path below.
-		organization.register_pending_profile(
-			user_name,
-			submitter_type,
-			full_name or kwargs.get("submitter_name"),
-			contact_mobile,
-			email,
-			fayda_id or national_id,
-		)
-		return
-
-	if _is_farmer_submitter_type(submitter_type):
+	if needs_fayda:
 		if not (fayda_id or national_id):
 			frappe.throw(
-				_("A Fayda ID is required to register as an Individual Farmer."),
+				_("A Fayda ID is required to register as {0}.").format(submitter_type),
 				frappe.ValidationError,
 				title=_("Fayda ID Required"),
 			)
 		# An explicit key outranks the Fayda ID when the dedupe key is derived, so a caller
-		# could register a farmer with no Fayda ID on the profile. Registration takes the
-		# Fayda ID and nothing else for a farmer.
+		# could register with no Fayda ID on the profile. Registration takes the Fayda ID and
+		# nothing else here.
 		dedupe_key = None
 
 	_create_or_update_submitter_profile(
@@ -193,7 +188,7 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		preferred_language=kwargs.get("preferred_language"),
 		fayda_id=fayda_id,
 		national_id=national_id,
-		registration_number=kwargs.get("registration_number"),
+		registration_number=registration_number,
 		org_number=kwargs.get("org_number"),
 		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,

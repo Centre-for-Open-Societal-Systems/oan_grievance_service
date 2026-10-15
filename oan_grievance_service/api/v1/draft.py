@@ -410,10 +410,8 @@ def submit_draft(
 				doc.assisted_by_officer = ident.get("assisted_by_officer")
 		else:
 			doc.submitter = find_or_create_submitter(doc.as_dict())
-
-	# However the profile was resolved, an organization's profile files only while
-	# verified, and only for its authorized representative or staff acting for it.
-	organization.assert_may_file(doc.submitter, session_user)
+			# Matched by identity rather than resolved from the session, so it is checked here.
+			organization.assert_may_file(doc.submitter, session_user)
 
 	if doc.submitter:
 		profile = frappe.db.get_value(
