@@ -20,6 +20,8 @@
  "report_type": "Script Report",
  "roles": [
   {"role": "Grievance Admin"},
+  {"role": "L2 Senior Nodal Officer"},
+  {"role": "Department Head"},
   {"role": "System Manager"}
  ]
 }

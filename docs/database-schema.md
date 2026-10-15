@@ -279,7 +279,7 @@ The escalation rungs of FSD Appendix F, held as rows rather than as an enum. Imp
 | ---------------------- | ---------------------------- | ---------------------------- |
 | `nodal_officer`        | `nodal_officer`              | `Nodal Officer`              |
 | `senior_nodal_officer` | `senior_officer`             | `Top Level Authority`        |
-| `department_head`      | `head_of_dept`               | `Category Admin`             |
+| `department_head`      | `head_of_dept`               | `Department Head`            |
 
 `install.py::ROLE_LEVELS` is the single source of truth; the enum lists at §57, §245 and `verifier_management` §93 are superseded.
 

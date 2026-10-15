@@ -34,7 +34,6 @@ What does not belong here:
 """
 
 import frappe
-from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	active_scopes,
@@ -51,7 +50,6 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
 	ROLE_ASSISTED_SUBMITTER,
-	ROLE_DESK_HEAD,
 	ROLE_OFFICER,
 	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
@@ -365,42 +363,8 @@ def outranks(approver, assignee, if_unplaced=True):
 	return orders.get(approver_level, 0) > orders.get(assignee_level, 0)
 
 
-def head_scopes(user) -> list[tuple[str | None, str | None]]:
-	"""(department, category) of each top-rung record `user` holds; None is every one."""
-	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
-		query_active_officer_assignments,
-		top_rung,
-	)
-
-	top = top_rung()
-	if not top or ROLE_DESK_HEAD not in frappe.get_roles(user):
-		return []
-	rows = query_active_officer_assignments(
-		user=user, role_level=top, fields=["p.department_scope", "p.category_scope"], order_by=None
-	)
-	return [(row.department_scope or None, row.category_scope or None) for row in rows]
-
-
-def assert_heads_category(user, category) -> None:
-	"""A record with no category covers the categories its department serves, or all with no department."""
-	if is_unrestricted(user):
-		return
-	for dept, cat in head_scopes(user):
-		if cat == category:
-			return
-		if cat is None and (
-			dept is None
-			or frappe.db.exists(
-				"Grievance RBAC Assignment",
-				{"department_scope": dept, "category_scope": category, "active": 1},
-			)
-		):
-			return
-	frappe.throw(_("You are not the desk head for {0}.").format(category), frappe.PermissionError)
-
-
-def is_department_head(user, department, area=None, category=None):
-	"""Whether `user` holds the top active rung (department head) covering department, category and area."""
+def is_department_head(user, department, area=None):
+	"""Whether `user` holds the top active rung (department head) covering department and area."""
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 		holds_rung,
 		top_rung,
@@ -409,4 +373,4 @@ def is_department_head(user, department, area=None, category=None):
 	top = top_rung()
 	if not top:
 		return False
-	return holds_rung(user, top, department=department, area=area, category=category)
+	return holds_rung(user, top, department=department, area=area)

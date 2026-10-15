@@ -44,7 +44,7 @@ DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy",
 class CategoryAssignmentRecord(BaseModel):
 	name: str
 	service_category: str
-	department: str | None = None
+	department: str
 	l1_officer: str | None = None
 	l1_officer_name: str | None = None
 	l2_officer: str | None = None
@@ -72,28 +72,28 @@ class AssignmentRef(Body):
 
 class CreateCategoryAssignment(Body):
 	service_category: NonBlank
-	department: NonBlank | None = None
-	l1_officer: NonBlank | None = None
+	department: NonBlank
+	l1_officer: NonBlank
 	l2_officer: NonBlank | None = None
 	sla_days: int | None = Field(default=None, ge=1)
 	auto_escalate: bool = True
 	active: bool = True
 
-	_blank = field_validator("department", "l1_officer", "l2_officer", mode="before")(blank_to_none)
+	_l2_blank = field_validator("l2_officer", mode="before")(blank_to_none)
 
 
 class UpdateCategoryAssignment(Body):
-	"""Partial update. Omitted fields stay as they are; department, l1_officer and l2_officer accept null."""
+	"""Partial update. Omitted fields stay as they are, so only l2_officer accepts null."""
 
 	assignment: NonBlank
-	department: NonBlank | None = None
-	l1_officer: NonBlank | None = None
+	department: NonBlank = None
+	l1_officer: NonBlank = None
 	l2_officer: NonBlank | None = None
 	sla_days: int = Field(default=None, ge=1)
 	auto_escalate: bool = None
 	active: bool = None
 
-	_blank = field_validator("department", "l1_officer", "l2_officer", mode="before")(blank_to_none)
+	_l2_blank = field_validator("l2_officer", mode="before")(blank_to_none)
 
 
 class ListCategoryAssignments(PageParams, Body):
@@ -235,17 +235,16 @@ def get_assignment(assignment: str, **kwargs):
 @validate_request(CreateCategoryAssignment)
 @api_doc(
 	summary="Create a category assignment",
-	description="Create the category-only Grievance RBAC Assignment for a service category, in one department "
-	+ "or, with no department, in every department. One rule per department and category, including "
-	+ "inactive rules. Officers are optional and can be added later. "
+	description="Create the category-only Grievance RBAC Assignment for one department and service category. "
+	+ "One rule per department and category, including inactive rules. "
 	+ SLA_NOTE,
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,
 )
 def create_assignment(
 	service_category: str,
-	department: str | None = None,
-	l1_officer: str | None = None,
+	department: str,
+	l1_officer: str,
 	sla_days: int | str | None = None,
 	l2_officer: str | None = None,
 	auto_escalate: bool | str = True,

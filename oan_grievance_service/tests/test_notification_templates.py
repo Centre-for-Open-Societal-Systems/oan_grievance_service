@@ -60,11 +60,9 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		for name in (active_name, inactive_name):
 			self.addCleanup(
-				lambda n=name: (
-					frappe.delete_doc("Notification", n, force=1, ignore_permissions=True)
-					if frappe.db.exists("Notification", n)
-					else None
-				)
+				lambda n=name: frappe.delete_doc("Notification", n, force=1, ignore_permissions=True)
+				if frappe.db.exists("Notification", n)
+				else None
 			)
 
 		# Default listing must return both active and inactive
@@ -127,7 +125,7 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		self.assertEqual(template["channel"], "Email")
 		self.assertEqual(template["recipient_type"], "Role Level")
 		self.assertEqual(template["role_level"], "department_head")
-		self.assertEqual(template["role_level_name"], "Category Admin")
+		self.assertEqual(template["role_level_name"], "Department Head")
 		self.assertTrue(template["enabled"])
 
 	def test_dynamic_resolution_for_new_role_level(self):
@@ -189,25 +187,21 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 			frappe.delete_doc, "Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True
 		)
 		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("User", user_email, force=True, ignore_permissions=True)
-				if frappe.db.exists("User", user_email)
-				else None
-			)
+			lambda: frappe.delete_doc("User", user_email, force=True, ignore_permissions=True)
+			if frappe.db.exists("User", user_email)
+			else None
 		)
 		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Grievance Department", dept_name, force=True, ignore_permissions=True)
-				if frappe.db.exists("Grievance Department", dept_name)
-				else None
-			)
+			lambda: frappe.delete_doc("Grievance Department", dept_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("Grievance Department", dept_name)
+			else None
 		)
 		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Grievance Role Level", new_level_code, force=True, ignore_permissions=True)
-				if frappe.db.exists("Grievance Role Level", new_level_code)
-				else None
+			lambda: frappe.delete_doc(
+				"Grievance Role Level", new_level_code, force=True, ignore_permissions=True
 			)
+			if frappe.db.exists("Grievance Role Level", new_level_code)
+			else None
 		)
 
 		grievance = frappe._dict(
@@ -253,11 +247,9 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
-				if frappe.db.exists("Notification", test_name)
-				else None
-			)
+			lambda: frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
+			if frappe.db.exists("Notification", test_name)
+			else None
 		)
 
 		# 1. Update using simplified human-readable strings
@@ -397,11 +389,9 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
-				if frappe.db.exists("Notification", test_name)
-				else None
-			)
+			lambda: frappe.delete_doc("Notification", test_name, force=1, ignore_permissions=True)
+			if frappe.db.exists("Notification", test_name)
+			else None
 		)
 
 		# 1. Update using flat recipient_id = "department_head"

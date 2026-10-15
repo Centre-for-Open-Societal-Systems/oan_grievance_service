@@ -480,9 +480,7 @@ def consumed_percent(grievance):
 	return max(0, min(percent, 999))
 
 
-def higher_authority_of(
-	user, department=None, administrative_area=None, log_unstaffed_for=None, category=None
-):
+def higher_authority_of(user, department=None, administrative_area=None, log_unstaffed_for=None):
 	"""The person one step above `user` for a department and area, and their rung.
 
 	1. The user's direct supervisor (reports_to), when they sit higher up the chain or
@@ -505,9 +503,7 @@ def higher_authority_of(
 		return None, None
 	if current_rank + 1 >= len(chain):
 		return None, None
-	supervisor = get_officer_supervisor(
-		user, department=department, administrative_area=administrative_area, category=category
-	)
+	supervisor = get_officer_supervisor(user, department=department, administrative_area=administrative_area)
 	if supervisor and supervisor != user:
 		sup_level = current_level_of(supervisor)
 		if not sup_level:
@@ -517,7 +513,7 @@ def higher_authority_of(
 
 	for next_level in chain[current_rank + 1 :]:
 		officer = find_officer_by_role_level(
-			next_level.name, department=department, administrative_area=administrative_area, category=category
+			next_level.name, department=department, administrative_area=administrative_area
 		)
 		if officer and officer != user:
 			return officer, next_level
@@ -559,7 +555,6 @@ def escalate(grievance, reason=None, reassign=True):
 		department=grievance.assigned_dept,
 		administrative_area=grievance.administrative_area,
 		log_unstaffed_for=grievance.name,
-		category=grievance.service_category,
 	)
 	if not target:
 		updates = {
