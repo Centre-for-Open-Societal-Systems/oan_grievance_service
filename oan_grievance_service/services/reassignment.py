@@ -43,14 +43,6 @@ def target_department(grievance, request):
 	return grievance.assigned_dept
 
 
-def target_category(grievance, request):
-	"""The target category: request's service_category if changed, else grievance.service_category."""
-	for r in getattr(request, "changes", None) or []:
-		if getattr(r, "fieldname", None) == "service_category":
-			return r.new_value
-	return grievance.service_category
-
-
 def desk_requires_approval(grievance) -> bool:
 	"""Check whether the source desk requires department head approval for reassignment."""
 	dept = getattr(grievance, "assigned_dept", None)
@@ -112,17 +104,13 @@ def may_decide(user, grievance, request) -> bool:
 	if not desk_requires_approval(grievance):
 		return True
 	target_dept = target_department(grievance, request)
-	return is_department_head(
-		user, target_dept, grievance.administrative_area, category=target_category(grievance, request)
-	)
+	return is_department_head(user, target_dept, grievance.administrative_area)
 
 
 def approver(grievance, request):
 	"""The target department's head who must rule on the reassignment. None -> admin queue."""
 	target_dept = target_department(grievance, request)
-	return department_head_of(
-		target_dept, grievance.administrative_area, category=target_category(grievance, request)
-	)
+	return department_head_of(target_dept, grievance.administrative_area)
 
 
 def resolve(grievance, department, officer=None, actor=None, category=None, grievance_type=None) -> dict:

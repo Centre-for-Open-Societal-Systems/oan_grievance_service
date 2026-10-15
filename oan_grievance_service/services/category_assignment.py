@@ -107,8 +107,8 @@ def active_sla_rows(categories) -> dict:
 def create(
 	*,
 	service_category: str,
-	department: str | None = None,
-	l1_officer: str | None = None,
+	department: str,
+	l1_officer: str,
 	l2_officer: str | None = None,
 	sla_days: int | None = None,
 	auto_escalate: bool = True,
@@ -117,7 +117,7 @@ def create(
 	"""Create the desk, and set the category's SLA when `sla_days` is given. Returns the desk."""
 	state = {
 		"service_category": resolve_service_category(service_category),
-		"department": resolve_department(department) if department else None,
+		"department": resolve_department(department),
 		"l1_officer": l1_officer,
 		"l2_officer": l2_officer,
 		"sla_days": sla_days,
@@ -135,7 +135,7 @@ def create(
 	return desk
 
 
-def open_desk(service_category: str, department: str | None, officer: dict):
+def open_desk(service_category: str, department: str, officer: dict):
 	"""Create the category-only desk of `department` for `service_category` with one officer row on it."""
 	desk = frappe.new_doc(DOCTYPE)
 	desk.update(
@@ -181,10 +181,9 @@ def update(desk, changes: dict):
 
 def _update_desk(desk, changes: dict):
 	"""Merge the changes into the desk's current L1 and L2 seats and write them back."""
-	if "department" in changes:
-		department = resolve_department(changes["department"]) if changes["department"] else None
-	else:
-		department = desk.department_scope
+	department = (
+		resolve_department(changes["department"]) if "department" in changes else desk.department_scope
+	)
 	seats = split_officers(desk.officers)
 	primary, secondary = seats
 	state = {
@@ -200,7 +199,9 @@ def _update_desk(desk, changes: dict):
 
 def _validate_officers(state: dict):
 	"""Check the request against itself."""
-	l1, l2 = state.get("l1_officer"), state.get("l2_officer")
+	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	if not l1:
+		frappe.throw(_("An L1 officer is required."), frappe.ValidationError)
 	if l2 and l1 == l2:
 		frappe.throw(_("L1 and L2 officers must be different users."), frappe.ValidationError)
 
@@ -220,8 +221,8 @@ def _write_desk(desk, state: dict, seats: tuple):
 	# `reports_to` names an officer's supervisor: escalation hands a case up to it, and an
 	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
 	# reverse. L2 is the escalation tier and has no supervisor on this desk.
-	l1, l2 = state.get("l1_officer"), state.get("l2_officer")
-	wanted = {l1: {"role_level": L1_ROLE_LEVEL, "is_primary": 1, "reports_to": l2}} if l1 else {}
+	l1, l2 = state["l1_officer"], state.get("l2_officer")
+	wanted = {l1: {"role_level": L1_ROLE_LEVEL, "is_primary": 1, "reports_to": l2}}
 	if l2:
 		wanted[l2] = {"role_level": L2_ROLE_LEVEL, "is_primary": 0, "reports_to": None}
 	vacated = {seat.user for seat in seats if seat and seat.user not in wanted}

@@ -71,16 +71,6 @@ def find_department(value: str | None) -> str | None:
 	)
 
 
-def new_or_resolved_department(value: str, create: bool) -> str:
-	"""Create the department when `create`, refusing one that already matches; else resolve it."""
-	if not create:
-		return resolve_department(value)
-	existing = find_department(value)
-	if existing:
-		frappe.throw(_("Department '{0}' already exists.").format(existing), frappe.DuplicateEntryError)
-	return frappe.get_doc({"doctype": "Grievance Department", "dept_name": str(value).strip()}).insert().name
-
-
 def resolve_department(value: str) -> str:
 	"""Canonical Grievance Department name by id, dept_name, or short_name. Throws when none match."""
 	name = find_department(value)

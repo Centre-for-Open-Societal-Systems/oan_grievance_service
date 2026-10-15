@@ -40,16 +40,12 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
 )
-from oan_grievance_service.permissions import assert_heads_category
-from oan_grievance_service.services import category_assignment
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
-from oan_grievance_service.services.resolvers import new_or_resolved_department, resolve_service_category
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
+from oan_grievance_service.services.resolvers import resolve_service_category
 
 route = prefixed("/api/v1")
 
 CATEGORY = "Grievance Service Category"
-DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
-DESK_HEAD_READ_ROLES = [*ADMIN_READ_ROLES, ROLE_DESK_HEAD]
 TYPE = "Grievance Type"
 
 NAME_LENGTH = 140
@@ -82,25 +78,6 @@ class ServiceCategoryData(BaseModel):
 	service_category: ServiceCategoryRecord
 
 
-class GrievanceTypeRecord(BaseModel):
-	grievance_type_id: str
-	type_name: str
-	service_category: str
-	is_active: bool
-	has_grievances: bool
-
-
-class ServiceCategoryDetail(ServiceCategoryRecord):
-	departments: list[str | None]
-	sla_days: int | None = None
-	auto_escalate: bool | None = None
-	grievance_types: list[GrievanceTypeRecord]
-
-
-class ServiceCategoryDetailData(BaseModel):
-	service_category: ServiceCategoryDetail
-
-
 class ServiceCategoryListData(BaseModel):
 	service_categories: list[ServiceCategoryRecord]
 	pagination: dict
@@ -119,14 +96,6 @@ class CreateServiceCategory(Body):
 	sla_days: int | None = Field(None, ge=1, description="Resolution deadline in working days")
 	auto_escalate: bool = True
 	notify_on_breach: bool = True
-	department: NonBlank | None = Field(
-		None, description="Also create the category assignment (RBAC desk) for this department"
-	)
-	create_department: bool = Field(
-		False, description="Create the department; refused when it already exists"
-	)
-
-	_department = field_validator("department", mode="before")(blank_to_none)
 
 
 class UpdateServiceCategory(Body):
@@ -221,50 +190,20 @@ def list_service_categories(
 
 @route("/service-categories/<category>", methods=("GET",), summary="Get a service category")
 @handle_api_errors
-@require_role(DESK_HEAD_READ_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(CategoryRef)
 @api_doc(
 	summary="Get a service category",
-	description="One service category, by name or ticket code, with the departments that have a "
-	+ "category assignment for it (null is every department), its SLA and its grievance types. "
-	+ "A Desk Head reads only the categories they head.",
+	description="One service category, by name or ticket code.",
 	tags=["Administration"],
-	response_model=ServiceCategoryDetailData,
+	response_model=ServiceCategoryData,
 )
 def get_service_category(category: str, **kwargs):
-	"""Return one service category with its departments, SLA and grievance types."""
-	doc = get_category(category)
-	user = frappe.session.user
-	if not set(frappe.get_roles(user)) & set(ADMIN_READ_ROLES):
-		assert_heads_category(user, doc.name)
-	record = _category_records([doc])[0]
-	sla = category_assignment.active_sla_rows([doc.name]).get(doc.name)
-	record.update(
-		{
-			"departments": sorted(
-				{
-					desk.department_scope
-					for desk in frappe.get_all(
-						"Grievance RBAC Assignment",
-						filters=category_assignment.desk_filters(category_scope=doc.name, active=1),
-						fields=["department_scope"],
-					)
-				},
-				key=lambda dept: (dept is not None, dept or ""),
-			),
-			"sla_days": sla.sla_days if sla else None,
-			"auto_escalate": bool(sla.auto_escalate) if sla else None,
-			"grievance_types": _type_records(
-				frappe.get_all(
-					TYPE,
-					filters={"service_category": doc.name},
-					fields=["name", "type_name", "service_category", "is_active"],
-					order_by="type_name asc, name asc",
-				)
-			),
-		}
+	"""Return one service category."""
+	return success_response(
+		data={"service_category": _category_records([get_category(category)])[0]},
+		message=_("Service category retrieved"),
 	)
-	return success_response(data={"service_category": record}, message=_("Service category retrieved"))
 
 
 @route("/service-categories", methods=("POST",), summary="Create a service category")
@@ -278,9 +217,7 @@ def get_service_category(category: str, **kwargs):
 	+ "the flag on the previous default. "
 	+ "The code uses the ticket alphabet, which excludes I, L, O and U. It cannot change once "
 	+ "tickets have been issued under the category. "
-	+ "Optional sla_days, auto_escalate, and notify_on_breach establish the category's SLA configuration atomically. "
-	+ "Optional department also creates the category assignment for that department, with no officers yet; "
-	+ "with create_department the department is created too, refused when it already exists.",
+	+ "Optional sla_days, auto_escalate, and notify_on_breach establish the category's SLA configuration atomically.",
 	tags=["Administration"],
 	response_model=ServiceCategoryData,
 )
@@ -293,8 +230,6 @@ def create_service_category(
 	sla_days: int | None = None,
 	auto_escalate: bool = True,
 	notify_on_breach: bool = True,
-	department: str | None = None,
-	create_department: bool = False,
 	**kwargs,
 ):
 	"""Create a service category."""
@@ -313,10 +248,6 @@ def create_service_category(
 	).insert()
 	if sla_days is not None:
 		save_sla_configuration(doc.name, sla_days, auto_escalate, notify_on_breach)
-	if department:
-		category_assignment.create(
-			service_category=doc.name, department=new_or_resolved_department(department, create_department)
-		)
 	return success_response(
 		data={"service_category": _category_records([doc])[0]}, message=_("Service category created")
 	)
@@ -388,6 +319,14 @@ def deactivate_service_category(category: str, **kwargs):
 # ---------------
 
 
+class GrievanceTypeRecord(BaseModel):
+	grievance_type_id: str
+	type_name: str
+	service_category: str
+	is_active: bool
+	has_grievances: bool
+
+
 class GrievanceTypeData(BaseModel):
 	grievance_type: GrievanceTypeRecord
 
@@ -442,7 +381,7 @@ def _type_records(docs: list) -> list[dict]:
 
 @route("/grievance-types", methods=("GET",), summary="List grievance types")
 @handle_api_errors
-@require_role(DESK_HEAD_READ_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListGrievanceTypes)
 @api_doc(
 	summary="List grievance types",
@@ -486,7 +425,7 @@ def list_grievance_types(
 
 @route("/grievance-types/<grievance_type>", methods=("GET",), summary="Get a grievance type")
 @handle_api_errors
-@require_role(DESK_HEAD_READ_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(TypeRef)
 @api_doc(
 	summary="Get a grievance type",
@@ -504,7 +443,7 @@ def get_grievance_type(grievance_type: str, **kwargs):
 
 @route("/grievance-types", methods=("POST",), summary="Create a grievance type")
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(CreateGrievanceType)
 @api_doc(
 	summary="Create a grievance type",
@@ -520,12 +459,10 @@ def create_grievance_type(
 	**kwargs,
 ):
 	"""Create a grievance type under a category."""
-	category = resolve_service_category(service_category)
-	assert_heads_category(frappe.session.user, category)
 	doc = frappe.get_doc(
 		{
 			"doctype": TYPE,
-			"service_category": category,
+			"service_category": resolve_service_category(service_category),
 			"type_name": type_name,
 			"is_active": 1 if is_active else 0,
 		}
@@ -537,7 +474,7 @@ def create_grievance_type(
 
 @route("/grievance-types/<grievance_type>", methods=("PATCH",), summary="Update a grievance type")
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
@@ -550,7 +487,6 @@ def create_grievance_type(
 def update_grievance_type(grievance_type: str, **kwargs):
 	"""Update a grievance type. `kwargs` holds only the fields the client sent."""
 	doc = frappe.get_doc(TYPE, grievance_type)
-	assert_heads_category(frappe.session.user, doc.service_category)
 	changes = _editable(kwargs, TYPE_EDITABLE)
 	if not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
@@ -563,7 +499,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 
 @route("/grievance-types/<grievance_type>", methods=("DELETE",), summary="Deactivate a grievance type")
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_role(ADMIN_ROLES)
 @validate_request(TypeRef)
 @api_doc(
 	summary="Deactivate a grievance type",
@@ -575,7 +511,6 @@ def update_grievance_type(grievance_type: str, **kwargs):
 def deactivate_grievance_type(grievance_type: str, **kwargs):
 	"""Deactivate a grievance type. Repeating the call is a no-op."""
 	doc = frappe.get_doc(TYPE, grievance_type)
-	assert_heads_category(frappe.session.user, doc.service_category)
 	if doc.is_active:
 		doc.is_active = 0
 		doc.save()
