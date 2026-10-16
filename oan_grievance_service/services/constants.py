@@ -21,6 +21,14 @@ STATE_CLOSED = "Closed"
 STATE_REJECTED = "Rejected"
 
 
+# Organisation (NGO / FPO / Cooperative) verification lifecycle. Held on Grievance
+# Organization.verification_status; services/organization.py owns the legal moves.
+ORG_STATUS_IN_REVIEW = "In Review"
+ORG_STATUS_ACTIVE = "Active"
+ORG_STATUS_SUSPENDED = "Suspended"
+ORG_TYPES = ("NGO", "FPO", "Cooperative")
+
+
 # The group the dashboards count as resolved: Resolved or Closed. The open and
 # awaiting-action groups are not listed here; sla.open_states() and
 # sla.awaiting_action_states() read them from the Grievance Workflow.
@@ -114,6 +122,10 @@ ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
 # a department head is the escalation rung, and a reviewer is read-only oversight.
 NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
 
+# Who may file on someone else's behalf: assisted submitters (Development Agents, call centre,
+# walk-in intake) and administrators. Officers do not file. The named submitter stays the
+# owner of the case and the filing user is recorded as the assisting officer.
+ASSISTED_FILER_ROLES = frozenset({ROLE_ASSISTED_SUBMITTER, ROLE_ADMIN, "System Manager", "Administrator"})
 STAFF_ROLES = frozenset({ROLE_OFFICER, ROLE_ADMIN, "System Manager", "Administrator"})
 ADMIN_ROLES = [ROLE_ADMIN, "System Manager", "Administrator"]
 # Admin endpoints that only read: the Review Officer joins the admins here and nowhere

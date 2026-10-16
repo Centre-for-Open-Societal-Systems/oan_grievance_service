@@ -88,8 +88,12 @@ class GrievanceSubmitterProfile(Document):
 
 			if old_key != key:
 				# Phone-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
-				# Verified identities (Fayda / Org) are immutable.
-				if old_scheme != identity.SCHEME_PHONE:
+				# Verified identities (Fayda / Org) are immutable, except that the
+				# organization service may re-anchor an org key when its owner corrects
+				# the registration number.
+				if old_scheme != identity.SCHEME_PHONE and not (
+					self.flags.org_identity_sync and old_scheme == identity.SCHEME_ORG
+				):
 					frappe.throw(
 						_(
 							"This profile is already registered as {0} and its identity cannot be changed."

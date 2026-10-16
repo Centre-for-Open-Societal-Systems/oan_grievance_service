@@ -330,12 +330,33 @@ A **durable party record**, not a per-submission record.
 | `kebele`                 | text        |                                    | Free text as entered                                                                                                                                                                                       |
 | `registration_no`        | varchar(64) |                                    | Cooperative / NGO registration — `COOP-XX-2024-XXXX`                                                                                                                                                       |
 | `representative_name`    | text        |                                    | Named representative for an organisation — the authorised rep for cooperative, NGO and woreda/kebele body submissions                                                                                      |
+| `members_affected`       | int         |                                    | Cooperative / FPO: members the representative says are affected. 0 when not given                                                                                                                          |
 | `area_covered`           | text        |                                    | NGO only: the geography the organisation operates across                                                                                                                                                   |
 | `administrative_unit`    | text        |                                    | Woreda/kebele body only: the unit the submitting body speaks for                                                                                                                                           |
 | `dedupe_key`             | text        | UQ                                 | The identity this party is matched on — `fayda:1234…`, `org:COOP-XX-2024-0001`, `phone:+2519…` when no stronger identifier exists. Makes "same person, second grievance" a lookup instead of a fuzzy match |
+| `organization_id`        | uuid        | FK → `organizations.id`, IX        | Set when this party represents a registered NGO, FPO or cooperative. Filing then needs that organisation to be Active and this login to be its representative                                              |
 | `is_blocked`             | boolean     |                                    | Set only for demonstrated abuse; blocks new submissions, never hides existing ones                                                                                                                         |
 | `created_at`             | timestamptz |                                    |                                                                                                                                                                                                            |
 | `updated_at`             | timestamptz |                                    |                                                                                                                                                                                                            |
+
+### `organizations`
+
+A registered NGO, FPO or cooperative and the state of its verification (STG-449). One authorised representative login per organisation, and one organisation per login. The representative's `submitters` row carries `organization_id`, takes the organisation's type, name and contact details, and is blocked unless the organisation is Active.
+
+| Column                                       | Type        | Key              | Description                                                                      |
+| -------------------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------- |
+| `id`                                         | uuid        | PK               | `ORG-00001` in the app                                                           |
+| `legal_name`, `brand_name`                   | text        |                  | Registered name, and the name it trades under                                    |
+| `org_type`                                   | enum        | IX               | `NGO` / `FPO` / `Cooperative`, the same names as the submitter types             |
+| `entity_type`                                | text        |                  | Legal form, one of a list per `org_type`                                         |
+| `registration_number`                        | varchar(64) | UQ               | Registration or licence number. Anchors the representative as `org:<number>`     |
+| `representative_user`                        | text        | FK → `users`, UQ | The authorised representative. The only login that may file for the organisation |
+| `representative_name`                        | text        |                  | Named representative                                                             |
+| `contact_email`, `contact_phone`, `website`  | text        |                  | Phone is E.164                                                                   |
+| `street_address`, `kebele`, `woreda`, `zone` | text        |                  | Registered address, as entered                                                   |
+| `region`, `country`, `postal_code`           | text        |                  |                                                                                  |
+| `workflow_state`                             | link        | IX               | `In Review` / `Active` / `Suspended`, the state of the Organization Workflow     |
+| `status_reason`                              | text        |                  | Why it is not Active. Required for Suspended                                     |
 
 ### `anonymous_requests`
 

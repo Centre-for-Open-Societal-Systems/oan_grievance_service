@@ -93,6 +93,27 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
 
+ORG_WORKFLOW_NAME = "Organization Workflow"
+ORG_ADMIN_ROLES = (C.ROLE_ADMIN, "System Manager")
+
+# (state, style). The first row is where a new organization enters.
+ORG_WORKFLOW_STATES = [
+	(C.ORG_STATUS_IN_REVIEW, "Warning"),
+	(C.ORG_STATUS_ACTIVE, "Success"),
+	(C.ORG_STATUS_SUSPENDED, "Danger"),
+]
+
+# (from, action, to, roles that may take it). Request Re-verification is the system's: it is
+# made when a representative changes what an administrator verified.
+ORG_WORKFLOW_TRANSITIONS = [
+	(C.ORG_STATUS_IN_REVIEW, "Verify", C.ORG_STATUS_ACTIVE, ORG_ADMIN_ROLES),
+	(C.ORG_STATUS_IN_REVIEW, "Reject", C.ORG_STATUS_SUSPENDED, ORG_ADMIN_ROLES),
+	(C.ORG_STATUS_ACTIVE, "Suspend", C.ORG_STATUS_SUSPENDED, ORG_ADMIN_ROLES),
+	(C.ORG_STATUS_SUSPENDED, "Reinstate", C.ORG_STATUS_ACTIVE, ORG_ADMIN_ROLES),
+	(C.ORG_STATUS_SUSPENDED, "Reopen Review", C.ORG_STATUS_IN_REVIEW, ORG_ADMIN_ROLES),
+	(C.ORG_STATUS_ACTIVE, "Request Re-verification", C.ORG_STATUS_IN_REVIEW, SYSTEM_ROLES),
+]
+
 # The escalation rungs of §10.1, as Grievance Role Level master records.
 #
 # §10.1 retired `L1 Nodal Officer`, `L2 Senior Nodal Officer` and `Department Head` as
@@ -504,6 +525,7 @@ def seed_all():
 		"roles": seed_roles(),
 		"sla_category_field": seed_sla_category_field(),
 		"workflow": seed_workflow(),
+		"organization_workflow": seed_organization_workflow(),
 		"role_levels": seed_role_levels(),
 		"categories": seed_categories(),
 		"unrouted_desk": seed_unrouted_desk(),
@@ -727,6 +749,56 @@ def seed_workflow():
 			)
 
 	for from_state, action, to_state, roles in WORKFLOW_TRANSITIONS:
+		for role in roles:
+			workflow.append(
+				"transitions",
+				{
+					"state": from_state,
+					"action": action,
+					"next_state": to_state,
+					"allowed": role,
+					"allow_self_approval": 1,
+				},
+			)
+
+	workflow.save(ignore_permissions=True)
+	return workflow.name
+
+
+def seed_organization_workflow():
+	"""The Organization Workflow, rebuilt from ORG_WORKFLOW_STATES and ORG_WORKFLOW_TRANSITIONS."""
+	for state, style in ORG_WORKFLOW_STATES:
+		if not frappe.db.exists("Workflow State", state):
+			frappe.get_doc(
+				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
+			).insert(ignore_permissions=True)
+
+	for _from_state, action, _to_state, _roles in ORG_WORKFLOW_TRANSITIONS:
+		if not frappe.db.exists("Workflow Action Master", action):
+			frappe.get_doc({"doctype": "Workflow Action Master", "workflow_action_name": action}).insert(
+				ignore_permissions=True
+			)
+
+	if frappe.db.exists("Workflow", ORG_WORKFLOW_NAME):
+		workflow = frappe.get_doc("Workflow", ORG_WORKFLOW_NAME)
+	else:
+		workflow = frappe.new_doc("Workflow")
+		workflow.workflow_name = ORG_WORKFLOW_NAME
+	workflow.update(
+		{
+			"document_type": "Grievance Organization",
+			"workflow_state_field": "workflow_state",
+			"is_active": 1,
+			"send_email_alert": 0,
+		}
+	)
+	workflow.set("states", [])
+	workflow.set("transitions", [])
+
+	for state, _style in ORG_WORKFLOW_STATES:
+		for role in ORG_ADMIN_ROLES:
+			workflow.append("states", {"state": state, "doc_status": "0", "allow_edit": role})
+	for from_state, action, to_state, roles in ORG_WORKFLOW_TRANSITIONS:
 		for role in roles:
 			workflow.append(
 				"transitions",

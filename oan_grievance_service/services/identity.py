@@ -38,15 +38,15 @@ SUBMITTER_TYPE_RULES = {
 		required=COMMON_REQUIRED,
 	),
 	"Cooperative": IdentityRule(
-		schemes=(SCHEME_ORG,),
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
 		required=COMMON_REQUIRED,
 	),
 	"FPO": IdentityRule(
-		schemes=(SCHEME_ORG,),
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
 		required=COMMON_REQUIRED,
 	),
 	"NGO": IdentityRule(
-		schemes=(SCHEME_ORG,),
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
 		required=COMMON_REQUIRED,
 	),
 	"Woreda/Kebele Body": IdentityRule(
@@ -193,8 +193,8 @@ def derive_dedupe_key(
 		if org:
 			_validate_registration_number(org)
 			return f"{SCHEME_ORG}:{org}"
-		# If this type strictly only accepts SCHEME_ORG (e.g. organizations)
-		if allowed_schemes == (SCHEME_ORG,):
+		# If this type has no other way to be identified
+		if SCHEME_PHONE not in allowed_schemes and not (fayda and SCHEME_FAYDA in allowed_schemes):
 			frappe.throw(
 				_("An official Organization Registration / Certificate Number is required for {0}.").format(
 					submitter_type
@@ -240,7 +240,13 @@ def find_or_create_submitter(payload: dict) -> str | None:
 			return existing
 
 	if mobile:
-		existing = frappe.db.get_value("Grievance Submitter Profile", {"contact_mobile": mobile}, "name")
+		# An organization's profile carries the organization's phone, which is not the
+		# identity of whoever happens to call from it.
+		existing = frappe.db.get_value(
+			"Grievance Submitter Profile",
+			{"contact_mobile": mobile, "organization": ["is", "not set"]},
+			"name",
+		)
 		if existing:
 			return existing
 

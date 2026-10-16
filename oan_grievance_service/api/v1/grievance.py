@@ -43,7 +43,15 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
-from oan_grievance_service.services import audit, identity, lifecycle, response_body, routing, sla
+from oan_grievance_service.services import (
+	audit,
+	identity,
+	lifecycle,
+	organization,
+	response_body,
+	routing,
+	sla,
+)
 from oan_grievance_service.services import constants as C
 
 # Aliased: several entry points take a `ticket_number` argument, which would
@@ -245,9 +253,7 @@ def _resolve_submitter_identity(kwargs):
 	"""
 	user = frappe.session.user
 	roles = set(frappe.get_roles(user))
-	is_assisted_filer = bool(
-		roles & {C.ROLE_ASSISTED_SUBMITTER, C.ROLE_ADMIN, "System Manager", "Administrator"}
-	)
+	is_assisted_filer = bool(roles & C.ASSISTED_FILER_ROLES)
 
 	if is_assisted_filer:
 		profile_name = kwargs.get("submitter")
@@ -279,6 +285,10 @@ def _resolve_submitter_identity(kwargs):
 	)
 	if not profile:
 		frappe.throw(_("Unknown submitter profile."), title=_("Invalid Submitter"))
+
+	# An organization's profile files only for its verified, authorized representative.
+	# Asked before the block flag so a pending organization hears why, not just "blocked".
+	organization.assert_may_file(profile_name, user)
 
 	# The schema records is_blocked as blocking new submissions while leaving existing
 	# cases visible, so it is enforced here rather than in the permission layer.

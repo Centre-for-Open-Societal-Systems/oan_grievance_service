@@ -26,6 +26,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 )
 from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import organization
 
 DRAFT_LIFETIME_DAYS = 30
 
@@ -389,6 +390,9 @@ def submit_draft(
 
 		try:
 			ident = _resolve_submitter_identity(doc.as_dict())
+		except frappe.PermissionError:
+			# An unverified organization must not slip through the by-contact fallback below.
+			raise
 		except Exception:
 			ident = {}
 
@@ -406,6 +410,8 @@ def submit_draft(
 				doc.assisted_by_officer = ident.get("assisted_by_officer")
 		else:
 			doc.submitter = find_or_create_submitter(doc.as_dict())
+			# Matched by identity rather than resolved from the session, so it is checked here.
+			organization.assert_may_file(doc.submitter, session_user)
 
 	if doc.submitter:
 		profile = frappe.db.get_value(
