@@ -167,7 +167,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"service_category": "Inputs",
 				"assigned_to": "other_officer@example.com",
 				"status": "In Progress",
-				"docstatus": 1,
 			}
 		)
 		self.assertTrue(
@@ -369,7 +368,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"description": "Fertilizer delivery delayed in the region for multiple weeks.",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
-				"docstatus": 1,
 			}
 		).insert(ignore_permissions=True)
 
@@ -478,7 +476,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"description": "Seeds quality issue affecting the harvest yield significantly.",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
-				"docstatus": 1,
 			}
 		).insert(ignore_permissions=True)
 
@@ -497,7 +494,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"description": "Credit loan subsidy query with no active rule configured in system.",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
-				"docstatus": 1,
 			}
 		).insert(ignore_permissions=True)
 
@@ -555,13 +551,8 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		parent_assignment.insert(ignore_permissions=True)
 
 		cond = grievance_query_conditions(user.name)
-		self.assertNotIn(
-			"docstatus != 0)",
-			cond.replace(
-				f"`tabGrievance`.assigned_to in ('{user.name}') and `tabGrievance`.docstatus != 0",
-				"",
-			),
-		)
+		for scoped_field in ("assigned_dept", "service_category", "grievance_type", "area_lft"):
+			self.assertNotIn(scoped_field, cond)
 
 		other_case = frappe.get_doc(
 			{
@@ -575,7 +566,6 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"assigned_to": "Administrator",
 				"workflow_state": "In Progress",
 				"status": "In Progress",
-				"docstatus": 1,
 			}
 		)
 		other_case.flags.ignore_mandatory = True

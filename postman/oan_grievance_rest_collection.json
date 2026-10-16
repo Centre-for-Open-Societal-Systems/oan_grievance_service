@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "bf085058-1f56-4563-a5e4-007519dff627",
     "name": "OAN Grievance Service REST API",
-    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/api/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, draft save/resume, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, reopen flows, category-assignment admin CRUD, and the read-only Review Officer role.",
+    "description": "Postman collection for OpenAgriNet Grievance Management Module REST routing API endpoints (/v1/...) covering health, public reference metadata, authentication, submitter profile lookups, draft save/resume, grievance intake, listing with multi-select filters, tracking, timeline, notes, reply, escalation, resolution confirmation, reopen flows, category-assignment admin CRUD, and the read-only Review Officer role.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -274,12 +274,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/login",
+              "raw": "{{base_url}}/v1/auth/login",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "login"
@@ -346,12 +345,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories",
+              "raw": "{{base_url}}/v1/service-categories",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories"
               ]
@@ -414,12 +412,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types",
+              "raw": "{{base_url}}/v1/grievance-types",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types"
               ]
@@ -479,12 +476,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -547,12 +543,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -600,12 +595,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/password/initial",
+              "raw": "{{base_url}}/v1/auth/password/initial",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "password",
@@ -659,12 +653,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/login",
+              "raw": "{{base_url}}/v1/auth/login",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "login"
@@ -723,12 +716,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments",
+              "raw": "{{base_url}}/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments"
               ]
@@ -798,12 +790,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/register",
+              "raw": "{{base_url}}/v1/auth/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "register"
@@ -828,7 +819,7 @@
           "response": []
         },
         {
-          "name": "E9. Save Draft (Farmer)",
+          "name": "E9. Submit Grievance (Farmer)",
           "event": [
             {
               "listen": "prerequest",
@@ -837,71 +828,6 @@
                   "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));",
                   "var uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36));",
                   "pm.collectionVariables.set(\"e2e_client_uuid\", uuid);"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "var jsonData = pm.response.json();",
-                  "var data = jsonData.data || jsonData;",
-                  "pm.test(\"Draft saved as Draft\", function () { pm.expect(data.workflow_state).to.eql(\"Draft\"); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "drafts"
-              ]
-            },
-            "description": "E2E: save the draft as the farmer, against the category/type created above.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_submission_uuid\": \"{{e2e_client_uuid}}\",\n  \"submission_channel\": \"Mobile App\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"E2E Test Farmer\",\n  \"contact_mobile\": \"{{e2e_farmer_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"grievance_type\": \"{{taxonomy_grievance_type}}\",\n  \"description\": \"E2E runner: fertilizer voucher never arrived for this cycle.\",\n  \"desired_outcome\": \"Reissue the fertilizer voucher.\",\n  \"is_anonymous\": 0,\n  \"validate\": false\n}"
-            },
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "E10. Submit Draft (Farmer)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"farmer_access_token\"));"
                 ],
                 "type": "text/javascript"
               }
@@ -935,21 +861,19 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/drafts/submit",
+              "raw": "{{base_url}}/v1/grievances",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
-                "drafts",
-                "submit"
+                "grievances"
               ]
             },
-            "description": "E2E: final submission; this mints the ticket_number every later step uses.",
+            "description": "E2E: file the grievance as the farmer, against the category/type created above; this mints the ticket_number every later step uses.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"client_submission_uuid\": \"{{e2e_client_uuid}}\",\n  \"consent_given\": 1,\n  \"is_anonymous\": 0\n}"
+              "raw": "{\n  \"client_submission_uuid\": \"{{e2e_client_uuid}}\",\n  \"submission_channel\": \"Mobile App\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"E2E Test Farmer\",\n  \"contact_mobile\": \"{{e2e_farmer_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"grievance_type\": \"{{taxonomy_grievance_type}}\",\n  \"description\": \"E2E runner: fertilizer voucher never arrived for this cycle.\",\n  \"desired_outcome\": \"Reissue the fertilizer voucher.\",\n  \"is_anonymous\": 0,\n  \"consent_given\": 1\n}"
             },
             "auth": {
               "type": "bearer",
@@ -965,7 +889,7 @@
           "response": []
         },
         {
-          "name": "E11. Resolve Grievance (Officer)",
+          "name": "E10. Resolve Grievance (Officer)",
           "event": [
             {
               "listen": "prerequest",
@@ -975,7 +899,7 @@
                   "function getState() {",
                   "    return new Promise((resolve) => {",
                   "        pm.sendRequest({",
-                  "            url: pm.collectionVariables.get(\"base_url\") + \"/api/v1/grievances/\" + pm.collectionVariables.get(\"ticket_number\"),",
+                  "            url: pm.collectionVariables.get(\"base_url\") + \"/v1/grievances/\" + pm.collectionVariables.get(\"ticket_number\"),",
                   "            method: \"GET\",",
                   "            header: { Authorization: \"Bearer \" + pm.collectionVariables.get(\"officer_access_token\") },",
                   "        }, (err, res) => {",
@@ -1027,12 +951,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -1058,7 +981,7 @@
           "response": []
         },
         {
-          "name": "E12. Reopen Grievance (Farmer) - allowed only from Resolved, not Closed",
+          "name": "E11. Reopen Grievance (Farmer) - allowed only from Resolved, not Closed",
           "event": [
             {
               "listen": "prerequest",
@@ -1094,12 +1017,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -1125,7 +1047,7 @@
           "response": []
         },
         {
-          "name": "E13. Resolve Grievance Again (Officer)",
+          "name": "E12. Resolve Grievance Again (Officer)",
           "event": [
             {
               "listen": "prerequest",
@@ -1161,12 +1083,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -1192,7 +1113,7 @@
           "response": []
         },
         {
-          "name": "E14. Close Case (Farmer, confirm resolution) - happy path complete",
+          "name": "E13. Close Case (Farmer, confirm resolution) - happy path complete",
           "event": [
             {
               "listen": "prerequest",
@@ -1228,12 +1149,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -1259,7 +1179,7 @@
           "response": []
         },
         {
-          "name": "E15. Officer Logout (Cleanup)",
+          "name": "E14. Officer Logout (Cleanup)",
           "event": [
             {
               "listen": "prerequest",
@@ -1292,12 +1212,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/logout",
+              "raw": "{{base_url}}/v1/auth/logout",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "logout"
@@ -1322,7 +1241,7 @@
           "response": []
         },
         {
-          "name": "E16. Farmer Logout (Cleanup)",
+          "name": "E15. Farmer Logout (Cleanup)",
           "event": [
             {
               "listen": "prerequest",
@@ -1355,12 +1274,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/logout",
+              "raw": "{{base_url}}/v1/auth/logout",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "logout"
@@ -1419,12 +1337,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/health",
+              "raw": "{{base_url}}/v1/grievances/health",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "health"
@@ -1463,12 +1380,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/ping",
+              "raw": "{{base_url}}/v1/grievances/ping",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "ping"
@@ -1538,12 +1454,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters/options",
+              "raw": "{{base_url}}/v1/submitters/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters",
                 "options"
@@ -1599,12 +1514,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/administrative-areas?parent=",
+              "raw": "{{base_url}}/v1/administrative-areas?parent=",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "administrative-areas"
               ],
@@ -1662,12 +1576,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/administrative-areas/{{administrative_area}}/ancestors",
+              "raw": "{{base_url}}/v1/administrative-areas/{{administrative_area}}/ancestors",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "administrative-areas",
                 "{{administrative_area}}",
@@ -1774,12 +1687,11 @@
               "raw": "{\n    \"full_name\": \"{{submitter_name}}\",\n    \"email\": \"{{user_email}}\",\n    \"phone_number\": \"{{contact_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Individual Farmer\",\n    \"fayda_id\": \"{{fayda_id}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/register",
+              "raw": "{{base_url}}/v1/auth/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "register"
@@ -1874,12 +1786,11 @@
               "raw": "{\n    \"full_name\": \"{{authorized_representative}}\",\n    \"email\": \"{{org_email}}\",\n    \"phone_number\": \"{{org_mobile}}\",\n    \"password\": \"{{user_password}}\",\n    \"role\": \"Grievance Submitter\",\n    \"submitter_type\": \"Cooperative\",\n    \"organization_name\": \"{{organization_name}}\",\n    \"registration_number\": \"{{registration_number}}\",\n    \"representative_name\": \"{{authorized_representative}}\",\n    \"administrative_area\": \"{{administrative_area}}\",\n    \"administrative_unit\": \"{{administrative_unit}}\",\n    \"preferred_language\": \"{{preferred_language}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/register",
+              "raw": "{{base_url}}/v1/auth/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "register"
@@ -1964,12 +1875,11 @@
               "raw": "{\n    \"usr\": \"{{user_email}}\",\n    \"pwd\": \"{{user_password}}\",\n    \"remember_me\": false\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/login",
+              "raw": "{{base_url}}/v1/auth/login",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "login"
@@ -2048,12 +1958,11 @@
               "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "raw": "{{base_url}}/v1/auth/refresh",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "refresh"
@@ -2126,12 +2035,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/auth/me",
+              "raw": "{{base_url}}/v1/auth/me",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "auth",
                 "me"
@@ -2191,18 +2099,17 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters/me",
+              "raw": "{{base_url}}/v1/submitters/me",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters",
                 "me"
               ]
             },
-            "description": "Deprecated endpoint to retrieve submitter profile. Prefer GET /api/v1/auth/me."
+            "description": "Deprecated endpoint to retrieve submitter profile. Prefer GET /v1/auth/me."
           },
           "response": []
         },
@@ -2236,12 +2143,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters",
+              "raw": "{{base_url}}/v1/submitters",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters"
               ]
@@ -2284,12 +2190,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters/register",
+              "raw": "{{base_url}}/v1/submitters/register",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters",
                 "register"
@@ -2328,12 +2233,11 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters/{{profile_id}}/unblock",
+              "raw": "{{base_url}}/v1/submitters/{{profile_id}}/unblock",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters",
                 "{{profile_id}}",
@@ -2374,12 +2278,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/submitters/{{profile_id}}/block",
+              "raw": "{{base_url}}/v1/submitters/{{profile_id}}/block",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "submitters",
                 "{{profile_id}}",
@@ -2391,311 +2294,6 @@
               "mode": "raw",
               "raw": "{\n  \"reason\": \"Standard processing\"\n}"
             }
-          },
-          "response": []
-        }
-      ]
-    },
-    {
-      "name": "Drafts",
-      "item": [
-        {
-          "name": "5a. Save Draft",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Save Draft requires authentication.\");",
-                  "}",
-                  "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
-                  "if (!uuid) {",
-                  "    uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36);",
-                  "    pm.environment.set(\"client_submission_uuid\", uuid);",
-                  "    pm.collectionVariables.set(\"client_submission_uuid\", uuid);",
-                  "    console.log(\"[Pre-request] Generated client_submission_uuid:\", uuid);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Draft saved with client_submission_uuid and status Draft\", function () {",
-                  "    pm.expect(data).to.have.property(\"client_submission_uuid\");",
-                  "    pm.expect(data).to.have.property(\"status\");",
-                  "    pm.expect(data.status).to.eql(\"Draft\");",
-                  "    pm.expect(data.workflow_state).to.eql(\"Draft\");",
-                  "});",
-                  "if (data && data.client_submission_uuid) {",
-                  "    pm.environment.set(\"client_submission_uuid\", data.client_submission_uuid);",
-                  "    pm.collectionVariables.set(\"client_submission_uuid\", data.client_submission_uuid);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\",\n  \"submission_channel\": \"{{submission_channel}}\",\n  \"submitter_type\": \"{{submitter_type}}\",\n  \"submitter_name\": \"{{submitter_name}}\",\n  \"contact_mobile\": \"{{contact_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{service_category}}\",\n  \"grievance_type\": \"{{grievance_type}}\",\n  \"description\": \"Fertilizer distribution voucher delayed for Kebele 01 farming cooperative.\",\n  \"desired_outcome\": \"Immediate disbursement of fertilizer vouchers before planting season.\",\n  \"is_anonymous\": 0,\n  \"validate\": false\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "drafts"
-              ]
-            },
-            "description": "Persist an in-progress grievance draft directly on Grievance doctype with status='Draft'. Optional 'validate' boolean performs validation without committing if errors exist."
-          },
-          "response": []
-        },
-        {
-          "name": "5b. Get Draft",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first — Get Draft requires authentication.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200 or 404\", function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Latest draft returned with client_submission_uuid and status\", function () {",
-                  "        pm.expect(data).to.have.property(\"client_submission_uuid\");",
-                  "        pm.expect(data).to.have.property(\"status\");",
-                  "        pm.expect(data).to.have.property(\"workflow_state\");",
-                  "        pm.expect(data).to.have.property(\"attachments\");",
-                  "    });",
-                  "    if (data.client_submission_uuid) {",
-                  "        pm.collectionVariables.set(\"client_submission_uuid\", data.client_submission_uuid);",
-                  "        pm.environment.set(\"client_submission_uuid\", data.client_submission_uuid);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "drafts"
-              ]
-            },
-            "description": "Returns the authenticated user's latest (and only active) unsubmitted grievance draft. 404 when the caller has no saved draft."
-          },
-          "response": []
-        },
-        {
-          "name": "5c. Submit Draft (Final Submission)",
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  "var token = pm.environment.get(\"access_token\") || pm.collectionVariables.get(\"access_token\");",
-                  "var uuid = pm.environment.get(\"client_submission_uuid\") || pm.collectionVariables.get(\"client_submission_uuid\");",
-                  "if (!token) {",
-                  "    console.warn(\"[Pre-request] 'access_token' is missing. Login first.\");",
-                  "}",
-                  "if (!uuid) {",
-                  "    console.warn(\"[Pre-request] 'client_submission_uuid' is missing. Save a draft first.\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    if (pm.response.code !== 200) {",
-                  "        console.error(\"[Submit Draft Error]:\", pm.response.text());",
-                  "    }",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "    pm.test(\"Ticket number and Submitted status generated\", function () {",
-                  "        pm.expect(data).to.have.property(\"ticket_number\");",
-                  "        pm.expect(data).to.have.property(\"status\");",
-                  "        pm.expect(data.status).to.eql(\"Submitted\");",
-                  "    });",
-                  "    if (data.ticket_number) {",
-                  "        pm.collectionVariables.set(\"ticket_number\", data.ticket_number);",
-                  "        if (pm.environment.name) {",
-                  "            pm.environment.set(\"ticket_number\", data.ticket_number);",
-                  "        }",
-                  "        console.log(\"[Post-response] Saved ticket_number:\", data.ticket_number);",
-                  "    }",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\",\n  \"consent_given\": 1,\n  \"is_anonymous\": 0\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts/submit",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "drafts",
-                "submit"
-              ]
-            },
-            "description": "Formally submits a saved grievance draft, generating ticket number and transitioning state to Submitted."
-          },
-          "response": []
-        },
-        {
-          "name": "5d. Discard Draft",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "var jsonData = pm.response.json();",
-                  "var data = (jsonData.message && jsonData.message.data) ? jsonData.message.data : (jsonData.data || jsonData);",
-                  "pm.test(\"Draft discard confirmed\", function () {",
-                  "    pm.expect(data).to.have.property(\"discarded\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "DELETE",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"client_submission_uuid\": \"{{client_submission_uuid}}\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/v1/drafts",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "drafts"
-              ]
-            },
-            "description": "Deletes an unsubmitted draft and associated temporary files."
           },
           "response": []
         }
@@ -2735,12 +2333,11 @@
               ]
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments",
+              "raw": "{{base_url}}/v1/attachments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments"
               ]
@@ -2765,12 +2362,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments?grievance={{ticket_number}}",
+              "raw": "{{base_url}}/v1/attachments?grievance={{ticket_number}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments"
               ],
@@ -2810,12 +2406,11 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/attachments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -2851,12 +2446,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/attachments",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/attachments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -2892,12 +2486,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/view",
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}/view",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments",
                 "{{attachment_id}}",
@@ -2912,7 +2505,7 @@
                 }
               ]
             },
-            "description": "Serve the bytes of one attachment for display in the browser.\n\nThe private-file route that `file_url` points at sits outside the JWT\nnamespaces, so a bearer token does nothing there and a Next.js client cannot\nopen the URL it was handed. This route is under `/api/v1`, so the same token\nthat listed the case also fetches the file, and the scan gate is applied on\nthe way out. Inline by default so an image or PDF opens in the tab; pass\n`download=1` for a Save As."
+            "description": "Serve the bytes of one attachment for display in the browser.\n\nThe private-file route that `file_url` points at sits outside the JWT\nnamespaces, so a bearer token does nothing there and a Next.js client cannot\nopen the URL it was handed. This route is under `/v1`, so the same token\nthat listed the case also fetches the file, and the scan gate is applied on\nthe way out. Inline by default so an image or PDF opens in the tab; pass\n`download=1` for a Save As."
           },
           "response": []
         },
@@ -2941,12 +2534,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/download",
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}/download",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments",
                 "{{attachment_id}}",
@@ -2982,12 +2574,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}",
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments",
                 "{{attachment_id}}"
@@ -3022,12 +2613,11 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}",
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "attachments",
                 "{{attachment_id}}"
@@ -3079,12 +2669,11 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}"
@@ -3145,12 +2734,11 @@
           "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Additional fertilizer receipt voucher reference is VR-2026-9912 attached for verification.\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reply",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/reply",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3197,12 +2785,11 @@
           "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"body\": \"Following up on the voucher disbursement status.\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/message",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3251,12 +2838,11 @@
           "raw": "{\n    \"body\": \"Officer verified voucher discrepancy with local union supervisor.\",\n    \"is_internal\": true\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/note",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/note",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3295,12 +2881,11 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3343,12 +2928,11 @@
         "method": "GET",
         "header": [],
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/response-templates?action=Resolve",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3398,12 +2982,11 @@
           "raw": "{\n    \"additional_days\": 5,\n    \"reason\": \"Need more time\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/defer-sla",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/defer-sla",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3442,12 +3025,11 @@
           "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/defer-sla/decide",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/defer-sla/decide",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3486,12 +3068,11 @@
           "raw": "{\n    \"target_department\": \"Legal\",\n    \"reason\": \"Wrong dept\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/reassign",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3530,12 +3111,11 @@
           "raw": "{\n    \"decision\": \"Approved\",\n    \"note\": \"OK\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign/decide",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/reassign/decide",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3606,12 +3186,11 @@
           "raw": "{\n    \"ticket_number\": \"{{ticket_number}}\",\n    \"reason\": \"SLA window elapsed without preliminary response or status update from the department.\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/escalate",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/escalate",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3680,12 +3259,11 @@
           "raw": "{\n    \"action\": \"Close Case\",\n    \"rating\": 5,\n    \"reason\": \"Issue resolved swiftly by the Woreda agricultural desk. Thank you!\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3755,12 +3333,11 @@
           "raw": "{\n    \"action\": \"Reopen\",\n    \"reason\": \"The replacement voucher could not be redeemed at the local distribution center.\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+          "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "grievances",
             "{{ticket_number}}",
@@ -3822,12 +3399,11 @@
           "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/auth/logout",
+          "raw": "{{base_url}}/v1/auth/logout",
           "host": [
             "{{base_url}}"
           ],
           "path": [
-            "api",
             "v1",
             "auth",
             "logout"
@@ -3866,12 +3442,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments",
+              "raw": "{{base_url}}/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments"
               ],
@@ -3939,12 +3514,11 @@
               "raw": "{\n  \"service_category\": \"Inputs\",\n  \"department\": \"MoA\",\n  \"l1_officer\": \"l1.officer@example.com\",\n  \"l2_officer\": \"l2.officer@example.com\",\n  \"sla_days\": 14,\n  \"auto_escalate\": true\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments",
+              "raw": "{{base_url}}/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments"
               ]
@@ -3959,12 +3533,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments",
                 "{{category_assignment}}"
@@ -3989,12 +3562,11 @@
               "raw": "{\n  \"sla_days\": 10\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments",
                 "{{category_assignment}}"
@@ -4010,12 +3582,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments",
                 "{{category_assignment}}"
@@ -4056,12 +3627,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/sla-policy",
+              "raw": "{{base_url}}/v1/sla-policy",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "sla-policy"
               ]
@@ -4100,12 +3670,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/sla-policy",
+              "raw": "{{base_url}}/v1/sla-policy",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "sla-policy"
               ]
@@ -4150,12 +3719,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/sla-configurations",
+              "raw": "{{base_url}}/v1/sla-configurations",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "sla-configurations"
               ]
@@ -4193,12 +3761,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/sla-configurations/{{sla_configuration}}",
+              "raw": "{{base_url}}/v1/sla-configurations/{{sla_configuration}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "sla-configurations",
                 "{{sla_configuration}}"
@@ -4245,12 +3812,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories?is_active=1&search=&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/service-categories?is_active=1&search=&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories"
               ],
@@ -4309,12 +3875,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories",
+              "raw": "{{base_url}}/v1/service-categories",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories"
               ]
@@ -4346,12 +3911,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "raw": "{{base_url}}/v1/service-categories/{{taxonomy_category}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories",
                 "{{taxonomy_category}}"
@@ -4389,12 +3953,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "raw": "{{base_url}}/v1/service-categories/{{taxonomy_category}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories",
                 "{{taxonomy_category}}"
@@ -4438,12 +4001,11 @@
               "raw": "{\n  \"is_default\": true\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "raw": "{{base_url}}/v1/service-categories/{{taxonomy_category}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories",
                 "{{taxonomy_category}}"
@@ -4472,12 +4034,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/service-categories/{{taxonomy_category}}",
+              "raw": "{{base_url}}/v1/service-categories/{{taxonomy_category}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "service-categories",
                 "{{taxonomy_category}}"
@@ -4509,12 +4070,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types?service_category=Inputs&is_active=1&search=&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/grievance-types?service_category=Inputs&is_active=1&search=&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types"
               ],
@@ -4578,12 +4138,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types",
+              "raw": "{{base_url}}/v1/grievance-types",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types"
               ]
@@ -4615,12 +4174,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "raw": "{{base_url}}/v1/grievance-types/{{taxonomy_grievance_type}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types",
                 "{{taxonomy_grievance_type}}"
@@ -4658,12 +4216,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "raw": "{{base_url}}/v1/grievance-types/{{taxonomy_grievance_type}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types",
                 "{{taxonomy_grievance_type}}"
@@ -4696,12 +4253,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievance-types/{{taxonomy_grievance_type}}",
+              "raw": "{{base_url}}/v1/grievance-types/{{taxonomy_grievance_type}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievance-types",
                 "{{taxonomy_grievance_type}}"
@@ -4736,12 +4292,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?level=L1&department=MoA&status=Active&service_category=Inputs&region=Oromia&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers?level=L1&department=MoA&status=Active&service_category=Inputs&region=Oromia&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -4808,17 +4363,16 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
             },
-            "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /api/v1/auth/password/initial. An email that already has a login keeps its own password.",
+            "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /v1/auth/password/initial. An email that already has a login keeps its own password.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -4850,12 +4404,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -4892,19 +4445,18 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+              "raw": "{{base_url}}/v1/officers/{{officer}}/password-resets",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}",
                 "password-resets"
               ]
             },
-            "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /api/v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
+            "description": "Reissue a temporary password to an existing officer, for example after a forgotten password. Their sessions end at once and they must replace the password through POST /v1/auth/password/initial before signing in. Refused for an account that holds an admin role.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"temporary_password\": \"Welcome2026\"\n}"
@@ -4931,12 +4483,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -4970,12 +4521,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -5013,12 +4563,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -5056,12 +4605,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -5098,12 +4646,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer&level=L1&department=MoA",
+              "raw": "{{base_url}}/v1/officers/status-counts?role=Officer&level=L1&department=MoA",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "status-counts"
@@ -5146,12 +4693,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?level=L3&department=MoA&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers?level=L3&department=MoA&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -5202,12 +4748,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -5239,12 +4784,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?role=Reviewer&department=MoA&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers?role=Reviewer&department=MoA&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -5299,12 +4843,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -5344,12 +4887,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -5386,12 +4928,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "raw": "{{base_url}}/v1/officers/{{reviewer_officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{reviewer_officer}}"
@@ -5429,12 +4970,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "raw": "{{base_url}}/v1/officers/{{reviewer_officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{reviewer_officer}}"
@@ -5472,12 +5012,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "raw": "{{base_url}}/v1/officers/{{reviewer_officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{reviewer_officer}}"
@@ -5525,12 +5064,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/notification-templates",
+              "raw": "{{base_url}}/v1/notification-templates",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "notification-templates"
               ],
@@ -5603,12 +5141,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/notification-templates/options",
+              "raw": "{{base_url}}/v1/notification-templates/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "notification-templates",
                 "options"
@@ -5643,12 +5180,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/notification-templates/placeholders",
+              "raw": "{{base_url}}/v1/notification-templates/placeholders",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "notification-templates",
                 "placeholders"
@@ -5684,12 +5220,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/notification-templates/{{notification_template}}",
+              "raw": "{{base_url}}/v1/notification-templates/{{notification_template}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "notification-templates",
                 "{{notification_template}}"
@@ -5732,12 +5267,11 @@
               "raw": "{\n  \"enabled\": true,\n  \"subject\": \"Updated Subject: Grievance {ticket_number}\"\n}"
             },
             "url": {
-              "raw": "{{base_url}}/api/v1/notification-templates/{{notification_template}}",
+              "raw": "{{base_url}}/v1/notification-templates/{{notification_template}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "notification-templates",
                 "{{notification_template}}"
@@ -5778,12 +5312,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances?page=1&page_size=20&sort_order=desc",
+              "raw": "{{base_url}}/v1/grievances?page=1&page_size=20&sort_order=desc",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances"
               ],
@@ -5802,7 +5335,7 @@
                 }
               ]
             },
-            "description": "Every filed grievance, never drafts. Same filters, paging and sorting as the officer list."
+            "description": "Every filed grievance. Same filters, paging and sorting as the officer list."
           },
           "response": []
         },
@@ -5831,12 +5364,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/summary",
+              "raw": "{{base_url}}/v1/grievances/summary",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "summary"
@@ -5871,12 +5403,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/options",
+              "raw": "{{base_url}}/v1/grievances/options",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "options"
@@ -5908,12 +5439,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/timeline",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -5949,12 +5479,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments",
+              "raw": "{{base_url}}/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments"
               ]
@@ -5988,12 +5517,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?level=L1&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers?level=L1&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -6041,12 +5569,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?level=L2&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers?level=L2&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -6091,12 +5618,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -6131,12 +5657,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/statistics?level=L1&page=1&page_size=20",
+              "raw": "{{base_url}}/v1/officers/statistics?level=L1&page=1&page_size=20",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "statistics"
@@ -6187,12 +5712,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments",
+              "raw": "{{base_url}}/v1/category-assignments",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments"
               ]
@@ -6232,12 +5756,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments",
                 "{{category_assignment}}"
@@ -6273,12 +5796,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/category-assignments/{{category_assignment}}",
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "category-assignments",
                 "{{category_assignment}}"
@@ -6315,12 +5837,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -6360,12 +5881,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}",
+              "raw": "{{base_url}}/v1/officers/{{officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}"
@@ -6406,12 +5926,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{officer}}/password-resets",
+              "raw": "{{base_url}}/v1/officers/{{officer}}/password-resets",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{officer}}",
@@ -6453,12 +5972,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/action",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -6500,12 +6018,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/reassign",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/reassign",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -6547,12 +6064,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/message",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/message",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -6586,12 +6102,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/status-counts?role=Officer",
+              "raw": "{{base_url}}/v1/officers/status-counts?role=Officer",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "status-counts"
@@ -6634,12 +6149,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers",
+              "raw": "{{base_url}}/v1/officers",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ]
@@ -6679,12 +6193,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers/{{reviewer_officer}}",
+              "raw": "{{base_url}}/v1/officers/{{reviewer_officer}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers",
                 "{{reviewer_officer}}"
@@ -6720,12 +6233,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/officers?role=Reviewer",
+              "raw": "{{base_url}}/v1/officers?role=Reviewer",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "officers"
               ],
@@ -6775,12 +6287,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances",
+              "raw": "{{base_url}}/v1/grievances",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances"
               ]
@@ -6823,12 +6334,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/grievances/{{ticket_number}}/feedback",
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/feedback",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "grievances",
                 "{{ticket_number}}",
@@ -6873,12 +6383,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/change-requests",
+              "raw": "{{base_url}}/v1/change-requests",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "change-requests"
               ],
@@ -6950,12 +6459,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/change-requests/{{name}}",
+              "raw": "{{base_url}}/v1/change-requests/{{name}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "change-requests",
                 "{{name}}"
@@ -6995,12 +6503,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/change-requests/{{name}}/decide",
+              "raw": "{{base_url}}/v1/change-requests/{{name}}/decide",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "change-requests",
                 "{{name}}",
@@ -7045,12 +6552,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/response-templates",
+              "raw": "{{base_url}}/v1/response-templates",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "response-templates"
               ],
@@ -7139,12 +6645,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/response-templates",
+              "raw": "{{base_url}}/v1/response-templates",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "response-templates"
               ]
@@ -7182,12 +6687,11 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "raw": "{{base_url}}/v1/response-templates/{{template}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "response-templates",
                 "{{template}}"
@@ -7227,12 +6731,11 @@
               }
             ],
             "url": {
-              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "raw": "{{base_url}}/v1/response-templates/{{template}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "response-templates",
                 "{{template}}"
@@ -7271,12 +6774,11 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/v1/response-templates/{{template}}",
+              "raw": "{{base_url}}/v1/response-templates/{{template}}",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
-                "api",
                 "v1",
                 "response-templates",
                 "{{template}}"

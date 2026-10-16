@@ -4,7 +4,7 @@
 
 """Sync and validate Postman Collection against OpenAPI 3.1 specification.
 
-Non-destructively scans openapi/openapi_v1.yaml, detects endpoints missing
+Non-destructively scans openapi/openapi_v1.public.yaml, detects endpoints missing
 from postman/oan_grievance_rest_collection.json, and scaffolds them with
 proper URLs, headers, sample request bodies, and test assertions without
 overwriting existing custom tests or environment variable flows.
@@ -35,7 +35,7 @@ except ImportError:
 	sys.exit("Error: PyYAML is required. Run 'pip install pyyaml'.")
 
 # Default paths relative to app root
-DEFAULT_SPEC = Path("openapi/openapi_v1.yaml")
+DEFAULT_SPEC = Path("openapi/openapi_v1.public.yaml")
 DEFAULT_COLLECTION = Path("postman/oan_grievance_rest_collection.json")
 
 # Endpoints maintained in dedicated sibling collections
@@ -62,12 +62,16 @@ def to_path_pattern(path_or_url: str | list[str]) -> str:
 			norm.append("{}")
 		else:
 			norm.append(p)
+	if norm and norm[0] == "api":
+		norm = norm[1:]
 	return "/".join(norm)
 
 
 def openapi_path_to_postman(path: str) -> tuple[str, list[str]]:
 	"""Convert OpenAPI path to Postman raw URL and path segments with {{variables}}."""
 	parts = [p for p in path.strip("/").split("/") if p]
+	if parts and parts[0] == "api":
+		parts = parts[1:]
 	postman_parts: list[str] = []
 	for p in parts:
 		if p.startswith("{") and p.endswith("}"):
@@ -267,27 +271,29 @@ def scaffold_request(
 
 def determine_folder(path: str, operation: dict[str, Any]) -> str:
 	"""Map an endpoint to an existing or dedicated folder name."""
-	if path.startswith("/api/v1/response-templates"):
+	norm = re.sub(r"^/api/", "/", path)
+	if not norm.startswith("/"):
+		norm = "/" + norm
+
+	if norm.startswith("/v1/response-templates"):
 		return "Response Templates"
-	if path.startswith("/api/v1/change-requests"):
+	if norm.startswith("/v1/change-requests"):
 		return "Change Requests"
-	if path.startswith("/api/v1/attachments"):
+	if norm.startswith("/v1/attachments"):
 		return "Attachments"
-	if path.startswith("/api/v1/submitters"):
+	if norm.startswith("/v1/submitters"):
 		return "Profiles"
-	if path.startswith("/api/v1/category-assignments"):
+	if norm.startswith("/v1/category-assignments"):
 		return "Category Assignments"
-	if path.startswith("/api/v1/sla"):
+	if norm.startswith("/v1/sla"):
 		return "SLA Settings"
-	if path.startswith("/api/v1/officers"):
+	if norm.startswith("/v1/officers"):
 		return "Officers"
-	if path.startswith("/api/v1/notification-templates"):
+	if norm.startswith("/v1/notification-templates"):
 		return "Notification Templates"
-	if path.startswith("/api/v1/drafts"):
-		return "Drafts"
-	if path.startswith("/api/v1/administrative-areas"):
+	if norm.startswith("/v1/administrative-areas"):
 		return "Public Reference Data"
-	if path.startswith("/api/v1/grievances") and "feedback" in path:
+	if norm.startswith("/v1/grievances") and "feedback" in norm:
 		return "Grievances Core"
 
 	tags = operation.get("tags", [])
@@ -397,7 +403,7 @@ def sync_collection(
 
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Sync Postman Collection from OpenAPI spec")
-	parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC, help="Path to openapi_v1.yaml")
+	parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC, help="Path to openapi_v1.public.yaml")
 	parser.add_argument(
 		"--collection", type=Path, default=DEFAULT_COLLECTION, help="Path to Postman JSON collection"
 	)

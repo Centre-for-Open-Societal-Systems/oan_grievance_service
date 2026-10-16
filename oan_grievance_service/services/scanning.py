@@ -63,6 +63,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	EXTENSION_FOR_MIME,
 	MAX_SIZE_BYTES,
 )
+from oan_grievance_service.services import constants as C
 
 CLAMAV_DEFAULT_PORT = 3310
 CLAMAV_TIMEOUT_SECONDS = 30
@@ -331,7 +332,7 @@ def enqueue_scan_attachment(name: str) -> None:
 	try:
 		frappe.enqueue(
 			"oan_grievance_service.services.scanning.scan_attachment",
-			queue="short",
+			queue=C.QUEUE_SCAN,
 			name=name,
 			enqueue_after_commit=True,
 			is_async=True,

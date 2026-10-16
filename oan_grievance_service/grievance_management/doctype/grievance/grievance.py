@@ -23,6 +23,28 @@ REQUESTABLE_FIELDS = (
 	"grievance_type",
 )
 
+# What the submitter filed, and the filing's own bookkeeping. Fixed once the case
+# exists; only db_set paths (anonymity, migrations) still write them.
+FILED_FIELDS = (
+	"ticket_number",
+	"submission_channel",
+	"client_submission_uuid",
+	"submitter_type",
+	"submitter",
+	"submitter_name",
+	"contact_mobile",
+	"contact_email",
+	"assisted_by_officer",
+	"consent_given",
+	"consent_recorded_at",
+	"administrative_area",
+	"administrative_unit",
+	"area_lft",
+	"area_path_code",
+	"description",
+	"desired_outcome",
+)
+
 # Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
 # are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
 ALLOWED_FILING_LEVELS = frozenset(
@@ -141,18 +163,10 @@ class Grievance(Document):
 		"""
 		if self.name:
 			return
-		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
-			key = self.client_submission_uuid or frappe.generate_hash(length=12)
-			self.name = f"DRAFT-{key}"
-			self.ticket_number = None
-			return
-
 		self.name = ticket_number.generate(self.administrative_area, self.service_category)
 		self.ticket_number = self.name
 
 	def _validate_mandatory(self):
-		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
-			return
 		if not self.contact_mobile:
 			field = self.meta.get_field("contact_mobile")
 			if field and field.reqd:
@@ -166,10 +180,19 @@ class Grievance(Document):
 
 	def validate(self):
 		self.keep_status_in_step_with_the_workflow()
-		if getattr(self.flags, "is_draft_wizard", False) and not getattr(self.flags, "in_submit", False):
-			return
+		if self.is_new():
+			self.validate_filing()
+			self.set_administrative_area_metadata()
+		else:
+			self.guard_terminal_state()
+			self.guard_filed_fields()
+			self.guard_requestable_fields()
+		self.validate_classification_is_active()
+		self.record_the_workflow_move()
 
-		# Frappe already enforces reqd / Link / Select. Domain-only rules below.
+	def validate_filing(self):
+		"""Domain rules a case must meet when it is filed. Frappe already enforces
+		reqd / Link / Select."""
 		try:
 			validate_submission_payload(
 				{
@@ -187,18 +210,14 @@ class Grievance(Document):
 				loc = ".".join(str(item) for item in err["loc"])
 				parts.append(f"{loc}: {err['msg']}" if loc else err["msg"])
 			frappe.throw("; ".join(parts), title=_("Incomplete Submission"))
-		self.validate_classification_is_active()
-		self.set_administrative_area_metadata()
-		self.record_the_workflow_move()
 
 	def validate_classification_is_active(self):
 		"""A case is filed under an active category and type, the ones the wizard offers.
 
-		Checked when the case is filed (a new record, or a draft being submitted) and
-		whenever the classification is changed. A case already filed keeps its category
+		Checked when the case is filed and whenever the classification is changed. A case already filed keeps its category
 		and type however they are retired afterwards, so its later moves are never blocked.
 		"""
-		filing = self.is_new() or getattr(self.flags, "in_submit", False)
+		filing = self.is_new()
 		for fieldname, doctype, label in (
 			("service_category", "Grievance Service Category", _("Service category")),
 			("grievance_type", "Grievance Type", _("Grievance type")),
@@ -214,15 +233,14 @@ class Grievance(Document):
 
 	# Workflow
 	# --------
-	# Frappe's engine moves a grievance by setting `workflow_state` and saving,
-	# submitting or cancelling it, and the record of the move is handled from
-	# the post-save methods -- one of which fires per kind of save.
+	# Frappe's engine moves a grievance by setting `workflow_state` and saving it;
+	# `validate` records the move.
 
 	def keep_status_in_step_with_the_workflow(self):
 		"""`workflow_state` is what the engine drives; `status` mirrors it so every
 		reader -- the API, the list filters, the reports -- keeps its field."""
 		if not self.workflow_state:
-			self.workflow_state = self.status or C.STATE_DRAFT
+			self.workflow_state = self.status or C.STATE_SUBMITTED
 		self.status = self.workflow_state
 
 	def workflow_move_from(self):
@@ -234,28 +252,29 @@ class Grievance(Document):
 			return None
 		return before.workflow_state
 
-	# Frappe runs `validate` for a save and a submit only. A move between two
-	# submitted states arrives as update_after_submit, a rejection as cancel, and
-	# each has its own before-method; the sync must run from those too, or a move
-	# on either path would leave `status` behind.
+	def guard_terminal_state(self):
+		"""A Closed or Rejected case is final; only db_set paths still write to it."""
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		from oan_grievance_service.services.sla import terminal_states
 
-	def before_update_after_submit(self):
-		self.keep_status_in_step_with_the_workflow()
-		self.guard_requestable_fields()
-		self.record_the_workflow_move()
+		if before.workflow_state in terminal_states():
+			frappe.throw(
+				_("A {0} grievance cannot be changed.").format(_(before.workflow_state)),
+				frappe.ValidationError,
+				title=_("Grievance Closed"),
+			)
 
-	def on_update_after_submit(self):
-		if self.flags.change_request:
-			if getattr(self.flags, "reassignment", False):
-				from oan_grievance_service.services import reassignment
-
-				reassignment.on_applied(self, getattr(self.flags, "change_request_doc", None))
-			else:
-				self.react_to_approved_change()
-
-	def before_cancel(self):
-		self.keep_status_in_step_with_the_workflow()
-		self.record_the_workflow_move()
+	def guard_filed_fields(self):
+		changed = [f for f in FILED_FIELDS if self.has_value_changed(f)]
+		if changed:
+			frappe.throw(
+				_("{0} cannot be changed once the grievance is filed.").format(
+					", ".join(_(self.meta.get_label(f)) for f in changed)
+				),
+				title=_("Filed Fields Are Fixed"),
+			)
 
 	def record_the_workflow_move(self):
 		from_state = self.workflow_move_from()
@@ -265,9 +284,9 @@ class Grievance(Document):
 	def validate_workflow(self):
 		"""Frappe insists a new document enters the workflow at its first state.
 
-		Every intake path inserts a Draft, so that holds for live traffic. It is
+		Every intake path inserts at Submitted, so that holds for live traffic. It is
 		relaxed for a new document so history can be loaded at the state it was
-		actually in: a migrated case that closed two years ago was never Draft.
+		actually in: a migrated case that closed two years ago was never Submitted.
 		"""
 		if self.is_new():
 			return
@@ -354,7 +373,7 @@ class Grievance(Document):
 
 	def apply_change_request(self, request):
 		"""Write an approved request's values through a normal save, so the Version log
-		records the change and the after-submit hooks run."""
+		records the change and on_update runs."""
 		for row in request.changes:
 			self.set(row.fieldname, row.new_value or None)
 		self.flags.change_request = request.name
@@ -369,11 +388,17 @@ class Grievance(Document):
 		pass
 
 	def on_update(self):
-		if not getattr(self.flags, "change_request", None) and self.has_value_changed("service_category"):
-			if self.docstatus != 0 and self.sla_due_date:
-				from oan_grievance_service.services import sla
+		if self.flags.change_request:
+			if getattr(self.flags, "reassignment", False):
+				from oan_grievance_service.services import reassignment
 
-				sla.recalculate_sla_on_category_change(self)
+				reassignment.on_applied(self, getattr(self.flags, "change_request_doc", None))
+			else:
+				self.react_to_approved_change()
+		elif self.has_value_changed("service_category") and self.sla_due_date:
+			from oan_grievance_service.services import sla
+
+			sla.recalculate_sla_on_category_change(self)
 
 	def react_to_approved_change(self):
 		"""Fields that move with a requested change."""

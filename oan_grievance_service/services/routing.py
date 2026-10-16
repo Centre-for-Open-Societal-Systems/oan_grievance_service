@@ -451,7 +451,7 @@ def enqueue_routing(grievance_name: str) -> None:
 	try:
 		frappe.enqueue(
 			"oan_grievance_service.services.routing.route_grievance_job",
-			queue="default",
+			queue=C.QUEUE_ROUTING,
 			grievance_name=grievance_name,
 			enqueue_after_commit=True,
 		)
@@ -466,7 +466,7 @@ def route_grievance_job(grievance_name: str) -> None:
 	if not frappe.db.exists("Grievance", grievance_name):
 		return
 	doc = frappe.get_doc("Grievance", grievance_name)
-	if doc.docstatus != 1 or doc.workflow_state != C.STATE_SUBMITTED or doc.assigned_to:
+	if doc.workflow_state != C.STATE_SUBMITTED or doc.assigned_to:
 		return
 	apply_routing(doc)
 
@@ -475,7 +475,6 @@ def drain_routing_queue(limit: int = 50) -> int:
 	unrouted = frappe.get_all(
 		"Grievance",
 		filters={
-			"docstatus": 1,
 			"workflow_state": C.STATE_SUBMITTED,
 			"assigned_to": ["is", "not set"],
 			"routed_automatically": 0,

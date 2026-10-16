@@ -242,7 +242,7 @@ The area tree is not discarded; it constrains the chain. The onboarding validati
 2. **Nearest-Ancestor Rule Resolution**: Routing rules match the closest administrative area at or above the incident, resolved in one query ordered by subtree span.
 3. **Hierarchy Integrity**: Every field officer has a `reports_to_user_id` holding the Supervisor or Nodal Officer role, and that supervisor's area is an ancestor of or equal to the officer's.
 4. **Escalation Is Vertical Only**: A live case moves only along `reports_to_user_id`. There is no lateral handoff, so there is no reassignment approval workflow and no `sla_treatment` decision to make.
-5. **Jurisdiction Is Corrected Before Submission**: Wrong area or wrong department is fixed while the case is in draft, when the SLA clock has not started. After submission the routing is final.
+5. **Jurisdiction Is Set at Intake**: There is no draft stage; a case is filed straight into Submitted. A wrong department or officer after filing is corrected through an approved change request.
 6. **Nodal Multi-Department Scope**: Nodal officers hold `department_id = NULL` to oversee all line departments within their jurisdiction.
 7. **Caseload Protection**: Routing never assigns beyond `max_open_cases`, compared against the maintained `open_case_count`.
 8. **SLA Non-Interruption**: A pending deferral never pauses or resets the clock. Only an approved one moves `due_at`.

@@ -9,7 +9,7 @@ from oan_auth_service.api.router import _rules
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.router import ensure_routes_registered
-from oan_grievance_service.api.v1 import attachment, change_request, draft, grievance, submitter
+from oan_grievance_service.api.v1 import attachment, change_request, grievance, submitter
 from oan_grievance_service.api.v1.category_assignment import (
 	create_assignment,
 	deactivate_assignment,
@@ -124,17 +124,12 @@ class TestReviewOfficer(FrappeTestCase):
 
 	def test_grievance_documents_are_readable_but_never_writable(self):
 		case = self._case()
-		draft_case = self._case(workflow_state=C.STATE_DRAFT)
 		self.assertTrue(permissions.has_grievance_permission(case, "read", self.reviewer))
 		for ptype in ("write", "create", "delete", "submit", "cancel"):
 			self.assertFalse(permissions.has_grievance_permission(case, ptype, self.reviewer), msg=ptype)
-		# Someone's unsent draft is not part of oversight.
-		self.assertFalse(permissions.has_grievance_permission(draft_case, "read", self.reviewer))
 
-	def test_grievance_list_condition_hides_drafts_only(self):
-		self.assertEqual(
-			permissions.grievance_query_conditions(self.reviewer), "(`tabGrievance`.docstatus != 0)"
-		)
+	def test_grievance_list_condition_hides_nothing(self):
+		self.assertEqual(permissions.grievance_query_conditions(self.reviewer), "(1 = 1)")
 
 	def test_frappe_permissions_refuse_a_write_without_any_role_check_of_ours(self):
 		department = frappe.db.get_value("Grievance Department", {}, "name")
@@ -236,7 +231,6 @@ class TestReviewOfficer(FrappeTestCase):
 				reason="Waiting for laboratory soil analysis results",
 			),
 			attachment.delete(attachment_id="none"),
-			draft.discard(client_submission_uuid="00000000-0000-4000-8000-000000000000"),
 			submitter.unblock_submitter("none"),
 		)
 

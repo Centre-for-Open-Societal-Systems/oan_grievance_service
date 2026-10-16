@@ -2,6 +2,7 @@
 
 import frappe
 from frappe import _
+from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1.organization import OrganizationRecord, organization_record
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
@@ -94,6 +95,43 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 	return "grievance", None
 
 
+class RegistrationExtras(BaseModel):
+	"""Extra fields this app reads from the `POST /api/v1/auth/register` body.
+
+	oan_auth_service forwards every non-core body field to each `on_user_registered`
+	subscriber. This model is the contract for the ones this app consumes. Clients send
+	it as `profile.grievance` in the register body (flat top-level fields still work,
+	deprecated). The hook parses with it, and the spec generator publishes it as
+	`GrievanceRegistrationExtras` plus an OpenAPI Overlay for auth's register body.
+	Unknown keys are ignored because they belong to other installed apps. Values may
+	arrive as JSON numbers, so IDs and phones accept int as well as text.
+	"""
+
+	model_config = {"extra": "ignore"}
+
+	submitter_type: str | None = Field(
+		default=None, description="Submitter type. Defaults to Individual Farmer."
+	)
+	submitter_name: str | None = Field(default=None, description="Used when full_name is empty.")
+	fayda_id: str | int | None = Field(
+		default=None, description="Fayda National ID. Required for Individual Farmer."
+	)
+	national_id: str | int | None = Field(default=None, description="Alias of fayda_id.")
+	registration_number: str | None = Field(default=None, description="Organization registration number.")
+	org_number: str | None = Field(default=None, description="Alias of registration_number.")
+	farmer_id: str | None = None
+	dedupe_key: str | None = Field(default=None, description="Ignored for Individual Farmer.")
+	administrative_area: str | None = None
+	region: str | None = Field(default=None, description="Alias of administrative_area.")
+	administrative_unit: str | None = None
+	woreda: str | None = Field(default=None, description="Alias of administrative_unit.")
+	preferred_language: str | None = None
+	contact_mobile: str | int | None = Field(default=None, description="Fallback for phone_number.")
+	phone: str | int | None = Field(default=None, description="Fallback for phone_number.")
+	phone_country_code: str | None = Field(default=None, description="Alias of country_code.")
+	contact_email: str | None = Field(default=None, description="Fallback for email.")
+
+
 def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	"""Hook subscriber for oan_auth_service.api.v1.auth.register_user (on_user_registered).
 
@@ -103,6 +141,16 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	user_roles = set(roles or ([role] if role else []))
 	if "Grievance Submitter" not in user_roles:
 		return
+
+	# Core fields (phone_number, country_code, email) pass through untouched; the rest
+	# are read through the typed model so the documented contract is the one enforced.
+	# Fields belong under `profile.grievance` in the register body. Flat top-level
+	# fields are still accepted for existing clients (deprecated); the namespaced
+	# value wins when both are sent.
+	namespaced = kwargs.get("profile")
+	namespaced = namespaced.get("grievance") if isinstance(namespaced, dict) else None
+	extras = RegistrationExtras.model_validate({**kwargs, **(namespaced or {})})
+	kwargs = {**kwargs, **extras.model_dump(exclude_none=True)}
 
 	# The User insert that just ran leaves notices in the message log (no outgoing email
 	# account, a taken username). The API error envelope joins the whole log into its

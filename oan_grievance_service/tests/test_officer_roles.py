@@ -402,11 +402,9 @@ class TestReviewerOnTheDesk(RoleCase):
 		reviewer = self._reviewer(service_categories=[a_service_category()])
 		mine = a_grievance(assigned_dept=self.department)
 		elsewhere = a_grievance(assigned_dept=self.other_department)
-		draft = a_grievance(assigned_dept=self.department, workflow_state=C.STATE_DRAFT)
 
 		self.assertTrue(permissions.has_grievance_permission(mine, "read", reviewer["name"]))
 		self.assertFalse(permissions.has_grievance_permission(elsewhere, "read", reviewer["name"]))
-		self.assertFalse(permissions.has_grievance_permission(draft, "read", reviewer["name"]))
 		for ptype in ("write", "create", "delete", "submit", "cancel"):
 			self.assertFalse(permissions.has_grievance_permission(mine, ptype, reviewer["name"]))
 
@@ -415,13 +413,12 @@ class TestReviewerOnTheDesk(RoleCase):
 		frappe.set_user("Administrator")
 		self.assertIn(mine.name, names)
 		self.assertNotIn(elsewhere.name, names)
-		self.assertNotIn(draft.name, names)
 
 	def test_a_reviewer_who_was_never_placed_keeps_oversight_of_every_filed_case(self):
 		loose = _user(f"{PREFIX}loose@example.com", "Loose Reviewer", role=C.ROLE_REVIEW_OFFICER)
 		case = a_grievance(assigned_dept=self.other_department)
 		self.assertTrue(permissions.has_grievance_permission(case, "read", loose))
-		self.assertEqual(permissions.grievance_query_conditions(loose), "(`tabGrievance`.docstatus != 0)")
+		self.assertEqual(permissions.grievance_query_conditions(loose), "(1 = 1)")
 
 	def test_a_reviewer_with_every_desk_retired_reads_nothing(self):
 		reviewer = self._reviewer(service_categories=[a_service_category()])

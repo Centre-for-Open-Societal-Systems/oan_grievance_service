@@ -64,7 +64,7 @@ class ListOfficerStatistics(PageParams, Body):
 	summary="List officer statistics",
 	description="Per-officer grievances assigned, grievances resolved, average resolution time "
 	+ "in hours and resolution rate (percent), for L1 and L2 officers staffing an active RBAC desk. "
-	+ "Computed live from Grievance on every call. Assigned counts grievances past Draft currently "
+	+ "Computed live from Grievance on every call. Assigned counts grievances currently "
 	+ "assigned to the officer, scoped to the department when one is given. Resolved counts those at Resolved or Closed. Average resolution time "
 	+ "runs from creation to resolution and is null until the officer has resolved a case.",
 	tags=["Administration"],

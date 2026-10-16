@@ -474,12 +474,6 @@ class TestLegacyFilesGoThroughTheGate(AttachmentAPITestCase):
 			}
 		).insert(ignore_permissions=True)
 
-	def test_the_draft_listing_no_longer_invents_a_clean_verdict(self):
-		from oan_grievance_service.api.v1 import draft
-
-		self._legacy_file()
-		self.assertEqual(draft._attachments(self.grievance.name), [])
-
 	def test_the_patch_folds_a_legacy_file_into_a_pending_row(self):
 		from oan_grievance_service.patches.link_attachments_to_files import execute
 

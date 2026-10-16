@@ -114,7 +114,7 @@ def a_grievance(**overrides):
 	"""
 	values = {
 		"doctype": "Grievance",
-		"workflow_state": C.STATE_DRAFT,
+		"workflow_state": C.STATE_SUBMITTED,
 		"submission_channel": "Web Portal",
 		"submitter_type": a_submitter_type(),
 		"submitter_name": "Test Submitter",
@@ -127,30 +127,15 @@ def a_grievance(**overrides):
 		"consent_recorded_at": now_datetime(),
 	}
 	values.update(overrides)
-	doc = frappe.get_doc(values).insert(ignore_permissions=True)
-
-	# A Draft is the moment between insert and the Submit action. A test wanting
-	# a case at Draft says so; every other test gets a submitted grievance, which
-	# is what "a grievance" means everywhere else in the app. Routing is the
-	# intake API's step, not the workflow's, so the fixture stays at Submitted.
-	if doc.docstatus == 0 and "workflow_state" not in overrides:
-		from oan_grievance_service.services import lifecycle
-
-		lifecycle.transition(doc, "Submit")
-	return doc
+	# Routing is the intake API's step, not the workflow's, so the fixture stays at
+	# Submitted unless a test asks for another state.
+	return frappe.get_doc(values).insert(ignore_permissions=True)
 
 
 def discard_grievance(name):
-	"""Remove a grievance a test made, submitted or not.
-
-	Every state past Draft is a submitted document and Frappe refuses to delete
-	one, `force` or not; cancelling it instead would be a workflow move with a
-	history row and a reason to justify. A test tidying up wants neither, so the
-	docstatus is reset straight in the table first. Test-only, by design.
-	"""
+	"""Remove a grievance a test made."""
 	if not frappe.db.exists("Grievance", name):
 		return
-	frappe.db.set_value("Grievance", name, "docstatus", 0, update_modified=False)
 	frappe.delete_doc("Grievance", name, force=True, ignore_permissions=True)
 
 
@@ -177,7 +162,9 @@ def a_submitter_type():
 	if _CACHED_SUBMITTER_TYPE and frappe.db.exists("Grievance Submitter Type", _CACHED_SUBMITTER_TYPE):
 		return _CACHED_SUBMITTER_TYPE
 
-	existing = frappe.db.get_value("Grievance Submitter Type", {}, "name")
+	existing = frappe.db.get_value(
+		"Grievance Submitter Type", {"type_name": "Individual Farmer", "is_active": 1}, "name"
+	) or frappe.db.get_value("Grievance Submitter Type", {"is_active": 1}, "name")
 	if existing:
 		_CACHED_SUBMITTER_TYPE = existing
 		return existing

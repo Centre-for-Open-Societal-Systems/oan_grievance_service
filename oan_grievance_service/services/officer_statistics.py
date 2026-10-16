@@ -7,10 +7,8 @@ Nothing here is stored. The roster (who is an L1 or L2 officer) comes from the o
 rows of active Grievance RBAC Assignments. The numbers come from one aggregate over
 Grievance per page of officers:
 
-- assigned: grievances past Draft whose `assigned_to` is the officer right now. A case
-  moved to another officer counts for the new one only. Closed and Rejected cases are
-  docstatus 2 in the workflow, so Draft is excluded by state of the document, never by
-  `docstatus == 1`, which would drop every closed case.
+- assigned: grievances whose `assigned_to` is the officer right now. A case moved to
+  another officer counts for the new one only.
 - resolved: those of them now at Resolved or Closed.
 - avg_resolution_hours: mean of creation to `resolved_at` over the resolved ones, the same
   clock the dashboard rollups use. None while the officer has resolved nothing.
@@ -89,7 +87,7 @@ def statistics_for(users: list[str], department: str | None = None) -> dict[str,
 			Sum(Case().when(is_resolved, 1).else_(0)).as_("resolved"),
 			(Avg(Case().when(is_resolved & G.resolved_at.notnull(), seconds)) / 3600).as_("avg_hours"),
 		)
-		.where((G.docstatus != 0) & G.assigned_to.isin(users))
+		.where(G.assigned_to.isin(users))
 		.groupby(G.assigned_to)
 	)
 	if department:

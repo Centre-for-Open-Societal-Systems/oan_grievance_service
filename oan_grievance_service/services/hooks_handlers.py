@@ -13,7 +13,7 @@ from oan_grievance_service.services import notifications, sla
 
 # Workflow moves
 # --------------
-# Frappe's engine drives a move by saving, submitting or cancelling the Grievance, so
+# Frappe's engine drives a move by saving the Grievance, so
 # the Grievance controller calls `after_workflow_action` once the new
 # state is written.
 

@@ -12,11 +12,17 @@ This document defines the architectural conventions, decorator pipeline, request
    - Breaking changes (field renaming, type changes, narrowing constraints) require opening a new version package (`v2/`).
    - Never modify or break an existing released version.
 3. **Consistent Response Envelopes:** Every endpoint returns standard responses via `success_response()`, with version metadata (`meta`) and request IDs automatically attached by `@handle_api_errors`.
+   - **Writes return the case as it now stands.** Every endpoint that writes to a grievance returns `current_state` (from `_current_state()`), and `timeline_event` when it adds a timeline entry (from `_timeline_event_with()`, in the shape `GET /timeline` lists it, attachments included). Change-request-backed endpoints answer through `_change_response()`. A client updates its detail view, timeline and list row from the response without a follow-up GET. Status card counts (`/summary`) are the exception: the client adjusts them from the old and new `status` or refetches `/summary`.
 4. **Auditable & Non-Bypassing:** All operations that mutate DocType state must route through standard Frappe document methods or service hooks so workflow guards, audit trails, and status histories are preserved.
 
 ---
 
 ## 2. Directory Structure & URL Mapping
+
+> **Public URLs drop `/api`.** Clients call `/v1/...` on the gateway; APISIX rewrites it to
+> the `/api/v1/...` routes declared here. Declare routes under `/api/v1/...` (Frappe only
+> dispatches `/api/` paths), but document and share the `/v1/...` form. Never register
+> `/v1` aliases in the app. Full rules: `oan_auth_service/docs/API_CONVENTIONS.md`.
 
 Endpoints support two transports:
 

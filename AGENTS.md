@@ -59,6 +59,8 @@ oan_grievance_service/
 
 > Refer to [`docs/api-development-standards.md`](docs/api-development-standards.md) for the complete REST API development standards, decorator pipeline execution order, Pydantic validation rules, and error envelope specifications.
 
+> **URL convention (all OAN apps):** routes are declared under `/api/v1/...`; the public contract and all client-facing docs use `/v1/...`, which the APISIX gateway rewrites. Do not add `/v1` aliases in the app. New endpoints also need a tier in `apisix/generate_apisix_config_from_spec.py`. See `oan_auth_service/docs/API_CONVENTIONS.md`.
+
 ### Layer Boundaries & Separation of Concerns
 
 - **API Handlers (`api/v1/`)**: Act strictly as HTTP gateways. They perform route handling, authentication, request schema parsing/validation, call domain services, and return standard JSON response envelopes. **Never write raw database queries or core business logic inside API handlers.**
@@ -127,7 +129,7 @@ Whenever you add, modify, or deprecate an API endpoint:
 
 - **DocType Unit Tests (`doctype/<name>/test_<name>.py`)**: Keep a single colocated test file per DocType for document-level field validations (`validate()`), link integrity, and direct lifecycle hooks. **Do not create multiple scattered test files inside a DocType directory** (e.g., avoid `test_list_*.py`, `test_timeline_*.py` inside `doctype/`).
 - **Domain & API Integration Suites (`tests/`)**: High-level cross-cutting tests (API endpoints, routing, SLA engine, workflow contracts, background tasks) belong in `oan_grievance_service/tests/` (e.g., `test_router.py`, `test_sla_engine.py`, `test_workflow_contracts.py`).
-- **No PR-Specific Test Files**: **Never create one-off test files named after pull requests or review tickets** (e.g. `test_pr19_review_fixes.py`). Place regression test cases directly into the appropriate domain test file (`test_router.py`, `test_draft.py`, etc.).
+- **No PR-Specific Test Files**: **Never create one-off test files named after pull requests or review tickets** (e.g. `test_pr19_review_fixes.py`). Place regression test cases directly into the appropriate domain test file (`test_router.py`, `test_workflow_contracts.py`, etc.).
 
 ### 7.2. Test Scenarios to Cover
 
