@@ -10,18 +10,7 @@ The grievance SLA clock moves through distinct formal states driven purely by li
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft_Intake: Ticket Ingested / Created
-
-    state Draft_Intake {
-        [*] --> Unsubmitted
-        Unsubmitted --> Reassigned_Pre_Submit: Reassign / Correct Jurisdiction<br>(Allowed ONLY Before Submit)
-        Reassigned_Pre_Submit --> Unsubmitted
-      note right of Unsubmitted
-        SLA Clock = INACTIVE (0 Hours Elapsed)
-      end note
-    }
-
-    Draft_Intake --> Submitted: Formal Submission by Citizen / Officer
+    [*] --> Submitted: Filed by Citizen / Officer (one request, no draft stage)
 
     state Submitted {
         [*] --> Active_Investigation
@@ -153,7 +142,7 @@ graph TD
 
 ## 7. Reassignment & Escalation Rules Summary
 
-1. **Pre-Submit Only Reassignment**: Reassignment (changing `administrative_area`, `category`, or officer) is allowed **only before formal submission** (`Draft` stage), while the clock is inactive.
+1. **Jurisdiction Is Set at Intake**: There is no draft stage. A case is filed straight into `Submitted` with the area and category given at intake; later changes to department, officer or category go through an approved change request.
 2. **Lock Upon Submission**: Once `Submitted`, the assigned officer owns the investigation. No lateral mid-investigation handoffs occur.
 3. **Breach Escalation — follows the reporting chain, not the area tree**: If the officer fails to resolve within `resolution_by`, the case escalates to `assigned_to.grievance_reports_to` — the assignee's own supervisor — with a fresh escalation timer. Geography is respected by construction, because a supervisor's administrative area must be an ancestor of (or equal to) their officer's area. See §10.
 4. **Vertical Only**: Escalation ascends the reporting chain and remand descends the same chain. There is no sideways move. A case misrouted to the wrong woreda after submission travels up to the common ancestor and back down, which costs extra hops but leaves a complete audit trail.
@@ -213,7 +202,7 @@ When a grievance is formally `Submitted`, Frappe resolves which SLA policy appli
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                CUSTOM GRIEVANCE SLA LAYER                                   │
-│  • SLA Start Gate on Formal 'Submitted' Transition (Inactive in Draft)                      │
+│  • SLA Start Gate on Assignment to a Department                                             │
 │  • 15-Day Citizen Clarification Protocol (Reminders on Day 7, 12; Auto-Close on Day 15)     │
 │  • Pre-Breach Early Warnings (Amber Alerts at 75% & 90% SLA thresholds)                     │
 │  • Dedicated 5-Working-Day Appellate Review SLA Window                                      │

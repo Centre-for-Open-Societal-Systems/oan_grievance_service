@@ -120,8 +120,6 @@ class TestDashboardCharts(FrappeTestCase):
 			C.STATE_CLOSED, resolved_at=now, sla_due_date=add_to_date(now, days=-1), satisfaction_rating=2
 		)
 		cls.rejected = case(C.STATE_REJECTED)
-		cls.draft = a_grievance(workflow_state=C.STATE_DRAFT).name
-		cls.created.append(cls.draft)
 
 		cls.refreshed = dashboard_rollup.refresh()
 		cls.after = {"kpis": _kpis(), "statuses": _statuses(), "risk": _risk(), "feedback": _feedback()}
@@ -148,9 +146,8 @@ class TestDashboardCharts(FrappeTestCase):
 		# Other tests refresh too, so as_of is at least this run's.
 		self.assertGreaterEqual(dashboard_rollup.as_of(), self.refreshed["as_of"])
 
-	def test_total_counts_every_state_but_draft(self):
-		# Every fixture but the draft.
-		self.assertEqual(self.delta("kpis", "total"), len(set(self.created)) - 1)
+	def test_total_counts_every_state(self):
+		self.assertEqual(self.delta("kpis", "total"), len(set(self.created)))
 
 	def test_awaiting_action_is_submitted_assigned_and_in_progress_only(self):
 		awaiting = sum(self.delta("statuses", s) for s in sla.awaiting_action_states())
@@ -403,7 +400,7 @@ class TestResolutionAndEscalationStamps(FrappeTestCase):
 
 
 class TestGatewayContract(FrappeTestCase):
-	"""What Kong is told about the charts: the dashboards' key, never a user token."""
+	"""What the gateway is told about the charts: the dashboards' key, never a user token."""
 
 	def _root(self):
 		import os
@@ -414,8 +411,8 @@ class TestGatewayContract(FrappeTestCase):
 		import importlib.util
 		import os
 
-		path = os.path.join(self._root(), "kong", "generate_kong_config_from_spec.py")
-		spec = importlib.util.spec_from_file_location("grievance_kong_generator", path)
+		path = os.path.join(self._root(), "apisix", "generate_apisix_config_from_spec.py")
+		spec = importlib.util.spec_from_file_location("grievance_apisix_generator", path)
 		module = importlib.util.module_from_spec(spec)
 		spec.loader.exec_module(module)
 		return module
@@ -428,22 +425,33 @@ class TestGatewayContract(FrappeTestCase):
 		with open(os.path.join(self._root(), "openapi", "openapi_v1.public.yaml")) as f:
 			spec = yaml.safe_load(f)
 		for chart_id in dashboard.PUBLIC_CHARTS:
-			operation = spec["paths"][f"/api/v1/charts/{chart_id}"]["get"]
+			operation = spec["paths"][f"/v1/charts/{chart_id}"]["get"]
 			self.assertEqual(operation["security"], [{"FrappeTokenAuth": []}], chart_id)
-		self.assertEqual(spec["paths"]["/api/v1/charts"]["get"]["security"], [{"BearerAuth": []}])
+		self.assertEqual(spec["paths"]["/v1/charts"]["get"]["security"], [{"BearerAuth": []}])
 		self.assertEqual(spec["components"]["securitySchemes"]["FrappeTokenAuth"]["name"], "Authorization")
 
-	def test_kong_passes_the_frappe_token_through_on_the_charts(self):
+	def test_gateway_passes_the_frappe_token_through_on_the_charts(self):
 		generator = self._generator()
+		gw = generator.gw
+		spec = gw.load_spec(generator.SPEC_PATH)
 		routes = [
-			{**r, "tier": generator.TIER_OVERRIDES[(r["method"], r["path"])]}
-			for r in generator.spec_routes(generator.load_spec(generator.SPEC_PATH))
-			if r["path"].startswith("/api/v1/charts/")
+			r
+			for r in gw.reconcile(gw.spec_routes(spec), generator.TIER_OVERRIDES)
+			if r["path"].startswith("/v1/charts/")
 		]
 		self.assertEqual({r["auth"] for r in routes}, {"frappe-token"})
-		config = generator.build_config(routes)
-		for route in config["services"][0]["routes"]:
-			plugins = {p["name"]: p["config"] for p in route["plugins"]}
-			self.assertEqual(set(plugins), {"rate-limiting"})
-			self.assertEqual(plugins["rate-limiting"]["limit_by"], "ip")
-		self.assertNotIn("oan-dashboards", {c["username"] for c in config["consumers"]})
+		doc = gw.build_document(
+			routes,
+			app=generator.APP,
+			tiers=generator.TIERS,
+			api_upstream=generator.API_UPSTREAM,
+			service_plugins={},
+		)
+		# Frappe checks the key; the gateway only limits by address and adds no auth.
+		for route in doc["services"][0]["routes"]:
+			if route["methods"] == ["OPTIONS"]:
+				continue
+			self.assertEqual(set(route["plugins"]), {"limit-count"})
+			for rule in route["plugins"]["limit-count"]["rules"]:
+				self.assertTrue(rule["key"].startswith("$remote_addr:"))
+		self.assertNotIn("consumers", doc)

@@ -11,9 +11,7 @@ This document defines the operational path architecture for the **Grievance Redr
 ```mermaid
 graph TD
     subgraph "1. Intake — clock stopped"
-        Draft["📝 Case in Draft"] --> Correct["Jurisdiction & department correction<br>(free, unlimited, audited)"]
-        Correct --> Draft
-        Draft --> IN["📥 Submitted — SLA clock starts"]
+        Intake["📝 Intake form"] --> IN["📥 Submitted — filed in one request"]
     end
 
     subgraph "2. Routing"
@@ -117,11 +115,9 @@ graph TD
 5. **SLA Initialisation**: Compute `due_at` and the milestone deadlines from the matched policy and calendar, and write the `case_timers` rows that will fire them.
 6. **Asynchronous**: All of the above runs in an enqueued job after the submission is persisted and acknowledged. The submitter's request does not wait on routing, and a routing failure leaves the case in the nodal triage queue rather than losing it.
 
-#### Before submission: jurisdiction correction
+#### At intake: jurisdiction is set once
 
-While a case is in draft, its area, category and department are freely correctable by the intake officer — no approval, no limit, no SLA consequence, because the clock has not started. Each correction is an ordinary audited change, captured by `audit_log` and, once an assignment exists, by the `grievance_assignments` history. There is no separate request-and-approve workflow, because there is nothing to approve: no citizen is waiting on a clock and no officer has been made to own work they cannot do.
-
-This is the design's answer to misrouting, and it is why nothing downstream needs a lateral transfer. It also places the burden correctly — getting jurisdiction right is intake's job, and doing it at intake costs one form change instead of a two-party approval on a running clock.
+There is no draft stage. A case is filed straight into Submitted with the area and category the intake form collected, so getting jurisdiction right is intake's job. A correction after filing is a Grievance Change Request: requested, approved, and recorded.
 
 ---
 

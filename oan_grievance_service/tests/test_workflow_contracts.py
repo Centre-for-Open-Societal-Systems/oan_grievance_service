@@ -66,7 +66,7 @@ class WorkflowTestCase(FrappeTestCase):
 
 	def _state(self):
 		return frappe.db.get_value(
-			"Grievance", self.grievance.name, ["workflow_state", "status", "docstatus"], as_dict=True
+			"Grievance", self.grievance.name, ["workflow_state", "status"], as_dict=True
 		)
 
 	def _at_in_progress(self):
@@ -103,21 +103,10 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 	def test_the_code_keeps_no_transition_table_of_its_own(self):
 		self.assertFalse(hasattr(lifecycle, "change_status"))
 
-	def test_a_case_enters_at_draft_and_every_later_state_is_a_submitted_document(self):
+	def test_a_case_enters_at_submitted_and_no_state_is_a_submitted_document(self):
 		wf = workflow()
-		self.assertEqual(wf.states[0].state, "Draft")
-		docstatus = {row.state: row.doc_status for row in wf.states}
-		self.assertEqual(docstatus["Draft"], "0")
-		self.assertEqual(docstatus["Rejected"], "2")
-		self.assertEqual(docstatus["Closed"], "2")
-		for state in (
-			"Submitted",
-			"Assigned",
-			"In Progress",
-			"More Info Needed",
-			"Resolved",
-		):
-			self.assertEqual(docstatus[state], "1", state)
+		self.assertEqual(wf.states[0].state, "Submitted")
+		self.assertEqual({row.doc_status for row in wf.states}, {"0"})
 
 	def test_closed_and_rejected_have_no_way_out(self):
 		leaving = {row.state for row in workflow().transitions}
@@ -139,15 +128,11 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 
 class TestTheEngineMovesTheCase(WorkflowTestCase):
 	def test_a_fixture_grievance_is_submitted(self):
-		self.assertEqual(
-			self._state(), {"workflow_state": "Submitted", "status": "Submitted", "docstatus": 1}
-		)
+		self.assertEqual(self._state(), {"workflow_state": "Submitted", "status": "Submitted"})
 
 	def test_status_mirrors_workflow_state_on_every_move(self):
 		self._at_in_progress()
-		self.assertEqual(
-			self._state(), {"workflow_state": "In Progress", "status": "In Progress", "docstatus": 1}
-		)
+		self.assertEqual(self._state(), {"workflow_state": "In Progress", "status": "In Progress"})
 
 	def test_the_desk_button_and_the_service_call_are_the_same_move(self):
 		doc = self._saved()
@@ -172,7 +157,7 @@ class TestTheEngineMovesTheCase(WorkflowTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			doc.save(ignore_permissions=True)
 
-	def test_what_the_submitter_filed_is_frozen_by_submission(self):
+	def test_what_the_submitter_filed_is_frozen_once_filed(self):
 		doc = self._saved()
 		doc.description = "An edited description, still well past the twenty character minimum."
 		with self.assertRaises(frappe.ValidationError):
@@ -181,16 +166,16 @@ class TestTheEngineMovesTheCase(WorkflowTestCase):
 	def test_a_closed_case_is_read_only_everywhere(self):
 		self._at_pending_submitter()
 		lifecycle.transition(self._saved(), "Close Case", confirmed=True)
-		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed", "docstatus": 2})
+		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed"})
 		self.assertEqual(get_transitions(self._saved()), [])
 
-	def test_a_rejected_case_is_a_cancelled_document(self):
+	def test_a_rejected_case_is_final(self):
 		lifecycle.transition(
 			self._saved(),
 			"Reject",
 			reason="Out of scope: not an agricultural service.",
 		)
-		self.assertEqual(self._state(), {"workflow_state": "Rejected", "status": "Rejected", "docstatus": 2})
+		self.assertEqual(self._state(), {"workflow_state": "Rejected", "status": "Rejected"})
 		self.assertEqual(get_transitions(self._saved()), [])
 
 
@@ -268,9 +253,7 @@ class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 		before = len(history(self.grievance.name))
 		with self.assertRaises(frappe.ValidationError):
 			lifecycle.transition(self._saved(), "Reject")
-		self.assertEqual(
-			self._state(), {"workflow_state": "Submitted", "status": "Submitted", "docstatus": 1}
-		)
+		self.assertEqual(self._state(), {"workflow_state": "Submitted", "status": "Submitted"})
 		self.assertEqual(len(history(self.grievance.name)), before)
 
 	def test_a_whitespace_reason_is_no_reason(self):
@@ -310,7 +293,7 @@ class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
 	def test_every_move_writes_a_row_that_chains_to_the_last(self):
 		self._at_pending_submitter()
 		rows = history(self.grievance.name)
-		self.assertEqual([r.to_status for r in rows], ["Submitted", "Assigned", "In Progress", "Resolved"])
+		self.assertEqual([r.to_status for r in rows], ["Assigned", "In Progress", "Resolved"])
 		self.assertEqual(rows[0].prev_hash, "0" * 64)
 		for earlier, later in pairwise(rows):
 			self.assertEqual(later.prev_hash, earlier.row_hash)
@@ -340,7 +323,7 @@ class TestContractFourTheHistoryIsAHashChain(WorkflowTestCase):
 	def test_every_move_writes_a_status_history_record(self):
 		self._at_in_progress()
 		hist_count = len(history(self.grievance.name))
-		self.assertGreaterEqual(hist_count, 3)
+		self.assertGreaterEqual(hist_count, 2)
 
 	def test_an_automated_move_names_no_user(self):
 		self._at_pending_submitter()

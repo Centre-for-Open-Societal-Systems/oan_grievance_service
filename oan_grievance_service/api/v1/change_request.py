@@ -324,7 +324,8 @@ def decide(name: str, decision: str, note: str | None = None, **kwargs):
 	req.status = decision
 	req.decision_note = (note or "").strip() or None
 	req.save(ignore_permissions=True)
-	return success_response(
-		data=serialize(req),
-		message=_("Change request {0}").format(_(req.status).lower()),
-	)
+
+	from oan_grievance_service.api.v1.grievance import _change_response
+
+	message = _("Change request {0}").format(_(req.status).lower())
+	return _change_response(frappe.get_doc("Grievance", req.grievance), req, message, message)

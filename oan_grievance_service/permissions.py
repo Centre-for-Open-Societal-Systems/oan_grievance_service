@@ -136,7 +136,7 @@ def _scope_clauses(scopes):
 				)
 
 		if include_parts:
-			clauses.append("(`tabGrievance`.docstatus != 0 and " + " and ".join(include_parts) + ")")
+			clauses.append("(" + " and ".join(include_parts) + ")")
 	return clauses
 
 
@@ -184,14 +184,14 @@ def _is_placed(user):
 
 
 def _reviewer_clause(user):
-	"""What a Review Officer reads: the cases in their desks' scopes, never an unsent draft.
+	"""What a Review Officer reads: the cases in their desks' scopes.
 
 	A reviewer placed on a department's desks reads that department's cases only, and loses
 	access when every desk is retired. One who was never placed on a desk keeps the oversight
 	of every filed case that Review Officers had before desks were assigned to them.
 	"""
 	if not _is_placed(user):
-		return "`tabGrievance`.docstatus != 0"
+		return "1 = 1"
 	scoped = _scope_clauses(active_scopes(user))
 	return "(" + " or ".join(scoped) + ")" if scoped else "1 = 0"
 
@@ -203,7 +203,7 @@ def grievance_query_conditions(user=None):
 	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
 	- Admins see all cases.
 	- Review Officers see the cases in the scopes of the desks they are placed on, and every
-	  case that has left Draft if they were never placed on one.
+	  case if they were never placed on one.
 	"""
 	user = user or frappe.session.user
 	roles = set(frappe.get_roles(user))
@@ -213,7 +213,6 @@ def grievance_query_conditions(user=None):
 
 	clauses = []
 
-	# Oversight reads every filed case but never someone's unsent draft.
 	if ROLE_REVIEW_OFFICER in roles:
 		clauses.append(_reviewer_clause(user))
 
@@ -230,9 +229,7 @@ def grievance_query_conditions(user=None):
 	if ROLE_OFFICER in roles:
 		scope_clauses = _scope_clauses(active_scopes(user))
 		team = get_subordinate_officers(user)
-		scope_clauses.append(
-			f"(`tabGrievance`.assigned_to in ({_quote(team)}) and `tabGrievance`.docstatus != 0)"
-		)
+		scope_clauses.append(f"`tabGrievance`.assigned_to in ({_quote(team)})")
 		clauses.append("(" + " or ".join(scope_clauses) + ")")
 
 	if not clauses:
@@ -248,7 +245,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if roles & UNRESTRICTED_ROLES:
 		return True
 
-	if ROLE_REVIEW_OFFICER in roles and ptype == "read" and int(doc.get("docstatus") or 0) != 0:
+	if ROLE_REVIEW_OFFICER in roles and ptype == "read":
 		if not _is_placed(user) or _scope_covers(doc, active_scopes(user)):
 			return True
 
@@ -256,17 +253,15 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		owner = doc.get("owner")
 		submitter = doc.get("submitter")
 		assisted = doc.get("assisted_by_officer")
-		docstatus = doc.get("docstatus")
 		owns = (bool(submitter) and submitter in profiles_of(user)) or (bool(owner) and owner == user)
 		if owns or assisted == user:
 			if ptype == "read":
 				return True
-			return ptype == "write" and int(docstatus or 0) != 2
+			from oan_grievance_service.services.sla import terminal_states
+
+			return ptype == "write" and doc.get("workflow_state") not in terminal_states()
 
 	if ROLE_OFFICER not in roles:
-		return False
-
-	if int(doc.get("docstatus") or 0) == 0:
 		return False
 
 	team = get_subordinate_officers(user)

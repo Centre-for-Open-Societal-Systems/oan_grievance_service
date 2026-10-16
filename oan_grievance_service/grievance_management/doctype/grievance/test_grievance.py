@@ -5,7 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.api.v1 import draft
+from oan_grievance_service.api.v1 import grievance as grievance_api
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
 	_resolve_submitter_identity,
@@ -406,12 +406,13 @@ class TestGrievance(FrappeTestCase):
 		discard_grievance(g.name)
 
 	def test_can_file_grievance_at_woreda_level_via_api(self):
-		"""Draft save & submit accepts woreda area and optional kebele free text."""
+		"""Submit accepts woreda area and optional kebele free text."""
 		import uuid
 
 		u = str(uuid.uuid4())
-		save_res = draft.save(
+		res = grievance_api.submit(
 			client_submission_uuid=u,
+			consent_given=1,
 			submitter_type="Individual Farmer",
 			submitter_name="Tesfaye",
 			contact_mobile="+251911334455",
@@ -422,8 +423,6 @@ class TestGrievance(FrappeTestCase):
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
 		)
-		self.assertEqual(save_res["status"], "success")
-		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
 		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
@@ -436,8 +435,9 @@ class TestGrievance(FrappeTestCase):
 		import uuid
 
 		u = str(uuid.uuid4())
-		save_res = draft.save(
+		res = grievance_api.submit(
 			client_submission_uuid=u,
+			consent_given=1,
 			submitter_type="Individual Farmer",
 			submitter_name="Tesfaye",
 			contact_mobile="+251911334455",
@@ -448,8 +448,6 @@ class TestGrievance(FrappeTestCase):
 			grievance_type=self.gtype_doc.name,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
 		)
-		self.assertEqual(save_res["status"], "success")
-		res = draft.submit_draft(client_submission_uuid=u, consent_given=1)
 		self.assertEqual(res["status"], "success")
 		ticket = res["data"]["ticket_number"]
 		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
@@ -680,12 +678,12 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 
 	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
 		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
-		from oan_grievance_service.api.v1.draft import SubmitDraftRequest
+		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
 		from oan_grievance_service.services.identity import validate_mobile
 
 		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
-		req = SubmitDraftRequest(
-			client_submission_uuid="test-draft-uuid",
+		req = SubmitGrievanceRequest(
+			client_submission_uuid="test-submission-uuid",
 			submission_channel="Mobile App",
 			administrative_area="placeholder-area",
 			service_category="Inputs",
@@ -785,7 +783,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		dept_names = [d["department_name"] for d in data["departments"]]
 		self.assertIn("Test Agri Dept", dept_names)
 
-		# Queue statuses only. Draft and other workflow stages are not options.
+		# Queue statuses only. Workflow stages that are not cards are not options.
 		# Officers get an Assigned card; submitters do not.
 		self.assertIn("statuses", data)
 		status_names = [s["status"] for s in data["statuses"]]
@@ -824,50 +822,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertEqual(res.get("code"), "PERMISSION_DENIED")
 		self.assertEqual(frappe.response.get("http_status_code"), 403)
 
-	def test_detect_duplicates_excludes_drafts(self):
-		"""detect_duplicates must not count existing drafts as duplicates."""
-		from oan_grievance_service.api.v1 import grievance
-
-		area = a_leaf_area()
-		gtype = a_grievance_type()
-
-		draft_key = frappe.generate_hash(length=16)
-		draft_doc = frappe.get_doc(
-			{
-				"doctype": "Grievance",
-				"name": f"DRAFT-{draft_key}",
-				"client_submission_uuid": draft_key,
-				"submitter_name": "Test Submitter",
-				"grievance_type": gtype,
-				"workflow_state": "Draft",
-				"status": "Draft",
-				"docstatus": 0,
-			}
-		)
-		draft_doc.flags.is_draft_wizard = True
-		draft_doc.flags.ignore_mandatory = True
-		draft_doc.insert(ignore_permissions=True)
-		self.addCleanup(discard_grievance, draft_doc.name)
-
-		target_doc = frappe.get_doc(
-			{
-				"doctype": "Grievance",
-				"administrative_area": area,
-				"service_category": "Inputs",
-				"submitter_name": "Test Submitter",
-				"grievance_type": gtype,
-				"workflow_state": "Submitted",
-				"status": "Submitted",
-				"docstatus": 1,
-			}
-		)
-		target_doc.flags.ignore_mandatory = True
-		target_doc.insert(ignore_permissions=True)
-		self.addCleanup(discard_grievance, target_doc.name)
-
-		duplicates = grievance.detect_duplicates(target_doc)
-		self.assertEqual(len(duplicates), 0)
-
 	def test_actions_and_notes_require_assigned_officer_or_admin(self):
 		"""Officers cannot act on or add notes to cases assigned to other officers."""
 		from oan_grievance_service.api.v1 import grievance
@@ -904,7 +858,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				"assigned_to": officer_a_email,
 				"workflow_state": "In Progress",
 				"status": "In Progress",
-				"docstatus": 1,
 			}
 		)
 		case.flags.ignore_mandatory = True
@@ -946,7 +899,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				"assigned_to": self.officer_user.name,
 				"workflow_state": "In Progress",
 				"status": "In Progress",
-				"docstatus": 1,
 			}
 		)
 		anon_case.flags.ignore_mandatory = True
