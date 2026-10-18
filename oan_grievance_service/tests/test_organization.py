@@ -629,16 +629,6 @@ class TestFilingRights(OrganizationTestCase):
 			# No profile of their own: the org's is not reachable by naming it.
 			_resolve_submitter_identity({"submitter": org_profile})
 
-	def test_intake_by_phone_never_lands_on_an_organizations_profile(self):
-		from oan_grievance_service.services.identity import find_or_create_submitter
-
-		org = self.register()["data"]
-		found = find_or_create_submitter(
-			{"submitter_type": "Individual Farmer", "contact_mobile": org["contact_phone"]}
-		)
-		self.assertNotEqual(found, self.profile_of(self.rep).name)
-		self.assertIsNone(frappe.db.get_value(PROFILE, found, "organization"))
-
 	def test_profiles_without_an_organization_are_unaffected(self):
 		farmer = frappe.get_doc(
 			{

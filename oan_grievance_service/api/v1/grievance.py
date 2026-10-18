@@ -73,6 +73,8 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 
 	submitter_type: str | None = None
 	submitter_name: str | None = None
+	submitter: str | None = None
+	fayda_id: str | None = None
 	contact_mobile: str | None = None
 	country_code: str | None = None
 	phone_number: str | None = None
@@ -87,7 +89,6 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	desired_outcome: str | None = None
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
-	anonymity_justification: str | None = None
 	client_submission_uuid: str | None = None
 	client_uuid: str | None = None
 
@@ -392,7 +393,12 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 	return matches[0] if matches else ""
 
 
-@route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
+@route(
+	"",
+	methods=("GET",),
+	summary="List grievances with filtering, pagination, and sorting",
+	tier="officer-core",
+)
 @validate_request(ListGrievancesRequest)
 @handle_api_errors
 @require_permission("Grievance", "read")
@@ -786,7 +792,7 @@ def _current_state(doc, extra=None):
 	return state
 
 
-@route("", methods=("POST",), summary="Submit a new grievance")
+@route("", methods=("POST",), summary="Submit a new grievance", tier="citizen-intake")
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_permission("Grievance", "create")
@@ -858,22 +864,14 @@ def submit(**kwargs):
 	doc.contact_email = kwargs.get("contact_email")
 
 	profile_fields = ("submitter_type", "submitter_name", "contact_mobile", "contact_email")
-	try:
-		ident = _resolve_submitter_identity({})
-	except Exception:
-		ident = {}
+	ident = _resolve_submitter_identity({"submitter": kwargs.get("submitter")})
+	if not ident.get("submitter") and ident.get("assisted_by_officer") and kwargs.get("fayda_id"):
+		linked = identity.find_or_create_submitter({**doc.as_dict(), "fayda_id": kwargs.get("fayda_id")})
+		ident = _resolve_submitter_identity({"submitter": linked})
 	if ident.get("submitter"):
 		doc.submitter = ident["submitter"]
 		for fieldname in profile_fields:
 			doc.set(fieldname, ident.get(fieldname) or doc.get(fieldname))
-	else:
-		doc.submitter = identity.find_or_create_submitter(doc.as_dict())
-		if doc.submitter:
-			profile = frappe.db.get_value(
-				"Grievance Submitter Profile", doc.submitter, profile_fields, as_dict=True
-			)
-			for fieldname in profile_fields:
-				doc.set(fieldname, doc.get(fieldname) or (profile or {}).get(fieldname))
 	doc.assisted_by_officer = ident.get("assisted_by_officer")
 	doc.submitter_type = doc.submitter_type or "Individual Farmer"
 
@@ -1147,7 +1145,12 @@ _ACTION_ENTRY_TYPES = {
 }
 
 
-@route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
+@route(
+	"/<ticket_number>/action",
+	methods=("POST",),
+	summary="Execute a workflow action on a grievance",
+	tier="citizen-intake",
+)
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -1324,7 +1327,10 @@ def _ensure_department(doc):
 
 
 @route(
-	"/<ticket_number>/feedback", methods=("POST",), summary="Submit citizen feedback / satisfaction rating"
+	"/<ticket_number>/feedback",
+	methods=("POST",),
+	summary="Submit citizen feedback / satisfaction rating",
+	tier="citizen-intake",
 )
 @validate_request(GrievanceFeedbackRequest)
 @handle_api_errors
@@ -1383,7 +1389,12 @@ def feedback(
 	)
 
 
-@route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
+@route(
+	"/<ticket_number>/timeline",
+	methods=("GET",),
+	summary="Get grievance timeline and thread details",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def timeline(
@@ -1625,6 +1636,7 @@ def timeline(
 	"/<ticket_number>/message",
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
+	tier="citizen-intake",
 )
 @validate_request(PostMessageRequest)
 @handle_api_errors
@@ -1726,7 +1738,12 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 	)
 
 
-@route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
+@route(
+	"/<ticket_number>/reassign",
+	methods=("POST",),
+	summary="Reassign grievance department and officer",
+	tier="officer-core",
+)
 @validate_request(ReassignGrievanceRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1785,6 +1802,7 @@ class DecideReassignmentRequest(BaseModel):
 	"/<ticket_number>/reassign/decide",
 	methods=("POST",),
 	summary="Approve or reject a pending reassignment request",
+	tier="officer-core",
 )
 @validate_request(DecideReassignmentRequest)
 @handle_api_errors
@@ -1802,7 +1820,12 @@ def decide_reassignment(ticket_number: str, decision: str, note: str | None = No
 	return cr_decide(name=request_name, decision=decision, note=note)
 
 
-@route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
+@route(
+	"/<ticket_number>/defer-sla",
+	methods=("POST",),
+	summary="Extend SLA deadline by deferral",
+	tier="officer-core",
+)
 @validate_request(DeferSLARequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1851,6 +1874,7 @@ class DecideDeferralRequest(BaseModel):
 	"/<ticket_number>/defer-sla/decide",
 	methods=("POST",),
 	summary="Approve or reject a pending SLA deferral request",
+	tier="officer-core",
 )
 @validate_request(DecideDeferralRequest)
 @handle_api_errors
@@ -1872,6 +1896,7 @@ def decide_deferral(ticket_number: str, decision: str, note: str | None = None, 
 	"/<ticket_number>/response-templates",
 	methods=("GET",),
 	summary="Response templates for a workflow action, filled in for this grievance",
+	tier="officer-core",
 )
 @validate_request(ResponseTemplatesRequest)
 @handle_api_errors
@@ -1933,7 +1958,7 @@ def _load(ticket_number, ptype="read"):
 	return doc
 
 
-@route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
+@route("/summary", methods=("GET",), summary="KPI cards summarising grievance status", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def summary():
@@ -1950,7 +1975,7 @@ def summary():
 	)
 
 
-@route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
+@route("/options", methods=("GET",), summary="Get grievance options and dropdowns", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def options(

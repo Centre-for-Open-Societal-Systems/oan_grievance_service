@@ -776,7 +776,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			"client_submission_uuid": submission_uuid,
 			"consent_given": 1,
 			"is_anonymous": 1,
-			"anonymity_justification": "Need anonymity",
 		}
 		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)

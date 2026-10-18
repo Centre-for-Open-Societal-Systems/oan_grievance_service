@@ -215,47 +215,36 @@ def derive_dedupe_key(
 
 
 def find_or_create_submitter(payload: dict) -> str | None:
-	"""Resolve or create the Submitter Profile a grievance belongs to.
+	"""Resolve or create the Submitter Profile an assisted filer files a case for.
 
-	Used for assisted/walk-in or IVR intakes where an officer files for a citizen
-	who does not have a user account. Derives dedupe_key from inputs and finds or
-	creates a persistent Submitter Profile.
+	Only called for officers filing on behalf of a citizen who has no account. The
+	Fayda ID is the only identity used to link: a match on it reuses the profile,
+	anything else creates one. No Fayda ID means no profile.
 	"""
-	mobile = payload.get("contact_mobile")
-	submitter_type = payload.get("submitter_type") or "Individual Farmer"
-
-	dedupe_key = derive_dedupe_key(
-		submitter_type=submitter_type,
-		mobile=mobile,
-		fayda_id=payload.get("fayda_id"),
-		registration_number=payload.get("registration_number"),
-		dedupe_key=payload.get("dedupe_key"),
-	)
-	if not dedupe_key and not mobile:
+	fayda = str(payload.get("fayda_id") or "").strip()
+	if not fayda:
 		return None
+	_validate_fayda_id(fayda)
 
-	if dedupe_key:
-		existing = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
-		if existing:
-			return existing
-
-	if mobile:
-		# An organization's profile carries the organization's phone, which is not the
-		# identity of whoever happens to call from it.
-		existing = frappe.db.get_value(
-			"Grievance Submitter Profile",
-			{"contact_mobile": mobile, "organization": ["is", "not set"]},
-			"name",
+	submitter_type = payload.get("submitter_type") or "Individual Farmer"
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
+	if rule and SCHEME_FAYDA not in rule.schemes:
+		frappe.throw(
+			_("{0} cannot be identified by a Fayda ID.").format(submitter_type),
+			frappe.ValidationError,
 		)
-		if existing:
-			return existing
+
+	dedupe_key = f"{SCHEME_FAYDA}:{fayda}"
+	existing = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
+	if existing:
+		return existing
 
 	profile = frappe.get_doc(
 		{
 			"doctype": "Grievance Submitter Profile",
 			"submitter_type": submitter_type,
 			"submitter_name": payload.get("submitter_name") or "Citizen",
-			"contact_mobile": mobile,
+			"contact_mobile": payload.get("contact_mobile"),
 			"contact_email": payload.get("contact_email"),
 			"administrative_area": payload.get("administrative_area"),
 			"administrative_unit": payload.get("administrative_unit"),

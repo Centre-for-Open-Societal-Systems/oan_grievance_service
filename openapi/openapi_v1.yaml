@@ -83,6 +83,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.router.get_health
+      x-gateway-tier: public-reference
       security: []
   /api/v1/grievances/ping:
     get:
@@ -129,6 +130,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.router.get_ping
+      x-gateway-tier: public-reference
       security: []
   /api/v1/administrative-areas:
     get:
@@ -221,6 +223,7 @@ paths:
           maximum: 500
         description: Maximum records returned
       x-legacy-rpc-method: oan_grievance_service.api.v1.administrative_area.get_areas
+      x-gateway-tier: public-reference
       security: []
   /api/v1/administrative-areas/{area_id_or_path}/ancestors:
     get:
@@ -274,6 +277,7 @@ paths:
           type: string
         description: Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')
       x-legacy-rpc-method: oan_grievance_service.api.v1.administrative_area.get_area_ancestors
+      x-gateway-tier: public-reference
       security: []
   /api/v1/grievances:
     get:
@@ -602,6 +606,7 @@ paths:
           default: asc
           type: string
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.list_grievances
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -650,6 +655,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.submit
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -724,6 +730,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.action
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -787,6 +794,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.feedback
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -853,6 +861,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.timeline
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/grievances/{ticket_number}/message:
@@ -914,6 +923,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.message
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -982,6 +992,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.reassign
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1042,6 +1053,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.decide_reassignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1107,6 +1119,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.defer_sla
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1167,6 +1180,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.decide_deferral
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1244,6 +1258,7 @@ paths:
           nullable: true
         description: Filter templates by service category
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.response_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/summary:
@@ -1300,6 +1315,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.summary
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/options:
@@ -1387,6 +1403,7 @@ paths:
           type: string
         description: Administrative area ID to filter officer assignments
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.options
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/attachments:
@@ -1441,6 +1458,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.submit_documents
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -1500,6 +1518,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.get_attachments
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/{ticket_number}/attachments:
@@ -1561,6 +1580,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.submit_documents
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -1627,6 +1647,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.get_attachments
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}/view:
@@ -1702,6 +1723,7 @@ paths:
           default: false
         description: 'Send Content-Disposition: attachment (Save As) instead of inline'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.view
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}/download:
@@ -1763,6 +1785,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.download
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}:
@@ -1824,6 +1847,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.delete
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
     post:
@@ -1884,6 +1908,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.delete
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/category-assignments:
@@ -1971,6 +1996,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.list_assignments
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -2021,6 +2047,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.create_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2081,6 +2108,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.get_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -2139,6 +2167,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.update_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2199,6 +2228,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.deactivate_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests:
@@ -2303,6 +2333,7 @@ paths:
           nullable: true
         description: Legacy limit parameter
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.list_requests
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests/{name}:
@@ -2357,6 +2388,7 @@ paths:
           type: string
         description: Name identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.get_request
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests/{name}/decide:
@@ -2411,6 +2443,7 @@ paths:
           type: string
         description: Name identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.decide
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2541,6 +2574,7 @@ paths:
           default: 10
         description: Rows for grvRecent
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_charts
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/charts/grvKpis:
@@ -2632,6 +2666,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvKpis
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceKpis:
@@ -2723,6 +2758,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPerformanceKpis
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvMonthlyTrend:
@@ -2814,6 +2850,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvMonthlyTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvWeeklyTrend:
@@ -2905,6 +2942,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvWeeklyTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvNetBacklogTrend:
@@ -2996,6 +3034,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvNetBacklogTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvStatusDistribution:
@@ -3087,6 +3126,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvStatusDistribution
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvByCategory:
@@ -3178,6 +3218,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvByCategory
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvCategoryResolution:
@@ -3269,6 +3310,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvCategoryResolution
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvResolutionRateByRegion:
@@ -3360,6 +3402,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvResolutionRateByRegion
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvSlaRisk:
@@ -3451,6 +3494,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvSlaRisk
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvPendingDuplicates:
@@ -3542,6 +3586,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPendingDuplicates
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvOldestOpen:
@@ -3633,6 +3678,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvOldestOpen
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvFilterRegions:
@@ -3724,6 +3770,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterRegions
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvFilterCategories:
@@ -3815,6 +3862,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterCategories
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/notification-templates:
@@ -3918,6 +3966,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.list_notification_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/options:
@@ -3966,6 +4015,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_template_options
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/placeholders:
@@ -4014,6 +4064,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_placeholders
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/{template}:
@@ -4068,6 +4119,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -4121,6 +4173,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.update_notification_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4255,6 +4308,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -4314,6 +4368,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.create_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4422,6 +4477,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_status_counts
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/officers/{officer}:
@@ -4477,6 +4533,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.get_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -4536,6 +4593,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.update_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4600,6 +4658,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.reset_temporary_password
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4692,6 +4751,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer_statistics.list_officer_statistics
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs:
@@ -4741,6 +4801,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.register_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -4852,6 +4913,7 @@ paths:
           - oldest
           type: string
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.list_organizations
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs/me:
@@ -4900,6 +4962,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.get_my_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
     patch:
@@ -4948,6 +5011,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.update_my_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -5009,6 +5073,7 @@ paths:
           type: string
         description: Org Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.get_organization
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs/{org_id}/status:
@@ -5066,6 +5131,7 @@ paths:
           type: string
         description: Org Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.set_organization_status
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5179,6 +5245,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.list_response_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -5225,6 +5292,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.create_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5285,6 +5353,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.get_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -5338,6 +5407,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.update_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5397,6 +5467,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.deactivate_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/sla-policy:
@@ -5447,6 +5518,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.get_global_policy
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -5495,6 +5567,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_global_policy
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5582,6 +5655,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.list_sla_configurations
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/sla-configurations/{config}:
@@ -5638,6 +5712,7 @@ paths:
           type: string
         description: Config identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_sla_configuration
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5728,6 +5803,7 @@ paths:
           type: string
         description: Filter grievance types by category
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.options
+      x-gateway-tier: public-reference
       security: []
   /api/v1/submitters:
     post:
@@ -5781,6 +5857,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.register_submitter
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -5841,6 +5918,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.register_submitter
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -5901,6 +5979,7 @@ paths:
           type: string
         description: Profile Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.unblock_submitter
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/submitters/{profile_id}/block:
@@ -5955,6 +6034,7 @@ paths:
           type: string
         description: Profile Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.block_submitter
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6042,6 +6122,7 @@ paths:
           nullable: true
         description: Matches the name or code
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_service_categories
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -6094,6 +6175,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.create_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6156,6 +6238,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.get_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -6213,6 +6296,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.update_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6275,6 +6359,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.deactivate_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievance-types:
@@ -6363,6 +6448,7 @@ paths:
           nullable: true
         description: Matches the type name
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_grievance_types
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -6409,6 +6495,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.create_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6469,6 +6556,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.get_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -6524,6 +6612,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.update_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6584,6 +6673,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.deactivate_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
 components:
@@ -9131,6 +9221,14 @@ components:
           type: string
           default: null
           nullable: true
+        submitter:
+          type: string
+          default: null
+          nullable: true
+        fayda_id:
+          type: string
+          default: null
+          nullable: true
         country_code:
           type: string
           default: null
@@ -9173,10 +9271,6 @@ components:
           - type: integer
           - type: boolean
           default: 1
-        anonymity_justification:
-          type: string
-          default: null
-          nullable: true
         client_submission_uuid:
           type: string
           default: null

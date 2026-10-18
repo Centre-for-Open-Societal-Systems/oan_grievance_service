@@ -9040,6 +9040,14 @@ components:
           type: string
           default: null
           nullable: true
+        submitter:
+          type: string
+          default: null
+          nullable: true
+        fayda_id:
+          type: string
+          default: null
+          nullable: true
         country_code:
           type: string
           default: null
@@ -9082,10 +9090,6 @@ components:
           - type: integer
           - type: boolean
           default: 1
-        anonymity_justification:
-          type: string
-          default: null
-          nullable: true
         client_submission_uuid:
           type: string
           default: null

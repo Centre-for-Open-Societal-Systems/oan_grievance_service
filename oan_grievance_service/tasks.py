@@ -288,13 +288,3 @@ def rebuild_dashboard_rollup():
 	from oan_grievance_service.services import dashboard_rollup
 
 	return dashboard_rollup.refresh(full=True)
-
-
-def hourly():
-	"""Entry point wired to the hourly scheduler event."""
-	send_sla_reminders()
-	scan_pending_attachments()
-	drain_routing_queue()
-	escalate_breached()
-	expire_state_timers()
-	dispatch_notifications()
