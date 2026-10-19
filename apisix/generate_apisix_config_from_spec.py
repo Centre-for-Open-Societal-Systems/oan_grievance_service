@@ -168,6 +168,7 @@ HELM_VALUES = {
 	"SOCKET_PORT": ".Values.socket.port",
 }
 HELM_INT_VALUES = {"WEB_PORT", "SOCKET_PORT"}
+HELM_REQUIRED = {"OAN_GRIEVANCE_UPSTREAM_HOST", "OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST", "FRAPPE_SITE_NAME"}
 # A one-item list whose item is replaced by a loop over a values list.
 HELM_LISTS = {
 	"__HOSTS__": ".Values.hosts",
@@ -268,6 +269,8 @@ def helm_render(text: str) -> str:
 		whole = re.fullmatch(r"(\s*(?:- )?(?:[^\s:][^:]*:\s+)?)\$\{(\w+)\}", line)
 		if whole and whole[2] in HELM_VALUES:
 			expr = HELM_VALUES[whole[2]]
+			if whole[2] in HELM_REQUIRED:
+				expr = f'required "{expr.removeprefix(".Values.")} is required" {expr}'
 			quote = "" if whole[2] in HELM_INT_VALUES else " | quote"
 			line = f"{whole[1]}{{{{ {expr}{quote} }}}}"
 		else:

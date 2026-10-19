@@ -63,7 +63,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-citizen-intake-bearer-get
     match:
@@ -121,7 +121,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-citizen-intake-bearer-patch
     match:
@@ -175,7 +175,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-citizen-intake-bearer-post
     match:
@@ -238,7 +238,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-officer-core-bearer-delete
     match:
@@ -295,7 +295,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-officer-core-bearer-get
     match:
@@ -376,7 +376,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-officer-core-bearer-patch
     match:
@@ -438,7 +438,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-officer-core-bearer-post
     match:
@@ -504,7 +504,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-public-dashboards-frappe-token-get
     match:
@@ -571,7 +571,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-public-reference-public-get
     match:
@@ -629,7 +629,7 @@ spec:
         redis_port: 6379
         allow_degradation: true
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
   - name: oan-grievance-cors-preflight
     match:
@@ -696,7 +696,7 @@ spec:
         - ^/(v[0-9]+)/(.*)
         - /api/$1/$2
     backends:
-    - serviceName: {{ .Values.web.serviceName | quote }}
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 ---
 apiVersion: apisix.apache.org/v2
@@ -746,15 +746,15 @@ spec:
     - name: proxy-rewrite
       enable: true
       config:
-        host: {{ .Values.siteName | quote }}
+        host: {{ required "siteName is required" .Values.siteName | quote }}
         headers:
           set:
             Origin: http://{{ .Values.siteName }}:8000
-            X-Frappe-Site-Name: {{ .Values.siteName | quote }}
+            X-Frappe-Site-Name: {{ required "siteName is required" .Values.siteName | quote }}
           remove:
           - Cookie
     backends:
-    - serviceName: {{ .Values.socket.serviceName | quote }}
+    - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
   - name: oan-grievance-realtime-socket-io-cookie-local
     priority: 0
@@ -807,16 +807,16 @@ spec:
     - name: proxy-rewrite
       enable: true
       config:
-        host: {{ .Values.siteName | quote }}
+        host: {{ required "siteName is required" .Values.siteName | quote }}
         headers:
           set:
             Origin: http://{{ .Values.siteName }}:8000
-            X-Frappe-Site-Name: {{ .Values.siteName | quote }}
+            X-Frappe-Site-Name: {{ required "siteName is required" .Values.siteName | quote }}
             Authorization: Bearer $cookie_auth_token
           remove:
           - Cookie
     backends:
-    - serviceName: {{ .Values.socket.serviceName | quote }}
+    - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
   - name: oan-grievance-realtime-socket-io-cookie-iam
     priority: 0
@@ -869,14 +869,14 @@ spec:
     - name: proxy-rewrite
       enable: true
       config:
-        host: {{ .Values.siteName | quote }}
+        host: {{ required "siteName is required" .Values.siteName | quote }}
         headers:
           set:
             Origin: http://{{ .Values.siteName }}:8000
-            X-Frappe-Site-Name: {{ .Values.siteName | quote }}
+            X-Frappe-Site-Name: {{ required "siteName is required" .Values.siteName | quote }}
             Authorization: Bearer ${cookie_X-Access-Token}
           remove:
           - Cookie
     backends:
-    - serviceName: {{ .Values.socket.serviceName | quote }}
+    - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}

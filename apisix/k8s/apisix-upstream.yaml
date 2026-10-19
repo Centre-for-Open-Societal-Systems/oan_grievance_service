@@ -5,13 +5,13 @@
 apiVersion: apisix.apache.org/v2
 kind: ApisixUpstream
 metadata:
-  name: {{ .Values.web.serviceName | quote }}
+  name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
   labels:
     app: oan-grievance
 spec:
   scheme: http
   passHost: rewrite
-  upstreamHost: {{ .Values.siteName | quote }}
+  upstreamHost: {{ required "siteName is required" .Values.siteName | quote }}
   retries: 2
   timeout:
     connect: 5s
@@ -21,7 +21,7 @@ spec:
 apiVersion: apisix.apache.org/v2
 kind: ApisixUpstream
 metadata:
-  name: {{ .Values.socket.serviceName | quote }}
+  name: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
   labels:
     app: oan-grievance
 spec:
