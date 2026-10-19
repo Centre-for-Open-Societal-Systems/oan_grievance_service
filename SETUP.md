@@ -40,19 +40,8 @@ Install these on the Windows host before starting.
   forwarding for you.
 
 You do **not** need Python, Node, MariaDB or Redis on the host. They all live in the
-container.
-
-### Git Bash path translation
-
-Git Bash rewrites arguments that look like Unix paths, which breaks `docker exec -w`.
-Prefix such commands with `MSYS_NO_PATHCONV=1`:
-
-```bash
-MSYS_NO_PATHCONV=1 docker exec -w /workspace/development/frappe-bench \
-  oan_grievance_dev-frappe-1 bench --site grievance.localhost list-apps
-```
-
-Without it you get `OCI runtime exec failed: Cwd must be an absolute path`.
+container. Do not run `bench` through `docker exec` from the host: open a shell in the
+container (step 3.5) and run every `bench` command from there.
 
 ---
 
@@ -183,9 +172,18 @@ Replace `frappe-bench/sites/common_site_config.json` with:
  "shallow_clone": true,
  "socketio_port": 9000,
  "use_redis_auth": false,
- "webserver_port": 8000
+ "webserver_port": 8000,
+ "workers": {
+  "grievance_routing": {"timeout": 300},
+  "grievance_sla": {"timeout": 1800},
+  "grievance_scan": {"timeout": 300},
+  "grievance_notifications": {"timeout": 600}
+ }
 }
 ```
+
+The `workers` block declares this app's queues (section 4.4). Without it every routing,
+SLA, scan and notification job fails to enqueue.
 
 Confirm the service names resolve:
 
@@ -232,23 +230,44 @@ scheduler off the site accepts grievances and then does nothing with them.
 
 ### 3.10 Configure site, install the apps, and migrate
 
-1. Configure required keys in `site_config.json` for JWT authentication and development mode:
+1. Turn on developer mode and tests:
 
 ```bash
+cd /workspace/development/frappe-bench
 bench --site grievance.localhost set-config developer_mode 1
 bench --site grievance.localhost set-config allow_tests true --parse
+```
 
-# Configure JWT signing secret and registration roles for oan_auth_service
-JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
-bench --site grievance.localhost set-config jwt_secrets "{\"v1\": \"$JWT_SECRET\"}" --parse
+2. Create the JWT signing key. `oan_auth_service` signs access tokens with RS256 and
+   refuses every login until `jwt_private_keys` names a readable RSA key of at least
+   2048 bits. A relative path resolves against the site folder.
+
+```bash
+mkdir -p sites/grievance.localhost/keys
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+  -out sites/grievance.localhost/keys/jwt_v1.pem
+chmod 600 sites/grievance.localhost/keys/jwt_v1.pem
+
+bench --site grievance.localhost set-config jwt_private_keys '{"v1": "keys/jwt_v1.pem"}' --parse
 bench --site grievance.localhost set-config jwt_current_kid "v1"
+```
+
+The old shared-secret key `jwt_secrets` is no longer read. A site that still has only
+that key cannot issue tokens.
+
+3. Set the registration roles. Without `jwt_self_registerable_roles`, guest
+   self-registration is refused.
+
+```bash
 bench --site grievance.localhost set-config jwt_default_registration_role "Grievance Submitter"
 bench --site grievance.localhost set-config jwt_self_registerable_roles '["Grievance Submitter"]' --parse
 ```
 
-_(See [`site_config.example.json`](site_config.example.json) and [`SETUP_DOCKER.md`](SETUP_DOCKER.md) for the full configuration matrix)._
+Leave `jwt_enforce_https` unset locally, because the dev server serves plain HTTP. See
+[section 4.3](#43-site-configuration-keys) for every other key, and
+[`site_config.example.json`](site_config.example.json) for a full template.
 
-2. Install `oan_auth_service` first, then `oan_grievance_service`, and run migrations:
+4. Install `oan_auth_service` first, then `oan_grievance_service`, and run migrations:
 
 ```bash
 bench --site grievance.localhost install-app oan_auth_service
@@ -256,6 +275,12 @@ bench --site grievance.localhost install-app oan_grievance_service
 bench --site grievance.localhost migrate
 bench --site grievance.localhost enable-scheduler
 ```
+
+`migrate` runs the patches and then the seeders in `setup/install.py`. The seeders
+create the roles, role levels, service categories, workflow and notifications, and
+they are safe to rerun. They skip records that already exist, including categories,
+submitter types and submission types that an admin renamed but whose `code` is
+unchanged.
 
 Developer mode is required. Without it, doctype changes are written to the database only
 and never exported to JSON files in the app, so your work will not reach git.
@@ -312,6 +337,15 @@ minutes. Until it finishes, `clamd` refuses connections and scans report `Failed
 No Python package is involved. The app talks to the daemon over a TCP socket using
 the standard library, so nothing is added to `requirements.txt` for this.
 
+**Frappe Cloud.** `[deploy.dependencies.apt]` in `pyproject.toml` is left empty on
+purpose. Listing `clamav-daemon` there would only install the binaries: nothing
+starts `clamd`, and the Ubuntu default listens on a unix socket while this app
+connects over TCP. The daemon also holds its signature database in memory
+(roughly 1-2 GB), which would compete with the bench workers. Run ClamAV as a
+separate service and set `grievance_clamav_host` and `grievance_clamav_port` to
+it. If you do run `clamd` on the bench itself, add the package, set `TCPSocket 3310`
+and `TCPAddr 127.0.0.1` in `clamd.conf`, and start it under supervisor.
+
 ### 4.2 SMS gateway
 
 Acknowledgement SMS is code complete and dispatches through core's
@@ -321,29 +355,87 @@ is unaffected.
 
 ### 4.3 Site configuration keys
 
-All optional. Each falls back to the documented default.
+Set each key with `bench --site <site> set-config <key> <value>`. Add `--parse` for
+numbers, booleans, lists and objects.
 
-| Key                                  | Default      | Effect                                             |
-| ------------------------------------ | ------------ | -------------------------------------------------- |
-| `grievance_clamav_host`              | unset        | ClamAV daemon host. **Unset disables scanning.**   |
-| `grievance_clamav_port`              | `3310`       | ClamAV daemon port                                 |
-| `grievance_sla_clock_start`          | `assignment` | Start the SLA clock at `assignment` or `creation`  |
-| `grievance_confirmation_window_days` | `7`          | Days a submitter has to confirm a resolution       |
-| `grievance_auto_escalation_enabled`  | `true`       | Set `false` to stop automatic escalation site-wide |
+**Required by `oan_auth_service`**
+
+| Key                             | Example                     | Effect                                                                           |
+| ------------------------------- | --------------------------- | -------------------------------------------------------------------------------- |
+| `jwt_private_keys`              | `{"v1": "keys/jwt_v1.pem"}` | kid to RSA PEM path (relative to the site folder) or PEM text. No key, no tokens |
+| `jwt_current_kid`               | `v1`                        | Key that signs new tokens. Must exist in `jwt_private_keys`                      |
+| `jwt_self_registerable_roles`   | `["Grievance Submitter"]`   | Roles a guest may register with. Empty refuses self-registration                 |
+| `jwt_default_registration_role` | `Grievance Submitter`       | Role given when an admin creates a user without naming roles                     |
+
+**Optional, `oan_auth_service`**
+
+| Key                                 | Default   | Effect                                                    |
+| ----------------------------------- | --------- | --------------------------------------------------------- |
+| `jwt_issuer`                        | site name | `iss` claim. Keep distinct per environment                |
+| `jwt_access_token_ttl`              | `900`     | Access token lifetime in seconds                          |
+| `jwt_refresh_token_ttl`             | `2592000` | Refresh token lifetime in seconds                         |
+| `jwt_refresh_token_ttl_remember_me` | `7776000` | Refresh token lifetime with "remember me"                 |
+| `jwt_enforce_https`                 | `false`   | Refuse auth calls over plain HTTP. Set `true` outside dev |
+| `password_reset_otp_ttl`            | `600`     | Password reset code lifetime in seconds                   |
+| `password_reset_otp_length`         | `6`       | Digits in the password reset code                         |
+| `password_reset_otp_max_attempts`   | `5`       | Wrong guesses before the code is burned                   |
+| `iam_base_url`                      | unset     | OpenG2P IAM base URL. Unset disables delegated login      |
+| `iam_application`                   | unset     | IAM client whose roles are granted. Required with IAM     |
+| `iam_auth_cookie_prefix`            | empty     | Prefix on IAM auth cookie names                           |
+| `iam_allow_insecure_http`           | `false`   | Allow an `http://` `iam_base_url`. Local testing only     |
+
+**Optional, `oan_grievance_service`**
+
+| Key                                  | Default | Effect                                                      |
+| ------------------------------------ | ------- | ----------------------------------------------------------- |
+| `grievance_clamav_host`              | unset   | ClamAV daemon host. **Unset disables scanning.**            |
+| `grievance_clamav_port`              | `3310`  | ClamAV daemon port                                          |
+| `grievance_confirmation_window_days` | `7`     | Days a submitter has to confirm a resolution                |
+| `grievance_auto_escalation_enabled`  | `true`  | Set `false` to stop automatic escalation site-wide          |
+| `grievance_change_request_hours`     | `24`    | Hours before an unanswered change request moves one rung up |
+
+The maximum deferral is no longer a site config key. Set it on the **Grievance Deferral
+Policy** doctype. `grievance_max_deferral_days` is ignored.
 
 ### 4.4 Scheduled jobs
 
 Wired in `hooks.py`, all defined in `tasks.py`. They require
 `bench --site <site> enable-scheduler`.
 
-| Frequency | Job                        | Does                                               |
-| --------- | -------------------------- | -------------------------------------------------- |
-| Hourly    | `send_sla_reminders`       | Officer reminders at 50% and 80% of the SLA window |
-| Hourly    | `escalate_breached`        | Moves overdue cases one rung up the chain          |
-| Hourly    | `dispatch_notifications`   | Drains the notification queue                      |
-| Hourly    | `scan_pending_attachments` | Sends pending uploads to ClamAV                    |
-| Daily     | `auto_close_expired`       | Closes cases whose confirmation window lapsed      |
-| Daily     | `purge_expired_drafts`     | Clears abandoned submission drafts                 |
+| Frequency  | Job                             | Does                                                |
+| ---------- | ------------------------------- | --------------------------------------------------- |
+| Hourly     | `enqueue_sla_sweeps`            | Queues the four SLA jobs below on `grievance_sla`   |
+| (SLA)      | `send_sla_reminders`            | Officer reminders at 50% and 80% of the SLA window  |
+| (SLA)      | `escalate_breached`             | Moves overdue cases one rung up the chain           |
+| (SLA)      | `expire_state_timers`           | Acts on cases that stayed in a state past its timer |
+| (SLA)      | `forward_stale_change_requests` | Moves unanswered change requests one rung up        |
+| Hourly     | `enqueue_notification_sweep`    | Queues `dispatch_notifications`                     |
+| Hourly     | `enqueue_scan_sweep`            | Queues `scan_pending_attachments` (ClamAV)          |
+| Hourly     | `enqueue_routing_sweep`         | Queues `drain_routing_queue` for unrouted cases     |
+| Every 15 m | `refresh_dashboard_rollup`      | Updates dashboard rollups for the last few days     |
+| Daily long | `rebuild_dashboard_rollup`      | Rebuilds every day of the dashboard rollup          |
+
+To run one job now without waiting for the scheduler:
+
+```bash
+bench --site grievance.localhost execute oan_grievance_service.tasks.escalate_breached
+```
+
+**Background queues.** Routing, SLA checks, ClamAV scans and notification dispatch each run on their own RQ
+queue, so a scan backlog or a long SLA sweep does not delay the others:
+
+| Queue                     | Jobs                                                                                              | Timeout |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ------- |
+| `grievance_routing`       | `route_grievance_job` on submit, hourly `drain_routing_queue`                                     | 300 s   |
+| `grievance_sla`           | `send_sla_reminders`, `escalate_breached`, `expire_state_timers`, `forward_stale_change_requests` | 1800 s  |
+| `grievance_scan`          | `scan_attachment` on upload, hourly `scan_pending_attachments`                                    | 300 s   |
+| `grievance_notifications` | hourly `dispatch_notifications`                                                                   | 600 s   |
+
+Each queue must appear under `workers` in `common_site_config.json` (section 3.7).
+`bench worker` with no `--queue` listens on every declared queue, which is enough in
+development. In production run one worker per queue, for example
+`bench worker --queue grievance_scan`, and run `bench setup procfile` (or
+`bench setup supervisor`) after editing `workers`.
 
 ### 4.5 Realtime / Socket.IO
 
@@ -454,15 +546,27 @@ deployment means a patch on every site, so the split is worth getting right earl
 `grievance_management/` also holds the FR-09 SLA Compliance report, three FR-11.2
 dashboard charts and the FR-11.1 workspace, since those are cross-module views.
 
-Three roles are created on install: Grievance Submitter, Grievance Officer and
-Grievance Admin. A role carries capability only — what actions exist for you. Which
-cases you may touch comes from Grievance RBAC Assignment scope, and seniority comes
-from position in the reporting chain, which is why there is no role per rung. Submitter
-covers every filing actor, distinguished by `submitter_type` rather than by role.
+Seven roles are created on install and on every migrate:
 
-A fourth role, Grievance Review Officer, is read-only oversight. It reads grievances,
-officer statistics and administration data. It holds read-only permissions and is left out of
-every mutating endpoint's role list, so every mutating call is refused.
+| Role                           | Purpose                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------- |
+| `Grievance Submitter`          | Files and tracks own grievances                                                               |
+| `Grievance Assisted Submitter` | Files on behalf of citizens (development agent, call centre). Granted through Keycloak        |
+| `Grievance Officer`            | Works cases inside the desks its RBAC Assignment rows cover                                   |
+| `Grievance Admin`              | Platform administration                                                                       |
+| `Grievance Desk Head`          | Manages officers and grievance types on its own desks. Granted with the top rung, not by hand |
+| `Grievance Review Officer`     | Read-only oversight. Refused on every mutating endpoint                                       |
+| `Grievance Dashboard Reader`   | Machine user for the OAN dashboards. Reads the public charts only                             |
+
+A role carries capability only — what actions exist for you. Which cases you may touch
+comes from Grievance RBAC Assignment scope, and seniority comes from the role level
+(`nodal_officer` L1, `senior_nodal_officer` L2, `department_head` L3, shown as
+"Category Admin"). Submitter covers every filing actor, distinguished by
+`submitter_type` rather than by role.
+
+`Grievance Desk Head` needs no manual setup. The officer API grants and revokes it
+with the L3 level, and the `grant_desk_head_role` patch gives it to existing L3 officers
+during `migrate`. See [`docs/desk-scoping-and-authority.md`](docs/desk-scoping-and-authority.md).
 
 ### Application layers
 
@@ -491,13 +595,14 @@ Code complete but waiting on infrastructure — neither is a code change:
 
 ### Two specification conflicts, resolved
 
-Both are implemented and both are reversible without a code change. They are recorded
-here because the FSD contradicts itself and the call was made during the build.
+They are recorded here because the FSD contradicts itself and the call was made during
+the build.
 
 - **SLA clock start.** FSD 4.2 starts the timer at assignment; UC-04 computes the breach
   from creation date. These diverge for any grievance waiting in the manual routing
   queue. Implemented per 4.2, since 1.3 defines the SLA as the time an _assigned_ agency
-  must act. Switch with the `grievance_sla_clock_start` site config key.
+  must act. The old `grievance_sla_clock_start` site config key is no longer read; see
+  `services/sla.py` for the current rule.
 - **Reassignment SLA.** FSD 3.3.1 requires a configured policy and says it "shall not be
   implicit"; Appendix D-2 hardcodes a reset. Implemented as the explicit `sla_treatment`
   field on the reassignment request; unset means the clock continues.
@@ -514,8 +619,12 @@ before go-live.
 **`failed to connect to the docker API at npipe:...`**
 Docker Desktop is not running. Start it and wait for the engine.
 
-**`OCI runtime exec failed: Cwd must be an absolute path`**
-Git Bash rewrote the path. Prefix the command with `MSYS_NO_PATHCONV=1`.
+**`No jwt_private_keys in site_config.json`**
+The site has no RSA signing key, or still uses the retired `jwt_secrets`. Redo step 3.10.
+
+**`DuplicateEntryError` on `Grievance Service Category` during `migrate`**
+The app version predates the seeder fix that matches seeded categories by `code`.
+Update the app, then run `migrate` again.
 
 **`Cannot connect to redis_cache to update assets_json`**
 `common_site_config.json` still points at `127.0.0.1`. Redo step 3.7.

@@ -165,15 +165,15 @@ def get_role_levels() -> list[dict]:
 	)
 
 
-# KPI cards for the all-grievances queue. Draft is never a card. Workflow states
+# KPI cards for the all-grievances queue. Workflow states
 # that are not one of these cards roll up into In Progress so the queue does not
 # grow a new status every time the workflow gains a stage.
 #
 # `workflow_states` are the engine states that count toward the card. `All` is
-# every non-draft grievance. `officer_only` cards (Assigned) appear for staff
+# every grievance. `officer_only` cards (Assigned) appear for staff
 # only; for submitters those states roll into In Progress. Terminal is read
-# only from the active Workflow (docstatus 2, or no transition leaving the
-# state) — there is no per-card default.
+# only from the active Workflow (no transition leaving the state) — there is
+# no per-card default.
 _STATUS_CARDS = (
 	{
 		"status": "All",
@@ -244,9 +244,8 @@ def _canonical_status(value: str) -> str | None:
 def _workflow_terminals() -> dict[str, int] | None:
 	"""Terminal flag per Workflow State, or None when Grievance has no active workflow.
 
-	A state is terminal when Frappe marks it cancelled (docstatus 2) or when the
-	workflow defines no transition out of it. Duplicate state rows (one per
-	allow_edit role) collapse to a single flag.
+	A state is terminal when the workflow defines no transition out of it.
+	Duplicate state rows (one per allow_edit role) collapse to a single flag.
 	"""
 	wf_name = frappe.db.get_value("Workflow", {"document_type": "Grievance", "is_active": 1}, "name")
 	if not wf_name:
@@ -255,7 +254,7 @@ def _workflow_terminals() -> dict[str, int] | None:
 	rows = frappe.get_all(
 		"Workflow Document State",
 		filters={"parent": wf_name},
-		fields=["state", "doc_status"],
+		fields=["state"],
 		order_by="idx asc",
 		ignore_permissions=True,
 	)
@@ -270,10 +269,9 @@ def _workflow_terminals() -> dict[str, int] | None:
 	terminals: dict[str, int] = {}
 	for row in rows:
 		state = row.get("state")
-		doc_status = str(row.get("doc_status") or "0")
-		if not state or state in terminals or doc_status == "0":
+		if not state or state in terminals:
 			continue
-		terminals[state] = 1 if doc_status == "2" or state not in outgoing else 0
+		terminals[state] = 0 if state in outgoing else 1
 	return terminals
 
 
@@ -315,7 +313,7 @@ def _status_cards() -> list[dict]:
 
 
 def get_status_options() -> list[dict]:
-	"""Queue statuses for filters. Draft and any other workflow stage are omitted.
+	"""Queue statuses for filters. Workflow stages that are not cards are omitted.
 
 	Assigned is included only for officers and other staff.
 	"""
@@ -328,8 +326,8 @@ def public_status(workflow_status: str | None) -> str:
 	Unknown open states are In Progress. Assigned maps to Assigned for staff and
 	to In Progress for submitters (who do not get an Assigned KPI card).
 	"""
-	if not workflow_status or workflow_status == C.STATE_DRAFT:
-		return workflow_status or ""
+	if not workflow_status:
+		return ""
 	canonical = _canonical_status(workflow_status)
 	if canonical == "Assigned" and not is_staff():
 		return "In Progress"
@@ -339,7 +337,7 @@ def public_status(workflow_status: str | None) -> str:
 def expand_status_filter(values: list[str]) -> list[str] | None:
 	"""Workflow states a queue-status filter matches.
 
-	None means All: every non-draft grievance. An empty list means the caller
+	None means All: every grievance. An empty list means the caller
 	passed nothing usable. For submitters, officer-only states (Assigned) are
 	included when filtering In Progress so they still match the rolled-up card.
 	"""
@@ -360,7 +358,7 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 						selected.extend(card["workflow_states"])
 			continue
 		text = str(raw).strip()
-		if text and text != C.STATE_DRAFT:
+		if text:
 			selected.append(text)
 
 	seen: list[str] = []
@@ -373,13 +371,12 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 def get_status_summary() -> list[dict]:
 	"""Counts for the KPI cards, limited to grievances the caller is allowed to see.
 
-	Draft is excluded. A workflow state that is not one of the caller's cards is
+	A workflow state that is not one of the caller's cards is
 	counted under In Progress so every visible case still sits on exactly one
 	card, and All equals the sum of the other cards. Assigned is officer-only.
 	"""
 	rows = frappe.get_list(
 		"Grievance",
-		filters=[["docstatus", "!=", 0]],
 		fields=["status", {"COUNT": "*", "as": "total"}],
 		group_by="status",
 	)

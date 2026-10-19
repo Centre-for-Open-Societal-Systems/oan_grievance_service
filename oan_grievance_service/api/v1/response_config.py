@@ -233,7 +233,7 @@ def _get_template(name: str):
 	return frappe.get_doc(TEMPLATE_DOCTYPE, name)
 
 
-@route("", methods=("GET",), summary="List response templates")
+@route("", methods=("GET",), summary="List response templates", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(ListResponseTemplatesRequest)
@@ -288,7 +288,7 @@ def list_response_templates(
 	)
 
 
-@route("/<template>", methods=("GET",), summary="Get a response template")
+@route("/<template>", methods=("GET",), summary="Get a response template", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)
@@ -306,7 +306,7 @@ def get_response_template(template: str, **kwargs):
 	)
 
 
-@route("", methods=("POST",), summary="Create a response template")
+@route("", methods=("POST",), summary="Create a response template", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateResponseTemplateRequest)
@@ -353,7 +353,7 @@ def create_response_template(
 	)
 
 
-@route("/<template>", methods=("PATCH",), summary="Update a response template")
+@route("/<template>", methods=("PATCH",), summary="Update a response template", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateResponseTemplateRequest, exclude_unset=True)
@@ -383,7 +383,7 @@ def update_response_template(template: str, **kwargs):
 	)
 
 
-@route("/<template>", methods=("DELETE",), summary="Deactivate a response template")
+@route("/<template>", methods=("DELETE",), summary="Deactivate a response template", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(TemplateRef)

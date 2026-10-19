@@ -38,7 +38,9 @@ _ROUTING_FIELDS = ("pending_with", "pending_since")
 class GrievanceChangeRequest(Document):
 	def before_insert(self):
 		grievance = self._grievance()
-		if grievance.docstatus != 1:
+		from oan_grievance_service.services.sla import terminal_states
+
+		if grievance.workflow_state in terminal_states():
 			frappe.throw(
 				_("Changes can only be requested on an open grievance."), title=_("Grievance Not Open")
 			)

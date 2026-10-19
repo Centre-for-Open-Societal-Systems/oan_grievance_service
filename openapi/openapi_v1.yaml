@@ -22,8 +22,6 @@ tags:
   description: Intake reference options, submitter registration, and moderation
 - name: Administrative Areas
   description: Cascading geographic drill-downs, breadcrumbs, and search
-- name: Grievance Drafts
-  description: Draft grievance persistence, resume, submit, and discard
 - name: Grievances Core
   description: Case intake, tracking, and filtered list views
 - name: Change Requests
@@ -85,6 +83,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.router.get_health
+      x-gateway-tier: public-reference
       security: []
   /api/v1/grievances/ping:
     get:
@@ -131,6 +130,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.router.get_ping
+      x-gateway-tier: public-reference
       security: []
   /api/v1/administrative-areas:
     get:
@@ -223,6 +223,7 @@ paths:
           maximum: 500
         description: Maximum records returned
       x-legacy-rpc-method: oan_grievance_service.api.v1.administrative_area.get_areas
+      x-gateway-tier: public-reference
       security: []
   /api/v1/administrative-areas/{area_id_or_path}/ancestors:
     get:
@@ -276,6 +277,7 @@ paths:
           type: string
         description: Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')
       x-legacy-rpc-method: oan_grievance_service.api.v1.administrative_area.get_area_ancestors
+      x-gateway-tier: public-reference
       security: []
   /api/v1/grievances:
     get:
@@ -289,9 +291,8 @@ paths:
         \ System Managers see all cases.\n\nSupports multi-select values (list, JSON array, or comma-separated\
         \ string) for status,\nservice_category/category, administrative_area/location/region/zone/woreda/kebele,\n\
         grievance_type, department, and submission_channel.\n\nStatus filters use the queue cards (All,\
-        \ In Progress, More Info Needed, Rejected,\nResolved, Closed; officers also get Assigned). Draft\
-        \ is never returned. Workflow\nstages that are not a card are reported as the card they roll up\
-        \ into."
+        \ In Progress, More Info Needed, Rejected,\nResolved, Closed; officers also get Assigned). Workflow\n\
+        stages that are not a card are reported as the card they roll up into."
       operationId: get_api_v1_grievances
       responses:
         '200':
@@ -605,13 +606,16 @@ paths:
           default: asc
           type: string
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.list_grievances
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
       tags:
       - Grievances Core
       summary: Submit a new grievance
-      description: Submit a grievance in one request using the current draft flow.
+      description: 'File a grievance: one insert, straight into Submitted. Files sent as multipart
+
+        attach to the submission entry.'
       operationId: post_api_v1_grievances
       responses:
         '200':
@@ -651,12 +655,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.submit
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
         required: false
         content:
           application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitGrievanceRequest'
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/SubmitGrievanceRequest'
   /api/v1/grievances/{ticket_number}/action:
@@ -722,6 +730,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.action
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -746,7 +755,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GrievanceActionResultResponse'
+                $ref: '#/components/schemas/GrievanceFeedbackResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -785,6 +794,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.feedback
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -851,6 +861,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.timeline
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/grievances/{ticket_number}/message:
@@ -912,6 +923,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.message
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -980,6 +992,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.reassign
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1001,7 +1014,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChangeRequestResponse'
+                $ref: '#/components/schemas/GrievanceChangeResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1040,6 +1053,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.decide_reassignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1105,6 +1119,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.defer_sla
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1126,7 +1141,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChangeRequestResponse'
+                $ref: '#/components/schemas/GrievanceChangeResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -1165,6 +1180,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.decide_deferral
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -1242,6 +1258,7 @@ paths:
           nullable: true
         description: Filter templates by service category
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.response_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/summary:
@@ -1252,7 +1269,7 @@ paths:
       description: 'Counts of visible grievances on each queue status card.
 
 
-        Draft is excluded. The cards are All, In Progress, More Info Needed, Rejected,
+        The cards are All, In Progress, More Info Needed, Rejected,
 
         Resolved and Closed. Officers also get an Assigned card. Any other workflow
 
@@ -1298,6 +1315,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.summary
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/options:
@@ -1385,6 +1403,7 @@ paths:
           type: string
         description: Administrative area ID to filter officer assignments
       x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.options
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/attachments:
@@ -1439,6 +1458,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.submit_documents
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -1498,6 +1518,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.get_attachments
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievances/{ticket_number}/attachments:
@@ -1559,6 +1580,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.submit_documents
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -1625,6 +1647,7 @@ paths:
           type: string
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.get_attachments
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}/view:
@@ -1700,6 +1723,7 @@ paths:
           default: false
         description: 'Send Content-Disposition: attachment (Save As) instead of inline'
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.view
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}/download:
@@ -1761,6 +1785,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.download
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/attachments/{attachment_id}:
@@ -1822,6 +1847,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.delete
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
     post:
@@ -1882,6 +1908,7 @@ paths:
           type: string
         description: Attachment Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.attachment.delete
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
   /api/v1/category-assignments:
@@ -1969,6 +1996,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.list_assignments
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -2019,6 +2047,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.create_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2079,6 +2108,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.get_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -2137,6 +2167,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.update_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2197,6 +2228,7 @@ paths:
           type: string
         description: Assignment identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.category_assignment.deactivate_assignment
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests:
@@ -2301,6 +2333,7 @@ paths:
           nullable: true
         description: Legacy limit parameter
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.list_requests
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests/{name}:
@@ -2355,6 +2388,7 @@ paths:
           type: string
         description: Name identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.get_request
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/change-requests/{name}/decide:
@@ -2370,7 +2404,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChangeRequestResponse'
+                $ref: '#/components/schemas/GrievanceChangeResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -2409,6 +2443,7 @@ paths:
           type: string
         description: Name identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.change_request.decide
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -2539,6 +2574,7 @@ paths:
           default: 10
         description: Rows for grvRecent
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_charts
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/charts/grvKpis:
@@ -2630,6 +2666,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvKpis
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceKpis:
@@ -2721,6 +2758,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPerformanceKpis
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvMonthlyTrend:
@@ -2812,6 +2850,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvMonthlyTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvWeeklyTrend:
@@ -2903,6 +2942,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvWeeklyTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvNetBacklogTrend:
@@ -2994,6 +3034,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvNetBacklogTrend
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvStatusDistribution:
@@ -3085,6 +3126,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvStatusDistribution
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvByCategory:
@@ -3176,6 +3218,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvByCategory
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvCategoryResolution:
@@ -3267,6 +3310,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvCategoryResolution
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvResolutionRateByRegion:
@@ -3358,6 +3402,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvResolutionRateByRegion
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvSlaRisk:
@@ -3449,6 +3494,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvSlaRisk
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvPendingDuplicates:
@@ -3540,6 +3586,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPendingDuplicates
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvOldestOpen:
@@ -3631,6 +3678,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvOldestOpen
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvFilterRegions:
@@ -3722,6 +3770,7 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterRegions
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvFilterCategories:
@@ -3813,212 +3862,9 @@ paths:
           default: month
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterCategories
+      x-gateway-tier: public-dashboards
       security:
       - FrappeTokenAuth: []
-  /api/v1/drafts:
-    post:
-      tags:
-      - Grievance Drafts
-      summary: Save a grievance draft
-      description: Create or overwrite a draft directly on Grievance doctype with status='Draft'.
-      operationId: post_api_v1_drafts
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DraftResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.save
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SaveDraftRequest'
-    get:
-      tags:
-      - Grievance Drafts
-      summary: Get the authenticated user's latest grievance draft
-      description: Return the caller's latest unsubmitted draft.
-      operationId: get_api_v1_drafts
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DraftResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.load
-      security:
-      - BearerAuth: []
-    delete:
-      tags:
-      - Grievance Drafts
-      summary: Discard a grievance draft
-      description: Delete a draft the submitter abandoned.
-      operationId: delete_api_v1_drafts
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DraftDiscardResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.discard
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DiscardDraftRequest'
-  /api/v1/drafts/submit:
-    post:
-      tags:
-      - Grievance Drafts
-      summary: Submit a draft grievance into an active case
-      description: Submit an existing draft grievance, transitioning its status to Submitted.
-      operationId: post_api_v1_drafts_submit
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DraftSubmitResultResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      x-legacy-rpc-method: oan_grievance_service.api.v1.draft.submit_draft
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SubmitDraftRequest'
   /api/v1/notification-templates:
     get:
       tags:
@@ -4120,6 +3966,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.list_notification_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/options:
@@ -4168,6 +4015,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_template_options
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/placeholders:
@@ -4216,6 +4064,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_placeholders
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/notification-templates/{template}:
@@ -4270,6 +4119,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.get_notification_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -4323,6 +4173,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.notification_template.update_notification_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4457,6 +4308,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.list_officers
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -4516,6 +4368,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.create_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4624,6 +4477,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_status_counts
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/officers/{officer}:
@@ -4679,6 +4533,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.get_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -4738,6 +4593,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.update_officer
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4802,6 +4658,7 @@ paths:
           type: string
         description: Officer identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer.reset_temporary_password
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -4817,10 +4674,9 @@ paths:
       summary: List officer statistics
       description: Per-officer grievances assigned, grievances resolved, average resolution time in hours
         and resolution rate (percent), for L1 and L2 officers staffing an active RBAC desk. Computed live
-        from Grievance on every call. Assigned counts grievances past Draft currently assigned to the
-        officer, scoped to the department when one is given. Resolved counts those at Resolved or Closed.
-        Average resolution time runs from creation to resolution and is null until the officer has resolved
-        a case.
+        from Grievance on every call. Assigned counts grievances currently assigned to the officer, scoped
+        to the department when one is given. Resolved counts those at Resolved or Closed. Average resolution
+        time runs from creation to resolution and is null until the officer has resolved a case.
       operationId: get_api_v1_officers_statistics
       responses:
         '200':
@@ -4895,6 +4751,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.officer_statistics.list_officer_statistics
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs:
@@ -4944,6 +4801,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.register_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -5055,6 +4913,7 @@ paths:
           - oldest
           type: string
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.list_organizations
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs/me:
@@ -5103,6 +4962,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.get_my_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
     patch:
@@ -5151,6 +5011,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.update_my_organization
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -5212,6 +5073,7 @@ paths:
           type: string
         description: Org Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.get_organization
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/orgs/{org_id}/status:
@@ -5269,6 +5131,7 @@ paths:
           type: string
         description: Org Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.organization.set_organization_status
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5382,6 +5245,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.list_response_templates
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -5428,6 +5292,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.create_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5488,6 +5353,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.get_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -5541,6 +5407,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.update_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5600,6 +5467,7 @@ paths:
           type: string
         description: Template identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.response_config.deactivate_response_template
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/sla-policy:
@@ -5650,6 +5518,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.get_global_policy
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -5698,6 +5567,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_global_policy
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5785,6 +5655,7 @@ paths:
           default: null
           nullable: true
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.list_sla_configurations
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/sla-configurations/{config}:
@@ -5841,6 +5712,7 @@ paths:
           type: string
         description: Config identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_sla_configuration
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -5931,6 +5803,7 @@ paths:
           type: string
         description: Filter grievance types by category
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.options
+      x-gateway-tier: public-reference
       security: []
   /api/v1/submitters:
     post:
@@ -5984,6 +5857,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.register_submitter
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -6044,6 +5918,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.register_submitter
+      x-gateway-tier: citizen-intake
       security:
       - BearerAuth: []
       requestBody:
@@ -6104,6 +5979,7 @@ paths:
           type: string
         description: Profile Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.unblock_submitter
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/submitters/{profile_id}/block:
@@ -6158,6 +6034,7 @@ paths:
           type: string
         description: Profile Id identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.submitter.block_submitter
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6245,6 +6122,7 @@ paths:
           nullable: true
         description: Matches the name or code
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_service_categories
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -6297,6 +6175,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.create_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6359,6 +6238,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.get_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -6416,6 +6296,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.update_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6478,6 +6359,7 @@ paths:
           type: string
         description: Category identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.deactivate_service_category
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
   /api/v1/grievance-types:
@@ -6566,6 +6448,7 @@ paths:
           nullable: true
         description: Matches the type name
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_grievance_types
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     post:
@@ -6612,6 +6495,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/StandardErrorResponse'
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.create_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6672,6 +6556,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.get_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
     patch:
@@ -6727,6 +6612,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.update_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
       requestBody:
@@ -6787,6 +6673,7 @@ paths:
           type: string
         description: Grievance Type identifier
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.deactivate_grievance_type
+      x-gateway-tier: officer-core
       security:
       - BearerAuth: []
 components:
@@ -7279,98 +7166,6 @@ components:
       required:
       - breadcrumbs
       description: Ancestor hierarchy breadcrumbs from country root to the node
-    DraftData:
-      type: object
-      properties:
-        name:
-          type: string
-          description: Draft document name
-        ticket_number:
-          type: string
-          nullable: true
-          description: Assigned ticket number if submitted
-        client_submission_uuid:
-          type: string
-          description: Stable client-generated draft key
-        status:
-          type: string
-          example: Draft
-        workflow_state:
-          type: string
-          example: Draft
-        submission_channel:
-          type: string
-          nullable: true
-        submitter_type:
-          type: string
-          nullable: true
-        submitter_name:
-          type: string
-          nullable: true
-        contact_mobile:
-          type: string
-          nullable: true
-        country_code:
-          type: string
-          example: '+251'
-          nullable: true
-        phone_number:
-          type: string
-          example: '911887766'
-          nullable: true
-        contact_email:
-          type: string
-          nullable: true
-        administrative_area:
-          type: string
-          nullable: true
-        administrative_unit:
-          type: string
-          nullable: true
-        service_category:
-          type: string
-          nullable: true
-        grievance_type:
-          type: string
-          nullable: true
-        associated_service_provider:
-          type: string
-          nullable: true
-        description:
-          type: string
-          nullable: true
-        desired_outcome:
-          type: string
-          nullable: true
-        is_anonymous:
-          type: integer
-          enum:
-          - 0
-          - 1
-        attachments:
-          type: array
-          items:
-            type: object
-            properties: {}
-        attachment_count:
-          type: integer
-        owner:
-          type: string
-          nullable: true
-      required:
-      - client_submission_uuid
-      - status
-      - workflow_state
-      description: Draft grievance state
-    DraftDiscardData:
-      type: object
-      properties:
-        discarded:
-          type: boolean
-          description: Whether the draft was successfully discarded
-      required:
-      - discarded
-      description: Outcome of draft discard operation
     GrievanceSubmitResultData:
       type: object
       properties:
@@ -7381,26 +7176,6 @@ components:
         status:
           type: string
           example: Submitted
-        acknowledgement_status:
-          type: string
-          example: Sent
-          nullable: true
-        assigned_officer:
-          type: string
-          nullable: true
-        sla_target_date:
-          type: string
-          format: date-time
-          nullable: true
-        creation:
-          type: string
-          format: date-time
-        is_anonymous:
-          type: integer
-          enum:
-          - 0
-          - 1
-          example: 0
         workflow_state:
           type: string
           nullable: true
@@ -7409,6 +7184,19 @@ components:
           nullable: true
         routing_rule:
           type: string
+          nullable: true
+        can_request_more_info:
+          type: boolean
+          description: Whether the submitter can be contacted
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: Files stored with the submission
+        current_state:
+          $ref: '#/components/schemas/GrievanceCurrentState'
+        timeline_event:
+          $ref: '#/components/schemas/TimelineEventItem'
           nullable: true
       required:
       - ticket_number
@@ -7615,6 +7403,10 @@ components:
     TimelineEventItem:
       type: object
       properties:
+        id:
+          type: string
+          nullable: true
+          description: Timeline entry identifier (same as name)
         name:
           type: string
           nullable: true
@@ -7810,6 +7602,32 @@ components:
       - current_state
       - available_actions
       description: Outcome of a workflow action on a grievance
+    GrievanceFeedbackData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+        feedback_id:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comments:
+          type: string
+          nullable: true
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        current_state:
+          $ref: '#/components/schemas/GrievanceCurrentState'
+      required:
+      - ticket_number
+      - feedback_id
+      - rating
+      - current_state
+      description: The feedback recorded, and the case as it now stands
     GrievanceMessageData:
       type: object
       properties:
@@ -7843,12 +7661,18 @@ components:
           items:
             $ref: '#/components/schemas/AttachmentItem'
           description: Files stored with the message
+        current_state:
+          $ref: '#/components/schemas/GrievanceCurrentState'
+        timeline_event:
+          $ref: '#/components/schemas/TimelineEventItem'
+          nullable: true
       required:
       - name
       - ticket_number
       - entry_type
       - is_internal
       - status
+      - current_state
       description: The timeline entry a message or internal note created
     GrievanceOptionsData:
       type: object
@@ -7965,7 +7789,7 @@ components:
             $ref: '#/components/schemas/StatusCard'
       required:
       - cards
-      description: Status summary for the all-grievances queue. Draft is excluded.
+      description: Status summary for the all-grievances queue.
     ResponseTemplateItem:
       type: object
       properties:
@@ -8284,10 +8108,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AvailableActionItem'
+        can_request_more_info:
+          type: boolean
+          description: Whether the submitter can be contacted
       required:
       - status
       - escalated
       - available_actions
+      - can_request_more_info
       description: Current case workflow status and permitted next actions
     GrievanceChangeResponseData:
       type: object
@@ -8304,34 +8132,9 @@ components:
         current_state:
           $ref: '#/components/schemas/GrievanceCurrentState'
         timeline_event:
-          type: object
-          properties:
-            name:
-              type: string
-              nullable: true
-            entry_type:
-              type: string
-            body:
-              type: string
-              nullable: true
-            is_internal:
-              type: boolean
-            author_role:
-              type: string
-            author_type:
-              type: string
-            from_status:
-              type: string
-              nullable: true
-            to_status:
-              type: string
-              nullable: true
-            created_on:
-              type: string
-              format: date-time
-              nullable: true
+          $ref: '#/components/schemas/TimelineEventItem'
           nullable: true
-          description: Generated timeline event if immediately approved
+          description: Timeline entry the change wrote, if any
         assigned_dept:
           type: string
           nullable: true
@@ -9272,6 +9075,114 @@ components:
       required:
       - grievance_type
       type: object
+    GrievanceRegistrationExtras:
+      description: 'Extra fields this app reads from the `POST /api/v1/auth/register` body.
+
+
+        oan_auth_service forwards every non-core body field to each `on_user_registered`
+
+        subscriber. This model is the contract for the ones this app consumes. Clients send
+
+        it as `profile.grievance` in the register body (flat top-level fields still work,
+
+        deprecated). The hook parses with it, and the spec generator publishes it as
+
+        `GrievanceRegistrationExtras` plus an OpenAPI Overlay for auth''s register body.
+
+        Unknown keys are ignored because they belong to other installed apps. Values may
+
+        arrive as JSON numbers, so IDs and phones accept int as well as text.'
+      properties:
+        submitter_type:
+          type: string
+          default: null
+          description: Submitter type. Defaults to Individual Farmer.
+          nullable: true
+        submitter_name:
+          type: string
+          default: null
+          description: Used when full_name is empty.
+          nullable: true
+        fayda_id:
+          anyOf:
+          - type: string
+          - type: integer
+          default: null
+          description: Fayda National ID. Required for Individual Farmer.
+          nullable: true
+        national_id:
+          anyOf:
+          - type: string
+          - type: integer
+          default: null
+          description: Alias of fayda_id.
+          nullable: true
+        registration_number:
+          type: string
+          default: null
+          description: Organization registration number.
+          nullable: true
+        org_number:
+          type: string
+          default: null
+          description: Alias of registration_number.
+          nullable: true
+        farmer_id:
+          type: string
+          default: null
+          nullable: true
+        dedupe_key:
+          type: string
+          default: null
+          description: Ignored for Individual Farmer.
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        region:
+          type: string
+          default: null
+          description: Alias of administrative_area.
+          nullable: true
+        administrative_unit:
+          type: string
+          default: null
+          nullable: true
+        woreda:
+          type: string
+          default: null
+          description: Alias of administrative_unit.
+          nullable: true
+        preferred_language:
+          type: string
+          default: null
+          nullable: true
+        contact_mobile:
+          anyOf:
+          - type: string
+          - type: integer
+          default: null
+          description: Fallback for phone_number.
+          nullable: true
+        phone:
+          anyOf:
+          - type: string
+          - type: integer
+          default: null
+          description: Fallback for phone_number.
+          nullable: true
+        phone_country_code:
+          type: string
+          default: null
+          description: Alias of country_code.
+          nullable: true
+        contact_email:
+          type: string
+          default: null
+          description: Fallback for email.
+          nullable: true
+      type: object
     SubmitGrievanceRequest:
       additionalProperties: true
       description: Request body for the one-step submission endpoint.
@@ -9307,6 +9218,14 @@ components:
           default: null
           nullable: true
         submitter_name:
+          type: string
+          default: null
+          nullable: true
+        submitter:
+          type: string
+          default: null
+          nullable: true
+        fayda_id:
           type: string
           default: null
           nullable: true
@@ -9352,10 +9271,6 @@ components:
           - type: integer
           - type: boolean
           default: 1
-        anonymity_justification:
-          type: string
-          default: null
-          nullable: true
         client_submission_uuid:
           type: string
           default: null
@@ -9364,6 +9279,10 @@ components:
           type: string
           default: null
           nullable: true
+        files:
+          type: array
+          items: *id001
+          description: Files, sent as multipart/form-data
       type: object
     GrievanceActionRequest:
       additionalProperties: false
@@ -9669,203 +9588,6 @@ components:
           nullable: true
       required:
       - decision
-      type: object
-    SaveDraftRequest:
-      additionalProperties: false
-      description: Partial grievance state for saving a draft.
-      properties:
-        client_submission_uuid:
-          minLength: 1
-          type: string
-          default: null
-          description: Stable client-generated draft key
-          nullable: true
-        client_uuid:
-          minLength: 1
-          type: string
-          default: null
-          description: Alias for client_submission_uuid
-          nullable: true
-        submission_channel:
-          type: string
-          default: null
-          nullable: true
-        submitter_type:
-          type: string
-          default: null
-          nullable: true
-        submitter_name:
-          type: string
-          default: null
-          nullable: true
-        contact_mobile:
-          type: string
-          default: null
-          nullable: true
-        country_code:
-          type: string
-          default: null
-          nullable: true
-        phone_number:
-          type: string
-          default: null
-          nullable: true
-        phone:
-          type: string
-          default: null
-          nullable: true
-        contact_email:
-          type: string
-          default: null
-          nullable: true
-        administrative_area:
-          type: string
-          default: null
-          nullable: true
-        administrative_unit:
-          type: string
-          default: null
-          nullable: true
-        service_category:
-          type: string
-          default: null
-          nullable: true
-        grievance_type:
-          type: string
-          default: null
-          nullable: true
-        associated_service_provider:
-          type: string
-          default: null
-          nullable: true
-        description:
-          type: string
-          default: null
-          nullable: true
-        desired_outcome:
-          type: string
-          default: null
-          nullable: true
-        is_anonymous:
-          maximum: 1
-          minimum: 0
-          type: integer
-          default: null
-          nullable: true
-        can_request_more_info:
-          anyOf:
-          - type: boolean
-          - type: integer
-          default: true
-          description: Whether submitter can be contacted for more information
-          nullable: true
-        validate:
-          anyOf:
-          - type: boolean
-          - type: integer
-          default: false
-          description: If true, execute validation on the draft payload
-          nullable: true
-      type: object
-    SubmitDraftRequest:
-      additionalProperties: false
-      properties:
-        client_submission_uuid:
-          description: Stable client-generated draft key to submit
-          minLength: 1
-          type: string
-        consent_given:
-          anyOf:
-          - type: integer
-          - type: boolean
-          default: 1
-        is_anonymous:
-          anyOf:
-          - type: integer
-          - type: boolean
-          default: 0
-        anonymity_justification:
-          type: string
-          default: null
-          nullable: true
-        can_request_more_info:
-          anyOf:
-          - type: boolean
-          - type: integer
-          default: true
-          description: Whether submitter can be contacted for more information
-        submission_channel:
-          type: string
-          default: null
-          nullable: true
-        submitter_type:
-          type: string
-          default: null
-          nullable: true
-        submitter_name:
-          type: string
-          default: null
-          nullable: true
-        contact_mobile:
-          type: string
-          default: null
-          nullable: true
-        country_code:
-          type: string
-          default: null
-          nullable: true
-        phone_number:
-          type: string
-          default: null
-          nullable: true
-        phone:
-          type: string
-          default: null
-          nullable: true
-        contact_email:
-          type: string
-          default: null
-          nullable: true
-        administrative_area:
-          type: string
-          default: null
-          nullable: true
-        administrative_unit:
-          type: string
-          default: null
-          nullable: true
-        service_category:
-          type: string
-          default: null
-          nullable: true
-        grievance_type:
-          type: string
-          default: null
-          nullable: true
-        associated_service_provider:
-          type: string
-          default: null
-          nullable: true
-        description:
-          type: string
-          default: null
-          nullable: true
-        desired_outcome:
-          type: string
-          default: null
-          nullable: true
-      required:
-      - client_submission_uuid
-      type: object
-    DiscardDraftRequest:
-      additionalProperties: false
-      properties:
-        client_submission_uuid:
-          description: Stable client-generated draft key to discard
-          minLength: 1
-          type: string
-      required:
-      - client_submission_uuid
       type: object
     UpdateNotificationTemplate:
       additionalProperties: false
@@ -10778,82 +10500,6 @@ components:
       - status
       - data
       description: Area ancestors response
-    DraftResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/DraftData'
-          nullable: true
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: Grievance draft response
-    DraftSubmitResultResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/GrievanceSubmitResultData'
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: Grievance draft submission outcome response
-    DraftDiscardResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/DraftDiscardData'
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: Draft discard outcome response
     GrievanceSubmitResultResponse:
       type: object
       properties:
@@ -11054,6 +10700,31 @@ components:
       - status
       - data
       description: Action result response
+    GrievanceFeedbackResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/GrievanceFeedbackData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Feedback outcome response
     GrievanceMessageResponse:
       type: object
       properties:

@@ -750,8 +750,8 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 	# ---------------------------------------------------------
 
 	def test_cannot_raise_change_request_on_closed_case(self):
-		"""Change requests can only be raised on open cases (docstatus == 1)."""
-		self.grievance.db_set("docstatus", 2, update_modified=False)
+		"""Change requests can only be raised on open cases."""
+		self.grievance.db_set("workflow_state", "Closed", update_modified=False)
 		frappe.set_user(self.officer1)
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc(
@@ -852,7 +852,7 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		# Decide request
 		decide_res = decide(name=cr.name, decision="Approved", note="Approved via API")
 		self.assertEqual(decide_res["status"], "success")
-		self.assertEqual(decide_res["data"]["status"], "Approved")
+		self.assertEqual(decide_res["data"]["change_request"]["status"], "Approved")
 
 	def test_change_request_api_not_found_handling(self):
 		"""Missing change request ID returns standard error envelope (mapped from DoesNotExistError)."""

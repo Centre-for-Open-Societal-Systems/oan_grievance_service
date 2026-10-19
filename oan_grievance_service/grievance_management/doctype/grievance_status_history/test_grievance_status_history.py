@@ -36,8 +36,8 @@ class TestGrievanceStatusHistory(FrappeTestCase):
 		self.assertEqual(self.row.to_status, "Assigned")
 
 	def test_hash_chain_generation(self):
-		# At Draft, so the chain below starts with the rows this test writes.
-		g = a_grievance(workflow_state="Draft")
+		# Filing writes no history row, so the chain starts with the rows below.
+		g = a_grievance()
 		h1 = frappe.get_doc(
 			{
 				"doctype": "Grievance Status History",

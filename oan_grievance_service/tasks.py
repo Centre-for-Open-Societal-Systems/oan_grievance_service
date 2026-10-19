@@ -19,7 +19,6 @@ from oan_grievance_service.services import lifecycle, notifications, sla
 
 def open_grievances_with_sla(extra_filters=None):
 	filters = {
-		"docstatus": 1,
 		"sla_due_date": ["is", "set"],
 		# A stopped clock has nothing left to remind anyone about.
 		"status": ["not in", list(sla.states_in_category(sla.STOPPED))],
@@ -96,7 +95,6 @@ def escalate_breached():
 	due_now = frappe.get_all(
 		"Grievance",
 		filters=[
-			["docstatus", "=", 1],
 			["next_escalation_at", "is", "set"],
 			["next_escalation_at", "<=", now_datetime()],
 			["on_hold_since", "is", "not set"],
@@ -172,7 +170,6 @@ def expire_state_timers():
 	expired = frappe.get_all(
 		"Grievance",
 		filters=[
-			["docstatus", "=", 1],
 			["state_deadline", "is", "set"],
 			["state_deadline", "<", now_datetime()],
 		],
@@ -249,11 +246,34 @@ def drain_routing_queue():
 	return routing.drain_routing_queue()
 
 
-def purge_expired_drafts():
-	"""Daily: clear abandoned drafts that expired without being submitted."""
-	from oan_grievance_service.api.v1 import draft
+def _enqueue_sweep(method, queue):
+	# The scheduler runs hooks on the shared default queue; hand the sweep to its own
+	# queue instead. One job per sweep, so a slow run is not stacked on by the next hour.
+	frappe.enqueue(
+		f"oan_grievance_service.tasks.{method.__name__}",
+		queue=queue,
+		job_id=f"sweep-{method.__name__}",
+		deduplicate=True,
+	)
 
-	return draft.purge_expired_drafts()
+
+def enqueue_sla_sweeps():
+	_enqueue_sweep(send_sla_reminders, C.QUEUE_SLA)
+	_enqueue_sweep(escalate_breached, C.QUEUE_SLA)
+	_enqueue_sweep(expire_state_timers, C.QUEUE_SLA)
+	_enqueue_sweep(forward_stale_change_requests, C.QUEUE_SLA)
+
+
+def enqueue_scan_sweep():
+	_enqueue_sweep(scan_pending_attachments, C.QUEUE_SCAN)
+
+
+def enqueue_routing_sweep():
+	_enqueue_sweep(drain_routing_queue, C.QUEUE_ROUTING)
+
+
+def enqueue_notification_sweep():
+	_enqueue_sweep(dispatch_notifications, C.QUEUE_NOTIFICATIONS)
 
 
 def refresh_dashboard_rollup():
@@ -268,18 +288,3 @@ def rebuild_dashboard_rollup():
 	from oan_grievance_service.services import dashboard_rollup
 
 	return dashboard_rollup.refresh(full=True)
-
-
-def hourly():
-	"""Entry point wired to the hourly scheduler event."""
-	send_sla_reminders()
-	scan_pending_attachments()
-	drain_routing_queue()
-	escalate_breached()
-	expire_state_timers()
-	dispatch_notifications()
-
-
-def daily():
-	"""Entry point wired to the daily scheduler event."""
-	purge_expired_drafts()

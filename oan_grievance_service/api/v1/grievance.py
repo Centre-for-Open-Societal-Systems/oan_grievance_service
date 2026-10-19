@@ -73,6 +73,8 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 
 	submitter_type: str | None = None
 	submitter_name: str | None = None
+	submitter: str | None = None
+	fayda_id: str | None = None
 	contact_mobile: str | None = None
 	country_code: str | None = None
 	phone_number: str | None = None
@@ -87,7 +89,6 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	desired_outcome: str | None = None
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
-	anonymity_justification: str | None = None
 	client_submission_uuid: str | None = None
 	client_uuid: str | None = None
 
@@ -321,7 +322,6 @@ def detect_duplicates(grievance, window_days=7):
 			"submitter": grievance.submitter,
 			"grievance_type": grievance.grievance_type,
 			"creation": [">=", frappe.utils.add_days(now_datetime(), -window_days)],
-			"docstatus": ["!=", 0],
 		},
 		pluck="name",
 	)
@@ -393,7 +393,12 @@ def _resolve_area_filter_identifier(identifier: str, level_hint: str | None = No
 	return matches[0] if matches else ""
 
 
-@route("", methods=("GET",), summary="List grievances with filtering, pagination, and sorting")
+@route(
+	"",
+	methods=("GET",),
+	summary="List grievances with filtering, pagination, and sorting",
+	tier="officer-core",
+)
 @validate_request(ListGrievancesRequest)
 @handle_api_errors
 @require_permission("Grievance", "read")
@@ -443,15 +448,13 @@ def list_grievances(
 	grievance_type, department, and submission_channel.
 
 	Status filters use the queue cards (All, In Progress, More Info Needed, Rejected,
-	Resolved, Closed; officers also get Assigned). Draft is never returned. Workflow
+	Resolved, Closed; officers also get Assigned). Workflow
 	stages that are not a card are reported as the card they roll up into.
 	"""
 	effective_limit = limit if limit is not None else page_size
 	offset = (page - 1) * effective_limit
 
-	filters = [
-		["docstatus", "!=", 0],
-	]
+	filters = []
 
 	status_raw = next((val for val in (status, kwargs.get("status")) if val is not None), None)
 	status_vals = parse_multi_value(status_raw)
@@ -789,45 +792,136 @@ def _current_state(doc, extra=None):
 	return state
 
 
-@route("", methods=("POST",), summary="Submit a new grievance")
+@route("", methods=("POST",), summary="Submit a new grievance", tier="citizen-intake")
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_permission("Grievance", "create")
 def submit(**kwargs):
-	"""Submit a grievance in one request using the current draft flow."""
-	from oan_grievance_service.api.v1 import draft
+	"""File a grievance: one insert, straight into Submitted. Files sent as multipart
+	attach to the submission entry."""
+	from oan_auth_service.api.utils import assemble_phone_number
+
+	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
+	from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+		validate_submission_payload,
+	)
+	from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+		get_default_category,
+	)
+	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+		get_fallback_type,
+	)
+	from oan_grievance_service.services import notifications
 
 	client_submission_uuid = (
 		kwargs.get("client_submission_uuid") or kwargs.get("client_uuid") or frappe.generate_hash(length=32)
 	)
-	fields = (
-		"submission_channel",
-		"submitter_type",
-		"submitter_name",
-		"contact_mobile",
-		"country_code",
-		"phone_number",
-		"phone",
-		"contact_email",
-		"administrative_area",
-		"administrative_unit",
-		"service_category",
-		"grievance_type",
-		"associated_service_provider",
-		"description",
-		"desired_outcome",
-		"is_anonymous",
-		"can_request_more_info",
-	)
-	save_kwargs = {field: kwargs[field] for field in fields if kwargs.get(field) is not None}
-	draft.save(client_submission_uuid=client_submission_uuid, **save_kwargs)
+	existing = frappe.db.get_value("Grievance", {"client_submission_uuid": client_submission_uuid}, "name")
+	if existing:
+		frappe.throw(
+			_("This submission has already been filed as {0}.").format(tn.display(existing)),
+			title=_("Already Submitted"),
+		)
 
-	return draft.submit_draft(
-		client_submission_uuid=client_submission_uuid,
-		consent_given=kwargs.get("consent_given", 1),
-		is_anonymous=kwargs.get("is_anonymous", 0),
-		anonymity_justification=kwargs.get("anonymity_justification"),
-		can_request_more_info=kwargs.get("can_request_more_info", True),
+	if not kwargs.get("consent_given", 1):
+		frappe.throw(
+			_("The submitter must consent to the processing of their personal data."),
+			title=_("Consent Required"),
+		)
+
+	doc = frappe.new_doc("Grievance")
+	doc.client_submission_uuid = client_submission_uuid
+	doc.consent_given = 1
+	doc.consent_recorded_at = now_datetime()
+	doc.is_anonymous = 1 if kwargs.get("is_anonymous") else 0
+	doc.submission_channel = kwargs.get("submission_channel") or "Web Portal"
+	for fieldname in ("administrative_unit", "associated_service_provider", "description", "desired_outcome"):
+		doc.set(fieldname, kwargs.get(fieldname))
+
+	area = kwargs.get("administrative_area")
+	if area:
+		doc.administrative_area = resolve_administrative_area(area) or area
+
+	doc.service_category = kwargs.get("service_category") or get_default_category()
+	grievance_type = kwargs.get("grievance_type")
+	if grievance_type:
+		doc.grievance_type = resolve_grievance_type(grievance_type, doc.service_category)
+		if not doc.grievance_type:
+			frappe.throw(
+				_("Grievance type '{0}' does not exist.").format(grievance_type),
+				frappe.ValidationError,
+				title=_("Invalid Grievance Type"),
+			)
+	elif doc.service_category == get_default_category():
+		doc.grievance_type = get_fallback_type(doc.service_category)
+
+	contact_mobile = kwargs.get("contact_mobile") or kwargs.get("phone_number") or kwargs.get("phone")
+	if contact_mobile:
+		contact_mobile = assemble_phone_number(contact_mobile, country_code=kwargs.get("country_code"))
+	doc.submitter_type = kwargs.get("submitter_type")
+	doc.submitter_name = kwargs.get("submitter_name")
+	doc.contact_mobile = contact_mobile
+	doc.contact_email = kwargs.get("contact_email")
+
+	profile_fields = ("submitter_type", "submitter_name", "contact_mobile", "contact_email")
+	ident = _resolve_submitter_identity({"submitter": kwargs.get("submitter")})
+	if not ident.get("submitter") and ident.get("assisted_by_officer") and kwargs.get("fayda_id"):
+		linked = identity.find_or_create_submitter({**doc.as_dict(), "fayda_id": kwargs.get("fayda_id")})
+		ident = _resolve_submitter_identity({"submitter": linked})
+	if ident.get("submitter"):
+		doc.submitter = ident["submitter"]
+		for fieldname in profile_fields:
+			doc.set(fieldname, ident.get(fieldname) or doc.get(fieldname))
+	doc.assisted_by_officer = ident.get("assisted_by_officer")
+	doc.submitter_type = doc.submitter_type or "Individual Farmer"
+
+	if not kwargs.get("can_request_more_info", True):
+		doc.contact_mobile = None
+		doc.contact_email = None
+	elif doc.contact_mobile:
+		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
+
+	validate_submission_payload(doc.as_dict())
+	# Checked before the insert, so a bad file refuses the filing instead of leaving a
+	# case without its evidence.
+	prepared = prepare_uploads(None)
+	doc.insert(ignore_permissions=True)
+
+	submitter_user = (
+		frappe.db.get_value("Grievance Submitter Profile", doc.submitter, "user") if doc.submitter else None
+	)
+	submission = GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="submission",
+		is_internal=False,
+		body=(doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})",
+		author_user=doc.assisted_by_officer
+		or submitter_user
+		or (frappe.session.user if frappe.session.user != "Guest" else None),
+		author_type="submitter",
+		ref_doctype="Grievance",
+		ref_docname=doc.name,
+	)
+	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
+
+	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
+	if detect_duplicates(doc):
+		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
+	routing.enqueue_routing(doc.name)
+
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"status": doc.status,
+			"workflow_state": doc.workflow_state,
+			"client_submission_uuid": doc.client_submission_uuid,
+			"routing_rule": getattr(doc, "routing_rule", None),
+			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
+			"attachments": attachments,
+			"current_state": _current_state(doc),
+			"timeline_event": _timeline_event_with(submission, doc, attachments),
+		},
+		message=_("Grievance submitted successfully"),
 	)
 
 
@@ -933,6 +1027,16 @@ def _get_response_numbers(doc_name, up_to_name=None):
 			break
 
 	return response_numbers
+
+
+def _timeline_event_with(entry, doc, attachments):
+	"""A write's new timeline entry exactly as GET /timeline lists it, files included,
+	so the client can append it without refetching. Statuses come from the linked
+	history row, as they do there, never from the caller."""
+	event = _format_timeline_event(entry, doc)
+	if event is not None:
+		event["attachments"] = attachments
+	return event
 
 
 def _format_timeline_event(entry, doc, from_status=None, to_status=None, context=None):
@@ -1041,7 +1145,12 @@ _ACTION_ENTRY_TYPES = {
 }
 
 
-@route("/<ticket_number>/action", methods=("POST",), summary="Execute a workflow action on a grievance")
+@route(
+	"/<ticket_number>/action",
+	methods=("POST",),
+	summary="Execute a workflow action on a grievance",
+	tier="citizen-intake",
+)
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -1076,7 +1185,6 @@ def action(
 			)
 		reason = response_body.compose(action_taken, resolution_summary)
 	doc = _load(ticket_number, ptype="write")
-	from_status = doc.status
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 
@@ -1191,7 +1299,7 @@ def action(
 			"action": matching_action,
 			"attachments": attachments,
 			"current_state": current_state,
-			"timeline_event": _format_timeline_event(timeline_entry, doc, from_status, doc.status),
+			"timeline_event": _timeline_event_with(timeline_entry, doc, attachments),
 			"available_actions": current_state["available_actions"],
 		},
 		message=_("Grievance updated successfully"),
@@ -1219,7 +1327,10 @@ def _ensure_department(doc):
 
 
 @route(
-	"/<ticket_number>/feedback", methods=("POST",), summary="Submit citizen feedback / satisfaction rating"
+	"/<ticket_number>/feedback",
+	methods=("POST",),
+	summary="Submit citizen feedback / satisfaction rating",
+	tier="citizen-intake",
 )
 @validate_request(GrievanceFeedbackRequest)
 @handle_api_errors
@@ -1272,12 +1383,18 @@ def feedback(
 			"rating": fb_doc.rating,
 			"comments": fb_doc.comments,
 			"submitted_at": to_tz_aware_iso(fb_doc.submitted_at),
+			"current_state": _current_state(doc),
 		},
 		message=_("Feedback submitted successfully"),
 	)
 
 
-@route("/<ticket_number>/timeline", methods=("GET",), summary="Get grievance timeline and thread details")
+@route(
+	"/<ticket_number>/timeline",
+	methods=("GET",),
+	summary="Get grievance timeline and thread details",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def timeline(
@@ -1519,6 +1636,7 @@ def timeline(
 	"/<ticket_number>/message",
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
+	tier="citizen-intake",
 )
 @validate_request(PostMessageRequest)
 @handle_api_errors
@@ -1577,6 +1695,8 @@ def message(
 			"created_on": to_tz_aware_iso(entry.created_on),
 			"status": doc.status,
 			"attachments": attachments,
+			"current_state": _current_state(doc),
+			"timeline_event": _timeline_event_with(entry, doc, attachments),
 		},
 		message=_("Note added successfully") if internal else _("Message posted successfully"),
 	)
@@ -1611,18 +1731,19 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 			"status": doc.status,
 			"change_request": serialize(req),
 			"current_state": current_state,
-			"timeline_event": (
-				_format_timeline_event(timeline_entry, doc, doc.status, doc.status)
-				if timeline_entry
-				else None
-			),
+			"timeline_event": _format_timeline_event(timeline_entry, doc) if timeline_entry else None,
 			**{k: doc.get(k) for k in extra.get("fields", ())},
 		},
 		message=applied_message if req.status == "Approved" else pending_message,
 	)
 
 
-@route("/<ticket_number>/reassign", methods=("POST",), summary="Reassign grievance department and officer")
+@route(
+	"/<ticket_number>/reassign",
+	methods=("POST",),
+	summary="Reassign grievance department and officer",
+	tier="officer-core",
+)
 @validate_request(ReassignGrievanceRequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1681,6 +1802,7 @@ class DecideReassignmentRequest(BaseModel):
 	"/<ticket_number>/reassign/decide",
 	methods=("POST",),
 	summary="Approve or reject a pending reassignment request",
+	tier="officer-core",
 )
 @validate_request(DecideReassignmentRequest)
 @handle_api_errors
@@ -1698,7 +1820,12 @@ def decide_reassignment(ticket_number: str, decision: str, note: str | None = No
 	return cr_decide(name=request_name, decision=decision, note=note)
 
 
-@route("/<ticket_number>/defer-sla", methods=("POST",), summary="Extend SLA deadline by deferral")
+@route(
+	"/<ticket_number>/defer-sla",
+	methods=("POST",),
+	summary="Extend SLA deadline by deferral",
+	tier="officer-core",
+)
 @validate_request(DeferSLARequest)
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -1747,6 +1874,7 @@ class DecideDeferralRequest(BaseModel):
 	"/<ticket_number>/defer-sla/decide",
 	methods=("POST",),
 	summary="Approve or reject a pending SLA deferral request",
+	tier="officer-core",
 )
 @validate_request(DecideDeferralRequest)
 @handle_api_errors
@@ -1768,6 +1896,7 @@ def decide_deferral(ticket_number: str, decision: str, note: str | None = None, 
 	"/<ticket_number>/response-templates",
 	methods=("GET",),
 	summary="Response templates for a workflow action, filled in for this grievance",
+	tier="officer-core",
 )
 @validate_request(ResponseTemplatesRequest)
 @handle_api_errors
@@ -1829,13 +1958,13 @@ def _load(ticket_number, ptype="read"):
 	return doc
 
 
-@route("/summary", methods=("GET",), summary="KPI cards summarising grievance status")
+@route("/summary", methods=("GET",), summary="KPI cards summarising grievance status", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
-	Draft is excluded. The cards are All, In Progress, More Info Needed, Rejected,
+	The cards are All, In Progress, More Info Needed, Rejected,
 	Resolved and Closed. Officers also get an Assigned card. Any other workflow
 	state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
@@ -1846,7 +1975,7 @@ def summary():
 	)
 
 
-@route("/options", methods=("GET",), summary="Get grievance options and dropdowns")
+@route("/options", methods=("GET",), summary="Get grievance options and dropdowns", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def options(

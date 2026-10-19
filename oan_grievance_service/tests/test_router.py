@@ -9,7 +9,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
-from oan_grievance_service.api.v1 import administrative_area, draft, grievance, profile, submitter
+from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
@@ -161,7 +161,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 	def test_version_meta_isolation(self):
 		"""Verify that version_meta resolves from oan_grievance_service and not oan_auth_service."""
-		meta_grv = _resolve_version_meta(draft.submit_draft)
+		meta_grv = _resolve_version_meta(grievance.submit)
 		self.assertEqual(meta_grv["api_version"], "v1")
 		self.assertEqual(meta_grv["status"], "current")
 
@@ -439,26 +439,23 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		import frappe.api
 
-		# 1. Save and submit a grievance draft via REST
+		# 1. Submit a grievance via REST
 		frappe.set_user(self.farmer_user.name)
-		draft_uuid = str(uuid.uuid4())
+		submission_uuid = str(uuid.uuid4())
 		save_payload = {
-			"client_submission_uuid": draft_uuid,
+			"client_submission_uuid": submission_uuid,
 			"submission_channel": "Mobile App",
 			"administrative_area": self.area,
 			"service_category": "Inputs",
 			"grievance_type": self.gtype.name,
 			"description": "REST API submission test: severe shortage in sector 4.",
 		}
-		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
-		res_save = frappe.api.handle(req_save)
-		self.assertEqual(res_save.status_code, 200)
-
 		submit_payload = {
-			"client_submission_uuid": draft_uuid,
+			**save_payload,
+			"client_submission_uuid": submission_uuid,
 			"consent_given": 1,
 		}
-		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		self.assertEqual(res_submit.status_code, 200)
 		submit_data = json.loads(res_submit.get_data(as_text=True))
@@ -537,26 +534,23 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		from oan_grievance_service.services import lifecycle
 
-		# 1. Save and submit a grievance draft via REST
+		# 1. Submit a grievance via REST
 		frappe.set_user(self.farmer_user.name)
-		draft_uuid = str(uuid.uuid4())
+		submission_uuid = str(uuid.uuid4())
 		save_payload = {
-			"client_submission_uuid": draft_uuid,
+			"client_submission_uuid": submission_uuid,
 			"submission_channel": "Mobile App",
 			"administrative_area": self.area,
 			"service_category": "Inputs",
 			"grievance_type": self.gtype.name,
 			"description": "Unified action endpoint test with minimum length.",
 		}
-		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
-		res_save = frappe.api.handle(req_save)
-		self.assertEqual(res_save.status_code, 200)
-
 		submit_payload = {
-			"client_submission_uuid": draft_uuid,
+			**save_payload,
+			"client_submission_uuid": submission_uuid,
 			"consent_given": 1,
 		}
-		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
 
@@ -768,25 +762,22 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# 1. Submit a grievance
 		frappe.set_user(self.farmer_user.name)
-		draft_uuid = str(uuid.uuid4())
+		submission_uuid = str(uuid.uuid4())
 		save_payload = {
-			"client_submission_uuid": draft_uuid,
+			"client_submission_uuid": submission_uuid,
 			"submission_channel": "Mobile App",
 			"administrative_area": self.area,
 			"service_category": "Inputs",
 			"grievance_type": self.gtype.name,
 			"description": "Testing reassign and deferral direct endpoints.",
 		}
-		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
-		frappe.api.handle(req_save)
-
 		submit_payload = {
-			"client_submission_uuid": draft_uuid,
+			**save_payload,
+			"client_submission_uuid": submission_uuid,
 			"consent_given": 1,
 			"is_anonymous": 1,
-			"anonymity_justification": "Need anonymity",
 		}
-		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		self.assertEqual(res_submit.status_code, 200, res_submit.get_data(as_text=True))
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
@@ -924,20 +915,17 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# 1. Citizen submits grievance
 		frappe.set_user(self.farmer_user.name)
-		draft_uuid = str(uuid.uuid4())
+		submission_uuid = str(uuid.uuid4())
 		save_payload = {
-			"client_submission_uuid": draft_uuid,
+			"client_submission_uuid": submission_uuid,
 			"submission_channel": "Mobile App",
 			"administrative_area": self.area,
 			"service_category": "Inputs",
 			"grievance_type": self.gtype.name,
 			"description": "Testing unified communication and department response endpoint.",
 		}
-		req_save = make_test_request("/api/v1/drafts", method="POST", data=save_payload)
-		frappe.api.handle(req_save)
-
-		submit_payload = {"client_submission_uuid": draft_uuid, "consent_given": 1}
-		req_submit = make_test_request("/api/v1/drafts/submit", method="POST", data=submit_payload)
+		submit_payload = {**save_payload, "client_submission_uuid": submission_uuid, "consent_given": 1}
+		req_submit = make_test_request("/api/v1/grievances", method="POST", data=submit_payload)
 		res_submit = frappe.api.handle(req_submit)
 		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
 
@@ -1034,7 +1022,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				"description": f"Normal non-escalated case {test_tag}",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
-				"docstatus": 1,
 				"escalated": 0,
 			}
 		).insert(ignore_permissions=True)
@@ -1053,7 +1040,6 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 				"description": f"Critical escalated case {test_tag}",
 				"workflow_state": "Submitted",
 				"status": "Submitted",
-				"docstatus": 1,
 				"escalated": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -1101,13 +1087,14 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		with open(spec_path) as f:
 			spec = yaml.safe_load(f)
 
+		# The public spec carries the client-facing paths, without Frappe's /api prefix.
 		paths = spec["paths"]
-		self.assertIn("/api/v1/grievances/{ticket_number}/attachments", paths)
-		self.assertIn("/api/v1/attachments/{attachment_id}/download", paths)
-		self.assertIn("/api/v1/attachments/{attachment_id}/view", paths)
-		self.assertIn("/api/v1/attachments/{attachment_id}", paths)
+		self.assertIn("/v1/grievances/{ticket_number}/attachments", paths)
+		self.assertIn("/v1/attachments/{attachment_id}/download", paths)
+		self.assertIn("/v1/attachments/{attachment_id}/view", paths)
+		self.assertIn("/v1/attachments/{attachment_id}", paths)
 
-		view = paths["/api/v1/attachments/{attachment_id}/view"]["get"]
+		view = paths["/v1/attachments/{attachment_id}/view"]["get"]
 		self.assertEqual(view["responses"]["200"]["content"]["*/*"]["schema"]["format"], "binary")
 
 	def test_channels_are_data_driven(self):

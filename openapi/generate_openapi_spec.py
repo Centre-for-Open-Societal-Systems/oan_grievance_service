@@ -8,7 +8,7 @@ and builds openapi_v1.yaml and openapi_v1.public.yaml.
 
 Outputs:
   - openapi_v1.yaml: Engineering/Internal specification with vendor extensions
-    (x-legacy-rpc-method, x-schema-confidence).
+    (x-legacy-rpc-method, x-schema-confidence, x-gateway-tier).
   - openapi_v1.public.yaml: Public/Gateway contract with vendor extensions stripped.
 
 Usage:
@@ -25,6 +25,7 @@ from typing import Any, Literal, get_args, get_origin
 
 import frappe
 from oan_auth_service.api.router import _exempt_paths, _rules
+from oan_auth_service.gateway_apisix import publicize_spec
 from pydantic import BaseModel
 
 try:
@@ -198,6 +199,15 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 INTERNAL_SPEC_OUTPUT = SCRIPT_DIR / "openapi_v1.yaml"
 PUBLIC_SPEC_OUTPUT = SCRIPT_DIR / "openapi_v1.public.yaml"
+REGISTRATION_OVERLAY_OUTPUT = SCRIPT_DIR / "registration_overlay.yaml"
+
+# The public spec is the client contract: `/v1/...` on the gateway host, no Frappe `/api`
+# prefix (oan_auth_service docs/API_CONVENTIONS.md). The internal spec keeps the Frappe
+# paths and the bench server, for Postman and local calls straight to Frappe.
+PUBLIC_SERVERS = [
+	{"url": "http://localhost:9080", "description": "Local APISIX gateway"},
+	{"url": "https://grievance.openagrinet.org", "description": "Production Grievance Gateway"},
+]
 
 
 # ---------------------------------------------------------------------------
@@ -498,51 +508,6 @@ data(
 	),
 )
 
-# Grievance Drafts
-data(
-	"DraftData",
-	OBJ(
-		{
-			"name": S(description="Draft document name"),
-			"ticket_number": S(nullable=True, description="Assigned ticket number if submitted"),
-			"client_submission_uuid": S(description="Stable client-generated draft key"),
-			"status": S(example="Draft"),
-			"workflow_state": S(example="Draft"),
-			"submission_channel": S(nullable=True),
-			"submitter_type": S(nullable=True),
-			"submitter_name": S(nullable=True),
-			"contact_mobile": S(nullable=True),
-			"country_code": S(example="+251", nullable=True),
-			"phone_number": S(example="911887766", nullable=True),
-			"contact_email": S(nullable=True),
-			"administrative_area": S(nullable=True),
-			"administrative_unit": S(nullable=True),
-			"service_category": S(nullable=True),
-			"grievance_type": S(nullable=True),
-			"associated_service_provider": S(nullable=True),
-			"description": S(nullable=True),
-			"desired_outcome": S(nullable=True),
-			"is_anonymous": I(enum=[0, 1]),
-			"attachments": ARR(OBJ({})),
-			"attachment_count": I(),
-			"owner": S(nullable=True),
-		},
-		required=["client_submission_uuid", "status", "workflow_state"],
-		description="Draft grievance state",
-	),
-)
-
-data(
-	"DraftDiscardData",
-	OBJ(
-		{
-			"discarded": B(description="Whether the draft was successfully discarded"),
-		},
-		required=["discarded"],
-		description="Outcome of draft discard operation",
-	),
-)
-
 # Grievance Core & Lifecycle
 data(
 	"GrievanceSubmitResultData",
@@ -550,14 +515,13 @@ data(
 		{
 			"ticket_number": S(example="ET14IN000012026", description="Formatted ticket number"),
 			"status": S(example="Submitted"),
-			"acknowledgement_status": S(example="Sent", nullable=True),
-			"assigned_officer": S(nullable=True),
-			"sla_target_date": S(format="date-time", nullable=True),
-			"creation": S(format="date-time"),
-			"is_anonymous": I(enum=[0, 1], example=0),
 			"workflow_state": S(nullable=True),
 			"client_submission_uuid": S(nullable=True),
 			"routing_rule": S(nullable=True),
+			"can_request_more_info": B(description="Whether the submitter can be contacted"),
+			"attachments": ARR(REF("AttachmentItem"), description="Files stored with the submission"),
+			"current_state": REF("GrievanceCurrentState"),
+			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
 		},
 		required=["ticket_number", "status"],
 		description="Acknowledgement outcome and ticket identifier returned on submission",
@@ -671,6 +635,7 @@ data(
 	"TimelineEventItem",
 	OBJ(
 		{
+			"id": S(nullable=True, description="Timeline entry identifier (same as name)"),
 			"name": S(nullable=True, description="Timeline entry identifier"),
 			"entry_type": S(
 				example="dept_response",
@@ -783,6 +748,22 @@ data(
 )
 
 data(
+	"GrievanceFeedbackData",
+	OBJ(
+		{
+			"ticket_number": S(),
+			"feedback_id": S(),
+			"rating": I(minimum=1, maximum=5),
+			"comments": S(nullable=True),
+			"submitted_at": S(format="date-time", nullable=True),
+			"current_state": REF("GrievanceCurrentState"),
+		},
+		required=["ticket_number", "feedback_id", "rating", "current_state"],
+		description="The feedback recorded, and the case as it now stands",
+	),
+)
+
+data(
 	"GrievanceMessageData",
 	OBJ(
 		{
@@ -794,8 +775,10 @@ data(
 			"created_on": S(format="date-time", nullable=True),
 			"status": S(description="Grievance status, unchanged by a message"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files stored with the message"),
+			"current_state": REF("GrievanceCurrentState"),
+			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
 		},
-		required=["name", "ticket_number", "entry_type", "is_internal", "status"],
+		required=["name", "ticket_number", "entry_type", "is_internal", "status", "current_state"],
 		description="The timeline entry a message or internal note created",
 	),
 )
@@ -868,7 +851,7 @@ data(
 	OBJ(
 		{"cards": ARR(REF("StatusCard"))},
 		required=["cards"],
-		description="Status summary for the all-grievances queue. Draft is excluded.",
+		description="Status summary for the all-grievances queue.",
 	),
 )
 
@@ -1061,8 +1044,9 @@ data(
 			"department": S(nullable=True, description="Assigned department ID"),
 			"updated_at": S(format="date-time", nullable=True),
 			"available_actions": ARR(REF("AvailableActionItem")),
+			"can_request_more_info": B(description="Whether the submitter can be contacted"),
 		},
-		required=["status", "escalated", "available_actions"],
+		required=["status", "escalated", "available_actions", "can_request_more_info"],
 		description="Current case workflow status and permitted next actions",
 	),
 )
@@ -1075,21 +1059,11 @@ data(
 			"status": S(example="Under Investigation"),
 			"change_request": REF("ChangeRequestData"),
 			"current_state": REF("GrievanceCurrentState"),
-			"timeline_event": OBJ(
-				{
-					"name": S(nullable=True),
-					"entry_type": S(),
-					"body": S(nullable=True),
-					"is_internal": B(),
-					"author_role": S(),
-					"author_type": S(),
-					"from_status": S(nullable=True),
-					"to_status": S(nullable=True),
-					"created_on": S(format="date-time", nullable=True),
-				},
-				nullable=True,
-				description="Generated timeline event if immediately approved",
-			),
+			"timeline_event": {
+				**REF("TimelineEventItem"),
+				"nullable": True,
+				"description": "Timeline entry the change wrote, if any",
+			},
 			"assigned_dept": S(nullable=True),
 			"assigned_to": S(nullable=True),
 			"service_category": S(nullable=True),
@@ -1219,11 +1193,6 @@ ENVELOPES = {
 		"AdministrativeAreasListData", description="Administrative areas list response"
 	),
 	"AreaAncestorsResponse": make_envelope("AreaAncestorsData", description="Area ancestors response"),
-	"DraftResponse": make_envelope("DraftData", nullable_data=True, description="Grievance draft response"),
-	"DraftSubmitResultResponse": make_envelope(
-		"GrievanceSubmitResultData", description="Grievance draft submission outcome response"
-	),
-	"DraftDiscardResponse": make_envelope("DraftDiscardData", description="Draft discard outcome response"),
 	"GrievanceSubmitResultResponse": make_envelope(
 		"GrievanceSubmitResultData", description="Grievance submission outcome response"
 	),
@@ -1245,6 +1214,9 @@ ENVELOPES = {
 	),
 	"GrievanceActionResultResponse": make_envelope(
 		"GrievanceActionResultData", description="Action result response"
+	),
+	"GrievanceFeedbackResponse": make_envelope(
+		"GrievanceFeedbackData", description="Feedback outcome response"
 	),
 	"GrievanceMessageResponse": make_envelope(
 		"GrievanceMessageData", description="Message or internal note posted"
@@ -1484,6 +1456,7 @@ MULTIPART_REQUESTS = {
 	"SubmitDocumentsRequest": ("multipart/form-data",),
 	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
 	"PostMessageRequest": ("application/json", "multipart/form-data"),
+	"SubmitGrievanceRequest": ("application/json", "multipart/form-data"),
 }
 
 
@@ -1497,7 +1470,6 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.category_assignment",
 		"oan_grievance_service.api.v1.change_request",
 		"oan_grievance_service.api.v1.charts",
-		"oan_grievance_service.api.v1.draft",
 		"oan_grievance_service.api.v1.notification_template",
 		"oan_grievance_service.api.v1.officer",
 		"oan_grievance_service.api.v1.officer_statistics",
@@ -1522,8 +1494,6 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Submitter Management"
 	if path.startswith("/api/v1/administrative-areas"):
 		return "Administrative Areas"
-	if path.startswith("/api/v1/drafts"):
-		return "Grievance Drafts"
 	if path.startswith(
 		(
 			"/api/v1/category-assignments",
@@ -1573,8 +1543,9 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"message": "GrievanceMessageResponse",
 		"reassign": "GrievanceChangeResponse",
 		"defer_sla": "GrievanceChangeResponse",
-		"decide_deferral": "ChangeRequestResponse",
-		"decide_reassignment": "ChangeRequestResponse",
+		"decide_deferral": "GrievanceChangeResponse",
+		"decide_reassignment": "GrievanceChangeResponse",
+		"feedback": "GrievanceFeedbackResponse",
 		"anonymity_decision": "GrievanceChangeResponse",
 		"summary": "GrievanceStatusSummaryResponse",
 		"options": "SubmitterOptionsResponse" if "submitters" in path else "GrievanceOptionsResponse",
@@ -1586,11 +1557,7 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"delete": "DeleteAttachmentResponse",
 		"list_requests": "ChangeRequestListResponse",
 		"get_request": "ChangeRequestResponse",
-		"decide": "ChangeRequestResponse",
-		"save": "DraftResponse",
-		"load": "DraftResponse",
-		"submit_draft": "DraftSubmitResultResponse",
-		"discard": "DraftDiscardResponse",
+		"decide": "GrievanceChangeResponse",
 		"register_submitter": "SubmitterRegisterResponse",
 		"block_submitter": "SubmitterBlockResponse",
 		"unblock_submitter": "SubmitterBlockResponse",
@@ -1814,6 +1781,8 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				op["parameters"] = parameters
 
 			op["x-legacy-rpc-method"] = legacy_target
+			if route_info.get("tier"):
+				op["x-gateway-tier"] = route_info["tier"]
 			if func_name.startswith("get_public_chart_"):
 				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
 			else:
@@ -1843,6 +1812,12 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 	components_schemas: dict[str, Any] = {}
 	components_schemas.update(DATA_SCHEMAS)
+	# Extra body fields this app reads on POST /api/v1/auth/register (served by
+	# oan_auth_service). Published as a component so clients and the gateway can see them.
+	from oan_grievance_service.api.v1.profile import RegistrationExtras
+
+	reg_schema = RegistrationExtras.model_json_schema(ref_template="#/components/schemas/{model}")
+	components_schemas["GrievanceRegistrationExtras"] = oas30(reg_schema)
 	components_schemas.update(REQ)
 	components_schemas.update(ENVELOPES)
 
@@ -1872,10 +1847,6 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			{
 				"name": "Administrative Areas",
 				"description": "Cascading geographic drill-downs, breadcrumbs, and search",
-			},
-			{
-				"name": "Grievance Drafts",
-				"description": "Draft grievance persistence, resume, submit, and discard",
 			},
 			{"name": "Grievances Core", "description": "Case intake, tracking, and filtered list views"},
 			{
@@ -1925,8 +1896,50 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 	return doc, paths, components_schemas
 
 
+def write_registration_overlay(components_schemas: dict[str, Any]) -> None:
+	"""Write an OpenAPI Overlay that attaches this app's registration fields to
+	oan_auth_service's RegisterRequest under `profile.grievance`.
+
+	Apply it over auth's spec at deployment (e.g. `redocly`/`openapi-overlay` tooling)
+	to get the composed register body without editing either repo's spec.
+	"""
+	overlay = {
+		"overlay": "1.0.0",
+		"info": {"title": "OAN Grievance registration fields", "version": "1.0.0"},
+		"actions": [
+			{
+				"target": "$.components.schemas",
+				"description": "Register the grievance registration fields schema.",
+				"update": {"GrievanceRegistrationExtras": components_schemas["GrievanceRegistrationExtras"]},
+			},
+			{
+				"target": "$.components.schemas.RegisterRequest.properties",
+				"description": "Accept grievance fields under profile.grievance.",
+				"update": {
+					"profile": {
+						"type": "object",
+						"description": "App-specific registration fields, namespaced per app.",
+						"properties": {
+							"grievance": {"$ref": "#/components/schemas/GrievanceRegistrationExtras"}
+						},
+					}
+				},
+			},
+		],
+	}
+	header = (
+		"# OpenAPI Overlay for POST /api/v1/auth/register (served by oan_auth_service).\n"
+		"# Generated by generate_openapi_spec.py -- do not edit manually.\n"
+	)
+	REGISTRATION_OVERLAY_OUTPUT.write_text(
+		header + yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8"
+	)
+	print(f"Wrote {REGISTRATION_OVERLAY_OUTPUT.name}", file=sys.stderr)
+
+
 def main() -> None:
 	doc, paths, components_schemas = build_openapi()
+	write_registration_overlay(components_schemas)
 	n_paths = len(paths)
 	n_ops = sum(len(v) for v in paths.values())
 
@@ -1945,7 +1958,7 @@ def main() -> None:
 	)
 
 	dump_spec(
-		strip_extensions(doc),
+		publicize_spec(strip_extensions(doc), PUBLIC_SERVERS),
 		PUBLIC_SPEC_OUTPUT,
 		[
 			"OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)",

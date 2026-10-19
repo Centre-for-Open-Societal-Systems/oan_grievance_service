@@ -1,17 +1,22 @@
 # The catch-all category and type an intake falls back to when the submitter does
-# not pick one. Seeded by setup/install.py; draft intake defaults to them by name.
+# not pick one. Seeded by setup/install.py; intake defaults to them by name.
 FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
 UNROUTED_DEPARTMENT = "Unrouted"
 UNROUTED_OFFICER = "unrouted@grievance.local"
 
 
+# Dedicated RQ queues, so a ClamAV backlog or a long SLA sweep cannot starve the
+# others. Each must be declared under "workers" in common_site_config.json, or
+# frappe.enqueue rejects it.
+QUEUE_ROUTING = "grievance_routing"
+QUEUE_SLA = "grievance_sla"
+QUEUE_SCAN = "grievance_scan"
+QUEUE_NOTIFICATIONS = "grievance_notifications"
+
+
 # Grievance Workflow states, seeded by setup/install.py (WORKFLOW_STATES). Code that
 # branches on where a case is compares against these, never a bare string.
-#
-# Draft is the only state at docstatus 0, so "is this still a draft?" is asked of
-# docstatus, not of the state name.
-STATE_DRAFT = "Draft"
 STATE_SUBMITTED = "Submitted"
 STATE_ASSIGNED = "Assigned"
 STATE_IN_PROGRESS = "In Progress"

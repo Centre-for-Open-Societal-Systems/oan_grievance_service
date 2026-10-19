@@ -258,6 +258,7 @@ def _create_or_update_submitter_profile(
 	methods=("GET",),
 	allow_guest=True,
 	summary="Dropdown options and reference data for submitters",
+	tier="public-reference",
 )
 # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
@@ -307,11 +308,13 @@ def options(
 	"/register",
 	methods=("POST",),
 	summary="Register or update submitter profile for authenticated user",
+	tier="citizen-intake",
 )
 @route(
 	"",
 	methods=("POST",),
 	summary="Register or update submitter profile for authenticated user",
+	tier="citizen-intake",
 )
 @validate_request(RegisterSubmitterRequest)
 @handle_api_errors
@@ -409,6 +412,7 @@ def register_submitter(
 	"/<profile_id>/unblock",
 	methods=("POST",),
 	summary="Unblock a submitter profile (Staff/Admin only)",
+	tier="officer-core",
 )
 @handle_api_errors
 @require_role(STAFF_ROLES)
@@ -437,6 +441,7 @@ def unblock_submitter(profile_id: str, **kwargs):
 	"/<profile_id>/block",
 	methods=("POST",),
 	summary="Block a submitter profile (Staff/Admin only)",
+	tier="officer-core",
 )
 @validate_request(BlockSubmitterRequest)
 @handle_api_errors

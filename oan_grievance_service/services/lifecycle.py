@@ -3,7 +3,7 @@
 Every move goes through Frappe's workflow engine. `transition` asks
 `frappe.model.workflow.apply_workflow` for an action by name; the engine checks the
 Grievance Workflow record for that move from the case's current state and the
-caller's role, then saves, submits or cancels the document. The Grievance controller
+caller's role, then saves the document. The Grievance controller
 sees that save and, from it, writes the hash-chained Grievance Status History row,
 the timeline event, the SLA change and the notification (hooks_handlers). Nothing
 sets `status` directly and nothing here decides whether a move is legal.
@@ -45,7 +45,7 @@ def transition(
 	the API checks the caller can act on the case); the workflow's role check is
 	the authorisation for the move. The save inside the engine is therefore told
 	not to re-check DocPerms, which for a submitter's own confirm would otherwise
-	refuse `submit` -- a permission type the grievance roles never hold directly.
+	refuse the save.
 	"""
 	context = frappe._dict(
 		action=action,
@@ -60,19 +60,6 @@ def transition(
 	frappe.flags.grievance_transition = context
 	user = frappe.session.user
 	grievance.flags.ignore_permissions = True
-	if action == "Submit":
-		from oan_grievance_service.services import ticket_number as tn
-
-		grievance.flags.in_submit = True
-		if grievance.name.startswith("DRAFT-") or not grievance.ticket_number:
-			t_num = tn.generate(grievance.administrative_area, grievance.service_category)
-			if grievance.name != t_num:
-				frappe.rename_doc("Grievance", grievance.name, t_num, force=True)
-				grievance = frappe.get_doc("Grievance", t_num)
-			grievance.ticket_number = grievance.name
-			grievance.flags.ignore_permissions = True
-			grievance.flags.in_submit = True
-
 	try:
 		if automated and user != "Administrator":
 			# Audited: a system move (auto-route, auto-close, anonymity ruling) taken

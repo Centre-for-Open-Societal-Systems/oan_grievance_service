@@ -317,18 +317,24 @@ def states_in_category(category):
 
 
 def open_states():
-	"""States a filed case can still leave: not Draft, and not one that Stops the clock.
+	"""States that do not Stop the clock, in workflow order.
 
-	In workflow order, read from the Grievance Workflow so a state added there counts
-	without a code change.
+	Read from the Grievance Workflow so a state added there counts without a code change.
 	"""
 	return list(
 		dict.fromkeys(
 			row.state
 			for row in get_workflow("Grievance").states
-			if str(row.doc_status) != "0" and (row.get("sla_category") or RUNNING) != STOPPED
+			if (row.get("sla_category") or RUNNING) != STOPPED
 		)
 	)
+
+
+def terminal_states():
+	"""States the Grievance Workflow offers no way out of (Closed, Rejected)."""
+	workflow = get_workflow("Grievance")
+	outgoing = {row.state for row in workflow.transitions}
+	return {row.state for row in workflow.states if row.state not in outgoing}
 
 
 def awaiting_action_states():

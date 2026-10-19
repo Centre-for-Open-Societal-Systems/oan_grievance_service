@@ -12,7 +12,7 @@ route = prefixed("/api/v1/administrative-areas")
 
 
 @route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"", methods=("GET",), allow_guest=True, summary="Fetch administrative areas"
+	"", methods=("GET",), allow_guest=True, summary="Fetch administrative areas", tier="public-reference"
 )
 @handle_api_errors
 def get_areas(
@@ -120,6 +120,7 @@ def get_ancestors(area_id_or_path):
 	methods=("GET",),
 	allow_guest=True,
 	summary="Fetch ancestor hierarchy",
+	tier="public-reference",
 )
 @handle_api_errors
 def get_area_ancestors(area_id_or_path: str):

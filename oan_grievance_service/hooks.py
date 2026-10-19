@@ -87,19 +87,15 @@ doc_events = {
 
 scheduler_events = {
 	"hourly": [
-		"oan_grievance_service.tasks.send_sla_reminders",
-		"oan_grievance_service.tasks.escalate_breached",
-		"oan_grievance_service.tasks.expire_state_timers",
-		"oan_grievance_service.tasks.forward_stale_change_requests",
-		"oan_grievance_service.tasks.dispatch_notifications",
+		# Reminders, escalation, state timers and stale change requests run on the
+		# grievance_sla queue.
+		"oan_grievance_service.tasks.enqueue_sla_sweeps",
+		"oan_grievance_service.tasks.enqueue_notification_sweep",
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
-		"oan_grievance_service.tasks.scan_pending_attachments",
+		"oan_grievance_service.tasks.enqueue_scan_sweep",
 		# Process unrouted submitted cases through the routing engine in the background
-		"oan_grievance_service.tasks.drain_routing_queue",
-	],
-	"daily": [
-		"oan_grievance_service.tasks.purge_expired_drafts",
+		"oan_grievance_service.tasks.enqueue_routing_sweep",
 	],
 	# The dashboards read only these rollups, so this is how fresh they are.
 	"cron": {

@@ -162,7 +162,7 @@ SLA_NOTE = (
 )
 
 
-@route("", methods=("GET",), summary="List category assignments")
+@route("", methods=("GET",), summary="List category assignments", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListCategoryAssignments)
@@ -211,7 +211,7 @@ def list_assignments(
 	)
 
 
-@route("/<assignment>", methods=("GET",), summary="Get a category assignment")
+@route("/<assignment>", methods=("GET",), summary="Get a category assignment", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(AssignmentRef)
@@ -229,7 +229,7 @@ def get_assignment(assignment: str, **kwargs):
 	)
 
 
-@route("", methods=("POST",), summary="Create a category assignment")
+@route("", methods=("POST",), summary="Create a category assignment", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(CreateCategoryAssignment)
@@ -268,7 +268,7 @@ def create_assignment(
 	)
 
 
-@route("/<assignment>", methods=("PATCH",), summary="Update a category assignment")
+@route("/<assignment>", methods=("PATCH",), summary="Update a category assignment", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateCategoryAssignment, exclude_unset=True)
@@ -294,7 +294,7 @@ def update_assignment(assignment: str, **kwargs):
 	)
 
 
-@route("/<assignment>", methods=("DELETE",), summary="Deactivate a category assignment")
+@route("/<assignment>", methods=("DELETE",), summary="Deactivate a category assignment", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(AssignmentRef)

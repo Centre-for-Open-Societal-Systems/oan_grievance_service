@@ -57,7 +57,11 @@ oan_grievance_service/
 
 ## 3. Core Architecture & API Standards
 
-> Refer to [`docs/api-development-standards.md`](docs/api-development-standards.md) for the complete REST API development standards, decorator pipeline execution order, Pydantic validation rules, and error envelope specifications.
+> The OAN-wide development standard (naming, decorator pipeline, Pydantic validation, error envelopes, permissions, testing) is `oan_auth_service/docs/DEVELOPMENT_BEST_PRACTICES.md`. It is the single source of truth; do not copy its rules into this repo.
+
+> **Grievance write responses:** every endpoint that writes to a grievance returns `current_state` (from `_current_state()`), and `timeline_event` when it adds a timeline entry (from `_timeline_event_with()`). Change-request-backed endpoints answer through `_change_response()`.
+
+> **URL convention (all OAN apps):** routes are declared under `/api/v1/...`; the public contract and all client-facing docs use `/v1/...`, which the APISIX gateway rewrites. Do not add `/v1` aliases in the app. New endpoints also need a tier in `apisix/generate_apisix_config_from_spec.py`. See `oan_auth_service/docs/API_CONVENTIONS.md`.
 
 ### Layer Boundaries & Separation of Concerns
 
@@ -127,7 +131,7 @@ Whenever you add, modify, or deprecate an API endpoint:
 
 - **DocType Unit Tests (`doctype/<name>/test_<name>.py`)**: Keep a single colocated test file per DocType for document-level field validations (`validate()`), link integrity, and direct lifecycle hooks. **Do not create multiple scattered test files inside a DocType directory** (e.g., avoid `test_list_*.py`, `test_timeline_*.py` inside `doctype/`).
 - **Domain & API Integration Suites (`tests/`)**: High-level cross-cutting tests (API endpoints, routing, SLA engine, workflow contracts, background tasks) belong in `oan_grievance_service/tests/` (e.g., `test_router.py`, `test_sla_engine.py`, `test_workflow_contracts.py`).
-- **No PR-Specific Test Files**: **Never create one-off test files named after pull requests or review tickets** (e.g. `test_pr19_review_fixes.py`). Place regression test cases directly into the appropriate domain test file (`test_router.py`, `test_draft.py`, etc.).
+- **No PR-Specific Test Files**: **Never create one-off test files named after pull requests or review tickets** (e.g. `test_pr19_review_fixes.py`). Place regression test cases directly into the appropriate domain test file (`test_router.py`, `test_workflow_contracts.py`, etc.).
 
 ### 7.2. Test Scenarios to Cover
 

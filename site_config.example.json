@@ -13,8 +13,8 @@
   "secret_key": "your_secret_hmac_key_here",
 
   "jwt_current_kid": "v1",
-  "jwt_secrets": {
-    "v1": "replace_with_a_secure_random_secret_at_least_32_characters_long"
+  "jwt_private_keys": {
+    "v1": "keys/jwt_v1.pem"
   },
   "jwt_default_registration_role": "Grievance Submitter",
   "jwt_self_registerable_roles": [
@@ -26,9 +26,10 @@
   "jwt_issuer": "oan-grievance",
   "jwt_enforce_https": true,
 
-  "grievance_sla_clock_start": "assignment",
+  "grievance_clamav_host": "clamav",
+  "grievance_clamav_port": 3310,
   "grievance_confirmation_window_days": 7,
-  "grievance_max_deferral_days": 30,
+  "grievance_change_request_hours": 24,
   "grievance_auto_escalation_enabled": true,
 
   "installed_apps": [

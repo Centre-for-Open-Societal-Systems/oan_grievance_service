@@ -41,7 +41,7 @@ TITLE_LENGTH = 80
 
 
 def status_order():
-	"""Every state but Draft, in lifecycle order, so the donut always has the same
+	"""Every state, in lifecycle order, so the donut always has the same
 	segments whether or not a state currently holds a case."""
 	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED)
 
@@ -469,7 +469,7 @@ def build_net_backlog_trend(ctx):
 
 
 def build_status_distribution(ctx):
-	"""Every state but Draft, zeros included, in lifecycle order."""
+	"""Every state, zeros included, in lifecycle order."""
 	return [{"status": s, "count": n} for s, n in _by_status(_snapshot(ctx, ("status",))).items()]
 
 
@@ -644,7 +644,6 @@ def _live_grievances(ctx, statuses=None, escalated=None, limit=10, order="desc")
 			A.area_name,
 			R.code.as_("region_code"),
 		)
-		.where(G.status != C.STATE_DRAFT)
 		.orderby(G.creation, order=frappe.qb.desc if order == "desc" else frappe.qb.asc)
 		.limit(limit)
 	)

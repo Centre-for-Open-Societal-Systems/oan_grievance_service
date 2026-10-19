@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.v1.auth import get_me
 
 from oan_grievance_service.api.v1 import submitter
-from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
+from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity, submit
 from oan_grievance_service.api.v1.organization import (
 	get_my_organization,
 	get_organization,
@@ -594,6 +594,19 @@ class TestFilingRights(OrganizationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			_resolve_submitter_identity({})
 
+	def test_submit_by_a_representative_of_an_unverified_organization_is_refused(self):
+		self.register()
+		uuid = frappe.generate_hash(length=32)
+		frappe.set_user(self.rep)
+		result = submit(
+			client_submission_uuid=uuid,
+			consent_given=1,
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		frappe.set_user("Administrator")
+		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+		self.assertFalse(frappe.db.exists("Grievance", {"client_submission_uuid": uuid}))
+
 	def test_nobody_else_may_act_for_the_organization(self):
 		org = self.register()["data"]["name"]
 		self.activate(org)
@@ -628,16 +641,6 @@ class TestFilingRights(OrganizationTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			# No profile of their own: the org's is not reachable by naming it.
 			_resolve_submitter_identity({"submitter": org_profile})
-
-	def test_intake_by_phone_never_lands_on_an_organizations_profile(self):
-		from oan_grievance_service.services.identity import find_or_create_submitter
-
-		org = self.register()["data"]
-		found = find_or_create_submitter(
-			{"submitter_type": "Individual Farmer", "contact_mobile": org["contact_phone"]}
-		)
-		self.assertNotEqual(found, self.profile_of(self.rep).name)
-		self.assertIsNone(frappe.db.get_value(PROFILE, found, "organization"))
 
 	def test_profiles_without_an_organization_are_unaffected(self):
 		farmer = frappe.get_doc(

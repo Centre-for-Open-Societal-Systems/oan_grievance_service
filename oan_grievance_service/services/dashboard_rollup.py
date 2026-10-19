@@ -82,15 +82,16 @@ _DIMENSIONS = (
 )
 
 
-def _daily_sql(day_column, measures, where, source="`tabGrievance` g"):
+def _daily_sql(day_column, measures, where=None, source="`tabGrievance` g"):
+	where = f" AND {where}" if where else ""
 	return f"""
 		SELECT DATE({day_column}) AS stat_date, {_DIMENSIONS}, {measures}
 		FROM {source}{_AREA_JOIN}
-		WHERE {day_column} >= %(start)s AND {day_column} < %(end)s AND {where}
+		WHERE {day_column} >= %(start)s AND {day_column} < %(end)s{where}
 		GROUP BY 1, 2, 3, 4"""
 
 
-_SUBMITTED_SQL = _daily_sql("g.creation", "COUNT(*) AS submitted_count", "g.status != 'Draft'")
+_SUBMITTED_SQL = _daily_sql("g.creation", "COUNT(*) AS submitted_count")
 _RESOLVED_SQL = _daily_sql(
 	"g.resolved_at",
 	"""COUNT(*) AS resolved_count,
@@ -102,7 +103,7 @@ _RESOLVED_SQL = _daily_sql(
 # Rejected is terminal and a rejected case is never saved again, so its last
 # modification is when it was rejected.
 _REJECTED_SQL = _daily_sql("g.modified", "COUNT(*) AS rejected_count", "g.status = 'Rejected'")
-_ESCALATED_SQL = _daily_sql("g.escalated_at", "COUNT(*) AS escalated_count", "g.status != 'Draft'")
+_ESCALATED_SQL = _daily_sql("g.escalated_at", "COUNT(*) AS escalated_count")
 # The submitter rates the case (1-5) only when confirming the resolution, the same
 # transition that stamps resolved_at, so that is the day the feedback was given.
 _FEEDBACK_SQL = _daily_sql(
@@ -136,7 +137,6 @@ _SNAPSHOT_SQL = (
 	LEFT JOIN (
 		SELECT DISTINCT grievance FROM `tabGrievance Duplicate` WHERE is_confirmed = 0
 	) d ON d.grievance = g.name
-	WHERE g.status != 'Draft'
 	GROUP BY 1, 2, 3, 4, 5, 6"""
 )
 

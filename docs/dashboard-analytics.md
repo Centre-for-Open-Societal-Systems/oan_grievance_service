@@ -40,7 +40,7 @@ cache another 15 minutes).
 
 | Term            | Meaning                                                                      |
 | --------------- | ---------------------------------------------------------------------------- |
-| Total           | Every grievance except Draft                                                 |
+| Total           | Every grievance                                                              |
 | Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)           |
 | Open            | Awaiting Action + More Info Needed (waiting on them)                         |
 | Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either        |

@@ -18,9 +18,6 @@ An upload is not stored and then checked. It is checked and then stored:
 3. The object is withheld until a scanner has looked at it. Uploads land Pending
    and `is_servable()` passes only on Clean, so an unscanned file never reaches an
    officer's browser.
-
-Files may be attached directly to open grievances or in-progress drafts
-persisted on the Grievance DocType with status 'Draft'.
 """
 
 import frappe
@@ -170,9 +167,12 @@ def has_uploads() -> bool:
 	return bool(getattr(req, "files", None)) if req else False
 
 
-def check_attachment_limit(case_name: str, adding: int):
-	"""Refuse an upload that would take the case past MAX_ATTACHMENTS_PER_CASE."""
-	existing = frappe.db.count("Grievance Attachment", {"grievance": case_name})
+def check_attachment_limit(case_name: str | None, adding: int):
+	"""Refuse an upload that would take the case past MAX_ATTACHMENTS_PER_CASE.
+
+	`case_name` is None for a case not filed yet, which carries nothing so far.
+	"""
+	existing = frappe.db.count("Grievance Attachment", {"grievance": case_name}) if case_name else 0
 	if existing + adding > MAX_ATTACHMENTS_PER_CASE:
 		frappe.throw(
 			_("A grievance may carry at most {0} attachments.").format(MAX_ATTACHMENTS_PER_CASE),
@@ -197,7 +197,7 @@ def validate_timeline_entry(case_name: str, timeline_entry: str | None):
 		frappe.throw(_("You cannot attach files to an internal entry."), frappe.PermissionError)
 
 
-def prepare_uploads(case_name: str) -> list[dict]:
+def prepare_uploads(case_name: str | None) -> list[dict]:
 	"""Check and clean the request's files without storing anything; [] when none came.
 
 	Callers that also move the case run this before the move, so a bad file refuses
@@ -343,8 +343,13 @@ class SubmitDocumentsRequest(BaseModel):
 		return self
 
 
-@grievance_route("/<ticket_number>/attachments", methods=("POST",), summary="Upload supporting documents")
-@route("", methods=("POST",), summary="Upload supporting documents")
+@grievance_route(
+	"/<ticket_number>/attachments",
+	methods=("POST",),
+	summary="Upload supporting documents",
+	tier="citizen-intake",
+)
+@route("", methods=("POST",), summary="Upload supporting documents", tier="citizen-intake")
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -371,8 +376,13 @@ def submit_documents(
 	)
 
 
-@grievance_route("/<ticket_number>/attachments", methods=("GET",), summary="List a grievance's attachments")
-@route("", methods=("GET",), summary="List attachments for a grievance")
+@grievance_route(
+	"/<ticket_number>/attachments",
+	methods=("GET",),
+	summary="List a grievance's attachments",
+	tier="citizen-intake",
+)
+@route("", methods=("GET",), summary="List attachments for a grievance", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
@@ -411,7 +421,12 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
+@route(
+	"/<attachment_id>/view",
+	methods=("GET",),
+	summary="Stream a clean attachment inline",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def view(
@@ -455,7 +470,12 @@ def view(
 	return response
 
 
-@route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
+@route(
+	"/<attachment_id>/download",
+	methods=("GET",),
+	summary="Get attachment download URL",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def download(attachment_id: str | None = None, attachment: str | None = None):
@@ -500,7 +520,7 @@ def _servable(attachment: str):
 	return doc
 
 
-@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment")
+@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment", tier="citizen-intake")
 @handle_api_errors
 @require_permission("Grievance", "write")
 def delete(attachment_id: str | None = None, attachment: str | None = None):

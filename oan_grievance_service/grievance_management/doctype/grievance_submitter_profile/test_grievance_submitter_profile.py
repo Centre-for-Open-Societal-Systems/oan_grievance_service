@@ -529,6 +529,44 @@ class TestSubmitterProfile(FrappeTestCase):
 			if frappe.db.exists("User", user.name):
 				frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
 
+	def test_on_user_registered_hook_reads_namespaced_profile_fields(self):
+		"""Fields under profile.grievance are read; they win over flat ones."""
+		import random
+
+		from oan_grievance_service.api.v1.profile import on_user_registered_hook
+
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"{frappe.generate_hash(length=12)}@id.openagrinet.internal",
+				"user_email": f"user_{random.randint(1000, 9999)}@example.com",
+				"first_name": "Namespaced",
+				"last_name": "Farmer",
+				"mobile_no": f"+25191{random.randint(1000000, 9999999)}",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+
+		try:
+			on_user_registered_hook(
+				user_doc=user,
+				role="Grievance Submitter",
+				roles=["Grievance Submitter"],
+				administrative_unit="Flat Unit",
+				profile={"grievance": {"administrative_unit": "Adama", "fayda_id": _random_fayda()}},
+			)
+			unit = frappe.db.get_value(
+				"Grievance Submitter Profile", {"user": user.name}, "administrative_unit"
+			)
+			self.assertEqual(unit, "Adama")
+		finally:
+			if frappe.db.exists("Grievance Submitter Profile", {"user": user.name}):
+				p_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user.name}, "name")
+				frappe.delete_doc("Grievance Submitter Profile", p_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("User", user.name):
+				frappe.delete_doc("User", user.name, force=True, ignore_permissions=True)
+
 	def test_register_submitter_with_split_phone_number_inputs(self):
 		import random
 

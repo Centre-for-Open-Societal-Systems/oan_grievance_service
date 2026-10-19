@@ -47,9 +47,7 @@ class TestOfficerStatistics(FrappeTestCase):
 	def _case(self, officer, state=C.STATE_ASSIGNED, hours=None, department=None):
 		doc = a_grievance()
 		self.made.append(doc.name)
-		# Closed and Rejected are docstatus 2 in the workflow, as in production.
-		docstatus = 2 if state in (C.STATE_CLOSED, C.STATE_REJECTED) else 1
-		values = {"assigned_to": officer, "workflow_state": state, "docstatus": docstatus}
+		values = {"assigned_to": officer, "workflow_state": state}
 		values["assigned_dept"] = department or self.department
 		if hours is not None:
 			values["resolved_at"] = add_to_date(doc.creation, hours=hours)

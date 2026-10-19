@@ -39,40 +39,34 @@ ROLES = [
 # down. The engine decides whether a move is legal and who may take it; the app
 # never keeps its own copy of that answer (tests/test_workflow_contracts.py).
 #
-# docstatus is what makes a state read-only everywhere, not only in the desk. A
-# case is born Draft (0), becomes a submitted document (1) on the Submit action and
-# stays one; Rejected is a cancelled document (2). Frappe refuses a workflow that
-# goes 1 -> 0 or 0 -> 2, which is why every active state is 1 and Draft exists.
-# Closed and Rejected have no outbound transition: a reopen happens from
-# Resolved, and nowhere else.
+# Grievance is not a submittable doctype: a case is filed the moment it is inserted,
+# straight into Submitted, and every state is docstatus 0. Closed and Rejected have
+# no outbound transition, which is what makes them terminal (the Grievance
+# controller refuses edits there); a reopen happens from Resolved, and nowhere else.
 WORKFLOW_NAME = "Grievance Workflow"
 
-# (state, docstatus, style, SLA category). Order matters: Frappe treats the first row
+# (state, style, SLA category). Order matters: Frappe treats the first row
 # as where a new document enters.
 #
 # The SLA category is what arriving in the state does to the clock (services.sla):
 # Running keeps it going, Paused holds it while the case waits on the submitter, and
 # Stopped ends it for good.
 WORKFLOW_STATES = [
-	(C.STATE_DRAFT, "0", "Inverse", "Running"),
-	(C.STATE_SUBMITTED, "1", "Info", "Running"),
-	(C.STATE_ASSIGNED, "1", "Primary", "Running"),
-	(C.STATE_IN_PROGRESS, "1", "Primary", "Running"),
-	(C.STATE_MORE_INFO_NEEDED, "1", "Warning", "Paused"),
-	(C.STATE_RESOLVED, "1", "Success", "Stopped"),
-	(C.STATE_CLOSED, "2", "Success", "Stopped"),
-	(C.STATE_REJECTED, "2", "Danger", "Stopped"),
+	(C.STATE_SUBMITTED, "Info", "Running"),
+	(C.STATE_ASSIGNED, "Primary", "Running"),
+	(C.STATE_IN_PROGRESS, "Primary", "Running"),
+	(C.STATE_MORE_INFO_NEEDED, "Warning", "Paused"),
+	(C.STATE_RESOLVED, "Success", "Stopped"),
+	(C.STATE_CLOSED, "Success", "Stopped"),
+	(C.STATE_REJECTED, "Danger", "Stopped"),
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
-# Citizens and Assisted Submitters (e.g. Development Agents) file grievances. Officers investigate and resolve cases.
-FILING_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
 SUBMITTER_ROLES = ("Grievance Submitter", C.ROLE_ASSISTED_SUBMITTER)
 SYSTEM_ROLES = ("Administrator", "System Manager")
 
 # (from, action, to, roles that may take it)
 WORKFLOW_TRANSITIONS = [
-	(C.STATE_DRAFT, "Submit", C.STATE_SUBMITTED, FILING_ROLES),
 	(C.STATE_SUBMITTED, "Assign", C.STATE_ASSIGNED, SYSTEM_ROLES),
 	(C.STATE_SUBMITTED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
@@ -702,7 +696,7 @@ def seed_workflow():
 	truth: a row removed from them must disappear from the engine too.
 	"""
 	seed_roles()
-	for state, _docstatus, style, _sla in WORKFLOW_STATES:
+	for state, style, _sla in WORKFLOW_STATES:
 		if not frappe.db.exists("Workflow State", state):
 			frappe.get_doc(
 				{"doctype": "Workflow State", "workflow_state_name": state, "style": style}
@@ -739,13 +733,12 @@ def seed_workflow():
 	)
 
 	# One state row per editing role: the desk makes the form read-only for anyone
-	# whose roles match none of a state's allow_edit rows. Submission itself is
-	# what locks a case; allow_edit only decides who sees an editable form.
-	for state, docstatus, _style, sla_category in WORKFLOW_STATES:
+	# whose roles match none of a state's allow_edit rows.
+	for state, _style, sla_category in WORKFLOW_STATES:
 		for role in OFFICER_ROLES:
 			workflow.append(
 				"states",
-				{"state": state, "doc_status": docstatus, "allow_edit": role, "sla_category": sla_category},
+				{"state": state, "doc_status": "0", "allow_edit": role, "sla_category": sla_category},
 			)
 
 	for from_state, action, to_state, roles in WORKFLOW_TRANSITIONS:
@@ -819,7 +812,7 @@ def seed_sla_category_field():
 	"""What each state of the Grievance Workflow does to the SLA clock.
 
 	On Workflow Document State - the workflow's own state rows - rather than on
-	Workflow State, which is a global master: "Draft" or "Rejected" there is shared
+	Workflow State, which is a global master: "Rejected" there is shared
 	with every other workflow on the site, and this is a fact about this one.
 	"""
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
@@ -945,7 +938,9 @@ def seed_unrouted_desk():
 def seed_submitter_types():
 	made = []
 	for name, code in SUBMITTER_TYPES:
-		if frappe.db.exists("Grievance Submitter Type", name):
+		if frappe.db.exists("Grievance Submitter Type", name) or frappe.db.exists(
+			"Grievance Submitter Type", {"code": code}
+		):
 			continue
 		frappe.get_doc(
 			{
@@ -962,7 +957,9 @@ def seed_submitter_types():
 def seed_submission_types():
 	made = []
 	for name, code in SUBMISSION_TYPES:
-		if frappe.db.exists("Grievance Submission Type", name):
+		if frappe.db.exists("Grievance Submission Type", name) or frappe.db.exists(
+			"Grievance Submission Type", {"code": code}
+		):
 			continue
 		frappe.get_doc(
 			{
