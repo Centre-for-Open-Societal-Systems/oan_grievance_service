@@ -22,6 +22,11 @@ URL. To expose a new endpoint: add it to the spec, give its `@route` a `tier=`,
 regenerate the spec, then this file. The generator refuses to run while an operation has no tier.
 Shared logic lives in `oan_auth_service/gateway_apisix.py`.
 
+oan_auth_service's own endpoints (`/v1/auth/*`, `/v1/admin/*`, `/v1/notifications/*`) are
+served by this bench too, so they are added to this config (`gw.with_auth_routes`), with
+the `auth-*` tiers defined in `gateway_apisix.py`. oan_auth_service has no gateway config
+of its own.
+
 Routes match the public spec's `/v1/...` paths. A service-level `proxy-rewrite` sends them
 to Frappe as `/api/v1/...`. `/api/v1/...` is not served through the gateway.
 See `oan_auth_service/docs/API_CONVENTIONS.md`.
@@ -89,10 +94,10 @@ below apply only to the generation-time variables.
 `GATEWAY_JWT = False` in the generator (default): the gateway does not verify tokens.
 Frappe's `auth_hooks` middleware does, for both `oan_auth_service` tokens and OpenG2P IAM
 tokens. The gateway only rate-limits (by client address), caps body size and handles CORS.
-Set `GATEWAY_JWT = True` in both repos only for a deployment that issues
-`oan_auth_service` tokens exclusively: it adds `jwt-auth` on bearer routes, keys limits by
-token, and emits the `oan-auth-jwt-issuer` consumer (needs `OAN_AUTH_JWT_PUBLIC_KEY`, the
-PEM, and `OAN_JWT_ISSUER`), which refuses IAM tokens.
+Set `GATEWAY_JWT = True` only for a deployment that issues `oan_auth_service` tokens
+exclusively: it adds `jwt-auth` on bearer routes, keys limits by token, and emits the
+`oan-auth-jwt-issuer` consumer (`gateway_apisix.jwt_issuer_consumer`, needs
+`OAN_AUTH_JWT_PUBLIC_KEY`, the PEM, and `OAN_JWT_ISSUER`), which refuses IAM tokens.
 
 ## Known limits
 

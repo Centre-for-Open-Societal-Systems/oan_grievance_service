@@ -27,8 +27,7 @@ APP = "oan-grievance"
 # the schema wants integers, and a quoted placeholder is a string.
 SITE_NAME = "${FRAPPE_SITE_NAME}"
 # False: the gateway does not verify tokens. Frappe's auth_hooks middleware does, and it
-# also accepts OpenG2P IAM tokens, which a gateway jwt-auth check would refuse. Must match
-# oan_auth_service/apisix: jwt-auth needs the issuer consumer declared there.
+# also accepts OpenG2P IAM tokens, which a gateway jwt-auth check would refuse.
 GATEWAY_JWT = False
 # Frappe upstreams. Ports come from the environment when the file is generated; hosts are
 # placeholders, see above.
@@ -175,19 +174,19 @@ HELM_BACKENDS = {
 
 def main():
 	spec = gw.load_spec(SPEC_PATH)
-	routes = gw.reconcile(gw.spec_routes(spec), tier_overrides())
+	# oan_auth_service's endpoints are served by this bench too.
+	routes = gw.with_auth_routes(gw.reconcile(gw.spec_routes(spec), tier_overrides()))
 	doc = gw.build_document(
 		routes,
 		app=APP,
-		tiers=TIERS,
+		tiers={**TIERS, **gw.AUTH_TIERS},
 		api_upstream=API_UPSTREAM,
 		service_plugins=gw.service_plugins(
 			methods="GET,POST,PATCH,DELETE,OPTIONS", credentials=False, max_body_mb=15
 		),
 		extra_services=[socket_service()],
+		consumers=[gw.jwt_issuer_consumer()] if GATEWAY_JWT else None,
 		gateway_jwt=GATEWAY_JWT,
-		# The oan-auth-jwt-issuer consumer, needed only when GATEWAY_JWT is on, is declared
-		# in oan_auth_service/apisix, which holds the issuer key.
 	)
 	provenance = [
 		f"Source Spec: {spec['info']['title']} v{spec['info']['version']}",
