@@ -2,9 +2,9 @@
 """
 generate_apisix_config_from_spec.py
 
-Generates the ADC gateway configuration (adc.yaml) and the Kubernetes Helm chart
-templates (chart/oan-grievance-gateway/templates, for the APISIX Ingress Controller) for
-the OAN Grievance Service directly from openapi_v1.public.yaml. Routes are grouped by
+Generates the ADC gateway configuration (adc.yaml) and the APISIX Ingress Controller
+resources (k8s/, Helm templates for the oan-grievance-gateway chart in oan-helm) for the
+OAN Grievance Service directly from openapi_v1.public.yaml. Routes are grouped by
 throttling tier, see oan_auth_service/gateway_apisix.py.
 
 Usage:
@@ -23,7 +23,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 INTERNAL_SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "adc.yaml"
-CHART_TEMPLATES = SCRIPT_DIR / "chart" / "oan-grievance-gateway" / "templates"
+K8S_DIR = SCRIPT_DIR / "k8s"
 APP = "oan-grievance"
 # Hosts are written as ${VAR} placeholders that ADC fills in from its own environment at
 # `adc diff|sync`, so one committed adc.yaml serves every deployment. Ports stay numbers:
@@ -280,7 +280,7 @@ def helm_render(text: str) -> str:
 	return "\n".join(out)
 
 
-def write_chart_templates(doc: dict, header_lines: list[str]) -> None:
+def write_k8s_templates(doc: dict, header_lines: list[str]) -> None:
 	"""ApisixRoute and ApisixUpstream templates for the APISIX Ingress Controller.
 
 	One ApisixRoute per ADC service. The ApisixUpstream carries the service's upstream
@@ -309,13 +309,13 @@ def write_chart_templates(doc: dict, header_lines: list[str]) -> None:
 		)
 		upstreams.append(to_crd_upstream(service, svc_name))
 
-	CHART_TEMPLATES.mkdir(parents=True, exist_ok=True)
+	K8S_DIR.mkdir(parents=True, exist_ok=True)
 	header = "".join(f"# {line}\n" for line in header_lines)
 	for filename, resources in (("apisix-route.yaml", routes), ("apisix-upstream.yaml", upstreams)):
 		body = "---\n".join(
 			yaml.safe_dump(r, sort_keys=False, default_flow_style=False, width=100) for r in resources
 		)
-		(CHART_TEMPLATES / filename).write_text(header + helm_render(body))
+		(K8S_DIR / filename).write_text(header + helm_render(body))
 
 
 def main():
@@ -342,7 +342,7 @@ def main():
 	gw.write_document(
 		doc, OUTPUT_PATH, ["OAN Grievance Service ADC config (adc lint|validate|diff|sync)", *provenance]
 	)
-	write_chart_templates(doc, ["OAN Grievance Service APISIX Ingress Controller resources", *provenance])
+	write_k8s_templates(doc, ["OAN Grievance Service APISIX Ingress Controller resources", *provenance])
 	gw.report(OUTPUT_PATH, routes, doc, spec)
 
 
