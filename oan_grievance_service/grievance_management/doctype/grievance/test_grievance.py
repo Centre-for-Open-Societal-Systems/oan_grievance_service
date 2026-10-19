@@ -456,6 +456,90 @@ class TestGrievance(FrappeTestCase):
 		self.assertEqual(g.administrative_unit, "1")
 		discard_grievance(ticket_number.normalize(ticket))
 
+	def _filing_kwargs(self, **overrides):
+		import uuid
+
+		kwargs = {
+			"client_submission_uuid": str(uuid.uuid4()),
+			"consent_given": 1,
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+		kwargs.update(overrides)
+		return kwargs
+
+	def test_submit_without_consent_is_refused(self):
+		kwargs = self._filing_kwargs(consent_given=0)
+		res = grievance_api.submit(**kwargs)
+		self.assertEqual(res["status"], "error")
+		self.assertFalse(
+			frappe.db.exists("Grievance", {"client_submission_uuid": kwargs["client_submission_uuid"]})
+		)
+
+	def test_submit_with_a_used_client_submission_uuid_is_refused(self):
+		kwargs = self._filing_kwargs()
+		first = grievance_api.submit(**kwargs)
+		self.assertEqual(first["status"], "success")
+		self.addCleanup(discard_grievance, ticket_number.normalize(first["data"]["ticket_number"]))
+
+		second = grievance_api.submit(**kwargs)
+		self.assertEqual(second["status"], "error")
+		self.assertEqual(
+			frappe.db.count("Grievance", {"client_submission_uuid": kwargs["client_submission_uuid"]}), 1
+		)
+
+	def test_submit_without_permission_to_contact_drops_the_contact_details(self):
+		res = grievance_api.submit(
+			**self._filing_kwargs(contact_email="tesfaye@example.com", can_request_more_info=False)
+		)
+		self.assertEqual(res["status"], "success")
+		name = ticket_number.normalize(res["data"]["ticket_number"])
+		self.addCleanup(discard_grievance, name)
+
+		self.assertFalse(res["data"]["can_request_more_info"])
+		g = frappe.get_doc("Grievance", name)
+		self.assertFalse(g.contact_mobile)
+		self.assertFalse(g.contact_email)
+
+	def _filed_grievance(self):
+		g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Tesfaye",
+				"contact_mobile": "+251911334455",
+				"submission_channel": "Mobile App",
+				"administrative_area": self.woreda_leaf.name,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_doc.name,
+				"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, g.name)
+		return g
+
+	def test_filed_fields_cannot_be_changed_after_filing(self):
+		g = self._filed_grievance()
+		g.description = "Rewritten after the fact."
+		with self.assertRaises(frappe.ValidationError):
+			g.save(ignore_permissions=True)
+
+	def test_a_terminal_case_cannot_be_changed(self):
+		from oan_grievance_service.services.sla import terminal_states
+
+		g = self._filed_grievance()
+		g.db_set("workflow_state", sorted(terminal_states())[0], update_modified=False)
+		g.reload()
+		g.assigned_dept = frappe.db.get_value("Grievance Department", {}, "name")
+		with self.assertRaises(frappe.ValidationError):
+			g.save(ignore_permissions=True)
+
 	def test_nearest_ancestor_routing(self):
 		# Create a broad assignment on Region, and a specific assignment on Woreda Leaf
 		broad_rule = frappe.get_doc(
