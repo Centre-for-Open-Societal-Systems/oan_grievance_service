@@ -40,7 +40,7 @@ required value fails the render:
 
 ```bash
 helm upgrade --install oan-grievance-gateway apisix/k8s -n develop \
-  -f <oan-helm>/environments/grievance-dev/values/oan-grievance-gateway.yaml
+  -f <oan-helm>/environments/dev/values/oan-grievance-gateway.yaml
 ```
 
 Manage a gateway with either the Ingress Controller or `adc sync`, never both: each
