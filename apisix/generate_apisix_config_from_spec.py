@@ -3,8 +3,8 @@
 generate_apisix_config_from_spec.py
 
 Generates the ADC gateway configuration (adc.yaml) and the APISIX Ingress Controller
-resources (k8s/, Helm templates for the oan-grievance-gateway chart in oan-helm) for the
-OAN Grievance Service directly from openapi_v1.public.yaml. Routes are grouped by
+resources (k8s/templates, the oan-grievance-gateway Helm chart) for the OAN Grievance
+Service directly from openapi_v1.public.yaml. Routes are grouped by
 throttling tier, see oan_auth_service/gateway_apisix.py.
 
 Usage:
@@ -23,7 +23,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
 INTERNAL_SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "adc.yaml"
-K8S_DIR = SCRIPT_DIR / "k8s"
+K8S_DIR = SCRIPT_DIR / "k8s" / "templates"
 APP = "oan-grievance"
 # Hosts are written as ${VAR} placeholders that ADC fills in from its own environment at
 # `adc diff|sync`, so one committed adc.yaml serves every deployment. Ports stay numbers:

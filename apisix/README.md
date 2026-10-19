@@ -28,13 +28,20 @@ See `oan_auth_service/docs/API_CONVENTIONS.md`.
 
 ## Kubernetes (APISIX Ingress Controller)
 
-The same generator also writes `k8s/`: an `ApisixRoute` per ADC service (same routes,
-tiers and plugins as `adc.yaml`) and an `ApisixUpstream` per Frappe Service (rewritten
-`Host`, timeouts, retries). They are Helm templates: hosts, Service names and ports, the
-site name, the Redis host and the allowed origins are `.Values` of the
-`oan-grievance-gateway` chart, which lives in
-[oan-helm](https://github.com/Centre-for-Open-Societal-Systems/oan-helm) with the
-per-environment values. Copy `k8s/*.yaml` into that chart's `templates/` when they change.
+`k8s/` is the `oan-grievance-gateway` Helm chart. The same generator writes its
+`templates/`: an `ApisixRoute` per ADC service (same routes, tiers and plugins as
+`adc.yaml`) and an `ApisixUpstream` per Frappe Service (rewritten `Host`, timeouts,
+retries). Only `Chart.yaml` is hand-edited.
+
+The chart has no default values. Hosts, Service names and ports, the site name, the Redis
+host and the allowed origins come from the per-environment values in
+[oan-helm](https://github.com/Centre-for-Open-Societal-Systems/oan-helm), and a missing
+required value fails the render:
+
+```bash
+helm upgrade --install oan-grievance-gateway apisix/k8s -n develop \
+  -f <oan-helm>/environments/grievance-dev/values/oan-grievance-gateway.yaml
+```
 
 Manage a gateway with either the Ingress Controller or `adc sync`, never both: each
 overwrites the other's routes. Keep `adc.yaml` for `adc lint|validate`.
