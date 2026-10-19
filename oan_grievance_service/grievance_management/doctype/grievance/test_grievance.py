@@ -490,8 +490,11 @@ class TestGrievance(FrappeTestCase):
 
 		second = grievance_api.submit(**kwargs)
 		self.assertEqual(second["status"], "error")
-		self.assertEqual(
-			frappe.db.count("Grievance", {"client_submission_uuid": kwargs["client_submission_uuid"]}), 1
+		# The error envelope rolls the request back, which in a test also discards the
+		# first filing, so a row count cannot show the refusal; its reason can.
+		self.assertIn(
+			frappe._("This submission has already been filed as {0}.").format(first["data"]["ticket_number"]),
+			second["message"],
 		)
 
 	def test_submit_without_permission_to_contact_drops_the_contact_details(self):
