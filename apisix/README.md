@@ -26,6 +26,26 @@ Routes match the public spec's `/v1/...` paths. A service-level `proxy-rewrite` 
 to Frappe as `/api/v1/...`. `/api/v1/...` is not served through the gateway.
 See `oan_auth_service/docs/API_CONVENTIONS.md`.
 
+## Kubernetes (APISIX Ingress Controller)
+
+The same generator also writes `chart/oan-grievance-gateway/templates/`: an `ApisixRoute`
+per ADC service (same routes, tiers and plugins as `adc.yaml`) and an `ApisixUpstream`
+per Frappe Service (rewritten `Host`, timeouts, retries). Hosts, Service names and ports,
+the site name, the Redis host and the allowed origins are Helm values, see
+`chart/oan-grievance-gateway/values.yaml`. Only `values.yaml` and `Chart.yaml` are hand-edited.
+
+```bash
+helm lint chart/oan-grievance-gateway
+helm upgrade --install oan-grievance-gateway chart/oan-grievance-gateway -n <ns> \
+  --set hosts={grievance.example.com} --set siteName=<frappe site> \
+  --set web.serviceName=<frappe web Service> --set socket.serviceName=<socketio Service>
+```
+
+Install the release in the namespace of the Frappe Services. The Ingress Controller must
+watch that namespace and the chart's `ingressClassName`. Manage a gateway with either the
+Ingress Controller or `adc sync`, never both: each overwrites the other's routes. Keep
+`adc.yaml` for `adc lint|validate`.
+
 ## Gateway requirements
 
 ```yaml
