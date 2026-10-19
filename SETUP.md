@@ -337,6 +337,15 @@ minutes. Until it finishes, `clamd` refuses connections and scans report `Failed
 No Python package is involved. The app talks to the daemon over a TCP socket using
 the standard library, so nothing is added to `requirements.txt` for this.
 
+**Frappe Cloud.** `[deploy.dependencies.apt]` in `pyproject.toml` is left empty on
+purpose. Listing `clamav-daemon` there would only install the binaries: nothing
+starts `clamd`, and the Ubuntu default listens on a unix socket while this app
+connects over TCP. The daemon also holds its signature database in memory
+(roughly 1-2 GB), which would compete with the bench workers. Run ClamAV as a
+separate service and set `grievance_clamav_host` and `grievance_clamav_port` to
+it. If you do run `clamd` on the bench itself, add the package, set `TCPSocket 3310`
+and `TCPAddr 127.0.0.1` in `clamd.conf`, and start it under supervisor.
+
 ### 4.2 SMS gateway
 
 Acknowledgement SMS is code complete and dispatches through core's
