@@ -59,7 +59,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -117,7 +117,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -171,7 +171,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -234,7 +234,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -291,7 +291,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -372,7 +372,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -434,7 +434,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -500,7 +500,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -567,7 +567,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -625,7 +625,7 @@ spec:
         rejected_code: 429
         show_limit_quota_header: true
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     backends:
@@ -740,7 +740,7 @@ spec:
           key: $remote_addr:hour
         rejected_code: 429
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     - name: proxy-rewrite
@@ -801,7 +801,7 @@ spec:
           key: $remote_addr:hour
         rejected_code: 429
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     - name: proxy-rewrite
@@ -863,7 +863,7 @@ spec:
           key: $remote_addr:hour
         rejected_code: 429
         policy: redis
-        redis_host: {{ .Values.redis.host | quote }}
+        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
     - name: proxy-rewrite
