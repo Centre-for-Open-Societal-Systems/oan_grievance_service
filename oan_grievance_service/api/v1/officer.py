@@ -259,7 +259,7 @@ class ListOfficers(PageParams, OfficerFilters):
 		return self
 
 
-@route("", methods=("GET",), summary="List officers")
+@route("", methods=("GET",), summary="List officers", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficers)
@@ -312,7 +312,7 @@ def list_officers(
 
 
 # Registered before `/<officer>` so the dynamic route never captures "status-counts".
-@route("/status-counts", methods=("GET",), summary="Count officers by status")
+@route("/status-counts", methods=("GET",), summary="Count officers by status", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(StatusCountsQuery)
@@ -351,7 +351,7 @@ def officer_status_counts(
 	return success_response(data=counts, message=_("Officer status counts retrieved"))
 
 
-@route("/<officer>", methods=("GET",), summary="Get an officer")
+@route("/<officer>", methods=("GET",), summary="Get an officer", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(OfficerRef)
@@ -369,7 +369,7 @@ def get_officer(officer: str, **kwargs):
 	return success_response(data={"officer": found}, message=_("Officer retrieved"))
 
 
-@route("", methods=("POST",), summary="Create an officer")
+@route("", methods=("POST",), summary="Create an officer", tier="officer-core")
 @handle_api_errors
 @require_role(DESK_HEAD_ROLES)
 @validate_request(CreateOfficer)
@@ -446,7 +446,7 @@ def create_officer(
 	return success_response(data={"officer": service.record(user_id)}, message=message)
 
 
-@route("/<officer>", methods=("PATCH",), summary="Update an officer")
+@route("/<officer>", methods=("PATCH",), summary="Update an officer", tier="officer-core")
 @handle_api_errors
 @require_role(DESK_HEAD_ROLES)
 @validate_request(UpdateOfficer, exclude_unset=True)
@@ -471,7 +471,12 @@ def update_officer(officer: str, **kwargs):
 	return success_response(data={"officer": service.record(officer)}, message=_("Officer updated"))
 
 
-@route("/<officer>/password-resets", methods=("POST",), summary="Issue a new temporary password")
+@route(
+	"/<officer>/password-resets",
+	methods=("POST",),
+	summary="Issue a new temporary password",
+	tier="officer-core",
+)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(ResetTemporaryPassword)

@@ -119,7 +119,7 @@ ruff format .
 
 ### 3.5 API Standards & Best Practices
 
-- When creating or modifying REST APIs, follow the architectural conventions and decorator pipeline in [**`docs/api-development-standards.md`**](file:///Users/arnav/Code/frappe_local/frappe-bench/apps/oan_grievance_service/docs/api-development-standards.md).
+- When creating or modifying REST APIs, follow `oan_auth_service/docs/DEVELOPMENT_BEST_PRACTICES.md`, the OAN-wide standard.
 
 ---
 

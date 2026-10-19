@@ -17,9 +17,9 @@ adc sync     -f apisix/adc.yaml --label-selector app=oan-grievance
 app's resources**. Apps sharing one APISIX can sync independently and never remove each
 other's routes. Always pass `--label-selector`.
 
-Routes are grouped by throttling tier (`TIERS`, `TIER_OVERRIDES` in the generator), not by
-URL. To expose a new endpoint: add it to the spec, give it a tier in `TIER_OVERRIDES`,
-regenerate. The generator refuses to run while the spec and `TIER_OVERRIDES` disagree.
+Routes are grouped by throttling tier (`TIERS` in the generator; each endpoint's tier is the `tier=` on its `@route`), not by
+URL. To expose a new endpoint: add it to the spec, give its `@route` a `tier=`,
+regenerate the spec, then this file. The generator refuses to run while an operation has no tier.
 Shared logic lives in `oan_auth_service/gateway_apisix.py`.
 
 Routes match the public spec's `/v1/...` paths. A service-level `proxy-rewrite` sends them
@@ -43,10 +43,15 @@ ADC connects with `ADC_BACKEND=apisix`, `ADC_SERVER=<admin URL>` and `ADC_TOKEN=
 
 ## Environment values
 
-ADC has no variable substitution of its own, so deployment-specific values are read from
-the environment **when the file is generated**. The committed `adc.yaml` holds development
-defaults; the deploy pipeline regenerates it with the real values, then lints, diffs and
-syncs. Never write `${VAR}` into the file: ADC expands it from its own environment.
+Hosts are written into `adc.yaml` as `${VAR}` placeholders, which ADC fills in from its
+own environment at `adc lint|diff|sync`. Export them before running ADC; an unset one
+fails the run. Ports, origins and the cookie prefix are read from the environment **when
+the file is generated**, so regenerate with their real values. Checked with ADC 0.31.0:
+`adc lint` passes with the four variables set and fails on an empty host when unset.
+
+Read at sync time (`${VAR}`): `OAN_GRIEVANCE_UPSTREAM_HOST`,
+`OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST`, `FRAPPE_SITE_NAME`, `APISIX_REDIS_HOST`. The defaults
+below apply only to the generation-time variables.
 
 | Variable                                                     | Default                                        | Meaning                                                                                                                       |
 | ------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |

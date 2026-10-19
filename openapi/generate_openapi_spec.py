@@ -8,7 +8,7 @@ and builds openapi_v1.yaml and openapi_v1.public.yaml.
 
 Outputs:
   - openapi_v1.yaml: Engineering/Internal specification with vendor extensions
-    (x-legacy-rpc-method, x-schema-confidence).
+    (x-legacy-rpc-method, x-schema-confidence, x-gateway-tier).
   - openapi_v1.public.yaml: Public/Gateway contract with vendor extensions stripped.
 
 Usage:
@@ -1781,6 +1781,8 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				op["parameters"] = parameters
 
 			op["x-legacy-rpc-method"] = legacy_target
+			if route_info.get("tier"):
+				op["x-gateway-tier"] = route_info["tier"]
 			if func_name.startswith("get_public_chart_"):
 				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
 			else:

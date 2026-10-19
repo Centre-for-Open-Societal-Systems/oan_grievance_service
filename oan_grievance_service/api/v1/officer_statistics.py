@@ -56,7 +56,7 @@ class ListOfficerStatistics(PageParams, Body):
 	_blank = field_validator("level", "department", mode="before")(blank_to_none)
 
 
-@route("/statistics", methods=("GET",), summary="List officer statistics")
+@route("/statistics", methods=("GET",), summary="List officer statistics", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOfficerStatistics)

@@ -57,7 +57,9 @@ oan_grievance_service/
 
 ## 3. Core Architecture & API Standards
 
-> Refer to [`docs/api-development-standards.md`](docs/api-development-standards.md) for the complete REST API development standards, decorator pipeline execution order, Pydantic validation rules, and error envelope specifications.
+> The OAN-wide development standard (naming, decorator pipeline, Pydantic validation, error envelopes, permissions, testing) is `oan_auth_service/docs/DEVELOPMENT_BEST_PRACTICES.md`. It is the single source of truth; do not copy its rules into this repo.
+
+> **Grievance write responses:** every endpoint that writes to a grievance returns `current_state` (from `_current_state()`), and `timeline_event` when it adds a timeline entry (from `_timeline_event_with()`). Change-request-backed endpoints answer through `_change_response()`.
 
 > **URL convention (all OAN apps):** routes are declared under `/api/v1/...`; the public contract and all client-facing docs use `/v1/...`, which the APISIX gateway rewrites. Do not add `/v1` aliases in the app. New endpoints also need a tier in `apisix/generate_apisix_config_from_spec.py`. See `oan_auth_service/docs/API_CONVENTIONS.md`.
 

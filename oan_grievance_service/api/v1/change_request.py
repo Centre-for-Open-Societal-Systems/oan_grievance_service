@@ -136,7 +136,7 @@ def _can_view(req, user):
 	)
 
 
-@route("", methods=("GET",), summary="List change requests")
+@route("", methods=("GET",), summary="List change requests", tier="officer-core")
 @validate_request(ListChangeRequestsRequest)
 @handle_api_errors
 def list_requests(
@@ -294,7 +294,7 @@ def list_requests(
 	)
 
 
-@route("/<name>", methods=("GET",), summary="Get a change request")
+@route("/<name>", methods=("GET",), summary="Get a change request", tier="officer-core")
 @handle_api_errors
 def get_request(name: str, **kwargs):
 	if not frappe.db.exists(DOCTYPE, name):
@@ -309,7 +309,7 @@ def get_request(name: str, **kwargs):
 	return success_response(data=serialize(req))
 
 
-@route("/<name>/decide", methods=("POST",), summary="Approve or reject a change request")
+@route("/<name>/decide", methods=("POST",), summary="Approve or reject a change request", tier="officer-core")
 @validate_request(DecideChangeRequest)
 @handle_api_errors
 def decide(name: str, decision: str, note: str | None = None, **kwargs):

@@ -182,7 +182,7 @@ def _configuration_record(name: str) -> dict:
 	return _configuration_records(rows)[0]
 
 
-@route("/sla-policy", methods=("GET",), summary="Get the global SLA policy")
+@route("/sla-policy", methods=("GET",), summary="Get the global SLA policy", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @api_doc(
@@ -202,7 +202,7 @@ def get_global_policy(**kwargs):
 	)
 
 
-@route("/sla-policy", methods=("PATCH",), summary="Update the global SLA policy")
+@route("/sla-policy", methods=("PATCH",), summary="Update the global SLA policy", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateGlobalSlaPolicy, exclude_unset=True)
@@ -224,7 +224,7 @@ def update_global_policy(**kwargs):
 	return success_response(data=_policy_data(), message=_("Global SLA policy updated"))
 
 
-@route("/sla-configurations", methods=("GET",), summary="List per-category SLA settings")
+@route("/sla-configurations", methods=("GET",), summary="List per-category SLA settings", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListSlaConfigurations)
@@ -283,7 +283,12 @@ def list_sla_configurations(
 	)
 
 
-@route("/sla-configurations/<config>", methods=("PATCH",), summary="Update a category's SLA settings")
+@route(
+	"/sla-configurations/<config>",
+	methods=("PATCH",),
+	summary="Update a category's SLA settings",
+	tier="officer-core",
+)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(UpdateSlaConfiguration, exclude_unset=True)

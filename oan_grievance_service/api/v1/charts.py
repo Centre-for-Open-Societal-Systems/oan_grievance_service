@@ -176,7 +176,12 @@ def _is_admin():
 	return bool(set(frappe.get_roles()) & set(ADMIN_ROLES))
 
 
-@route("/charts", methods=("GET",), summary="Dashboard charts (Grievance Admin, Grievance Officer)")
+@route(
+	"/charts",
+	methods=("GET",),
+	summary="Dashboard charts (Grievance Admin, Grievance Officer)",
+	tier="officer-core",
+)
 @handle_api_errors
 @require_role(CHARTS_ROLES)
 def get_charts(charts: str | None = None, **kwargs):
@@ -260,4 +265,5 @@ for _chart_id in dashboard.PUBLIC_CHARTS:
 		f"/charts/{_chart_id}",
 		methods=("GET",),
 		summary=f"Public dashboard chart {_chart_id} (counts only)",
+		tier="public-dashboards",
 	)(_public_endpoint(_chart_id))

@@ -185,7 +185,7 @@ def organization_record(org) -> dict:
 	return {**org.as_dict(), "status": org.workflow_state}
 
 
-@route("", methods=("POST",), summary="Register an organization")
+@route("", methods=("POST",), summary="Register an organization", tier="citizen-intake")
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @validate_request(CreateOrganization)
@@ -206,7 +206,7 @@ def register_organization(**kwargs):
 	)
 
 
-@route("/me", methods=("GET",), summary="Get my organization")
+@route("/me", methods=("GET",), summary="Get my organization", tier="citizen-intake")
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @api_doc(
@@ -221,7 +221,7 @@ def get_my_organization(**kwargs):
 	return success_response(data=organization_record(org), message=_("Organization retrieved"))
 
 
-@route("/me", methods=("PATCH",), summary="Update my organization")
+@route("/me", methods=("PATCH",), summary="Update my organization", tier="citizen-intake")
 @handle_api_errors
 @require_role([ROLE_SUBMITTER])
 @validate_request(UpdateOrganization, exclude_unset=True)
@@ -241,7 +241,7 @@ def update_my_organization(**kwargs):
 	return success_response(data=organization_record(org), message=_("Organization updated"))
 
 
-@route("", methods=("GET",), summary="List organizations")
+@route("", methods=("GET",), summary="List organizations", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(ListOrganizations)
@@ -262,7 +262,7 @@ def list_organizations(**kwargs):
 	)
 
 
-@route("/<org_id>", methods=("GET",), summary="Get an organization")
+@route("/<org_id>", methods=("GET",), summary="Get an organization", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
 @validate_request(OrganizationRef)
@@ -279,7 +279,12 @@ def get_organization(org_id: str, **kwargs):
 	)
 
 
-@route("/<org_id>/status", methods=("PATCH",), summary="Set an organization's verification status")
+@route(
+	"/<org_id>/status",
+	methods=("PATCH",),
+	summary="Set an organization's verification status",
+	tier="officer-core",
+)
 @handle_api_errors
 @require_role(ADMIN_ROLES)
 @validate_request(SetOrganizationStatus)

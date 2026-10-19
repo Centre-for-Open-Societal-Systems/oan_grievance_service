@@ -17,15 +17,19 @@ from oan_auth_service import gateway_apisix as gw
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.public.yaml"
+INTERNAL_SPEC_PATH = REPO_ROOT / "openapi" / "openapi_v1.yaml"
 OUTPUT_PATH = SCRIPT_DIR / "adc.yaml"
 APP = "oan-grievance"
-SITE_NAME = gw.env("FRAPPE_SITE_NAME", "mysite.localhost")
+# Hosts are written as ${VAR} placeholders that ADC fills in from its own environment at
+# `adc diff|sync`, so one committed adc.yaml serves every deployment. Ports stay numbers:
+# the schema wants integers, and a quoted placeholder is a string.
+SITE_NAME = "${FRAPPE_SITE_NAME}"
 # False: the gateway does not verify tokens. Frappe's auth_hooks middleware does, and it
 # also accepts OpenG2P IAM tokens, which a gateway jwt-auth check would refuse. Must match
 # oan_auth_service/apisix: jwt-auth needs the issuer consumer declared there.
 GATEWAY_JWT = False
-# Frappe upstreams. The environment overrides these when the file is generated for a
-# deployment; the defaults are for local development.
+# Frappe upstreams. Ports come from the environment when the file is generated; hosts are
+# placeholders, see above.
 API_UPSTREAM = gw.upstream(
 	host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
 	host_default="oan-grievance.internal.svc",
@@ -37,6 +41,7 @@ API_UPSTREAM = gw.upstream(
 	timeout={"connect": 5, "send": 20, "read": 20},
 	retries=2,
 )
+API_UPSTREAM["nodes"][0]["host"] = "${OAN_GRIEVANCE_UPSTREAM_HOST}"
 # Frappe's Node socket.io server (`bench socketio`). Its events are described in
 # openapi/asyncapi_v1.yaml, not the OpenAPI spec, so its service is declared here.
 SOCKET_UPSTREAM = gw.upstream(
@@ -50,6 +55,7 @@ SOCKET_UPSTREAM = gw.upstream(
 	timeout={"connect": 5, "send": 3600, "read": 3600},
 	retries=0,
 )
+SOCKET_UPSTREAM["nodes"][0]["host"] = "${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}"
 
 # ---------------------------------------------------------------------------
 # Throttling tiers
@@ -85,106 +91,23 @@ TIERS = {
 	},
 }
 
+
 # ---------------------------------------------------------------------------
-# Explicit Tier assignments per route
+# Tier assignments
 # ---------------------------------------------------------------------------
-TIER_OVERRIDES = {
-	("GET", "/v1/grievances/health"): "public-reference",
-	("GET", "/v1/grievances/ping"): "public-reference",
-	("GET", "/v1/submitters/options"): "public-reference",
-	("POST", "/v1/submitters"): "citizen-intake",
-	("POST", "/v1/submitters/register"): "citizen-intake",
-	("POST", "/v1/submitters/{profile_id}/block"): "officer-core",
-	("POST", "/v1/submitters/{profile_id}/unblock"): "officer-core",
-	("GET", "/v1/administrative-areas"): "public-reference",
-	("GET", "/v1/administrative-areas/{area_id_or_path}/ancestors"): "public-reference",
-	("GET", "/v1/grievances"): "officer-core",
-	("POST", "/v1/grievances"): "citizen-intake",
-	("GET", "/v1/grievances/summary"): "officer-core",
-	("GET", "/v1/grievances/options"): "officer-core",
-	("POST", "/v1/grievances/{ticket_number}/action"): "citizen-intake",
-	("POST", "/v1/grievances/{ticket_number}/feedback"): "citizen-intake",
-	("POST", "/v1/grievances/{ticket_number}/message"): "citizen-intake",
-	("POST", "/v1/grievances/{ticket_number}/reassign"): "officer-core",
-	("POST", "/v1/grievances/{ticket_number}/reassign/decide"): "officer-core",
-	("POST", "/v1/grievances/{ticket_number}/defer-sla"): "officer-core",
-	("POST", "/v1/grievances/{ticket_number}/defer-sla/decide"): "officer-core",
-	("GET", "/v1/grievances/{ticket_number}/timeline"): "citizen-intake",
-	("GET", "/v1/grievances/{ticket_number}/response-templates"): "officer-core",
-	("POST", "/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
-	("GET", "/v1/grievances/{ticket_number}/attachments"): "citizen-intake",
-	("GET", "/v1/attachments"): "officer-core",
-	("POST", "/v1/attachments"): "citizen-intake",
-	("POST", "/v1/attachments/{attachment_id}"): "citizen-intake",
-	("GET", "/v1/attachments/{attachment_id}/download"): "citizen-intake",
-	("GET", "/v1/attachments/{attachment_id}/view"): "citizen-intake",
-	("DELETE", "/v1/attachments/{attachment_id}"): "citizen-intake",
-	("GET", "/v1/change-requests"): "officer-core",
-	("GET", "/v1/change-requests/{name}"): "officer-core",
-	("POST", "/v1/change-requests/{name}/decide"): "officer-core",
-	("GET", "/v1/category-assignments"): "officer-core",
-	("POST", "/v1/category-assignments"): "officer-core",
-	("GET", "/v1/category-assignments/{assignment}"): "officer-core",
-	("PATCH", "/v1/category-assignments/{assignment}"): "officer-core",
-	("DELETE", "/v1/category-assignments/{assignment}"): "officer-core",
-	("POST", "/v1/orgs"): "citizen-intake",
-	("GET", "/v1/orgs/me"): "citizen-intake",
-	("PATCH", "/v1/orgs/me"): "citizen-intake",
-	("GET", "/v1/orgs"): "officer-core",
-	("GET", "/v1/orgs/{org_id}"): "officer-core",
-	("PATCH", "/v1/orgs/{org_id}/status"): "officer-core",
-	("GET", "/v1/officers"): "officer-core",
-	("POST", "/v1/officers"): "officer-core",
-	("GET", "/v1/officers/status-counts"): "officer-core",
-	("GET", "/v1/officers/{officer}"): "officer-core",
-	("PATCH", "/v1/officers/{officer}"): "officer-core",
-	("POST", "/v1/officers/{officer}/password-resets"): "officer-core",
-	("GET", "/v1/response-templates"): "officer-core",
-	("POST", "/v1/response-templates"): "officer-core",
-	("GET", "/v1/response-templates/{template}"): "officer-core",
-	("PATCH", "/v1/response-templates/{template}"): "officer-core",
-	("DELETE", "/v1/response-templates/{template}"): "officer-core",
-	("GET", "/v1/notification-templates"): "officer-core",
-	("GET", "/v1/notification-templates/options"): "officer-core",
-	("GET", "/v1/notification-templates/placeholders"): "officer-core",
-	("GET", "/v1/notification-templates/{template}"): "officer-core",
-	("PATCH", "/v1/notification-templates/{template}"): "officer-core",
-	("GET", "/v1/service-categories"): "officer-core",
-	("POST", "/v1/service-categories"): "officer-core",
-	("GET", "/v1/service-categories/{category}"): "officer-core",
-	("PATCH", "/v1/service-categories/{category}"): "officer-core",
-	("DELETE", "/v1/service-categories/{category}"): "officer-core",
-	("GET", "/v1/grievance-types"): "officer-core",
-	("POST", "/v1/grievance-types"): "officer-core",
-	("GET", "/v1/grievance-types/{grievance_type}"): "officer-core",
-	("PATCH", "/v1/grievance-types/{grievance_type}"): "officer-core",
-	("DELETE", "/v1/grievance-types/{grievance_type}"): "officer-core",
-	("GET", "/v1/sla-policy"): "officer-core",
-	("PATCH", "/v1/sla-policy"): "officer-core",
-	("GET", "/v1/sla-configurations"): "officer-core",
-	("PATCH", "/v1/sla-configurations/{config}"): "officer-core",
-	("GET", "/v1/officers/statistics"): "officer-core",
-	("GET", "/v1/charts"): "officer-core",
-	**{
-		("GET", f"/v1/charts/{chart_id}"): "public-dashboards"
-		for chart_id in (
-			"grvKpis",
-			"grvPerformanceKpis",
-			"grvMonthlyTrend",
-			"grvWeeklyTrend",
-			"grvNetBacklogTrend",
-			"grvStatusDistribution",
-			"grvByCategory",
-			"grvCategoryResolution",
-			"grvResolutionRateByRegion",
-			"grvSlaRisk",
-			"grvPendingDuplicates",
-			"grvOldestOpen",
-			"grvFilterRegions",
-			"grvFilterCategories",
-		)
-	},
-}
+def tier_overrides() -> dict[tuple[str, str], str]:
+	"""(method, public path) -> tier, from the `tier=` set on each endpoint's `@route`.
+
+	Read from the internal spec, which keeps `x-gateway-tier`; the public spec strips it
+	so the throttling decision stays out of the client contract.
+	"""
+	spec = gw.load_spec(INTERNAL_SPEC_PATH)
+	return {
+		(method.upper(), gw.public_path(path)): op["x-gateway-tier"]
+		for path, methods in spec["paths"].items()
+		for method, op in methods.items()
+		if "x-gateway-tier" in op
+	}
 
 
 def socket_service():
@@ -218,7 +141,7 @@ def socket_service():
 			],
 			"rejected_code": 429,
 			"policy": "redis",
-			"redis_host": gw.env("APISIX_REDIS_HOST", "redis"),
+			"redis_host": "${APISIX_REDIS_HOST}",
 			"redis_port": int(gw.env("APISIX_REDIS_PORT", "6379")),
 			"allow_degradation": True,
 		},
@@ -227,7 +150,7 @@ def socket_service():
 
 def main():
 	spec = gw.load_spec(SPEC_PATH)
-	routes = gw.reconcile(gw.spec_routes(spec), TIER_OVERRIDES)
+	routes = gw.reconcile(gw.spec_routes(spec), tier_overrides())
 	doc = gw.build_document(
 		routes,
 		app=APP,
@@ -248,7 +171,7 @@ def main():
 			"OAN Grievance Service ADC config (adc lint|validate|diff|sync)",
 			f"Source Spec: {spec['info']['title']} v{spec['info']['version']}",
 			"Generated by generate_apisix_config_from_spec.py -- do not hand-edit;",
-			"change the OpenAPI spec or TIER_OVERRIDES and re-run.",
+			"change the OpenAPI spec or an endpoint's `tier=` and re-run.",
 		],
 	)
 	gw.report(OUTPUT_PATH, routes, doc, spec)

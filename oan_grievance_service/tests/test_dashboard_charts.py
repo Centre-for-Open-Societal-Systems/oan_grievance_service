@@ -436,7 +436,7 @@ class TestGatewayContract(FrappeTestCase):
 		spec = gw.load_spec(generator.SPEC_PATH)
 		routes = [
 			r
-			for r in gw.reconcile(gw.spec_routes(spec), generator.TIER_OVERRIDES)
+			for r in gw.reconcile(gw.spec_routes(spec), generator.tier_overrides())
 			if r["path"].startswith("/v1/charts/")
 		]
 		self.assertEqual({r["auth"] for r in routes}, {"frappe-token"})

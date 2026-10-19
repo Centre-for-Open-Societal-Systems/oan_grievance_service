@@ -343,8 +343,13 @@ class SubmitDocumentsRequest(BaseModel):
 		return self
 
 
-@grievance_route("/<ticket_number>/attachments", methods=("POST",), summary="Upload supporting documents")
-@route("", methods=("POST",), summary="Upload supporting documents")
+@grievance_route(
+	"/<ticket_number>/attachments",
+	methods=("POST",),
+	summary="Upload supporting documents",
+	tier="citizen-intake",
+)
+@route("", methods=("POST",), summary="Upload supporting documents", tier="citizen-intake")
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -371,8 +376,13 @@ def submit_documents(
 	)
 
 
-@grievance_route("/<ticket_number>/attachments", methods=("GET",), summary="List a grievance's attachments")
-@route("", methods=("GET",), summary="List attachments for a grievance")
+@grievance_route(
+	"/<ticket_number>/attachments",
+	methods=("GET",),
+	summary="List a grievance's attachments",
+	tier="citizen-intake",
+)
+@route("", methods=("GET",), summary="List attachments for a grievance", tier="officer-core")
 @handle_api_errors
 @require_permission("Grievance", "read")
 def get_attachments(ticket_number: str | None = None, grievance: str | None = None):
@@ -411,7 +421,12 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 	return success_response(data=rows, message=_("Attachments fetched"))
 
 
-@route("/<attachment_id>/view", methods=("GET",), summary="Stream a clean attachment inline")
+@route(
+	"/<attachment_id>/view",
+	methods=("GET",),
+	summary="Stream a clean attachment inline",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def view(
@@ -455,7 +470,12 @@ def view(
 	return response
 
 
-@route("/<attachment_id>/download", methods=("GET",), summary="Get attachment download URL")
+@route(
+	"/<attachment_id>/download",
+	methods=("GET",),
+	summary="Get attachment download URL",
+	tier="citizen-intake",
+)
 @handle_api_errors
 @require_permission("Grievance", "read")
 def download(attachment_id: str | None = None, attachment: str | None = None):
@@ -500,7 +520,7 @@ def _servable(attachment: str):
 	return doc
 
 
-@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment")
+@route("/<attachment_id>", methods=("DELETE", "POST"), summary="Delete an attachment", tier="citizen-intake")
 @handle_api_errors
 @require_permission("Grievance", "write")
 def delete(attachment_id: str | None = None, attachment: str | None = None):
