@@ -5,7 +5,8 @@
 
 Search reads the local Grievance Service Provider directory only; it never calls an
 external source. A grievance stores the provider ID, so a renamed provider changes
-nothing on old grievances. Any user who may file a grievance may search.
+nothing on old grievances. Access follows the DocType's own permission: whoever may read a
+Grievance Service Provider may search and look one up.
 """
 
 from frappe import _
@@ -112,7 +113,7 @@ class ServiceProviderRef(Body):
 
 @route("", methods=("GET",), summary="Search service providers", tier="officer-core")
 @handle_api_errors
-@require_permission("Grievance", "create")
+@require_permission("Grievance Service Provider", "read")
 @validate_request(ListServiceProviders)
 @api_doc(
 	summary="Search service providers",
@@ -150,7 +151,7 @@ def list_service_providers(
 
 @route("/<provider_id>", methods=("GET",), summary="Get a service provider", tier="officer-core")
 @handle_api_errors
-@require_permission("Grievance", "create")
+@require_permission("Grievance Service Provider", "read")
 @validate_request(ServiceProviderRef)
 @api_doc(
 	summary="Get a service provider",

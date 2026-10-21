@@ -70,6 +70,12 @@ class TestServiceProviderApi(FrappeTestCase):
 		)
 
 		cls.submitter = _user(f"sp-{t}-submitter@example.com", "SP Submitter", role="Grievance Submitter")
+		# One user per role that holds `read` on the provider DocType, taken from the DocType itself.
+		cls.readers = {
+			p.role: _user(f"sp-{t}-{i}@example.com", f"SP Reader {i}", role=p.role)
+			for i, p in enumerate(frappe.get_meta("Grievance Service Provider").permissions)
+			if p.read
+		}
 		cls.outsider = f"sp-{t}-outsider@example.com"
 		frappe.get_doc(
 			{
@@ -298,7 +304,34 @@ class TestServiceProviderApi(FrappeTestCase):
 		self.assertIn(self.national, self._ids(search=self.tag))
 		self.assertEqual(get_service_provider(self.national)["status"], "success")
 
-	def test_a_user_who_cannot_file_a_grievance_is_refused(self):
+	def test_every_role_that_may_read_a_provider_may_search_and_look_one_up(self):
+		"""The guard checks the resource (read on the provider), not the right to file a grievance."""
+		self.assertEqual(
+			set(self.readers),
+			{
+				"Grievance Admin",
+				"System Manager",
+				"Grievance Officer",
+				"Grievance Submitter",
+				"Grievance Assisted Submitter",
+				"Grievance Review Officer",
+			},
+		)
+		for role, user in self.readers.items():
+			with self.subTest(role=role):
+				frappe.set_user(user)
+				self.assertIn(self.national, self._ids(search=self.tag))
+				self.assertEqual(get_service_provider(self.national)["status"], "success")
+
+	def test_officers_and_reviewers_are_not_locked_out_for_lacking_create_on_grievance(self):
+		for role in ("Grievance Officer", "Grievance Review Officer"):
+			with self.subTest(role=role):
+				frappe.set_user("Administrator")
+				self.assertFalse(frappe.has_permission("Grievance", "create", user=self.readers[role]))
+				frappe.set_user(self.readers[role])
+				self.assertEqual(self._search(search=self.tag)["pagination"]["total_count"], 8)
+
+	def test_a_user_with_no_role_on_providers_is_refused(self):
 		frappe.set_user(self.outsider)
 		for result in (
 			self._error(list_service_providers, search=self.tag),

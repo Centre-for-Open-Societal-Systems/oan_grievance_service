@@ -68,7 +68,7 @@ The endpoints follow the platform conventions: `@route`, `@handle_api_errors`, t
 | 1   | `GET`  | `/api/v1/service-providers`               | Search active providers     |
 | 2   | `GET`  | `/api/v1/service-providers/{provider_id}` | One provider, active or not |
 
-**Access.** Any signed-in user who holds `create` on `Grievance` (Grievance Admin, System Manager, Submitter, Assisted Submitter). A guest gets 401 from the JWT middleware. A signed-in user without that permission gets 403. A Grievance Officer cannot file a grievance, so cannot use these endpoints today.
+**Access.** Any signed-in user who holds `read` on `Grievance Service Provider`: Grievance Admin, System Manager, Grievance Officer, Grievance Submitter, Grievance Assisted Submitter and Grievance Review Officer. The guard checks the resource being read, not the permission to file a grievance, so officers and reviewers can look providers up too. A guest gets 401 from the JWT middleware, and a signed-in user with none of those roles gets 403. An earlier version guarded these endpoints with `create` on `Grievance`, which locked out officers and reviewers although the provider DocType grants them `read`; a reviewer caught it.
 
 **Gateway tier.** `officer-core` (300 requests a minute per consumer), chosen so a debounced type-ahead cannot hit the 60 a minute `citizen-intake` limit. Change `tier=` on the `@route` if you disagree.
 
