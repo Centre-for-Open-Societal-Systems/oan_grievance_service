@@ -28,6 +28,10 @@ Endpoints
                                     (/api/v1/orgs, /api/v1/orgs/me, /api/v1/orgs/<id>/status)
     v1.sla_settings                 global SLA policy and per-category SLA windows
                                     (/api/v1/sla-policy, /api/v1/sla-configurations)
+    v1.service_provider             service provider directory search for the grievance form
+                                    (/api/v1/service-providers)
+    v1.service_provider_source      sources the directory is synced from, and a one-off sync
+                                    (/api/v1/service-provider-sources)
 
     v1.attachment.submit_document   upload evidence (POST /api/v1/grievances/<g>/attachments)
     v1.attachment.get_attachments   list evidence with scan verdicts (GET /api/v1/grievances/<g>/attachments)

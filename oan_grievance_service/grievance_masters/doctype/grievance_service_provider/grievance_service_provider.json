@@ -1,0 +1,146 @@
+{
+ "actions": [],
+ "autoname": "format:SP-{#####}",
+ "creation": "2026-10-21 10:46:29.357167",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "provider_name",
+  "provider_type",
+  "parent_provider",
+  "administrative_area",
+  "registration_number",
+  "is_active",
+  "sync_section",
+  "source",
+  "external_ref",
+  "last_synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "provider_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Provider Name",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "provider_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Provider Type",
+   "options": "\nBank\nMicrofinance\nCooperative\nCooperative Union\nInput Store\nMarket\nGovernment Office\nOther",
+   "reqd": 1
+  },
+  {
+   "description": "The head office or parent body when this provider is a branch.",
+   "fieldname": "parent_provider",
+   "fieldtype": "Link",
+   "label": "Parent Provider",
+   "options": "Grievance Service Provider"
+  },
+  {
+   "description": "Where the provider operates. Empty means nationwide.",
+   "fieldname": "administrative_area",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Administrative Area",
+   "options": "Grievance Administrative Area"
+  },
+  {
+   "fieldname": "registration_number",
+   "fieldtype": "Data",
+   "label": "Registration Number",
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "description": "An inactive provider is hidden from search but stays valid on grievances that already name it.",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sync"
+  },
+  {
+   "description": "Empty means the provider was added by hand. Providers from a source are kept in step with it by the sync.",
+   "fieldname": "source",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Grievance Service Provider Source",
+   "read_only": 1
+  },
+  {
+   "description": "The source's own ID for this provider",
+   "fieldname": "external_ref",
+   "fieldtype": "Data",
+   "label": "External Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_synced_at",
+   "fieldtype": "Datetime",
+   "label": "Last Synced At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-21 10:46:51.412732",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Grievance Service Provider",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Grievance Officer"
+  },
+  {
+   "read": 1,
+   "role": "Grievance Submitter"
+  },
+  {
+   "read": 1,
+   "role": "Grievance Assisted Submitter"
+  },
+  {
+   "read": 1,
+   "role": "Grievance Review Officer"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "provider_name,registration_number",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "provider_name",
+ "track_changes": 1
+}

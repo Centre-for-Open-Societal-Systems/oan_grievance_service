@@ -948,6 +948,9 @@ spec:
       - /v1/response-templates/:template
       - /v1/service-categories
       - /v1/service-categories/:category
+      - /v1/service-provider-sources
+      - /v1/service-providers
+      - /v1/service-providers/:provider_id
       - /v1/sla-configurations
       - /v1/sla-policy
       methods:
@@ -1076,6 +1079,7 @@ spec:
       - /v1/officers/:officer/password-resets
       - /v1/response-templates
       - /v1/service-categories
+      - /v1/service-provider-sources/:source_name/sync
       - /v1/submitters/:profile_id/block
       - /v1/submitters/:profile_id/unblock
       methods:
@@ -1286,6 +1290,10 @@ spec:
       - /v1/response-templates/*
       - /v1/service-categories
       - /v1/service-categories/*
+      - /v1/service-provider-sources
+      - /v1/service-provider-sources/*
+      - /v1/service-providers
+      - /v1/service-providers/*
       - /v1/sla-configurations
       - /v1/sla-configurations/*
       - /v1/sla-policy

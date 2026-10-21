@@ -7098,6 +7098,198 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Service Providers",
+      "item": [
+        {
+          "name": "Search service providers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/service-providers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-providers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "provider_type",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "area",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Active providers for the grievance form's dropdown. search matches the provider's name, registration number and parent name. area keeps providers inside that area or above it, plus nationwide providers. Names that start with the search text come first, then the most local area."
+          },
+          "response": []
+        },
+        {
+          "name": "Get a service provider",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/service-providers/{{provider_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-providers",
+                "{{provider_id}}"
+              ]
+            },
+            "description": "One provider by ID, active or not, so a saved grievance or draft can still show its name."
+          },
+          "response": []
+        },
+        {
+          "name": "List service provider sources",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/service-provider-sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-provider-sources"
+              ]
+            },
+            "description": "Each source with its last sync result and how many providers it owns. Credentials are never returned."
+          },
+          "response": []
+        },
+        {
+          "name": "Sync a service provider source",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/service-provider-sources/{{source_name}}/sync",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-provider-sources",
+                "{{source_name}}",
+                "sync"
+              ]
+            },
+            "description": "Queue a one-off sync of the whole source. The directory gets new providers, updated names and areas, and providers the source no longer lists are deactivated. The result appears on the source (last_sync_status, last_sync_message). 409 when a sync of this source is already queued or running; 400 when it is disabled."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

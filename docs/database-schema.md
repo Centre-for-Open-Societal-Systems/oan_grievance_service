@@ -166,6 +166,22 @@ The _field_ was kept for a different reason. It cannot be reconstructed later: o
 
 Promote it back to a table only if the options need to differ per service category, which nothing currently asks for.
 
+### `service_providers`
+
+The directory behind the Service Provider dropdown on the Submit Grievance form: banks, cooperatives, input stores, markets and government offices. Doctype `Grievance Service Provider`, ID `SP-{#####}`.
+
+| Column                | Type    | Key                            | Description                                                                                       |
+| --------------------- | ------- | ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `id`                  | varchar | PK                             | `SP-00042`. Never changes, even when the name does                                                |
+| `provider_name`       | text    | IX                             | Display name                                                                                      |
+| `provider_type`       | enum    |                                | Bank, Microfinance, Cooperative, Cooperative Union, Input Store, Market, Government Office, Other |
+| `parent_provider`     | varchar | FK → `service_providers.id`    | Head office of a branch; no self-parent, no loops                                                 |
+| `administrative_area` | varchar | FK → `administrative_areas.id` | Null = nationwide                                                                                 |
+| `registration_number` | text    | IX                             | Searchable                                                                                        |
+| `is_active`           | boolean | IX with `provider_name`        | Soft-delete flag; inactive providers stay valid on historical grievances                          |
+
+**Shipped record (STG-454).** The table and its search are live: `GET /api/v1/service-providers` and `GET /api/v1/service-providers/{provider_id}`. See [service-provider-directory.md](service-provider-directory.md). A one-off sync from a source (`Grievance Service Provider Source`, first the A2C bank catalog) fills the table: `POST /api/v1/service-provider-sources/{source_name}/sync`. Nothing references the table yet; `Grievance.associated_service_provider` is still free text until the migration lands.
+
 ---
 
 ## 3. Organisation

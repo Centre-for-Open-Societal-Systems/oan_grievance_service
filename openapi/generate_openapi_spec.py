@@ -1476,6 +1476,8 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.organization",
 		"oan_grievance_service.api.v1.profile",
 		"oan_grievance_service.api.v1.response_config",
+		"oan_grievance_service.api.v1.service_provider",
+		"oan_grievance_service.api.v1.service_provider_source",
 		"oan_grievance_service.api.v1.sla_settings",
 		"oan_grievance_service.api.v1.submitter",
 		"oan_grievance_service.api.v1.taxonomy",
@@ -1494,6 +1496,8 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Submitter Management"
 	if path.startswith("/api/v1/administrative-areas"):
 		return "Administrative Areas"
+	if path.startswith("/api/v1/service-provider"):
+		return "Service Providers"
 	if path.startswith(
 		(
 			"/api/v1/category-assignments",
@@ -1737,13 +1741,17 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			response_schema_name = resolve_response_schema(endpoint_fn, func_name, openapi_path, method)
 			resp_content_type = "*/*" if func_name == "view" else "application/json"
 
+			# The status the route declares in @route(status=...), 200 unless it says otherwise
+			# (a route that only queues work answers 202).
+			success_status = str(route_info.get("status") or 200)
+
 			op: dict[str, Any] = {
 				"tags": [tag],
 				"summary": summary,
 				"description": description,
 				"operationId": f"{method.lower()}_{openapi_path.strip('/').replace('/', '_').replace('-', '_').replace('{', '').replace('}', '')}",
 				"responses": {
-					"200": {
+					success_status: {
 						"description": "Success",
 						"content": {
 							resp_content_type: {
