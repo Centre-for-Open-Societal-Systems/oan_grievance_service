@@ -5470,6 +5470,267 @@ paths:
       x-gateway-tier: officer-core
       security:
       - BearerAuth: []
+  /api/v1/service-providers:
+    get:
+      tags:
+      - Service Providers
+      summary: Search service providers
+      description: Active providers for the grievance form's dropdown. search matches the provider's name,
+        registration number and parent name. area keeps providers inside that area or above it, plus nationwide
+        providers. Names that start with the search text come first, then the most local area.
+      operationId: get_api_v1_service_providers
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProviderListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 50
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: search
+        in: query
+        required: false
+        schema:
+          maxLength: 100
+          type: string
+          default: null
+          nullable: true
+        description: Case-insensitive match on name, registration number or parent name. At least 2 characters
+          when set.
+      - name: provider_type
+        in: query
+        required: false
+        schema:
+          maxLength: 140
+          type: string
+          default: null
+          nullable: true
+        description: The name of a Grievance Service Provider Type, such as Bank
+      - name: area
+        in: query
+        required: false
+        schema:
+          maxLength: 140
+          type: string
+          default: null
+          nullable: true
+        description: Area ID or path code. Keeps providers inside that area or above it, plus nationwide
+          ones.
+      x-legacy-rpc-method: oan_grievance_service.api.v1.service_provider.list_service_providers
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
+  /api/v1/service-providers/{provider_id}:
+    get:
+      tags:
+      - Service Providers
+      summary: Get a service provider
+      description: One provider by ID, active or not, so a saved grievance or draft can still show its
+        name.
+      operationId: get_api_v1_service_providers_provider_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProviderDetailResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: provider_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Provider Id identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.service_provider.get_service_provider
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
+  /api/v1/service-provider-sources:
+    get:
+      tags:
+      - Service Providers
+      summary: List service provider sources
+      description: Each source with its last sync result and how many providers it owns. Credentials are
+        never returned.
+      operationId: get_api_v1_service_provider_sources
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProviderSourceListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.service_provider_source.list_service_provider_sources
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
+  /api/v1/service-provider-sources/{source_name}/sync:
+    post:
+      tags:
+      - Service Providers
+      summary: Sync a service provider source
+      description: 'TEMPORARY: the path and contract of this endpoint will change. Queue a one-off sync
+        of the whole source. The directory gets new providers, updated names and areas, and providers
+        the source no longer lists are removed (or deactivated when something still links to them). A
+        provider keeps its ID across syncs. The result appears on the source (last_sync_status, last_sync_message).
+        409 when a sync of this source is already queued or running; 400 when it is disabled.'
+      operationId: post_api_v1_service_provider_sources_source_name_sync
+      responses:
+        '202':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceProviderSyncQueuedResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: source_name
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Source Name identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.service_provider_source.sync_service_provider_source
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
   /api/v1/sla-policy:
     get:
       tags:
@@ -8842,6 +9103,198 @@ components:
           $ref: '#/components/schemas/AdminResponseTemplateRecord'
       required:
       - response_template
+    ServiceProviderArea:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        path_label:
+          description: Names from the region down to the area, in order
+          type: string
+      required:
+      - id
+      - name
+      - path_label
+      type: object
+    ServiceProviderItem:
+      properties:
+        id:
+          description: Provider ID, such as SP-00042. Store this on the grievance.
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        parent:
+          allOf:
+          - $ref: '#/components/schemas/ServiceProviderParent'
+          default: null
+          nullable: true
+        area:
+          allOf:
+          - $ref: '#/components/schemas/ServiceProviderArea'
+          default: null
+          description: Empty for a nationwide provider
+          nullable: true
+        registration_number:
+          type: string
+          default: null
+          nullable: true
+        external_ref:
+          type: string
+          default: null
+          description: The source's own ID, such as the A2C bank ID PB-0452; empty for a hand-made provider
+          nullable: true
+        registered_region:
+          type: string
+          default: null
+          description: The region as the source wrote it; set even when it matches no area
+          nullable: true
+        logo:
+          type: string
+          default: null
+          description: As the source gave it, often a path relative to the source's own host
+          nullable: true
+      required:
+      - id
+      - name
+      - type
+      type: object
+    ServiceProviderParent:
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+      - id
+      - name
+      type: object
+    ServiceProviderListData:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ServiceProviderItem'
+          type: array
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - items
+      - pagination
+      type: object
+    ServiceProviderDetail:
+      properties:
+        id:
+          description: Provider ID, such as SP-00042. Store this on the grievance.
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        parent:
+          allOf:
+          - $ref: '#/components/schemas/ServiceProviderParent'
+          default: null
+          nullable: true
+        area:
+          allOf:
+          - $ref: '#/components/schemas/ServiceProviderArea'
+          default: null
+          description: Empty for a nationwide provider
+          nullable: true
+        registration_number:
+          type: string
+          default: null
+          nullable: true
+        external_ref:
+          type: string
+          default: null
+          description: The source's own ID, such as the A2C bank ID PB-0452; empty for a hand-made provider
+          nullable: true
+        registered_region:
+          type: string
+          default: null
+          description: The region as the source wrote it; set even when it matches no area
+          nullable: true
+        logo:
+          type: string
+          default: null
+          description: As the source gave it, often a path relative to the source's own host
+          nullable: true
+        is_active:
+          type: boolean
+      required:
+      - id
+      - name
+      - type
+      - is_active
+      type: object
+    ServiceProviderSourceItem:
+      properties:
+        name:
+          type: string
+        source_type:
+          type: string
+        is_enabled:
+          type: boolean
+        api_base_url:
+          type: string
+          default: null
+          nullable: true
+        credentials_configured:
+          description: Whether the secret this source needs is stored
+          type: boolean
+        last_synced_at:
+          format: date-time
+          type: string
+          default: null
+          nullable: true
+        last_sync_status:
+          type: string
+          default: null
+          description: Success, Partial or Failed
+          nullable: true
+        last_sync_message:
+          type: string
+          default: null
+          description: Counts, warnings and errors
+          nullable: true
+        provider_count:
+          type: integer
+        active_provider_count:
+          type: integer
+      required:
+      - name
+      - source_type
+      - is_enabled
+      - credentials_configured
+      - provider_count
+      - active_provider_count
+      type: object
+    ServiceProviderSourceListData:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ServiceProviderSourceItem'
+          type: array
+      required:
+      - items
+      type: object
+    ServiceProviderSyncQueued:
+      properties:
+        source:
+          type: string
+        job_id:
+          type: string
+        queued:
+          type: boolean
+      required:
+      - source
+      - job_id
+      - queued
+      type: object
     GlobalSlaPolicyRecord:
       properties:
         max_deferral_days:
@@ -11331,6 +11784,106 @@ components:
       - status
       - data
       description: AdminResponseTemplate response
+    ServiceProviderListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ServiceProviderListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: ServiceProviderListData response
+    ServiceProviderDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ServiceProviderDetail'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: ServiceProviderDetail response
+    ServiceProviderSourceListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ServiceProviderSourceListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: ServiceProviderSourceListData response
+    ServiceProviderSyncQueuedResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/ServiceProviderSyncQueued'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: ServiceProviderSyncQueued response
     GlobalSlaPolicyResponse:
       type: object
       properties:

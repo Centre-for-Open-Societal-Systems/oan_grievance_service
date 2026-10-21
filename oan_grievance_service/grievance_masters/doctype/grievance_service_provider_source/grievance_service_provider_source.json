@@ -1,0 +1,211 @@
+{
+ "actions": [],
+ "autoname": "field:source_name",
+ "creation": "2026-10-21 10:46:24.472150",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_name",
+  "source_type",
+  "is_enabled",
+  "connection_section",
+  "api_base_url",
+  "auth_mode",
+  "login_path",
+  "api_username",
+  "api_password",
+  "api_token",
+  "list_path",
+  "list_key",
+  "mapping_section",
+  "map_external_id",
+  "map_name",
+  "map_area",
+  "map_logo",
+  "default_provider_type",
+  "status_section",
+  "last_synced_at",
+  "last_sync_status",
+  "last_sync_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "API",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Source Type",
+   "options": "API",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "A disabled source cannot be synced. Enable it once the connection is filled in.",
+   "fieldname": "is_enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "API Connection"
+  },
+  {
+   "description": "For example https://a2c-backend-development.oanstaging.com/api (https only, no trailing slash)",
+   "fieldname": "api_base_url",
+   "fieldtype": "Data",
+   "label": "API Base URL"
+  },
+  {
+   "default": "Login",
+   "fieldname": "auth_mode",
+   "fieldtype": "Select",
+   "label": "Authentication",
+   "options": "Login\nToken",
+   "reqd": 1
+  },
+  {
+   "default": "/v1/auth/login",
+   "depends_on": "eval:doc.auth_mode==\"Login\"",
+   "description": "POST {usr, pwd}; the token is read from data.token",
+   "fieldname": "login_path",
+   "fieldtype": "Data",
+   "label": "Login Path"
+  },
+  {
+   "depends_on": "eval:doc.auth_mode==\"Login\"",
+   "fieldname": "api_username",
+   "fieldtype": "Data",
+   "label": "Username"
+  },
+  {
+   "depends_on": "eval:doc.auth_mode==\"Login\"",
+   "fieldname": "api_password",
+   "fieldtype": "Password",
+   "label": "Password"
+  },
+  {
+   "depends_on": "eval:doc.auth_mode==\"Token\"",
+   "description": "A long-lived bearer token. Tokens from a normal login expire in minutes.",
+   "fieldname": "api_token",
+   "fieldtype": "Password",
+   "label": "Bearer Token"
+  },
+  {
+   "default": "/v1/catalog/facets",
+   "fieldname": "list_path",
+   "fieldtype": "Data",
+   "label": "List Path"
+  },
+  {
+   "default": "banks",
+   "description": "The key under \"data\" that holds the array of providers",
+   "fieldname": "list_key",
+   "fieldtype": "Data",
+   "label": "List Key"
+  },
+  {
+   "fieldname": "mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Field Mapping"
+  },
+  {
+   "default": "name",
+   "description": "The source's own ID for the provider, such as PB-0452",
+   "fieldname": "map_external_id",
+   "fieldtype": "Data",
+   "label": "ID Key",
+   "reqd": 1
+  },
+  {
+   "default": "bank_name",
+   "fieldname": "map_name",
+   "fieldtype": "Data",
+   "label": "Name Key",
+   "reqd": 1
+  },
+  {
+   "default": "registered_region",
+   "description": "Matched to an administrative area by name. Leave empty when the source has none.",
+   "fieldname": "map_area",
+   "fieldtype": "Data",
+   "label": "Area Key"
+  },
+  {
+   "default": "logo",
+   "description": "Optional. Kept as the source gave it.",
+   "fieldname": "map_logo",
+   "fieldtype": "Data",
+   "label": "Logo Key"
+  },
+  {
+   "default": "Bank",
+   "description": "Every provider from this source gets this type",
+   "fieldname": "default_provider_type",
+   "fieldtype": "Link",
+   "label": "Provider Type",
+   "options": "Grievance Service Provider Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Last Sync"
+  },
+  {
+   "fieldname": "last_synced_at",
+   "fieldtype": "Datetime",
+   "label": "Last Synced At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_status",
+   "fieldtype": "Select",
+   "label": "Last Sync Status",
+   "options": "\nSuccess\nPartial\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_message",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Message",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-21 16:41:11.892307",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Grievance Service Provider Source",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Grievance Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

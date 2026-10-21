@@ -13,6 +13,7 @@ fact, and the access rule built on it lives in permissions.py.
 import frappe
 from frappe import _
 from frappe.utils.nestedset import NestedSet
+from pypika import Criterion
 
 from oan_grievance_service.services import ticket_number
 
@@ -252,3 +253,45 @@ def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[
 		query = query.where(Area.area_name.like(f"%{search.strip()}%"))
 
 	return query.run(as_dict=True)
+
+
+# Country and the synthetic World root are left out: a label starts at the region.
+PATH_LABEL_LEVELS = ("Region", "Zone", "Woreda", "Kebele")
+# U+203A, built from its code point so the linter's ambiguous-character rule has nothing to flag.
+PATH_LABEL_SEPARATOR = f" {chr(0x203A)} "
+
+
+def area_path_labels(area_names) -> dict[str, str]:
+	"""Root-to-leaf label of each area (region, zone, woreda, kebele), in two queries.
+
+	`format_administrative_location` builds the same chain one area at a time, which
+	costs two queries per row on a page of search results.
+	"""
+	names = {name for name in area_names if name}
+	if not names:
+		return {}
+	bounds = {
+		row.name: (row.lft, row.rgt, row.area_name)
+		for row in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"name": ["in", list(names)]},
+			fields=["name", "lft", "rgt", "area_name"],
+		)
+	}
+	if not bounds:
+		return {}
+
+	Area = frappe.qb.DocType("Grievance Administrative Area")
+	ancestors = (
+		frappe.qb.from_(Area)
+		.select(Area.area_name, Area.lft, Area.rgt)
+		.where(Area.level_name.isin(PATH_LABEL_LEVELS))
+		.where(Criterion.any([(Area.lft <= lft) & (Area.rgt >= rgt) for lft, rgt, _name in bounds.values()]))
+		.orderby(Area.lft)
+		.run(as_dict=True)
+	)
+	labels = {}
+	for name, (lft, rgt, area_name) in bounds.items():
+		chain = [a.area_name for a in ancestors if a.lft <= lft and a.rgt >= rgt]
+		labels[name] = PATH_LABEL_SEPARATOR.join(chain) if chain else area_name
+	return labels

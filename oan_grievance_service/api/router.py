@@ -100,6 +100,8 @@ def _register() -> None:
 		organization,
 		profile,
 		response_config,
+		service_provider,
+		service_provider_source,
 		sla_settings,
 		submitter,
 		taxonomy,

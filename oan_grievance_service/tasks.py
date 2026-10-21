@@ -276,6 +276,13 @@ def enqueue_notification_sweep():
 	_enqueue_sweep(dispatch_notifications, C.QUEUE_NOTIFICATIONS)
 
 
+def enqueue_service_provider_syncs():
+	"""Daily: copy each enabled provider source (the A2C bank catalog) into the directory."""
+	from oan_grievance_service.services import service_provider_sync
+
+	return service_provider_sync.enqueue_scheduled_syncs()
+
+
 def refresh_dashboard_rollup():
 	"""Every 15 minutes: bring the dashboard rollups up to date (last few days)."""
 	from oan_grievance_service.services import dashboard_rollup

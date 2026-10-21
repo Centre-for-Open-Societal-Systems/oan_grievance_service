@@ -230,3 +230,69 @@ def a_grievance_type():
 		.name
 	)
 	return _CACHED_GRIEVANCE_TYPE
+
+
+def an_administrative_area(area_name, parent=None, level_name="Region", **overrides):
+	"""A new Administrative Area under `parent` (a top-level Country when `parent` is None).
+
+	Always inserted fresh, so a test owns the tree it builds. The caller's class-level
+	rollback removes it; nothing here commits.
+	"""
+	values = {
+		"doctype": "Grievance Administrative Area",
+		"area_name": area_name,
+		"code": frappe.generate_hash(length=6).upper(),
+		"level_name": level_name,
+		"parent_administrative_area": parent,
+		"is_group": 1 if level_name != "Kebele" else 0,
+		"is_active": 1,
+	}
+	values.update(overrides)
+	return frappe.get_doc(values).insert(ignore_permissions=True).name
+
+
+def _seed_provider_types():
+	"""The provider types are reference data from the seed; make sure a bare test site has them."""
+	from oan_grievance_service.setup.install import seed_service_provider_types
+
+	seed_service_provider_types()
+
+
+def a_service_provider(provider_name, **overrides):
+	"""An active Grievance Service Provider, inserted and returned by name."""
+	_seed_provider_types()
+	values = {
+		"doctype": "Grievance Service Provider",
+		"provider_name": provider_name,
+		"provider_type": "Other",
+		"is_active": 1,
+	}
+	values.update(overrides)
+	return frappe.get_doc(values).insert(ignore_permissions=True).name
+
+
+def a_service_provider_source(source_name, **overrides):
+	"""A complete, enabled provider source pointing at a made-up A2C host; returned by name.
+
+	The host is never called: tests that sync mock the HTTP layer.
+	"""
+	_seed_provider_types()
+	values = {
+		"doctype": "Grievance Service Provider Source",
+		"source_name": source_name,
+		"source_type": "API",
+		"is_enabled": 1,
+		"api_base_url": "https://a2c.example.test/api",
+		"auth_mode": "Login",
+		"login_path": "/v1/auth/login",
+		"api_username": "sync-user",
+		"api_password": "not-a-real-password",
+		"list_path": "/v1/catalog/facets",
+		"list_key": "banks",
+		"map_external_id": "name",
+		"map_name": "bank_name",
+		"map_area": "registered_region",
+		"default_provider_type": "Bank",
+	}
+	values.update(overrides)
+	return frappe.get_doc(values).insert(ignore_permissions=True).name

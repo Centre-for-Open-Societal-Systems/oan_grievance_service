@@ -526,6 +526,8 @@ def seed_all():
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
+		"service_provider_types": seed_service_provider_types(),
+		"service_provider_sources": seed_service_provider_sources(),
 		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
 		"notifications": seed_notifications(),
@@ -971,6 +973,61 @@ def seed_submission_types():
 		).insert(ignore_permissions=True)
 		made.append(name)
 	return made
+
+
+SERVICE_PROVIDER_TYPES = [
+	"Bank",
+	"Microfinance",
+	"Cooperative",
+	"Cooperative Union",
+	"Input Store",
+	"Market",
+	"Government Office",
+	"Other",
+]
+
+A2C_BANKS_SOURCE = "A2C Banks"
+
+
+def seed_service_provider_types():
+	"""The first set of provider types. Administrators can add more; existing ones are left alone."""
+	made = []
+	for name in SERVICE_PROVIDER_TYPES:
+		if frappe.db.exists("Grievance Service Provider Type", name):
+			continue
+		frappe.get_doc(
+			{"doctype": "Grievance Service Provider Type", "type_name": name, "is_active": 1}
+		).insert(ignore_permissions=True)
+		made.append(name)
+	return made
+
+
+def seed_service_provider_sources():
+	"""The A2C bank catalog as a source, ready to fill in and enable.
+
+	It carries the shape of the A2C catalog (login path, list path, field names) but no URL
+	and no credentials, and it is disabled, so nothing runs until an operator configures it.
+	An existing record is left alone: it holds the site's own connection.
+	"""
+	if frappe.db.exists("Grievance Service Provider Source", A2C_BANKS_SOURCE):
+		return []
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Service Provider Source",
+			"source_name": A2C_BANKS_SOURCE,
+			"source_type": "API",
+			"is_enabled": 0,
+			"auth_mode": "Login",
+			"login_path": "/v1/auth/login",
+			"list_path": "/v1/catalog/facets",
+			"list_key": "banks",
+			"map_external_id": "name",
+			"map_name": "bank_name",
+			"map_area": "registered_region",
+			"default_provider_type": "Bank",
+		}
+	).insert(ignore_permissions=True)
+	return [A2C_BANKS_SOURCE]
 
 
 def seed_recipient_custom_field():
