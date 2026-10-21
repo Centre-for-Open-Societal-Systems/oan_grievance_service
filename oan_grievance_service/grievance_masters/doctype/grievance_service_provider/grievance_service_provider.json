@@ -9,7 +9,9 @@
   "provider_type",
   "parent_provider",
   "administrative_area",
+  "registered_region",
   "registration_number",
+  "logo",
   "is_active",
   "sync_section",
   "source",
@@ -51,10 +53,22 @@
    "options": "Grievance Administrative Area"
   },
   {
+   "description": "The region exactly as the source gave it, kept even when it matches no administrative area.",
+   "fieldname": "registered_region",
+   "fieldtype": "Data",
+   "label": "Registered Region"
+  },
+  {
    "fieldname": "registration_number",
    "fieldtype": "Data",
    "label": "Registration Number",
    "search_index": 1
+  },
+  {
+   "description": "As the source gave it, often a path relative to the source's own host.",
+   "fieldname": "logo",
+   "fieldtype": "Small Text",
+   "label": "Logo"
   },
   {
    "default": "1",
@@ -95,7 +109,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-21 10:46:51.412732",
+ "modified": "2026-10-21 14:47:55.267711",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Service Provider",

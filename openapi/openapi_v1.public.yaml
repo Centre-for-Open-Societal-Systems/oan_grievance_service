@@ -8952,6 +8952,21 @@ components:
           type: string
           default: null
           nullable: true
+        external_ref:
+          type: string
+          default: null
+          description: The source's own ID, such as the A2C bank ID PB-0452; empty for a hand-made provider
+          nullable: true
+        registered_region:
+          type: string
+          default: null
+          description: The region as the source wrote it; set even when it matches no area
+          nullable: true
+        logo:
+          type: string
+          default: null
+          description: As the source gave it, often a path relative to the source's own host
+          nullable: true
       required:
       - id
       - name
@@ -9003,6 +9018,21 @@ components:
         registration_number:
           type: string
           default: null
+          nullable: true
+        external_ref:
+          type: string
+          default: null
+          description: The source's own ID, such as the A2C bank ID PB-0452; empty for a hand-made provider
+          nullable: true
+        registered_region:
+          type: string
+          default: null
+          description: The region as the source wrote it; set even when it matches no area
+          nullable: true
+        logo:
+          type: string
+          default: null
+          description: As the source gave it, often a path relative to the source's own host
           nullable: true
         is_active:
           type: boolean

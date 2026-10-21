@@ -62,8 +62,9 @@ class FakeA2C:
 		return self.login if url.endswith("/v1/auth/login") else self.listing
 
 
-def bank(ref, name, region=None):
-	return {"name": ref, "bank_name": name, "logo": None, "registered_region": region}
+def bank(ref, name, region=None, logo=None):
+	"""One item of A2C's data.banks, with the keys A2C uses."""
+	return {"name": ref, "bank_name": name, "logo": logo, "registered_region": region}
 
 
 class TestServiceProviderSync(FrappeTestCase):
@@ -104,6 +105,8 @@ class TestServiceProviderSync(FrappeTestCase):
 				"provider_name",
 				"provider_type",
 				"administrative_area",
+				"registered_region",
+				"logo",
 				"is_active",
 			],
 		)
@@ -183,6 +186,53 @@ class TestServiceProviderSync(FrappeTestCase):
 		self.assertEqual(after.name, before)
 		self.assertEqual(after.provider_name, "Alpha Bank Share Co.")
 		self.assertEqual(after.administrative_area, self.other_region)
+
+	def test_the_id_region_and_logo_are_stored_exactly_as_a2c_sent_them(self):
+		# Three of the real A2C dev banks: a region that matches an area, a logo, and a region that matches nothing.
+		self._run(
+			[
+				bank("PB-0241", "Test Bank 9711", self.region_name),
+				bank("PB-0308", "coopbank", "region", logo="/files/product-imaged05e46.jpg"),
+				bank("PB-0452", "HDFC Bank", "Test4"),
+			]
+		)
+
+		providers = self._providers()
+		self.assertEqual(
+			(providers["PB-0241"].registered_region, providers["PB-0241"].administrative_area),
+			(self.region_name, self.region),
+		)
+		self.assertEqual(providers["PB-0308"].logo, "/files/product-imaged05e46.jpg")
+		# The text survives although it matches no area, so nothing A2C sent is lost.
+		self.assertEqual(
+			(
+				providers["PB-0452"].registered_region,
+				providers["PB-0452"].administrative_area,
+				providers["PB-0452"].logo,
+			),
+			("Test4", None, None),
+		)
+
+	def test_a_changed_or_removed_logo_updates_the_provider_in_place(self):
+		self._run([bank("PB-1", "Alpha Bank", logo="/files/a.png")])
+		before = self._providers()["PB-1"].name
+
+		changed, _ = self._run([bank("PB-1", "Alpha Bank", logo="/files/b.png")])
+		self.assertEqual((changed["updated"], self._providers()["PB-1"].logo), (1, "/files/b.png"))
+
+		same, _ = self._run([bank("PB-1", "Alpha Bank", logo="/files/b.png")])
+		self.assertEqual((same["updated"], same["unchanged"]), (0, 1))
+
+		cleared, _ = self._run([bank("PB-1", "Alpha Bank")])
+		self.assertEqual((cleared["updated"], self._providers()["PB-1"].logo), (1, None))
+		self.assertEqual(self._providers()["PB-1"].name, before)
+
+	def test_a_source_with_no_logo_key_stores_no_logo(self):
+		frappe.db.set_value(SOURCE, self.source, "map_logo", "")
+
+		self._run([bank("PB-1", "Alpha Bank", logo="/files/a.png")])
+
+		self.assertIsNone(self._providers()["PB-1"].logo)
 
 	# --- providers that leave and return --------------------------------------------------------
 

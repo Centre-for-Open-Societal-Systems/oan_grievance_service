@@ -177,7 +177,10 @@ The directory behind the Service Provider dropdown on the Submit Grievance form:
 | `provider_type`       | enum    |                                | Bank, Microfinance, Cooperative, Cooperative Union, Input Store, Market, Government Office, Other |
 | `parent_provider`     | varchar | FK → `service_providers.id`    | Head office of a branch; no self-parent, no loops                                                 |
 | `administrative_area` | varchar | FK → `administrative_areas.id` | Null = nationwide                                                                                 |
+| `registered_region`   | text    |                                | Region text as the source gave it; kept even when it matches no area                              |
 | `registration_number` | text    | IX                             | Searchable                                                                                        |
+| `logo`                | text    |                                | As the source gave it, often a path relative to the source's host                                 |
+| `external_ref`        | text    | UQ with `source`               | The source's own ID, such as the A2C bank ID `PB-0452`                                            |
 | `is_active`           | boolean | IX with `provider_name`        | Soft-delete flag; inactive providers stay valid on historical grievances                          |
 
 **Shipped record (STG-454).** The table and its search are live: `GET /api/v1/service-providers` and `GET /api/v1/service-providers/{provider_id}`. See [service-provider-directory.md](service-provider-directory.md). A one-off sync from a source (`Grievance Service Provider Source`, first the A2C bank catalog) fills the table: `POST /api/v1/service-provider-sources/{source_name}/sync`. Nothing references the table yet; `Grievance.associated_service_provider` is still free text until the migration lands.

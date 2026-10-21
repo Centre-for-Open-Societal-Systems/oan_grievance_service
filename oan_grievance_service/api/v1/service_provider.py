@@ -52,6 +52,16 @@ class ServiceProviderItem(BaseModel):
 	parent: ServiceProviderParent | None = None
 	area: ServiceProviderArea | None = Field(default=None, description="Empty for a nationwide provider")
 	registration_number: str | None = None
+	external_ref: str | None = Field(
+		default=None,
+		description="The source's own ID, such as the A2C bank ID PB-0452; empty for a hand-made provider",
+	)
+	registered_region: str | None = Field(
+		default=None, description="The region as the source wrote it; set even when it matches no area"
+	)
+	logo: str | None = Field(
+		default=None, description="As the source gave it, often a path relative to the source's own host"
+	)
 
 
 class ServiceProviderDetail(ServiceProviderItem):

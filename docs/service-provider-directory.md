@@ -35,13 +35,15 @@ DocType `Grievance Service Provider`, module Grievance Masters. The ID is `SP-{#
 | `provider_type`       | Select, required                        | `Bank`, `Microfinance`, `Cooperative`, `Cooperative Union`, `Input Store`, `Market`, `Government Office`, `Other` |
 | `parent_provider`     | Link to this DocType                    | The head office of a branch. A provider cannot be its own parent and the chain cannot loop                        |
 | `administrative_area` | Link to `Grievance Administrative Area` | Where it operates. **Empty means nationwide**                                                                     |
+| `registered_region`   | Data                                    | The region text exactly as the source gave it. Kept even when it matches no `administrative_area`                 |
 | `registration_number` | Data, indexed                           | Searchable                                                                                                        |
+| `logo`                | Small Text                              | As the source gave it, often a path relative to the source's own host                                             |
 | `is_active`           | Check, default 1                        | Inactive providers are hidden from search but still resolve by ID                                                 |
 | `source`              | Link to the Source DocType, read-only   | Empty means the provider was added by hand                                                                        |
 | `external_ref`        | Data, read-only                         | The source's own ID, such as `PB-0452`. Unique together with `source`                                             |
 | `last_synced_at`      | Datetime, read-only                     | When the sync last confirmed the provider                                                                         |
 
-A provider that has a `source` belongs to that source: its name, type, parent, area and registration number are changed at the source, and only `is_active` can be edited by hand. The sync is the only writer of the other fields.
+A provider that has a `source` belongs to that source: its name, type, parent, area, region text, logo and registration number are changed at the source, and only `is_active` can be edited by hand. The sync is the only writer of the other fields.
 
 Things worth knowing:
 
@@ -95,7 +97,10 @@ Example, `GET /api/v1/service-providers?search=cbe&provider_type=Bank&area=zone-
         "type": "Bank",
         "parent": { "id": "SP-00001", "name": "Commercial Bank of Ethiopia" },
         "area": { "id": "zone-ET0314", "name": "Bahir Dar", "path_label": "Amhara › Bahir Dar" },
-        "registration_number": null
+        "registration_number": null,
+        "external_ref": null,
+        "registered_region": null,
+        "logo": null
       }
     ],
     "pagination": {
@@ -111,6 +116,18 @@ Example, `GET /api/v1/service-providers?search=cbe&provider_type=Bank&area=zone-
 ```
 
 `path_label` runs from the region down to the area (country is left out), joined with `›`.
+
+`external_ref`, `registered_region` and `logo` carry what the source sent, under A2C's own names, so a response can be checked against the source. They are `null` for a hand-made provider (the example above was added by hand). For a synced A2C bank:
+
+| A2C `data.banks[]`  | GET `items[]`                                              |
+| :------------------ | :--------------------------------------------------------- |
+| `name` (`PB-0308`)  | `external_ref`                                             |
+| `bank_name`         | `name`                                                     |
+| `logo`              | `logo`                                                     |
+| `registered_region` | `registered_region`, and `area` when the name matches      |
+| none                | `id` (`SP-#####`), `type`, `parent`, `registration_number` |
+
+Checked on 2026-10-21 against the A2C dev backend: all 14 banks matched field for field.
 
 ### 4.2 One provider
 
@@ -190,7 +207,7 @@ The result is written on the source (`last_synced_at`, `last_sync_status`, `last
 
 ### 6.1 Setting up the A2C source
 
-A source called `A2C Banks` is created disabled on every `bench migrate`, with the A2C catalog's paths and field names already filled in (login `/v1/auth/login`, list `/v1/catalog/facets`, list key `banks`, ID `name`, name `bank_name`, area `registered_region`, type `Bank`). It has no URL and no credentials, so nothing runs until a site operator completes it.
+A source called `A2C Banks` is created disabled on every `bench migrate`, with the A2C catalog's paths and field names already filled in (login `/v1/auth/login`, list `/v1/catalog/facets`, list key `banks`, ID `name`, name `bank_name`, area `registered_region`, logo `logo`, type `Bank`). It has no URL and no credentials, so nothing runs until a site operator completes it.
 
 1. As System Manager, open the `Grievance Service Provider Source` record `A2C Banks` in Desk. No app role has Desk access, so this is a site-operator task.
 2. Set **API Base URL** (https only, no trailing slash; the dev backend is `https://a2c-backend-development.oanstaging.com/api`).
@@ -218,8 +235,8 @@ So the first sync is an **API** source, and only `facets` can enumerate. What th
 - **Reference.** `external_ref` = `name` (`PB-####`). `provider_name` = `bank_name`. `provider_type` is always `Bank`: this source holds no cooperatives, input stores or markets, which need another source or manual entry.
 - **No branches.** There is no parent field, so no head-office and branch pairs from this source.
 - **Removal by absence.** The list shows only active banks and has no `updated_at`. A bank that drops off the list looks the same as a deleted one, so every run is a full sync and anything missing is removed. The list is small, so this is cheap.
-- **Area.** `registered_region` is a region name, not a code. `services/resolvers.resolve_administrative_area` already matches a Region by its display name, which is unique across the country, so open point 3 of the design is mostly answered. Names that do not match should leave the area empty and count a warning.
-- **Logo.** Not stored. Fetch it from the catalog when needed.
+- **Area.** `registered_region` is a region name, not a code. `services/resolvers.resolve_administrative_area` already matches a Region by its display name, which is unique across the country, so open point 3 of the design is mostly answered. Names that do not match leave the area empty and count a warning; the text itself is still kept in `registered_region`, so nothing A2C sent is lost.
+- **Logo.** Stored as A2C sent it (`logo`, usually a path such as `/files/product-imaged05e46.jpg` that is relative to A2C's own host) and returned by the GET endpoints. The frontend must resolve it against the A2C host; the directory does not build a full URL.
 - **`/banks/{bankId}`** is not needed by the sync.
 
 The design's `DatabaseAdapter` and its `map_*` column mapping still fit a database source. The API adapter needs a response path (`banks`) and key names in their place.

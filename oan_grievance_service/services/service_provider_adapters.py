@@ -5,7 +5,7 @@
 
 An adapter returns rows in one shape, whatever the source looks like:
 
-	{"external_ref": "PB-0452", "provider_name": "HDFC Bank", "area_name": "Addis Ababa"}
+	{"external_ref": "PB-0452", "provider_name": "HDFC Bank", "area_name": "Addis Ababa", "logo": None}
 
 What belongs here: talking to the source and turning its answer into rows.
 
@@ -113,7 +113,10 @@ class ApiAdapter:
 				continue
 			seen.add(ref.casefold())
 			area = str(item.get(source.map_area) or "").strip() if source.map_area else ""
-			rows.append({"external_ref": ref, "provider_name": name, "area_name": area or None})
+			logo = str(item.get(source.map_logo) or "").strip() if source.map_logo else ""
+			rows.append(
+				{"external_ref": ref, "provider_name": name, "area_name": area or None, "logo": logo or None}
+			)
 		return rows, warnings
 
 

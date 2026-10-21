@@ -21,6 +21,7 @@
   "map_external_id",
   "map_name",
   "map_area",
+  "map_logo",
   "default_provider_type",
   "status_section",
   "last_synced_at",
@@ -140,6 +141,13 @@
    "label": "Area Key"
   },
   {
+   "default": "logo",
+   "description": "Optional. Kept as the source gave it.",
+   "fieldname": "map_logo",
+   "fieldtype": "Data",
+   "label": "Logo Key"
+  },
+  {
    "default": "Bank",
    "description": "Every provider from this source gets this type",
    "fieldname": "default_provider_type",
@@ -175,7 +183,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-21 10:46:50.699531",
+ "modified": "2026-10-21 14:47:54.728718",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Service Provider Source",

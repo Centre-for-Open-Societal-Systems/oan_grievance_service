@@ -45,7 +45,12 @@ class TestServiceProviderApi(FrappeTestCase):
 			registration_number=f"REG-{t}",
 		)
 		cls.store = a_service_provider(
-			f"{t} Kebele Store", provider_type="Input Store", administrative_area=cls.kebele
+			f"{t} Kebele Store",
+			provider_type="Input Store",
+			administrative_area=cls.kebele,
+			external_ref=f"PB-{t}",
+			registered_region="Kebele Land",
+			logo="/files/store-logo.png",
 		)
 		cls.branch = a_service_provider(
 			f"{t} Branch",
@@ -181,6 +186,31 @@ class TestServiceProviderApi(FrappeTestCase):
 		self.assertEqual(by_id[self.local]["registration_number"], f"REG-{self.tag}")
 		self.assertIsNone(by_id[self.national]["area"])
 		self.assertNotIn("is_active", store)
+
+	def test_items_carry_the_sources_id_region_and_logo_as_the_source_named_them(self):
+		by_id = {item["id"]: item for item in self._search(search=self.tag)["items"]}
+
+		store = by_id[self.store]
+		self.assertEqual(store["external_ref"], f"PB-{self.tag}")
+		self.assertEqual(store["registered_region"], "Kebele Land")
+		self.assertEqual(store["logo"], "/files/store-logo.png")
+		# A hand-made provider has none of the three, and says so with null.
+		national = by_id[self.national]
+		self.assertEqual(
+			(national["external_ref"], national["registered_region"], national["logo"]), (None, None, None)
+		)
+
+	def test_the_lookup_carries_the_same_fields_as_a_search_result(self):
+		data = get_service_provider(self.store)["data"]
+		self.assertEqual(
+			(data["external_ref"], data["registered_region"], data["logo"]),
+			(f"PB-{self.tag}", "Kebele Land", "/files/store-logo.png"),
+		)
+		self.assertEqual(
+			set(data),
+			{*self._search(search=self.tag)["items"][0], "is_active"},
+			"same item shape plus is_active",
+		)
 
 	def test_pages_split_the_results_without_gaps_or_repeats(self):
 		first = self._search(search=self.tag, page_size=3)

@@ -52,7 +52,9 @@ SYNC_OWNED_FIELDS = (
 	"provider_type",
 	"parent_provider",
 	"administrative_area",
+	"registered_region",
 	"registration_number",
+	"logo",
 	"source",
 	"external_ref",
 )
@@ -173,6 +175,9 @@ def provider_items(rows: list[dict], with_status: bool = False) -> list[dict]:
 			if row.administrative_area
 			else None,
 			"registration_number": row.registration_number or None,
+			"external_ref": row.external_ref or None,
+			"registered_region": row.registered_region or None,
+			"logo": row.logo or None,
 		}
 		if with_status:
 			item["is_active"] = bool(row.is_active)
@@ -195,6 +200,9 @@ def _columns(Provider, Parent, Area):
 		Provider.provider_type,
 		Provider.registration_number,
 		Provider.administrative_area,
+		Provider.registered_region,
+		Provider.logo,
+		Provider.external_ref,
 		Provider.is_active,
 		Parent.name.as_("parent_id"),
 		Parent.provider_name.as_("parent_name"),

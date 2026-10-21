@@ -144,6 +144,8 @@ def _apply(source, rows: list[dict], warnings: list[str]) -> tuple[dict, list[st
 				"provider_name",
 				"provider_type",
 				"administrative_area",
+				"registered_region",
+				"logo",
 				"is_active",
 			],
 		)
@@ -164,6 +166,9 @@ def _apply(source, rows: list[dict], warnings: list[str]) -> tuple[dict, list[st
 			"provider_name": row["provider_name"],
 			"provider_type": source.default_provider_type,
 			"administrative_area": area,
+			# The region as the source wrote it, so it survives when it matches no area.
+			"registered_region": area_name,
+			"logo": row["logo"],
 			"is_active": 1,
 		}
 		current = existing.get(row["external_ref"].casefold())
