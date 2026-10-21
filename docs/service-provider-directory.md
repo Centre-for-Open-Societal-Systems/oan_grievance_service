@@ -29,25 +29,32 @@ The directory fills from a source by running the sync (§6), by hand or by the d
 
 DocType `Grievance Service Provider`, module Grievance Masters. The ID is `SP-{#####}` and never changes.
 
-| Field                 | Type                                    | Notes                                                                                                             |
-| :-------------------- | :-------------------------------------- | :---------------------------------------------------------------------------------------------------------------- |
-| `provider_name`       | Data, required, indexed                 | Display name. Trimmed on save                                                                                     |
-| `provider_type`       | Select, required                        | `Bank`, `Microfinance`, `Cooperative`, `Cooperative Union`, `Input Store`, `Market`, `Government Office`, `Other` |
-| `parent_provider`     | Link to this DocType                    | The head office of a branch. A provider cannot be its own parent and the chain cannot loop                        |
-| `administrative_area` | Link to `Grievance Administrative Area` | Where it operates. **Empty means nationwide**                                                                     |
-| `registered_region`   | Data                                    | The region text exactly as the source gave it. Kept even when it matches no `administrative_area`                 |
-| `registration_number` | Data, indexed                           | Searchable                                                                                                        |
-| `logo`                | Small Text                              | As the source gave it, often a path relative to the source's own host                                             |
-| `is_active`           | Check, default 1                        | Inactive providers are hidden from search but still resolve by ID                                                 |
-| `source`              | Link to the Source DocType, read-only   | Empty means the provider was added by hand                                                                        |
-| `external_ref`        | Data, read-only                         | The source's own ID, such as `PB-0452`. Unique together with `source`                                             |
-| `last_synced_at`      | Datetime, read-only                     | When the sync last confirmed the provider                                                                         |
+| Field                 | Type                                                | Notes                                                                                             |
+| :-------------------- | :-------------------------------------------------- | :------------------------------------------------------------------------------------------------ |
+| `provider_name`       | Data, required, indexed                             | Display name. Trimmed on save                                                                     |
+| `provider_type`       | Link to `Grievance Service Provider Type`, required | Which kind of provider it is. The list of types is data (§3.1), not fixed in the code             |
+| `parent_provider`     | Link to this DocType                                | The head office of a branch. A provider cannot be its own parent and the chain cannot loop        |
+| `administrative_area` | Link to `Grievance Administrative Area`             | Where it operates. **Empty means nationwide**                                                     |
+| `registered_region`   | Data                                                | The region text exactly as the source gave it. Kept even when it matches no `administrative_area` |
+| `registration_number` | Data, indexed                                       | Searchable                                                                                        |
+| `logo`                | Small Text                                          | As the source gave it, often a path relative to the source's own host                             |
+| `is_active`           | Check, default 1                                    | Inactive providers are hidden from search but still resolve by ID                                 |
+| `source`              | Link to the Source DocType, read-only               | Empty means the provider was added by hand                                                        |
+| `external_ref`        | Data, read-only                                     | The source's own ID, such as `PB-0452`. Unique together with `source`                             |
+| `last_synced_at`      | Datetime, read-only                                 | When the sync last confirmed the provider                                                         |
 
 A provider that has a `source` belongs to that source: its name, type, parent, area, region text, logo and registration number are changed at the source, and only `is_active` can be edited by hand. The sync is the only writer of the other fields.
 
+### 3.1 Provider types
+
+The kinds of provider are the records of a small master, `Grievance Service Provider Type` (named by `type_name`, with an `is_active` flag and a description), not a list typed into a field. `provider_type` on a provider and `default_provider_type` on a source are links to it, so Frappe checks that the type exists.
+
+- The first set is seeded by `bench migrate` from `SERVICE_PROVIDER_TYPES` in `setup/install.py`, the one place the names are listed: Bank, Microfinance, Cooperative, Cooperative Union, Input Store, Market, Government Office and Other. Seeding never overwrites an administrator's changes.
+- An administrator adds a type by creating a record; nothing in the code or the DocType JSON has to change, and the new name works at once as a `provider_type` value on the search endpoint.
+- A type is retired with `is_active = 0`, never deleted (no role holds `delete`). A retired type cannot be given to a new or changed provider or source, but providers that already have it keep it.
+
 Things worth knowing:
 
-- The first `provider_type` option is blank on purpose. Without it Frappe fills a missing `Select` with its first option, and a provider with no type would silently become a `Bank`.
 - There is a composite index on `(is_active, provider_name)` for the dropdown.
 - Area filtering joins the area table and uses its Nested Set bounds (`lft`, `rgt`). The attached design copied the bounds onto each provider, but Frappe renumbers `lft` and `rgt` whenever the tree changes, so a copy would go stale.
 - Read access is given to the Grievance Officer, Submitter, Assisted Submitter and Review Officer roles. Create and write are for Grievance Admin and System Manager. The search endpoint has its own guard (§4).
@@ -72,7 +79,7 @@ The endpoints follow the platform conventions: `@route`, `@handle_api_errors`, t
 | Param           | Type   | Default | Notes                                                                                                                        |
 | :-------------- | :----- | :------ | :--------------------------------------------------------------------------------------------------------------------------- |
 | `search`        | string |         | Case-insensitive match on the name, the registration number or the parent's name. 2 to 100 characters. Blank means no search |
-| `provider_type` | string |         | One of the types in §3                                                                                                       |
+| `provider_type` | string |         | The name of a provider type (§3.1), for example `Bank`. An unknown name is a 400                                             |
 | `area`          | string |         | Area ID or path code. See below                                                                                              |
 | `page`          | int    | 1       | 1 or more                                                                                                                    |
 | `page_size`     | int    | 20      | 1 to 50                                                                                                                      |
@@ -137,12 +144,12 @@ Returns the same item as one search result, as `data`, plus `"is_active": true|f
 
 ### 4.3 Errors
 
-| HTTP | `code`                 | When                                                                                                     |
-| :--- | :--------------------- | :------------------------------------------------------------------------------------------------------- |
-| 400  | `VALIDATION_ERROR`     | `search` under 2 or over 100 characters, `page_size` over 50, unknown `provider_type`, unknown parameter |
-| 401  | `AUTHENTICATION_ERROR` | Not signed in                                                                                            |
-| 403  | `PERMISSION_DENIED`    | No `create` permission on `Grievance`                                                                    |
-| 404  | `NOT_FOUND`            | Unknown `provider_id` or unknown `area`                                                                  |
+| HTTP | `code`                 | When                                                                                                                                                            |
+| :--- | :--------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`     | `search` under 2 or over 100 characters, `page_size` over 50, a `provider_type` that is not a known type ("Provider type X does not exist."), unknown parameter |
+| 401  | `AUTHENTICATION_ERROR` | Not signed in                                                                                                                                                   |
+| 403  | `PERMISSION_DENIED`    | No `create` permission on `Grievance`                                                                                                                           |
+| 404  | `NOT_FOUND`            | Unknown `provider_id` or unknown `area`                                                                                                                         |
 
 The attached design named the 401 and 403 codes `UNAUTHORIZED` and `FORBIDDEN`. The platform's own vocabulary is used here, because clients already branch on it.
 
@@ -267,4 +274,4 @@ The design's `DatabaseAdapter` and its `map_*` column mapping still fit a databa
 
 The pre-fill has a consequence for the directory. If the OAN registry links a farmer to a bank by its `PB-####` ID, the form must turn that into a directory ID. The provider now stores that ID as `external_ref`, but no endpoint looks a provider up by it yet (item 4 above).
 
-Open questions from the design that still stand: the real source columns for non-bank providers, and whether the `provider_type` list is final.
+Open questions from the design that still stand: the real source columns for non-bank providers, and whether the first set of provider types is complete (more can be added as records).

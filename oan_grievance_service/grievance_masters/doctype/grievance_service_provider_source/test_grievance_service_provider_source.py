@@ -4,10 +4,11 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.grievance_service_provider import (
-	PROVIDER_TYPES,
+from oan_grievance_service.setup.install import (
+	A2C_BANKS_SOURCE,
+	seed_service_provider_sources,
+	seed_service_provider_types,
 )
-from oan_grievance_service.setup.install import A2C_BANKS_SOURCE, seed_service_provider_sources
 from oan_grievance_service.tests.fixtures import a_service_provider, a_service_provider_source
 
 DOCTYPE = "Grievance Service Provider Source"
@@ -83,9 +84,24 @@ class TestGrievanceServiceProviderSource(FrappeTestCase):
 		with self.assertRaises(frappe.DuplicateEntryError):
 			a_service_provider_source(f"Src {self.tag}")
 
-	def test_the_provider_type_options_match_the_directory(self):
-		options = frappe.get_meta(DOCTYPE).get_field("default_provider_type").options
-		self.assertEqual(tuple(options.split("\n")), ("", *PROVIDER_TYPES))
+	def test_the_provider_type_is_a_link_to_the_type_master_not_a_typed_in_list(self):
+		field = frappe.get_meta(DOCTYPE).get_field("default_provider_type")
+		self.assertEqual((field.fieldtype, field.options), ("Link", "Grievance Service Provider Type"))
+
+	def test_the_provider_type_must_exist_and_be_active(self):
+		with self.assertRaises(frappe.ValidationError):
+			a_service_provider_source(f"Src {self.tag}", default_provider_type="Pawn Shop")
+
+		retired = frappe.get_doc(
+			{"doctype": "Grievance Service Provider Type", "type_name": f"Old {self.tag}", "is_active": 0}
+		).insert()
+		with self.assertRaises(frappe.ValidationError):
+			a_service_provider_source(f"Src {self.tag}", default_provider_type=retired.name)
+
+	def test_a_source_can_give_its_providers_any_type_the_master_holds(self):
+		seed_service_provider_types()
+		name = a_service_provider_source(f"Src {self.tag}", default_provider_type="Cooperative")
+		self.assertEqual(frappe.db.get_value(DOCTYPE, name, "default_provider_type"), "Cooperative")
 
 	def test_nobody_can_delete_a_source(self):
 		self.assertFalse([p.role for p in frappe.get_meta(DOCTYPE).permissions if p.delete])

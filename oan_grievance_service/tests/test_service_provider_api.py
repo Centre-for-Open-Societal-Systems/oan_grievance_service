@@ -253,6 +253,22 @@ class TestServiceProviderApi(FrappeTestCase):
 				result = self._error(list_service_providers, **params)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 
+	def test_an_unknown_type_is_refused_by_name(self):
+		result = self._error(list_service_providers, provider_type="Pawn Shop")
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertIn("Pawn Shop", result["message"])
+
+	def test_a_type_added_later_works_as_a_filter_with_no_code_change(self):
+		# Its own name, not the class tag: a provider matching the tag would change the counts in
+		# every other test, since the class's data is rolled back only once.
+		own = frappe.generate_hash(length=8)
+		kind = frappe.get_doc(
+			{"doctype": "Grievance Service Provider Type", "type_name": f"Agro {own}"}
+		).insert()
+		dealer = a_service_provider(f"{own} Dealer", provider_type=kind.name)
+
+		self.assertEqual(self._ids(search=own, provider_type=kind.name), [dealer])
+
 	def test_the_largest_page_is_fifty(self):
 		self.assertEqual(self._search(search=self.tag, page_size=50)["pagination"]["page_size"], 50)
 

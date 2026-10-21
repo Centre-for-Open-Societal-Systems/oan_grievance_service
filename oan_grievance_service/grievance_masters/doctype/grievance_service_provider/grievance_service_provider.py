@@ -24,21 +24,15 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 	area_path_labels,
 	get_area_bounds,
 )
+from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_type.grievance_service_provider_type import (
+	DOCTYPE as TYPE_DOCTYPE,
+)
+from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_type.grievance_service_provider_type import (
+	ensure_usable,
+)
 from oan_grievance_service.services.resolvers import resolve_administrative_area
 
 DOCTYPE = "Grievance Service Provider"
-
-# Must match the Select options in the DocType JSON; test_grievance_service_provider pins it.
-PROVIDER_TYPES = (
-	"Bank",
-	"Microfinance",
-	"Cooperative",
-	"Cooperative Union",
-	"Input Store",
-	"Market",
-	"Government Office",
-	"Other",
-)
 
 MIN_SEARCH_LENGTH = 2
 # The dropdown shows a short list; a long one means the user should type more.
@@ -65,6 +59,8 @@ class GrievanceServiceProvider(Document):
 		self.provider_name = (self.provider_name or "").strip()
 		self.validate_parent_chain()
 		self.validate_sync_owned_fields()
+		if self.is_new() or self.has_value_changed("provider_type"):
+			ensure_usable(self.provider_type)
 
 	def validate_sync_owned_fields(self):
 		if self.is_new() or not self.source or frappe.flags.in_service_provider_sync:
@@ -123,6 +119,10 @@ def search_providers(
 	names that start with the search text.
 	"""
 	area_id = _resolve_area(area)
+	if provider_type and not frappe.db.exists(TYPE_DOCTYPE, provider_type):
+		frappe.throw(
+			_("Provider type {0} does not exist.").format(frappe.bold(provider_type)), frappe.ValidationError
+		)
 	Provider, Parent, Area = _tables()
 	matching = _filtered(Provider, Parent, Area, search, provider_type, area_id)
 

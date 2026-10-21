@@ -19,6 +19,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder.functions import Count
 
+from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_type.grievance_service_provider_type import (
+	ensure_usable,
+)
+
 DOCTYPE = "Grievance Service Provider Source"
 PROVIDER_DOCTYPE = "Grievance Service Provider"
 
@@ -29,6 +33,8 @@ class GrievanceServiceProviderSource(Document):
 	def validate(self):
 		self.source_name = (self.source_name or "").strip()
 		self.validate_connection()
+		if self.is_new() or self.has_value_changed("default_provider_type"):
+			ensure_usable(self.default_provider_type)
 		if self.is_enabled:
 			self.validate_ready_to_enable()
 

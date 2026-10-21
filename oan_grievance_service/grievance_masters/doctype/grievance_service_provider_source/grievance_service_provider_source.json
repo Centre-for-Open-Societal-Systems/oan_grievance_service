@@ -151,9 +151,9 @@
    "default": "Bank",
    "description": "Every provider from this source gets this type",
    "fieldname": "default_provider_type",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Provider Type",
-   "options": "\nBank\nMicrofinance\nCooperative\nCooperative Union\nInput Store\nMarket\nGovernment Office\nOther",
+   "options": "Grievance Service Provider Type",
    "reqd": 1
   },
   {
@@ -183,7 +183,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-21 14:47:54.728718",
+ "modified": "2026-10-21 16:41:11.892307",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Service Provider Source",

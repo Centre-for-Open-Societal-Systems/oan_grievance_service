@@ -5548,11 +5548,11 @@ paths:
         in: query
         required: false
         schema:
+          maxLength: 140
           type: string
           default: null
           nullable: true
-        description: 'One of: Bank, Microfinance, Cooperative, Cooperative Union, Input Store, Market,
-          Government Office, Other'
+        description: The name of a Grievance Service Provider Type, such as Bank
       - name: area
         in: query
         required: false

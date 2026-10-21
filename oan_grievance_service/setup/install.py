@@ -526,6 +526,7 @@ def seed_all():
 		"grievance_types": seed_grievance_types(),
 		"submitter_types": seed_submitter_types(),
 		"submission_types": seed_submission_types(),
+		"service_provider_types": seed_service_provider_types(),
 		"service_provider_sources": seed_service_provider_sources(),
 		"response_templates": seed_response_templates(),
 		"notification_recipient_field": seed_recipient_custom_field(),
@@ -974,7 +975,31 @@ def seed_submission_types():
 	return made
 
 
+SERVICE_PROVIDER_TYPES = [
+	"Bank",
+	"Microfinance",
+	"Cooperative",
+	"Cooperative Union",
+	"Input Store",
+	"Market",
+	"Government Office",
+	"Other",
+]
+
 A2C_BANKS_SOURCE = "A2C Banks"
+
+
+def seed_service_provider_types():
+	"""The first set of provider types. Administrators can add more; existing ones are left alone."""
+	made = []
+	for name in SERVICE_PROVIDER_TYPES:
+		if frappe.db.exists("Grievance Service Provider Type", name):
+			continue
+		frappe.get_doc(
+			{"doctype": "Grievance Service Provider Type", "type_name": name, "is_active": 1}
+		).insert(ignore_permissions=True)
+		made.append(name)
+	return made
 
 
 def seed_service_provider_sources():

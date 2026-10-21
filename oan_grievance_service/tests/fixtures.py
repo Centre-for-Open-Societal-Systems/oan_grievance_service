@@ -251,8 +251,16 @@ def an_administrative_area(area_name, parent=None, level_name="Region", **overri
 	return frappe.get_doc(values).insert(ignore_permissions=True).name
 
 
+def _seed_provider_types():
+	"""The provider types are reference data from the seed; make sure a bare test site has them."""
+	from oan_grievance_service.setup.install import seed_service_provider_types
+
+	seed_service_provider_types()
+
+
 def a_service_provider(provider_name, **overrides):
 	"""An active Grievance Service Provider, inserted and returned by name."""
+	_seed_provider_types()
 	values = {
 		"doctype": "Grievance Service Provider",
 		"provider_name": provider_name,
@@ -268,6 +276,7 @@ def a_service_provider_source(source_name, **overrides):
 
 	The host is never called: tests that sync mock the HTTP layer.
 	"""
+	_seed_provider_types()
 	values = {
 		"doctype": "Grievance Service Provider Source",
 		"source_name": source_name,

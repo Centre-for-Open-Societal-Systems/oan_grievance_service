@@ -25,7 +25,6 @@ from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.grievance_service_provider import (
 	MAX_PAGE_SIZE,
 	MIN_SEARCH_LENGTH,
-	PROVIDER_TYPES,
 	get_provider,
 	provider_items,
 	search_providers,
@@ -83,7 +82,11 @@ class ListServiceProviders(PageParams, Body):
 		description="Case-insensitive match on name, registration number or parent name. "
 		f"At least {MIN_SEARCH_LENGTH} characters when set.",
 	)
-	provider_type: str | None = Field(default=None, description=f"One of: {', '.join(PROVIDER_TYPES)}")
+	provider_type: str | None = Field(
+		default=None,
+		max_length=140,
+		description="The name of a Grievance Service Provider Type, such as Bank",
+	)
 	area: str | None = Field(
 		default=None,
 		max_length=140,
@@ -100,13 +103,6 @@ class ListServiceProviders(PageParams, Body):
 		value = value.strip()
 		if len(value) < MIN_SEARCH_LENGTH:
 			raise ValueError(f"must be at least {MIN_SEARCH_LENGTH} characters")
-		return value
-
-	@field_validator("provider_type")
-	@classmethod
-	def _known_type(cls, value: str | None) -> str | None:
-		if value is not None and value not in PROVIDER_TYPES:
-			raise ValueError(f"must be one of: {', '.join(PROVIDER_TYPES)}")
 		return value
 
 
