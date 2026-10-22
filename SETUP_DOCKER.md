@@ -296,6 +296,16 @@ bench set-config -g workers '{"grievance_routing": {"timeout": 300}, "grievance_
 
 The last line declares the grievance queues bench-wide. Without it `frappe.enqueue` rejects every routing, SLA, scan and notification job. Restart the stack after setting it so the workers pick it up.
 
+To have a new server fill its service provider directory by itself, also give it the A2C connection (a dedicated A2C service account) **before** `bench migrate` or site install runs:
+
+```bash
+bench --site "$SITE" set-config grievance_a2c_banks_url https://a2c.example.org/api
+bench --site "$SITE" set-config grievance_a2c_banks_username grievance-sync@example.org
+bench --site "$SITE" set-config grievance_a2c_banks_password '<password>'
+```
+
+The same three names in upper case (`GRIEVANCE_A2C_BANKS_URL`, `GRIEVANCE_A2C_BANKS_USERNAME`, `GRIEVANCE_A2C_BANKS_PASSWORD`) work as environment variables, and the site config wins when both are set. The migrate then enables the `A2C Banks` source and queues its first sync on the `long` queue, which upstream's `queue-long` service listens on (keep it running). See [`docs/service-provider-directory.md` section 6.1](docs/service-provider-directory.md).
+
 The maximum deferral is set on the **Grievance Deferral Policy** doctype in Desk, not in site config. `grievance_max_deferral_days` and `grievance_sla_clock_start` are no longer read.
 
 ### 7.5 Delegated Login via OpenG2P IAM (optional)

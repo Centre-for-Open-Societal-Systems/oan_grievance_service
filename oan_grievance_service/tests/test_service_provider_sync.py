@@ -84,6 +84,11 @@ class TestServiceProviderSync(FrappeTestCase):
 		)
 
 	def setUp(self):
+		# Saving an enabled source asks Frappe to queue its first sync after the commit. Nothing
+		# here may reach the real queue, so the tests read the calls instead.
+		patcher = mock.patch.object(frappe, "enqueue", return_value=SimpleNamespace(id="j"))
+		self.enqueue = patcher.start()
+		self.addCleanup(patcher.stop)
 		self.source = a_service_provider_source(f"A2C {frappe.generate_hash(length=6)}")
 
 	def tearDown(self):
@@ -545,6 +550,52 @@ class TestServiceProviderSync(FrappeTestCase):
 		self.assertEqual(frappe.db.count(PROVIDER, {"source": self.source, "external_ref": "PB-1"}), 1)
 		self.assertEqual(frappe.db.count(PROVIDER, {"source": other, "external_ref": "PB-1"}), 1)
 
+	# --- the first sync starts by itself ------------------------------------------------------
+
+	def _queued_for(self, name):
+		"""The calls that asked Frappe to queue a sync of this source."""
+		return [c for c in self.enqueue.call_args_list if c.kwargs.get("source_name") == name]
+
+	def test_enabling_a_source_hands_its_first_sync_to_frappe_to_queue_after_the_commit(self):
+		name = a_service_provider_source(f"Fresh {self.source}")
+
+		(call,) = self._queued_for(name)
+		self.assertIs(call.kwargs["enqueue_after_commit"], True)
+		self.assertEqual((call.args[0], call.kwargs["queue"]), (sync.JOB_METHOD, sync.JOB_QUEUE))
+		self.assertEqual(call.kwargs["job_id"], f"grievance_service_provider_sync:{name}")
+		self.assertIs(call.kwargs["deduplicate"], True)
+
+	def test_a_source_saved_disabled_queues_nothing(self):
+		name = a_service_provider_source(f"Off {self.source}", is_enabled=0)
+
+		self.assertEqual(self._queued_for(name), [])
+
+	def test_turning_a_source_on_queues_a_sync_but_saving_it_again_does_not(self):
+		name = a_service_provider_source(f"Toggle {self.source}", is_enabled=0)
+
+		doc = frappe.get_doc(SOURCE, name)
+		doc.is_enabled = 1
+		doc.save()
+		self.assertEqual(len(self._queued_for(name)), 1)
+
+		doc = frappe.get_doc(SOURCE, name)
+		doc.list_key = "other"
+		doc.save()
+		self.assertEqual(len(self._queued_for(name)), 1)
+
+	def test_a_failure_to_queue_after_enabling_is_logged_and_does_not_break_the_save(self):
+		self.enqueue.side_effect = ConnectionError("redis is down")
+
+		with mock.patch.object(frappe, "log_error") as log:
+			name = a_service_provider_source(f"Broken {self.source}")  # must not raise
+
+		self.assertTrue(frappe.db.exists(SOURCE, name))
+		self.assertTrue(log.called)
+
+	def test_a_migrate_queues_a_sync_of_every_enabled_source(self):
+		hooks = frappe.get_hooks("after_migrate", app_name="oan_grievance_service")
+		self.assertIn("oan_grievance_service.services.service_provider_sync.enqueue_scheduled_syncs", hooks)
+
 	def test_the_job_entry_point_runs_the_sync(self):
 		with mock.patch(HTTP, FakeA2C([bank("PB-1", "Alpha Bank")])):
 			result = sync.sync_source(self.source)
@@ -575,6 +626,8 @@ class TestServiceProviderSync(FrappeTestCase):
 			self.assertNotIn(secret, everything)
 
 	def test_the_seeded_source_is_listed_as_not_configured(self):
+		# A site that has configured A2C Banks must not change what a fresh seed looks like.
+		frappe.delete_doc(SOURCE, "A2C Banks", force=1, ignore_permissions=True)
 		seed_service_provider_sources()
 		frappe.set_user(self.admin)
 		items = {i["name"]: i for i in list_service_provider_sources()["data"]["items"]}

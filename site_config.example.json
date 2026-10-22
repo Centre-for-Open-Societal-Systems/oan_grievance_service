@@ -31,6 +31,9 @@
   "grievance_confirmation_window_days": 7,
   "grievance_change_request_hours": 24,
   "grievance_auto_escalation_enabled": true,
+  "grievance_a2c_banks_url": "https://a2c.example.org/api",
+  "grievance_a2c_banks_username": "grievance-sync@example.org",
+  "grievance_a2c_banks_password": "a2c_service_account_password_here",
 
   "installed_apps": [
     "frappe",

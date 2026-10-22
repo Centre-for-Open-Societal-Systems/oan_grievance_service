@@ -1002,16 +1002,65 @@ def seed_service_provider_types():
 	return made
 
 
-def seed_service_provider_sources():
-	"""The A2C bank catalog as a source, ready to fill in and enable.
+# Where a deployment says how to reach A2C: a site_config key, or the same name in upper case
+# as an environment variable. The password lands in the source's encrypted Password field.
+A2C_BANKS_SETTINGS = (
+	"grievance_a2c_banks_url",
+	"grievance_a2c_banks_username",
+	"grievance_a2c_banks_password",
+)
 
-	It carries the shape of the A2C catalog (login path, list path, field names) but no URL
-	and no credentials, and it is disabled, so nothing runs until an operator configures it.
-	An existing record is left alone: it holds the site's own connection.
+
+def a2c_banks_connection() -> dict | None:
+	"""The deployment's A2C connection as source fields, or None unless all three are set."""
+	values = [
+		str(frappe.conf.get(key) or os.environ.get(key.upper()) or "").strip() for key in A2C_BANKS_SETTINGS
+	]
+	if not all(values):
+		return None
+	return dict(zip(("api_base_url", "api_username", "api_password"), values, strict=True))
+
+
+def seed_service_provider_sources():
+	"""The A2C bank catalog as a source; enabled when the deployment says how to reach it.
+
+	It carries the shape of the A2C catalog (login path, list path, field names). When the
+	site config or environment holds the A2C URL, username and password (A2C_BANKS_SETTINGS),
+	the source gets them and is enabled, and enabling queues its first sync, so a new server
+	fills its directory on deploy. Without them it stays disabled and blank until an operator
+	completes it.
+
+	A source that already has a connection or is enabled is left alone: it holds the site's own
+	choice, and a deploy must not undo an operator who switched it off. A connection that does
+	not validate (for example an http URL) is logged and skipped, so it cannot break a migrate.
 	"""
-	if frappe.db.exists("Grievance Service Provider Source", A2C_BANKS_SOURCE):
+	existing = frappe.db.exists("Grievance Service Provider Source", A2C_BANKS_SOURCE)
+	doc = frappe.get_doc("Grievance Service Provider Source", A2C_BANKS_SOURCE) if existing else None
+	if doc and (doc.is_enabled or doc.api_base_url):
 		return []
-	frappe.get_doc(
+
+	connection = a2c_banks_connection()
+	if connection:
+		doc = doc or _a2c_banks_doc()
+		doc.update({**connection, "is_enabled": 1})
+		try:
+			doc.save(ignore_permissions=True)
+			return [A2C_BANKS_SOURCE]
+		except frappe.ValidationError:
+			# Validation runs before anything is written, so the migrate's other seeds are safe.
+			frappe.log_error(
+				title=f"oan_grievance_service: {A2C_BANKS_SOURCE} connection from the config rejected"
+			)
+			frappe.clear_messages()
+	if existing:
+		return []
+	_a2c_banks_doc().insert(ignore_permissions=True)
+	return [A2C_BANKS_SOURCE]
+
+
+def _a2c_banks_doc():
+	"""The A2C source with the catalog's own shape and no connection, disabled."""
+	return frappe.get_doc(
 		{
 			"doctype": "Grievance Service Provider Source",
 			"source_name": A2C_BANKS_SOURCE,
@@ -1026,8 +1075,7 @@ def seed_service_provider_sources():
 			"map_area": "registered_region",
 			"default_provider_type": "Bank",
 		}
-	).insert(ignore_permissions=True)
-	return [A2C_BANKS_SOURCE]
+	)
 
 
 def seed_recipient_custom_field():

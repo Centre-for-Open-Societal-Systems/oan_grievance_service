@@ -38,6 +38,16 @@ class GrievanceServiceProviderSource(Document):
 		if self.is_enabled:
 			self.validate_ready_to_enable()
 
+	def on_update(self):
+		"""Turning a source on starts its first sync now, not at the next midnight.
+
+		Queued only after the save has committed, so the worker never reads a half-saved record.
+		"""
+		if self.is_enabled and (self.flags.in_insert or self.has_value_changed("is_enabled")):
+			from oan_grievance_service.services.service_provider_sync import enqueue_quietly
+
+			enqueue_quietly(self.name, "after enabling", after_commit=True)
+
 	def validate_connection(self):
 		if self.api_base_url:
 			self.api_base_url = self.api_base_url.strip().rstrip("/")

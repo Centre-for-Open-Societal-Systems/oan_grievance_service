@@ -49,11 +49,15 @@ class SyncInProgress(frappe.ValidationError):
 	http_status_code = 409
 
 
-def enqueue_sync(source_name: str) -> str:
+def enqueue_sync(source_name: str, after_commit: bool = False) -> str | None:
 	"""Queue a sync of one source and return the job ID. Used by the daily job and the endpoint.
 
 	TODO(STG-454): the endpoint that calls this will change (see api/v1/service_provider_source.py);
 	keep the queueing rules here so only the route has to move.
+
+	With `after_commit` the job is queued by Frappe once the current transaction commits, so a
+	worker never looks for a record that is not saved yet. There is no job ID to return then, and
+	a run that is already queued or running is not reported: Frappe drops the duplicate.
 
 	Raises DoesNotExistError for an unknown source, ValidationError for a disabled one and
 	SyncInProgress when a run for the source is already queued or running.
@@ -69,29 +73,42 @@ def enqueue_sync(source_name: str) -> str:
 		timeout=JOB_TIMEOUT,
 		job_id=f"grievance_service_provider_sync:{source.name}",
 		deduplicate=True,
+		enqueue_after_commit=after_commit,
 		source_name=source.name,
 	)
+	if after_commit:
+		return None
 	if job is None:
 		frappe.throw(_("A sync for this source is already running."), SyncInProgress)
 	return job.id
 
 
 def enqueue_scheduled_syncs() -> list[str]:
-	"""Queue a sync of every enabled source; the scheduler calls this once a day.
+	"""Queue a sync of every enabled source. The daily job and `bench migrate` both call this.
 
-	A source whose last run is still going is skipped (the next day's run picks it up), and a
-	source that cannot be queued is logged without stopping the others. Returns the names queued.
+	A source whose last run is still going is skipped, and a source that cannot be queued is
+	logged without stopping the others. Returns the names queued.
 	"""
-	queued = []
-	for name in frappe.get_all(SOURCE, filters={"is_enabled": 1}, pluck="name", order_by="name asc"):
-		try:
-			enqueue_sync(name)
-			queued.append(name)
-		except SyncInProgress:
-			continue
-		except Exception:
-			frappe.log_error(title=f"oan_grievance_service: scheduled provider sync not queued: {name}")
-	return queued
+	return [
+		name
+		for name in frappe.get_all(SOURCE, filters={"is_enabled": 1}, pluck="name", order_by="name asc")
+		if enqueue_quietly(name, "scheduled")
+	]
+
+
+def enqueue_quietly(source_name: str, reason: str, after_commit: bool = False) -> bool:
+	"""Queue a sync for a caller that must not fail because of it. True when it was queued.
+
+	A run that is already going counts as done; any other problem is written to the Error Log.
+	"""
+	try:
+		enqueue_sync(source_name, after_commit=after_commit)
+		return True
+	except SyncInProgress:
+		return False
+	except Exception:
+		frappe.log_error(title=f"oan_grievance_service: {reason} provider sync not queued: {source_name}")
+		return False
 
 
 def sync_source(source_name: str) -> dict:
