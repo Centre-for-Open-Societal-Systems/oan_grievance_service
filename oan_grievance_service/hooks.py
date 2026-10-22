@@ -31,8 +31,7 @@ after_install = "oan_grievance_service.setup.install.after_install"
 after_migrate = [
 	"oan_grievance_service.setup.install.after_migrate",
 	"oan_grievance_service.services.dashboard_rollup.ensure_built",
-	# A deployment refreshes the provider directory now instead of waiting for midnight, so the
-	# first call to the search endpoint after a release already has the list.
+	# A deployment refreshes the provider directory now instead of waiting for midnight.
 	"oan_grievance_service.services.service_provider_sync.enqueue_scheduled_syncs",
 ]
 

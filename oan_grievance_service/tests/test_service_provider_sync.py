@@ -84,6 +84,11 @@ class TestServiceProviderSync(FrappeTestCase):
 		)
 
 	def setUp(self):
+		# Saving an enabled source asks Frappe to queue its first sync after the commit. Nothing
+		# here may reach the real queue, so the tests read the calls instead.
+		patcher = mock.patch.object(frappe, "enqueue", return_value=SimpleNamespace(id="j"))
+		self.enqueue = patcher.start()
+		self.addCleanup(patcher.stop)
 		self.source = a_service_provider_source(f"A2C {frappe.generate_hash(length=6)}")
 
 	def tearDown(self):
@@ -547,53 +552,44 @@ class TestServiceProviderSync(FrappeTestCase):
 
 	# --- the first sync starts by itself ------------------------------------------------------
 
-	def _run_after_commit(self):
-		"""Run what saves queued for after the commit, with the job queue mocked.
+	def _queued_for(self, name):
+		"""The calls that asked Frappe to queue a sync of this source."""
+		return [c for c in self.enqueue.call_args_list if c.kwargs.get("source_name") == name]
 
-		Returns the sources a sync was queued for. Earlier saves in this class are still pending,
-		so assertions name their own source instead of counting calls.
-		"""
-		# log_error is mocked: an earlier save in this class may by now be for a source another
-		# test switched off, which the callback rightly refuses and logs, and a real Error Log
-		# row would be written to the site.
-		with mock.patch.object(frappe, "enqueue", return_value=SimpleNamespace(id="j")) as enqueue:
-			with mock.patch.object(frappe, "log_error"):
-				frappe.db.after_commit.run()
-		return [call.kwargs["source_name"] for call in enqueue.call_args_list]
+	def test_enabling_a_source_hands_its_first_sync_to_frappe_to_queue_after_the_commit(self):
+		name = a_service_provider_source(f"Fresh {self.source}")
 
-	def test_enabling_a_source_queues_its_first_sync_only_after_the_save_commits(self):
-		with mock.patch.object(frappe, "enqueue", return_value=SimpleNamespace(id="j")) as enqueue:
-			name = a_service_provider_source(f"Fresh {self.source}")
-			enqueue.assert_not_called()
-
-		self.assertIn(name, self._run_after_commit())
+		(call,) = self._queued_for(name)
+		self.assertIs(call.kwargs["enqueue_after_commit"], True)
+		self.assertEqual((call.args[0], call.kwargs["queue"]), (sync.JOB_METHOD, sync.JOB_QUEUE))
+		self.assertEqual(call.kwargs["job_id"], f"grievance_service_provider_sync:{name}")
+		self.assertIs(call.kwargs["deduplicate"], True)
 
 	def test_a_source_saved_disabled_queues_nothing(self):
 		name = a_service_provider_source(f"Off {self.source}", is_enabled=0)
 
-		self.assertNotIn(name, self._run_after_commit())
+		self.assertEqual(self._queued_for(name), [])
 
 	def test_turning_a_source_on_queues_a_sync_but_saving_it_again_does_not(self):
 		name = a_service_provider_source(f"Toggle {self.source}", is_enabled=0)
-		self._run_after_commit()
 
 		doc = frappe.get_doc(SOURCE, name)
 		doc.is_enabled = 1
 		doc.save()
-		self.assertIn(name, self._run_after_commit())
+		self.assertEqual(len(self._queued_for(name)), 1)
 
 		doc = frappe.get_doc(SOURCE, name)
 		doc.list_key = "other"
 		doc.save()
-		self.assertNotIn(name, self._run_after_commit())
+		self.assertEqual(len(self._queued_for(name)), 1)
 
 	def test_a_failure_to_queue_after_enabling_is_logged_and_does_not_break_the_save(self):
-		a_service_provider_source(f"Broken {self.source}")
+		self.enqueue.side_effect = ConnectionError("redis is down")
 
-		with mock.patch.object(frappe, "enqueue", side_effect=ConnectionError("redis is down")):
-			with mock.patch.object(frappe, "log_error") as log:
-				frappe.db.after_commit.run()  # must not raise
+		with mock.patch.object(frappe, "log_error") as log:
+			name = a_service_provider_source(f"Broken {self.source}")  # must not raise
 
+		self.assertTrue(frappe.db.exists(SOURCE, name))
 		self.assertTrue(log.called)
 
 	def test_a_migrate_queues_a_sync_of_every_enabled_source(self):

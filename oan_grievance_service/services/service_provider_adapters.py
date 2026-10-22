@@ -33,9 +33,8 @@ class SourceError(Exception):
 class ApiAdapter:
 	"""A JSON API that signs in with a login call or a stored bearer token (the A2C catalog)."""
 
-	def __init__(self, source, timeout=REQUEST_TIMEOUT):
+	def __init__(self, source):
 		self.source = source
-		self.timeout = timeout
 
 	def fetch(self) -> tuple[list[dict], list[str]]:
 		"""Return (rows, warnings). Raises SourceError when the source cannot be read."""
@@ -85,7 +84,7 @@ class ApiAdapter:
 	def _request(self, method: str, path: str, what: str, **kwargs) -> dict:
 		url = f"{self.source.api_base_url}{path}"
 		try:
-			response = requests.request(method, url, timeout=self.timeout, **kwargs)
+			response = requests.request(method, url, timeout=REQUEST_TIMEOUT, **kwargs)
 		except requests.RequestException as exc:
 			raise SourceError(_("{0} request failed: {1}.").format(what, type(exc).__name__)) from exc
 		if response.status_code != 200:
@@ -124,9 +123,9 @@ class ApiAdapter:
 ADAPTERS = {"API": ApiAdapter}
 
 
-def get_adapter(source, timeout=REQUEST_TIMEOUT):
-	"""The adapter for a source's type. `timeout` is (connect, read) seconds for each request."""
+def get_adapter(source):
+	"""The adapter for a source's type."""
 	adapter = ADAPTERS.get(source.source_type)
 	if not adapter:
 		raise SourceError(_("Source type {0} is not supported.").format(source.source_type))
-	return adapter(source, timeout)
+	return adapter(source)

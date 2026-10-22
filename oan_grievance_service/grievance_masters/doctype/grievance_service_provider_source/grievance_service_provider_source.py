@@ -46,8 +46,7 @@ class GrievanceServiceProviderSource(Document):
 		if self.is_enabled and (self.flags.in_insert or self.has_value_changed("is_enabled")):
 			from oan_grievance_service.services.service_provider_sync import enqueue_quietly
 
-			name = self.name
-			frappe.db.after_commit.add(lambda: enqueue_quietly(name, "after enabling"))
+			enqueue_quietly(self.name, "after enabling", after_commit=True)
 
 	def validate_connection(self):
 		if self.api_base_url:

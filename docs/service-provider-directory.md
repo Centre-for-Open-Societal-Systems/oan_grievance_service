@@ -178,14 +178,17 @@ For administrators (Grievance Admin, System Manager, Administrator). A signed-in
 
 ## 6. The sync
 
-One sync reads the whole source and brings the directory in line with it. It starts by itself in four situations, and an administrator can also start it on demand through `POST /api/v1/service-provider-sources/{source_name}/sync`:
+One sync reads the whole source and brings the directory in line with it. It starts by itself in three situations, and an administrator can also start it on demand through `POST /api/v1/service-provider-sources/{source_name}/sync`:
 
-- **The moment a source is enabled.** Saving a source with Enabled ticked queues its first sync once the save has committed, so nobody has to call an endpoint or wait for midnight. Later saves of an already enabled source do not queue another.
-- **After every `bench migrate`.** A deployment refreshes every enabled source straight away, so the first call to the search endpoint after a release already returns the list.
+- **The moment a source is enabled.** Saving a source with Enabled ticked asks Frappe to queue its first sync (`enqueue_after_commit`), so the job is queued once the save has committed and nobody has to call an endpoint or wait for midnight. Later saves of an already enabled source do not queue another.
+- **After every `bench migrate`.** A deployment refreshes every enabled source straight away.
 - **Once a day from the scheduler**, at midnight in the site's timezone.
-- **On the first call to the search endpoint, as a safety net** (§6.3). If an enabled source has never finished a sync, that call fills the directory first and answers with the list in the same response.
 
-Nothing starts a sync for a source that is disabled or has no credentials. That is why a fresh site has an empty directory until someone completes the `A2C Banks` record (§6.1): the seed cannot fill in a URL and login, because credentials are not kept in code.
+All three queue the same job under the same ID per source, and Frappe drops a second one while the first is queued or running.
+
+The search endpoint never syncs. It reads the directory as it is, so a server whose sources have not synced yet answers with an empty list. A sync that does not run because no worker listens on the `long` queue is a deployment problem (§6.4), not something a search request papers over.
+
+Nothing starts a sync for a source that is disabled or has no credentials. A new server fills itself on deploy only when its configuration holds the A2C connection (§6.1); without it the directory stays empty until someone completes the `A2C Banks` record by hand.
 
 **The daily job.** `tasks.enqueue_service_provider_syncs` (registered under `daily` in `hooks.py`) queues a sync of every enabled source on the `long` queue and returns. Frappe's `daily` event is the cron expression `0 0 * * *`: **midnight in the site's timezone** (System Settings), picked up on the next scheduler tick, which is at most 4 minutes later by default. On the dev site the timezone is Asia/Kolkata, so the job runs at about 00:00 IST (18:30 UTC). Frappe registers the job when `bench migrate` runs, and the scheduler and a background worker must be running. A source whose last run is still going is skipped until the next day, and a source that cannot be queued is written to the Error Log without stopping the others. The scheduler and the endpoint queue the same job under the same ID per source, so they can never run the same source at once. To keep a source out of the schedule, disable it.
 
@@ -221,7 +224,19 @@ The result is written on the source (`last_synced_at`, `last_sync_status`, `last
 
 ### 6.1 Setting up the A2C source
 
-A source called `A2C Banks` is created disabled on every `bench migrate`, with the A2C catalog's paths and field names already filled in (login `/v1/auth/login`, list `/v1/catalog/facets`, list key `banks`, ID `name`, name `bank_name`, area `registered_region`, logo `logo`, type `Bank`). It has no URL and no credentials, so nothing runs until a site operator completes it.
+A source called `A2C Banks` is created on every `bench migrate` and on install, with the A2C catalog's paths and field names already filled in (login `/v1/auth/login`, list `/v1/catalog/facets`, list key `banks`, ID `name`, name `bank_name`, area `registered_region`, logo `logo`, type `Bank`).
+
+**From the deployment's configuration (no manual step).** If the site config or the environment holds all three of these, the seed fills in the connection and ticks Enabled, and enabling queues the first sync (§6), so a new server fills its directory on deploy:
+
+| site_config key                | Environment variable           | Goes to                             |
+| :----------------------------- | :----------------------------- | :---------------------------------- |
+| `grievance_a2c_banks_url`      | `GRIEVANCE_A2C_BANKS_URL`      | API Base URL                        |
+| `grievance_a2c_banks_username` | `GRIEVANCE_A2C_BANKS_USERNAME` | Username                            |
+| `grievance_a2c_banks_password` | `GRIEVANCE_A2C_BANKS_PASSWORD` | Password (encrypted Password field) |
+
+The site config wins over the environment. With fewer than three, the source stays disabled and blank. A source that already has a URL or is enabled is never overwritten, so a deploy cannot undo an operator's own choice or switch a source back on that was switched off. To change the connection later, edit the record. A connection that does not validate, such as an `http` URL, is written to the Error Log and skipped; it cannot fail the migrate.
+
+**By hand**, when the configuration does not hold the connection:
 
 1. As System Manager, open the `Grievance Service Provider Source` record `A2C Banks` in Desk. No app role has Desk access, so this is a site-operator task.
 2. Set **API Base URL** (https only, no trailing slash; the dev backend is `https://a2c-backend-development.oanstaging.com/api`).
@@ -265,25 +280,15 @@ The design's `DatabaseAdapter` and its `map_*` column mapping still fit a databa
 - **Names are not unique.** Dev has two banks both called `legel entity` (`PB-0271`, `PB-0170`), so the sync must key on the `PB-####` ID, never the name.
 - **Regions.** Real names such as `Addis Ababa` resolve to a Grievance area (`region-ET14`). The dev placeholders `region` and `Test4` do not, so those banks would be created with no area and a warning.
 
-### 6.3 The first call to the search endpoint
+### 6.3 The search endpoint only reads
 
-The frontend only ever calls `GET /api/v1/service-providers`. Enabling a source and `bench migrate` already start a sync, so the directory is normally full before anyone searches. As a safety net for a source that is configured but was never synced (for example, the worker was down), the search endpoint runs the sync itself, once, before it answers. The caller gets the list in that same response.
+`GET /api/v1/service-providers` and the one-provider lookup read the local directory and nothing else. They never call a source, write, commit or wait on one. An earlier version of this work made the first search on a never-synced directory run the sync itself; it was dropped because it repeated what the three triggers above already cover, switched the session user to Administrator in the middle of a request (which wipes the session and `form_dict`), wrote and committed during a GET, held a row lock, could block the caller for about 16 seconds, and needed a second lock beside the queue's own de-duplication. It also could not help a source nobody had configured.
 
-It acts only when all of these hold: the source is enabled; it has no finished run (neither Success nor Partial); and it has not failed in the last 5 minutes. It then:
+### 6.4 What a deployment must provide
 
-1. Takes a per-source lock without waiting. Only one request runs the sync; a request that does not get the lock carries on with the list as it is. The background job takes the same lock and skips if the first call holds it, so two runs of one source never overlap.
-2. Looks at the source again, past the request's own view of the database, in case another request finished while this one waited.
-3. Runs the sync as the system user (the caller may only have `read`), with short timeouts of 3 seconds to connect and 5 to read per request, because a person is waiting. The background job keeps its longer 10 and 30.
-4. Commits. A GET request does not commit by itself.
-
-What the caller sees:
-
-- **Success.** The first call takes about a second or two (1.5 s against the A2C dev backend for 15 banks) and returns the banks. Every later call is a plain read (about 30 ms).
-- **A2C down or slow.** The call still answers normally, with whatever the directory holds (possibly `"items": []`), after at most about 16 seconds. The failure is recorded on the source, and for the next 5 minutes no request retries it, so a source that is down does not slow every call. After that the next call tries once more.
-- **Nothing to sync** (no enabled source, or one that already synced): no extra work at all.
-- It never makes the request fail: any error is written to the Error Log and the search goes ahead.
-
-Only the search endpoint does this. Looking up one provider by ID (`GET /api/v1/service-providers/{provider_id}`) never starts a sync. It cannot help a source without credentials: nothing starts a sync until a URL and login are set (§6.1).
+- **The A2C connection** in the site config or environment (§6.1), so the seed enables the source.
+- **A worker on the `long` queue.** Syncs run there (`JOB_QUEUE = "long"`). With docker compose the upstream `queue-long` service listens on it. In a Helm deployment the worker Deployment must run `bench worker --queue long` (or the chart's equivalent for the long queue); without it every queued sync waits in Redis and the directory stays empty.
+- **The scheduler enabled** for the nightly refresh (`bench --site <site> enable-scheduler`).
 
 ## 7. Not built yet
 
