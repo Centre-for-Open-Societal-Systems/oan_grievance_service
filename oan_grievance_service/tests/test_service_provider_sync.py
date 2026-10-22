@@ -553,8 +553,12 @@ class TestServiceProviderSync(FrappeTestCase):
 		Returns the sources a sync was queued for. Earlier saves in this class are still pending,
 		so assertions name their own source instead of counting calls.
 		"""
+		# log_error is mocked: an earlier save in this class may by now be for a source another
+		# test switched off, which the callback rightly refuses and logs, and a real Error Log
+		# row would be written to the site.
 		with mock.patch.object(frappe, "enqueue", return_value=SimpleNamespace(id="j")) as enqueue:
-			frappe.db.after_commit.run()
+			with mock.patch.object(frappe, "log_error"):
+				frappe.db.after_commit.run()
 		return [call.kwargs["source_name"] for call in enqueue.call_args_list]
 
 	def test_enabling_a_source_queues_its_first_sync_only_after_the_save_commits(self):
