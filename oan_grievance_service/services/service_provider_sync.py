@@ -19,10 +19,12 @@ broken answer must not look like "every provider was removed".
 """
 
 from contextlib import contextmanager
+from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
+from redis.exceptions import LockError
 
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.grievance_service_provider import (
 	DOCTYPE as PROVIDER,
@@ -43,6 +45,15 @@ STATUS_FAILED = "Failed"
 
 # Shown in the source record; the full list would not fit a Small Text.
 MAX_MESSAGE_ITEMS = 5
+
+# The first call to the search endpoint on a never-synced directory runs the sync while the user
+# waits, so it gets short (connect, read) timeouts: two requests, at most about 16 seconds.
+INLINE_TIMEOUT = (3, 5)
+# After a failed first sync, the next search call leaves the source alone for this long, so a
+# source that is down is not retried, and waited on, by every request.
+FIRST_SYNC_COOLDOWN = timedelta(minutes=5)
+# A run lock that outlives a crashed process frees itself after this many seconds.
+RUN_LOCK_SECONDS = 120
 
 
 class SyncInProgress(frappe.ValidationError):
@@ -77,40 +88,150 @@ def enqueue_sync(source_name: str) -> str:
 
 
 def enqueue_scheduled_syncs() -> list[str]:
-	"""Queue a sync of every enabled source; the scheduler calls this once a day.
+	"""Queue a sync of every enabled source. The daily job and `bench migrate` both call this.
 
-	A source whose last run is still going is skipped (the next day's run picks it up), and a
-	source that cannot be queued is logged without stopping the others. Returns the names queued.
+	A source whose last run is still going is skipped, and a source that cannot be queued is
+	logged without stopping the others. Returns the names queued.
 	"""
-	queued = []
-	for name in frappe.get_all(SOURCE, filters={"is_enabled": 1}, pluck="name", order_by="name asc"):
-		try:
-			enqueue_sync(name)
-			queued.append(name)
-		except SyncInProgress:
-			continue
-		except Exception:
-			frappe.log_error(title=f"oan_grievance_service: scheduled provider sync not queued: {name}")
-	return queued
+	return [
+		name
+		for name in frappe.get_all(SOURCE, filters={"is_enabled": 1}, pluck="name", order_by="name asc")
+		if enqueue_quietly(name, "scheduled")
+	]
+
+
+def enqueue_quietly(source_name: str, reason: str) -> bool:
+	"""Queue a sync for a caller that must not fail because of it. True when it was queued.
+
+	A run that is already going counts as done; any other problem is written to the Error Log.
+	"""
+	try:
+		enqueue_sync(source_name)
+		return True
+	except SyncInProgress:
+		return False
+	except Exception:
+		frappe.log_error(title=f"oan_grievance_service: {reason} provider sync not queued: {source_name}")
+		return False
+
+
+def ensure_first_sync() -> list[str]:
+	"""Fill the directory for an enabled source that has never synced, while the caller waits.
+
+	The search endpoint calls this first, so a user who reaches a freshly set up server gets the
+	list in that same response instead of an empty one. It is a safety net: enabling a source and
+	`bench migrate` already queue a sync, so normally there is nothing to do and this returns [].
+
+	It only acts for a source that has no finished run (neither Success nor Partial) and has not
+	failed in the last FIRST_SYNC_COOLDOWN. Only one request runs it; the others carry on with
+	the list as it is. It never raises and never makes the caller's request fail. Returns the
+	names it synced.
+	"""
+	try:
+		synced = []
+		for name in _awaiting_first_sync():
+			with _source_lock(name) as taken:
+				# Another request may have finished while this one waited for the lock, so read
+				# the source's state again, past this request's own snapshot of the database.
+				if taken and _awaiting_first_sync(name, fresh=True) and _run_for_waiting_caller(name):
+					synced.append(name)
+		return synced
+	except Exception:
+		frappe.log_error(title="oan_grievance_service: first-call provider sync check failed")
+		return []
+
+
+def _awaiting_first_sync(source_name: str | None = None, fresh: bool = False) -> list[str]:
+	"""Enabled sources with no finished run that are not in their failure cooldown.
+
+	`fresh` re-reads with a row lock, which sees what other requests committed meanwhile.
+	"""
+	Source = frappe.qb.DocType(SOURCE)
+	query = (
+		frappe.qb.from_(Source)
+		.select(Source.name, Source.last_sync_status, Source.last_synced_at)
+		.where(Source.is_enabled == 1)
+		.orderby(Source.name)
+	)
+	if source_name:
+		query = query.where(Source.name == source_name)
+	if fresh:
+		query = query.for_update()
+	rows = query.run(as_dict=True)
+	now = now_datetime()
+	return [
+		row.name
+		for row in rows
+		if row.last_sync_status not in (STATUS_SUCCESS, STATUS_PARTIAL)
+		and (not row.last_synced_at or now - get_datetime(row.last_synced_at) >= FIRST_SYNC_COOLDOWN)
+	]
+
+
+def _run_for_waiting_caller(source_name: str) -> bool:
+	"""Sync now, as the system, and commit: a GET request does not commit by itself.
+
+	The caller may only have `read`, and the rows it stores must belong to the system, not to
+	whichever user happened to search first. So the session user is switched to Administrator
+	for this one fixed internal call, which takes no input from the caller, and always put back.
+	"""
+	caller = frappe.session.user
+	frappe.set_user("Administrator")  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
+	try:
+		run_sync(source_name, timeout=INLINE_TIMEOUT)
+		# Needed here only: the caller is waiting for rows that must exist when the search runs.
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		return True
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(title=f"oan_grievance_service: first-call provider sync failed: {source_name}")
+		return False
+	finally:
+		frappe.set_user(caller)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
+
+
+@contextmanager
+def _source_lock(source_name: str):
+	"""Hold the run lock of one source without waiting for it. Yields whether it was taken.
+
+	Every kind of run (the job, the first call) takes it, so two runs of the same source cannot
+	overlap and race on the unique (source, external_ref) rows.
+	"""
+	lock = frappe.cache.lock(
+		frappe.cache.make_key(f"grievance_provider_sync:{source_name}"), timeout=RUN_LOCK_SECONDS
+	)
+	taken = lock.acquire(blocking=False)
+	try:
+		yield taken
+	finally:
+		if taken:
+			try:
+				lock.release()
+			except LockError:
+				pass  # it expired while the run was going; the next run is free to start
 
 
 def sync_source(source_name: str) -> dict:
 	"""Background job entry point. Frappe commits when the job ends, so the result is saved."""
-	return run_sync(source_name)
+	with _source_lock(source_name) as taken:
+		if not taken:
+			return {"source": source_name, "status": "Skipped", "message": _("Another run is in progress.")}
+		return run_sync(source_name)
 
 
-def run_sync(source_name: str) -> dict:
+def run_sync(source_name: str, timeout: tuple[int, int] | None = None) -> dict:
 	"""Read the source and bring the directory in line. Never raises for a source problem.
 
 	The outcome is written on the source (status, message, time); the returned summary has the
-	counts. The caller commits.
+	counts. The caller commits. `timeout` is (connect, read) seconds for each request to the
+	source; leave it out for the background default.
 	"""
 	source = frappe.get_doc(SOURCE, source_name)
 	if not source.is_enabled:
 		return _record(source, STATUS_FAILED, _("The source is disabled."))
 
 	try:
-		rows, warnings = get_adapter(source).fetch()
+		adapter = get_adapter(source, timeout) if timeout else get_adapter(source)
+		rows, warnings = adapter.fetch()
 	except SourceError as exc:
 		return _record(source, STATUS_FAILED, str(exc))
 	if not rows:

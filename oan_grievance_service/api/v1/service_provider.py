@@ -30,6 +30,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.
 	provider_items,
 	search_providers,
 )
+from oan_grievance_service.services.service_provider_sync import ensure_first_sync
 
 route = prefixed("/api/v1/service-providers")
 
@@ -119,7 +120,9 @@ class ServiceProviderRef(Body):
 	summary="Search service providers",
 	description="Active providers for the grievance form's dropdown. search matches the provider's name, "
 	+ "registration number and parent name. area keeps providers inside that area or above it, plus "
-	+ "nationwide providers. Names that start with the search text come first, then the most local area.",
+	+ "nationwide providers. Names that start with the search text come first, then the most local area. "
+	+ "On a freshly set up server whose source has never synced, the first call fills the directory "
+	+ "from the source before it answers, so it can take a few seconds once.",
 	tags=["Service Providers"],
 	response_model=ServiceProviderListData,
 )
@@ -132,6 +135,7 @@ def list_service_providers(
 	**kwargs,
 ):
 	"""Search the directory. `page` and `page_size` also accept str: see list_assignments."""
+	ensure_first_sync()  # a no-op unless an enabled source has never synced
 	params = PageParams(page=page, page_size=page_size)
 	rows, total = search_providers(
 		search=search,
