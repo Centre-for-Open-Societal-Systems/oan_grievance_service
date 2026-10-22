@@ -73,6 +73,10 @@ class _Request:
 	`host` is here because saving a File reaches frappe.utils.get_url(), which asks
 	the request for its host before resolving a storage path. Left falsy so that
 	lookup falls through to the site config, as it does outside a web request.
+
+	`headers` is here because newer Frappe (version-16 since 2026-10-21) reads
+	`request.host or request.headers.get("Host", "")` there. Empty, so the lookup
+	still falls through to the site config.
 	"""
 
 	def __init__(self, upload=None, files=None):
@@ -84,6 +88,7 @@ class _Request:
 			self.files = {}
 		self.path = "/api/method/test"
 		self.host = None
+		self.headers = {}
 
 
 class AttachmentAPITestCase(FrappeTestCase):
