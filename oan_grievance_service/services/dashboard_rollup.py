@@ -7,10 +7,12 @@ The dashboards never aggregate `tabGrievance` on a request. The scheduler folds 
 into two small tables every 15 minutes, and services.dashboard answers every chart
 from those:
 
-- Grievance Stat Daily: events per day (filed, resolved, rejected, first
-  escalated, feedback) by region, category and department. Events never move
-  once they happen, so a refresh rebuilds only the last few days; the nightly run
-  rebuilds all of them to absorb anything later edited by hand.
+- Grievance Stat Daily: events per day (filed, resolved, rejected, feedback) by
+  region, category and department, and how many of the cases filed that day have
+  been escalated, and given a public officer update, since. Events never move once
+  they happen, so a refresh rebuilds only the last few days (further back when an
+  older case was just escalated or answered); the nightly run rebuilds all of them
+  to absorb anything later edited by hand.
 - Grievance Stat Snapshot: how many cases stood in each status on a day, by the
   same dimensions plus the escalation flag and SLA state. Today's rows are
   replaced on every refresh; earlier days stay as they were at midnight, which is
@@ -49,6 +51,7 @@ DAILY_METRICS = (
 	"resolution_hours_sum",
 	"rejected_count",
 	"escalated_count",
+	"informed_count",
 	"feedback_count",
 	"feedback_satisfied_count",
 )
@@ -103,7 +106,20 @@ _RESOLVED_SQL = _daily_sql(
 # Rejected is terminal and a rejected case is never saved again, so its last
 # modification is when it was rejected.
 _REJECTED_SQL = _daily_sql("g.modified", "COUNT(*) AS rejected_count", "g.status = 'Rejected'")
-_ESCALATED_SQL = _daily_sql("g.escalated_at", "COUNT(*) AS escalated_count")
+# Dated by filing, not by escalation: this counts the cases filed that day that have
+# been escalated since. The escalation rate divides it by submitted_count, so both
+# must describe the same cases; a case filed in March and escalated in April is
+# part of March's rate, never of April's.
+_ESCALATED_SQL = _daily_sql("g.creation", "COUNT(*) AS escalated_count", "g.escalated_at IS NOT NULL")
+# A case is informed once an officer has put a public entry on its timeline: a message,
+# a question, or the reason for an action. The submission entry an officer files on
+# someone's behalf does not count. Dated by filing, like escalated_count.
+_INFORMED_ENTRY = """EXISTS (
+			SELECT 1 FROM `tabGrievance Timeline` t
+			WHERE t.grievance = g.name AND t.is_internal = 0
+				AND t.author_type = 'officer' AND t.entry_type != 'submission'
+		)"""
+_INFORMED_SQL = _daily_sql("g.creation", "COUNT(*) AS informed_count", _INFORMED_ENTRY)
 # The submitter rates the case (1-5) only when confirming the resolution, the same
 # transition that stamps resolved_at, so that is the day the feedback was given.
 _FEEDBACK_SQL = _daily_sql(
@@ -157,13 +173,36 @@ def refresh(full=False):
 	try:
 		now = now_datetime()
 		today = getdate(now)
-		start = getdate(_EPOCH) if full else add_days(today, -(INCREMENTAL_DAYS - 1))
+		start = getdate(_EPOCH) if full else _incremental_start(today)
 		daily_rows = _rebuild_daily(start, add_days(today, 1))
 		snapshot_rows = _rebuild_snapshot(today, now)
 		frappe.db.set_default(AS_OF_DEFAULT, str(now))
 		return {"as_of": now, "from": start, "daily_rows": daily_rows, "snapshot_rows": snapshot_rows}
 	finally:
 		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+
+
+def _incremental_start(today):
+	"""The first day an incremental refresh rebuilds.
+
+	The last few days, reaching back further to the filing day of any case first
+	escalated, or first given a public officer update, in that window: escalated_count
+	and informed_count sit on the day a case was filed, so acting on an old case
+	changes an old day.
+	"""
+	start = add_days(today, -(INCREMENTAL_DAYS - 1))
+	# LEAST is NULL when either side is, so an empty side reads as a far-future day.
+	oldest = frappe.db.sql(
+		"""SELECT LEAST(
+			COALESCE((SELECT MIN(DATE(creation)) FROM `tabGrievance` WHERE escalated_at >= %(start)s), '9999-12-31'),
+			COALESCE((SELECT MIN(DATE(g.creation)) FROM `tabGrievance` g
+				JOIN `tabGrievance Timeline` t ON t.grievance = g.name
+				WHERE t.creation >= %(start)s AND t.is_internal = 0
+					AND t.author_type = 'officer' AND t.entry_type != 'submission'), '9999-12-31')
+		)""",
+		{"start": start},
+	)[0][0]
+	return min(start, getdate(oldest))
 
 
 def as_of():
@@ -194,7 +233,14 @@ def _rebuild_daily(start, end):
 		"satisfied": SATISFIED_RATING,
 	}
 	merged = {}
-	for sql in (_SUBMITTED_SQL, _RESOLVED_SQL, _REJECTED_SQL, _ESCALATED_SQL, _FEEDBACK_SQL):
+	for sql in (
+		_SUBMITTED_SQL,
+		_RESOLVED_SQL,
+		_REJECTED_SQL,
+		_ESCALATED_SQL,
+		_INFORMED_SQL,
+		_FEEDBACK_SQL,
+	):
 		for row in frappe.db.sql(
 			sql, params, as_dict=True
 		):  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection

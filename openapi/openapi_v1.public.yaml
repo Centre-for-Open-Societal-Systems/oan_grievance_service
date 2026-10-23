@@ -2466,7 +2466,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2480,7 +2480,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -2571,7 +2579,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2585,7 +2593,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -2661,7 +2677,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2675,7 +2691,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -2751,7 +2775,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2765,7 +2789,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -2841,7 +2873,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2855,7 +2887,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -2931,7 +2971,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -2945,7 +2985,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3021,7 +3069,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3035,7 +3083,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3111,7 +3167,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3125,7 +3181,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3201,7 +3265,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3215,7 +3279,211 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
+      - name: granularity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - month
+          - week
+          default: month
+        description: Period size for grvNetBacklogTrend
+      security:
+      - FrappeTokenAuth: []
+  /v1/charts/grvAvgResolutionByCategory:
+    get:
+      tags:
+      - Dashboard Charts
+      summary: Public dashboard chart grvAvgResolutionByCategory (counts only)
+      description: Public dashboard chart grvAvgResolutionByCategory (counts only)
+      operationId: get_api_v1_charts_grvAvgResolutionByCategory
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardChartResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated Region P-codes (e.g. ET04)
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated service category names; `category` is accepted as an alias
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Period start (trend, category-resolution and average-resolution charts)
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Period end, default today
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
+      - name: granularity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - month
+          - week
+          default: month
+        description: Period size for grvNetBacklogTrend
+      security:
+      - FrappeTokenAuth: []
+  /v1/charts/grvPerformanceScore:
+    get:
+      tags:
+      - Dashboard Charts
+      summary: Public dashboard chart grvPerformanceScore (counts only)
+      description: Public dashboard chart grvPerformanceScore (counts only)
+      operationId: get_api_v1_charts_grvPerformanceScore
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardChartResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: region
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated Region P-codes (e.g. ET04)
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Comma-separated service category names; `category` is accepted as an alias
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Period start (trend, category-resolution and average-resolution charts)
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date
+        description: Period end, default today
+      - name: month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3291,7 +3559,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3305,7 +3573,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3381,7 +3657,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3395,7 +3671,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3471,7 +3755,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3485,7 +3769,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3561,7 +3853,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3575,7 +3867,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3651,7 +3951,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3665,7 +3965,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false
@@ -3741,7 +4049,7 @@ paths:
         schema:
           type: string
           format: date
-        description: Period start (trend and category-resolution charts)
+        description: Period start (trend, category-resolution and average-resolution charts)
       - name: to
         in: query
         required: false
@@ -3755,7 +4063,15 @@ paths:
         schema:
           type: string
           pattern: ^\d{4}-\d{2}$
-        description: YYYY-MM for grvPerformanceKpis, default the current month
+        description: YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month
+      - name: as_of_month
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^\d{4}-\d{2}$
+        description: 'YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month
+          instead of today. Not `month`, so a page can send `month` to every chart safely'
       - name: granularity
         in: query
         required: false

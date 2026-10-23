@@ -19,6 +19,7 @@
   "col_counts",
   "rejected_count",
   "escalated_count",
+  "informed_count",
   "feedback_count",
   "feedback_satisfied_count"
  ],
@@ -93,9 +94,16 @@
    "label": "Rejected"
   },
   {
+   "description": "Of the cases filed on this day, how many have been escalated since.",
    "fieldname": "escalated_count",
    "fieldtype": "Int",
-   "label": "First Escalated"
+   "label": "Filed and Escalated"
+  },
+  {
+   "description": "Of the cases filed on this day, how many have had a public update from an officer since.",
+   "fieldname": "informed_count",
+   "fieldtype": "Int",
+   "label": "Filed and Informed"
   },
   {
    "fieldname": "feedback_count",
@@ -112,7 +120,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-30 16:00:00.000000",
+ "modified": "2026-10-23 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Stat Daily",

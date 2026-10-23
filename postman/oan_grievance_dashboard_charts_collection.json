@@ -145,11 +145,41 @@
       "response": []
     },
     {
+      "name": "10a. Average resolution days by category",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/v1/charts/grvAvgResolutionByCategory",
+        "description": "Average days from filing to resolution per category, for the cases resolved in the window. A category with nothing resolved is left out."
+      },
+      "response": []
+    },
+    {
+      "name": "10b. System performance score (radar)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/v1/charts/grvPerformanceScore?month=2026-04",
+        "description": "Six 0 to 100 scores for a month: timeliness, resolution_rate, satisfaction, transparency, follow_up, coverage. `basis` is the number of cases behind each; a score is null when there are none."
+      },
+      "response": []
+    },
+    {
       "name": "11. Resolution rate by region",
       "request": {
         "method": "GET",
         "header": [],
         "url": "{{base_url}}/v1/charts/grvResolutionRateByRegion"
+      },
+      "response": []
+    },
+    {
+      "name": "11a. Resolution rate by region at the end of a month",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/v1/charts/grvResolutionRateByRegion?as_of_month=2026-04",
+        "description": "As at the end of the month, from the snapshots kept for it. Empty when none was kept. Plain `month` does not move this chart."
       },
       "response": []
     },

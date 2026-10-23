@@ -618,6 +618,7 @@ services:
       tier: public-dashboards
       auth: frappe-token
     uris:
+    - /v1/charts/grvAvgResolutionByCategory
     - /v1/charts/grvByCategory
     - /v1/charts/grvCategoryResolution
     - /v1/charts/grvFilterCategories
@@ -628,6 +629,7 @@ services:
     - /v1/charts/grvOldestOpen
     - /v1/charts/grvPendingDuplicates
     - /v1/charts/grvPerformanceKpis
+    - /v1/charts/grvPerformanceScore
     - /v1/charts/grvResolutionRateByRegion
     - /v1/charts/grvSlaRisk
     - /v1/charts/grvStatusDistribution
