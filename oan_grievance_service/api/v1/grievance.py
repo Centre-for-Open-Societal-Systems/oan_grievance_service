@@ -1991,7 +1991,8 @@ def options(
 	"""Management and lookup options for submitters, grievance officers and admins.
 
 	Returns reference lists for case filing, management, triage, and filtering,
-	including departments, lifecycle statuses, categories, and types.
+	including departments, lifecycle statuses, categories, and types. Departments and
+	categories are only those with a desk that has an active officer.
 	When `department` is provided, `service_categories` shrinks to the categories that
 	department has an active category assignment for. When the caller is also staff, it
 	cascades and includes active officers under that department (optionally narrowed by
@@ -2007,9 +2008,9 @@ def options(
 	    administrative_area (str, optional): Administrative area to scope officer assignments.
 
 	Returns:
-	    departments: Active grievance departments
+	    departments: Departments with a staffed desk
 	    statuses: Grievance lifecycle statuses with metadata
-	    service_categories: Active service categories (only the department's when `department` is given)
+	    service_categories: Active service categories with a staffed desk (only the department's when `department` is given)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
 	    officers: Active officers under the specified department and/or service category (staff only, present only if either is passed)

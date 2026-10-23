@@ -942,7 +942,6 @@ spec:
       - /v1/notification-templates/placeholders
       - /v1/officers
       - /v1/officers/:officer
-      - /v1/officers/candidates
       - /v1/officers/statistics
       - /v1/officers/status-counts
       - /v1/orgs

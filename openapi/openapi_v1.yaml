@@ -1325,21 +1325,22 @@ paths:
       summary: Get grievance options and dropdowns
       description: "Management and lookup options for submitters, grievance officers and admins.\n\nReturns\
         \ reference lists for case filing, management, triage, and filtering,\nincluding departments,\
-        \ lifecycle statuses, categories, and types.\nWhen `department` is provided, `service_categories`\
-        \ shrinks to the categories that\ndepartment has an active category assignment for. When the caller\
-        \ is also staff, it\ncascades and includes active officers under that department (optionally narrowed\
+        \ lifecycle statuses, categories, and types. Departments and\ncategories are only those with a\
+        \ desk that has an active officer.\nWhen `department` is provided, `service_categories` shrinks\
+        \ to the categories that\ndepartment has an active category assignment for. When the caller is\
+        \ also staff, it\ncascades and includes active officers under that department (optionally narrowed\
         \ by\n`service_category` and `administrative_area`). With only `service_category`, it lists the\n\
         officers on desks for that category. The caller is never listed. Submitters\nnever receive officers.\n\
         \nArgs:\n    service_category (str, optional): Filter grievance types & officers by service category\
         \ (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n    department\
         \ (str, optional): Department ID. Limits service_categories to that department's\n        category\
         \ assignments and, for staff, fetches its assigned officers.\n    administrative_area (str, optional):\
-        \ Administrative area to scope officer assignments.\n\nReturns:\n    departments: Active grievance\
-        \ departments\n    statuses: Grievance lifecycle statuses with metadata\n    service_categories:\
-        \ Active service categories (only the department's when `department` is given)\n    grievance_types:\
-        \ Active grievance types (optionally filtered by service_category)\n    submission_channels: Active\
-        \ intake channels\n    officers: Active officers under the specified department and/or service\
-        \ category (staff only, present only if either is passed)"
+        \ Administrative area to scope officer assignments.\n\nReturns:\n    departments: Departments\
+        \ with a staffed desk\n    statuses: Grievance lifecycle statuses with metadata\n    service_categories:\
+        \ Active service categories with a staffed desk (only the department's when `department` is given)\n\
+        \    grievance_types: Active grievance types (optionally filtered by service_category)\n    submission_channels:\
+        \ Active intake channels\n    officers: Active officers under the specified department and/or\
+        \ service category (staff only, present only if either is passed)"
       operationId: get_api_v1_grievances_options
       responses:
         '200':
@@ -4699,82 +4700,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
-  /api/v1/officers/candidates:
-    get:
-      tags:
-      - Administration
-      summary: List accounts that can be made officers
-      description: Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) role
-        but are on no desk yet, so an admin can place them with POST /api/v1/officers. An identity-provider
-        login shows up here once the provider has granted the role. q matches name or email. System Manager
-        and Administrator accounts are never listed.
-      operationId: get_api_v1_officers_candidates
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OfficerCandidateResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: role
-        in: query
-        required: false
-        schema:
-          default: Officer
-          enum:
-          - Officer
-          - Reviewer
-          type: string
-      - name: q
-        in: query
-        required: false
-        schema:
-          type: string
-          default: null
-          nullable: true
-      - name: limit
-        in: query
-        required: false
-        schema:
-          default: 50
-          maximum: 200
-          minimum: 1
-          type: integer
-      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_candidates
-      x-gateway-tier: officer-core
-      security:
-      - BearerAuth: []
   /api/v1/officers/status-counts:
     get:
       tags:
@@ -9271,35 +9196,6 @@ components:
       required:
       - officers
       type: object
-    OfficerCandidate:
-      properties:
-        name:
-          type: string
-        full_name:
-          type: string
-        email:
-          type: string
-        phone:
-          type: string
-          default: null
-          nullable: true
-        delegated:
-          type: boolean
-      required:
-      - name
-      - full_name
-      - email
-      - delegated
-      type: object
-    OfficerCandidateData:
-      properties:
-        candidates:
-          items:
-            $ref: '#/components/schemas/OfficerCandidate'
-          type: array
-      required:
-      - candidates
-      type: object
     StatusCounts:
       properties:
         active:
@@ -12038,31 +11934,6 @@ components:
       - status
       - data
       description: OfficerListData response
-    OfficerCandidateResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/OfficerCandidateData'
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: OfficerCandidateData response
     StatusCountsResponse:
       type: object
       properties:

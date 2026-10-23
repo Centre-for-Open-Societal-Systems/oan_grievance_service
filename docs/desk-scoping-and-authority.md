@@ -124,15 +124,18 @@ case stays unassigned only if the Unrouted desk is deactivated.
 `find_matching_assignment` (used by reassignment side effects) still uses the original strict
 match.
 
-### Reassigning without a department
+### Reassigning with only a department or a category
 
-`target_department` on `POST /grievances/<ticket>/reassign` is optional. Without it the
-candidates are every desk except the Unrouted desk (`routing.department_desks`), or the
-target officer's desks in any department (`routing.officer_desks`); `target_category` and
-`target_grievance_type` narrow them as before. The case takes the chosen desk's department
-when it has one. An existing `assigned_dept` is never cleared.
+`target_department` and `target_category` on `POST /grievances/<ticket>/reassign` are each
+optional. The one left out is kept when a desk still matches it: a category-only move first looks
+for desks in the case's current department (a case with no department matches desks with none),
+and a department-only move first looks for desks on the case's current category. Only when none
+matches are the other desks considered (every desk except the Unrouted desk, or the target
+officer's desks). `target_grievance_type` narrows them as before.
 
-## 5. Staffing rules
+The case then takes the department of the desk its officer sits on: the current officer when
+they are on a surviving desk, otherwise the officer picked on the first one. A desk with no
+department clears `assigned_dept`. A desk with no category keeps the case's category.
 
 ### Category assignment API (`api/v1/category_assignment.py`)
 
@@ -153,37 +156,6 @@ An officer has no record of their own: they are a User plus desk rows, and `role
 them by those rows. That is why an L3 without a department or categories is still placed on a
 desk (one with those scopes empty) instead of being a bare login. `designation` is a label on
 the rows and is not read by routing, permissions or escalation.
-
-### Officers who sign in through Keycloak
-
-An officer or reviewer provisioned by delegated login (`<hash>@iam.internal`) is seated from
-their Keycloak placement, not from the officer API. `api/v1/profile.py::on_delegated_login_hook`
-calls `services/officer.py::sync_delegated_placement` once per token, after `oan_auth_service`
-has synced their roles. The Keycloak side (user-profile attributes, the `grievance-placement`
-client scope that puts them in userinfo, the client roles) is in `keycloak/`, applied with
-`keycloak/apply.sh`. The login row needs `userinfo_url` set, because IAM's principal carries
-only `sub`, `name` and the roles.
-
-| Claim                  | Meaning                                                        |
-| :--------------------- | :------------------------------------------------------------- |
-| `grievance_level`      | `L1`, `L2`, `L3` or `reviewer`; needs the matching client role |
-| `grievance_categories` | Category ids, names or codes; the desks the officer sits on    |
-| `grievance_department` | Optional; without it the desks with no department              |
-| `grievance_region`     | Optional; the officer row's `administrative_area`              |
-
-- Rows on desks the claims no longer name are deactivated, not removed. An L3 gets missing
-  category desks opened, as through the officer API.
-- No `Grievance Officer` or `Grievance Review Officer` role: every row is deactivated.
-- No `grievance_level` claim: nothing changes. Userinfo is best effort, so a missing claim may
-  mean the provider was unreachable rather than that the placement was removed.
-- A placement that cannot be applied (unknown category, an L1 category with no desk, an L2
-  changing level while others report to them) is logged to Error Log and the login goes on
-  with the old desks.
-- `on_leave` and `reports_to` stay with the officer API. Level, categories, department, region
-  and deactivation are refused there for such users (`_refuse_delegated`).
-- `Grievance Desk Head` must be granted in Keycloak with `grievance_level` `L3`:
-  `oan_auth_service` removes roles Keycloak does not grant, so `_sync_desk_head_role` is not
-  used for these users.
 
 ### Moving a Category Admin to another department
 

@@ -137,8 +137,10 @@ def approver(grievance, request):
 def resolve(grievance, department=None, officer=None, actor=None, category=None, grievance_type=None) -> dict:
 	"""Resolve receiving department, officer, category and type for a reassignment.
 
-	Without `department` every desk is a candidate and the case takes the chosen desk's
-	department, if it has one. Returns a dict of fields that differ from current grievance values.
+	When only one of department and category is named, the unnamed one is kept if some desk
+	still matches it (a case with no department matches desks with none). Only then are desks
+	outside it considered, and the case takes the chosen desk's department, cleared when that
+	desk has none. Returns a dict of fields that differ from current grievance values.
 	Throws ValidationError if the move is invalid or underspecified.
 	"""
 	actor = actor or frappe.session.user
@@ -196,7 +198,8 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 		]
 		if accepting_current:
 			chosen_cat = grievance.service_category
-			candidate_desks = accepting_current
+			exact = [d for d in accepting_current if d.get("category_scope") == chosen_cat]
+			candidate_desks = exact or accepting_current
 		else:
 			distinct_cats = sorted(
 				list({d.get("category_scope") for d in candidate_desks if d.get("category_scope")})
@@ -216,6 +219,15 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 				)
 			else:
 				chosen_cat = grievance.service_category
+
+	# A category-only move stays in the case's department when a desk there takes it.
+	if not department:
+		same_dept = [
+			d
+			for d in candidate_desks
+			if (d.get("department_scope") or None) == (grievance.assigned_dept or None)
+		]
+		candidate_desks = same_dept or candidate_desks
 
 	# 3. Type from surviving desks
 	if grievance_type:
@@ -274,30 +286,33 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 					)
 
 	# 4. Officer
+	chosen_desk = candidate_desks[0]
 	if officer:
 		chosen_officer = officer
 	else:
 		current_officer = grievance.assigned_to
-		surviving_desk_names = {d.get("name") for d in candidate_desks}
+		chosen_officer = None
 		if current_officer:
-			cur_desks = officer_desks(grievance, department, current_officer)
-			if any(cd.get("name") in surviving_desk_names for cd in cur_desks):
-				chosen_officer = current_officer
-			else:
-				chosen_officer = None
-		else:
-			chosen_officer = None
+			surviving = {d.get("name"): d for d in candidate_desks}
+			kept = [
+				surviving[cd.get("name")]
+				for cd in officer_desks(grievance, department, current_officer)
+				if cd.get("name") in surviving
+			]
+			if kept:
+				chosen_officer, chosen_desk = current_officer, kept[0]
 
 		if not chosen_officer:
-			desk_doc = frappe.get_doc("Grievance RBAC Assignment", candidate_desks[0].get("name"))
+			desk_doc = frappe.get_doc("Grievance RBAC Assignment", chosen_desk.get("name"))
 			chosen_officer = pick_officer_by_strategy(desk_doc, grievance)
 			if not chosen_officer:
 				frappe.throw(_("No active officer; name one."), frappe.ValidationError, title=_("No Officer"))
 
 	# 5. Difference comparison
-	department = department or candidate_desks[0].get("department_scope")
+	# The department follows the desk the officer sits on, and is cleared when that desk has none.
+	department = department or chosen_desk.get("department_scope") or None
 	changes = {}
-	if department and department != grievance.assigned_dept:
+	if (department or None) != (grievance.assigned_dept or None):
 		changes["assigned_dept"] = department
 	if chosen_officer != grievance.assigned_to:
 		changes["assigned_to"] = chosen_officer

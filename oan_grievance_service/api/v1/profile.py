@@ -10,7 +10,6 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import officer as officer_service
 from oan_grievance_service.services.constants import ORG_STATUS_ACTIVE, ORG_TYPES
 
 # Submitter Profile fields the identity provider supplies (the "Identity provider details" section).
@@ -276,16 +275,12 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 	Agent profile from their `User`; the identity provider supplies no national-ID
 	details for them, so none are written and `id_source` stays empty.
 
-	An officer or reviewer (Keycloak) is seated on desks from their `grievance_*`
-	placement claims instead (`officer.sync_delegated_placement`).
-
-	Never refuses the login. A profile or placement that cannot be built from the
-	claims (no phone number, a taken Fayda ID, an unknown category) is logged and
-	skipped; the user signs in with what they had.
+	Never refuses the login. A profile that cannot be built from the claims (no phone
+	number, a taken Fayda ID) is logged and skipped; the user signs in with what they had.
 	"""
 	roles = set(frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role"))
-	if roles & {C.ROLE_OFFICER, C.ROLE_REVIEW_OFFICER} or officer_service.role_of(user):
-		return _sync_placement(user, roles, principal, login_option)
+	if roles & {C.ROLE_OFFICER, C.ROLE_REVIEW_OFFICER}:
+		return False
 	is_agent = C.ROLE_ASSISTED_SUBMITTER in roles
 	if not is_agent and C.ROLE_SUBMITTER not in roles:
 		return False
@@ -355,21 +350,6 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 		)
 		return False
 	return True
-
-
-def _sync_placement(user: str, roles: set[str], principal: dict, login_option: str) -> bool:
-	frappe.db.savepoint("delegated_login_placement")
-	try:
-		return officer_service.sync_delegated_placement(user, roles, principal)
-	except frappe.ValidationError:
-		frappe.db.rollback(save_point="delegated_login_placement")
-		frappe.clear_messages()
-		frappe.log_error(
-			title="oan_grievance_service: officer placement not synced from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
-			defer_insert=True,
-		)
-		return False
 
 
 def _identity_fields(principal: dict, login_option: str) -> dict:
