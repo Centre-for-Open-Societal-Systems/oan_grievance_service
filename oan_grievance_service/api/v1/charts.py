@@ -227,12 +227,14 @@ def get_charts(charts: str | None = None, **kwargs):
 		return _invalid(e)
 
 	scope = None if admin else dashboard.caller_scope()
-	data, as_of, errors = {}, {}, {}
+	data, as_of, errors, unavailable = {}, {}, {}, {}
 	for chart_id in requested:
 		try:
 			result = dashboard.get_chart(chart_id, params, admin=admin, scope=scope)
 			data[chart_id] = result["rows"]
 			as_of[chart_id] = result["as_of"]
+			if result.get("unavailable"):
+				unavailable[chart_id] = result["unavailable"]
 		except Exception:
 			frappe.log_error(title=f"Dashboard chart {chart_id} failed")
 			data[chart_id] = None
@@ -241,7 +243,12 @@ def get_charts(charts: str | None = None, **kwargs):
 	return success_response(
 		data=data,
 		message=_("Charts fetched successfully"),
-		meta={"as_of": as_of, "filters": _echo(params, admin=admin), "errors": errors},
+		meta={
+			"as_of": as_of,
+			"filters": _echo(params, admin=admin),
+			"errors": errors,
+			"unavailable": unavailable,
+		},
 	)
 
 
@@ -253,11 +260,10 @@ def _public_chart(chart_id, raw):
 		return _invalid(e)
 
 	result = dashboard.get_chart(chart_id, params, admin=False)
-	return success_response(
-		data=result["rows"],
-		message=_("Chart fetched successfully"),
-		meta={"as_of": result["as_of"], "filters": _echo(params, admin=False)},
-	)
+	meta = {"as_of": result["as_of"], "filters": _echo(params, admin=False)}
+	if result.get("unavailable"):
+		meta["unavailable"] = result["unavailable"]
+	return success_response(data=result["rows"], message=_("Chart fetched successfully"), meta=meta)
 
 
 def _public_endpoint(chart_id):

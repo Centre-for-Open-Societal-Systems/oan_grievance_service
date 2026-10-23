@@ -65,6 +65,9 @@ Unknown region or category values return 400, and so does a malformed or future 
 
 - `meta.as_of` is when each chart's data was last refreshed. The data comes from rollups
   refreshed every 15 minutes, so it can lag live data by up to that long.
+- `meta.unavailable.<id>` is set when a chart is empty because no data was kept, not because
+  there are no cases (today only `"no_snapshot"`, from the region chart with `as_of_month`).
+  The key is absent otherwise.
 - If one chart fails, `data.<id>` is `null` and `meta.errors.<id>` holds the reason. The other
   charts still come back, so handle a `null` per tile rather than failing the whole page.
 
@@ -134,7 +137,8 @@ Notes:
   label on the chart. It ignores `month`, `from` and `to`, so the page's `month` does not change it.
 - Send `as_of_month` (not `month`) to read it as it stood at the end of that month instead, from the
   daily snapshots kept since the rollups began. A month with no snapshot kept inside it returns an
-  empty array. The current month matches the default. Only use it if the chart is relabelled to show
+  empty array and sets `meta.unavailable.grvResolutionRateByRegion` to `"no_snapshot"`; an empty
+  array without that key means the month has no cases. The current month matches the default. Only use it if the chart is relabelled to show
   the month.
 - `region` and `service_category` apply either way.
 
@@ -195,7 +199,7 @@ Notes:
 | `satisfaction`    | Every rating given was 4 or 5. Same as the KPI card.                                        |
 | `transparency`    | Every case filed in the month has had a public update from an officer.                      |
 | `follow_up`       | Every case resolved in the month was confirmed and rated by its submitter.                  |
-| `coverage`        | Every case sits with a real desk: not unassigned, and not on the "Unrouted" catch-all desk. |
+| `coverage`        | Every case sits with a real desk: not unassigned, and not on the "Unrouted" catch-all desk. A desk with no department still counts. |
 
 Notes:
 
@@ -226,7 +230,8 @@ Error bodies use the standard envelope, with details keyed by field.
 - The page subtitle shows "April 2026". Make sure the `month` you send matches what the page
   displays. If you send nothing, the API uses the current month.
 - Handle `null` values and empty arrays. A new environment or an empty month returns them. This
-  includes `null` radar scores, and an empty array from the region chart with `as_of_month`.
+  includes `null` radar scores, and an empty array from the region chart with `as_of_month`
+  (check `meta.unavailable` to tell a month with no snapshot from a month with no cases).
 - The radar and the four KPI cards use the same `month`, so they always describe the same month.
 - The data does not refresh live, so there is no need to poll more often than every few minutes.
 

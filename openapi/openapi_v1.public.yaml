@@ -11595,7 +11595,8 @@ components:
       required:
       - status
       - data
-      description: Rows of one public dashboard chart; meta.as_of is the rollup time
+      description: Rows of one public dashboard chart; meta.as_of is the rollup time, meta.unavailable
+        is set when the chart is empty because no data was kept
     DashboardChartsResponse:
       type: object
       properties:
@@ -11620,7 +11621,7 @@ components:
       required:
       - status
       - data
-      description: Rows per chart; meta.as_of and meta.errors per chart
+      description: Rows per chart; meta.as_of, meta.errors and meta.unavailable per chart
     NotificationTemplateListResponse:
       type: object
       properties:

@@ -1252,10 +1252,11 @@ ENVELOPES = {
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
-		description="Rows of one public dashboard chart; meta.as_of is the rollup time",
+		description="Rows of one public dashboard chart; meta.as_of is the rollup time, meta.unavailable is set when the chart is empty because no data was kept",
 	),
 	"DashboardChartsResponse": make_envelope(
-		"DashboardChartsData", description="Rows per chart; meta.as_of and meta.errors per chart"
+		"DashboardChartsData",
+		description="Rows per chart; meta.as_of, meta.errors and meta.unavailable per chart",
 	),
 }
 

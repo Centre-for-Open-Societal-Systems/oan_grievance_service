@@ -37,6 +37,8 @@ from oan_grievance_service.services import sla
 
 ROLLUP_TTL = 15 * 60
 LIVE_TTL = 60
+# Why a chart has no rows besides "there are no cases": see Context.unavailable.
+NO_SNAPSHOT = "no_snapshot"
 TITLE_LENGTH = 80
 
 
@@ -90,6 +92,8 @@ class Context:
 		self.scope = scope
 		self.today = getdate(now_datetime())
 		self.snapshot_date = _latest_snapshot_date()
+		# Set by a builder whose empty result means "no data was kept", not "no cases".
+		self.unavailable = None
 
 
 # Caller scope
@@ -547,7 +551,8 @@ def build_performance_score(ctx):
 	- resolution_rate: every case is Resolved or Closed, as at the end of the month.
 	- satisfaction: every rating given was 4 or 5.
 	- coverage: every case, as at the end of the month, sits with a real desk, not none
-	  and not the Unrouted catch-all.
+	  and not the Unrouted catch-all. A desk with no department still counts: see
+	  dashboard_rollup._HAS_DESK.
 	- transparency: every case filed in the month has had a public officer update.
 	- follow_up: every case resolved in the month was confirmed (rated) by its submitter.
 
@@ -566,12 +571,12 @@ def build_performance_score(ctx):
 	cases = resolved_cases = routed = 0
 	day = _month_snapshot_day(month_start, month_end)
 	if day:
-		for r in _snapshot(ctx, ("status", "assigned_dept"), on_date=day):
+		for r in _snapshot(ctx, ("status", "has_desk"), on_date=day):
 			n = int(r.grievances or 0)
 			cases += n
 			if r.status in C.RESOLVED_STATES:
 				resolved_cases += n
-			if r.assigned_dept not in ("", None, C.UNROUTED_DEPARTMENT):
+			if r.has_desk:
 				routed += n
 
 	def axis(name, part, whole):
@@ -590,7 +595,9 @@ def build_performance_score(ctx):
 def build_resolution_rate_by_region(ctx):
 	"""Resolved or Closed over all cases per region: as at today, or at the end of `as_of_month`.
 
-	A month with no snapshot kept inside it has no history to read, so it returns nothing.
+	A month with no snapshot kept inside it has no history to read. It returns no rows,
+	as a month with no cases does, but marks the chart `unavailable` so a client can tell
+	the two apart.
 	"""
 	names = _region_names()
 	totals = {}
@@ -598,6 +605,7 @@ def build_resolution_rate_by_region(ctx):
 	if ctx.params.as_of_month:
 		snapshot_day = _month_snapshot_day(*_month_bounds(ctx, ctx.params.as_of_month))
 		if not snapshot_day:
+			ctx.unavailable = NO_SNAPSHOT
 			return []
 	for r in _snapshot(ctx, ("region", "status"), on_date=snapshot_day):
 		if not r.region:
@@ -811,8 +819,13 @@ def get_chart(chart_id, params, admin, scope=None):
 	if cached is not None:
 		return cached
 
-	rows = chart.build(Context(params, admin, scope))
+	ctx = Context(params, admin, scope)
+	rows = chart.build(ctx)
 	stamp = now_datetime() if live else refreshed
-	result = {"rows": rows, "as_of": to_tz_aware_iso(stamp) if stamp else None}
+	result = {
+		"rows": rows,
+		"as_of": to_tz_aware_iso(stamp) if stamp else None,
+		"unavailable": ctx.unavailable,
+	}
 	frappe.cache.set_value(key, result, expires_in_sec=LIVE_TTL if live else ROLLUP_TTL)
 	return result

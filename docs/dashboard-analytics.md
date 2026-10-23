@@ -25,10 +25,14 @@ request                        services/dashboard.get_chart()
   been escalated since (dated by filing, so the escalation rate divides like by like), and
   `informed_count`: of the cases filed that day, how many have had a public officer update since
   (the Transparency axis of `grvPerformanceScore`). Events never move once they happen, so a
-  refresh rebuilds only the last three days, and further back to the filing day of any case
-  first escalated or first answered in them; the nightly run rebuilds every day.
+  refresh rebuilds only the last three days, plus the filing day of each older case first
+  escalated or first answered in them (a later reply on an already answered case changes
+  nothing). Only those days are rebuilt, newest first and at most 31 a run, so the work follows
+  the days touched, not the age of the case; the nightly run rebuilds every day and absorbs
+  the rest.
 - **Grievance Stat Snapshot** holds how many cases stood in each status on a day, by the same
-  dimensions plus `escalated`, `sla_state` (ok / at_risk / breached / paused / no_sla),
+  dimensions plus `escalated`, `has_desk` (the case is not on the Unrouted desk and has a
+  department, a routing rule or an officer; behind the coverage axis), `sla_state` (ok / at_risk / breached / paused / no_sla),
   cases awaiting duplicate review, and the oldest open, non-escalated filing date. Today's rows
   are replaced on every refresh; earlier days are kept, because a past day's status counts
   cannot be rebuilt from current data.

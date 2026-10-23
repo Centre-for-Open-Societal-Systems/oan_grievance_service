@@ -7,6 +7,8 @@ The site may already hold grievances, so every count is asserted as a change
 against a baseline taken before the fixtures are made.
 """
 
+from unittest.mock import patch
+
 import frappe
 import pymysql
 from frappe.query_builder.functions import Sum
@@ -149,8 +151,7 @@ class TestDashboardCharts(FrappeTestCase):
 
 	def test_refresh_reports_what_it_did(self):
 		self.assertIsNotNone(self.refreshed)
-		# It reaches further back when an older case was escalated in the window.
-		self.assertLessEqual(
+		self.assertEqual(
 			self.refreshed["from"], add_days(getdate(), -(dashboard_rollup.INCREMENTAL_DAYS - 1))
 		)
 		# Other tests refresh too, so as_of is at least this run's.
@@ -222,7 +223,7 @@ class TestDashboardCharts(FrappeTestCase):
 		dashboard_rollup._insert(
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
-			[(yesterday, C.STATE_SUBMITTED, "", self.category, "", 0, "ok", 7, 0, None)],
+			[(yesterday, C.STATE_SUBMITTED, "", self.category, "", 0, 0, "ok", 7, 0, None)],
 		)
 		dashboard_rollup.refresh()
 		self.assertTrue(frappe.db.exists(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday}))
@@ -442,8 +443,8 @@ class TestEscalationRateCohorts(FrappeTestCase):
 		after = _rollup_totals(self.month_start, getdate(), "escalated_count")
 		self.assertEqual(after["escalated_count"], self.before_this_month["escalated_count"])
 
-	def test_incremental_refresh_reaches_back_to_the_filing_day(self):
-		self.assertLessEqual(self.refreshed["from"], self.filed_on)
+	def test_incremental_refresh_rebuilds_the_filing_day(self):
+		self.assertIn(self.filed_on, self.refreshed["days"])
 
 	def test_escalation_rate_never_exceeds_100(self):
 		for months_back in range(4):
@@ -558,14 +559,14 @@ def _coverage_counts():
 	S = frappe.qb.DocType(dashboard_rollup.SNAPSHOT)
 	rows = (
 		frappe.qb.from_(S)
-		.select(S.assigned_dept, Sum(S.grievance_count).as_("n"))
+		.select(S.has_desk, Sum(S.grievance_count).as_("n"))
 		.where(S.snapshot_date == dashboard._latest_snapshot_date())
 		.where(S.status.isin(dashboard.status_order()))
-		.groupby(S.assigned_dept)
+		.groupby(S.has_desk)
 		.run(as_dict=True)
 	)
 	total = sum(int(r.n) for r in rows)
-	routed = sum(int(r.n) for r in rows if r.assigned_dept not in ("", None, C.UNROUTED_DEPARTMENT))
+	routed = sum(int(r.n) for r in rows if r.has_desk)
 	return total, routed
 
 
@@ -625,9 +626,11 @@ class TestPerformanceScore(FrappeTestCase):
 		_public_update(b, author_type="submitter")
 		_public_update(c, entry_type="submission")
 
-		# Outside the department: one on the Unrouted desk, one with no desk at all.
+		# Outside the department: one on the Unrouted desk, one with no desk at all, and
+		# one with an officer on a desk that has no department, which is covered.
 		case(C.STATE_SUBMITTED, C.UNROUTED_DEPARTMENT)
 		case(C.STATE_SUBMITTED, None)
+		case(C.STATE_SUBMITTED, None, assigned_to="Administrator")
 		dashboard_rollup.refresh(full=True)
 
 	@classmethod
@@ -687,6 +690,18 @@ class TestPerformanceScore(FrappeTestCase):
 		# The Unrouted desk and the case with no desk both count against it.
 		self.assertGreaterEqual(total - routed, 2)
 
+	def test_a_desk_without_a_department_still_covers_its_case(self):
+		S = frappe.qb.DocType(dashboard_rollup.SNAPSHOT)
+		covered = (
+			frappe.qb.from_(S)
+			.select(Sum(S.grievance_count).as_("n"))
+			.where(S.snapshot_date == dashboard._latest_snapshot_date())
+			.where(S.assigned_dept == "")
+			.where(S.has_desk == 1)
+			.run(as_dict=True)
+		)
+		self.assertGreaterEqual(int(covered[0].n or 0), 1)
+
 	def test_a_month_with_no_cases_has_no_score(self):
 		scores = self.axes(dashboard.Params(assigned_dept=(self.dept,), month="2020-01"))
 		self.assertTrue(all(row["score"] is None and row["basis"] == 0 for row in scores.values()))
@@ -736,8 +751,73 @@ class TestInformedCohorts(FrappeTestCase):
 		after = _rollup_totals(self.month_start, getdate(), "informed_count")
 		self.assertEqual(after["informed_count"], self.before_this_month["informed_count"])
 
-	def test_incremental_refresh_reaches_back_to_the_filing_day(self):
-		self.assertLessEqual(self.refreshed["from"], self.filed_on)
+	def test_incremental_refresh_rebuilds_the_filing_day(self):
+		self.assertIn(self.filed_on, self.refreshed["days"])
+
+
+class TestIncrementalWindow(FrappeTestCase):
+	"""An incremental refresh also rebuilds the filing days of older cases first acted on in
+	the window: those days only, a bounded few, not every day since the oldest."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.today = getdate()
+
+	def old_case(self, days_ago):
+		doc = a_grievance()
+		self.addCleanup(discard_grievance, doc.name)
+		filed = add_days(self.today, -days_ago)
+		frappe.db.set_value("Grievance", doc.name, "creation", get_datetime(f"{filed} 10:00:00"))
+		return doc.name, filed
+
+	def escalate(self, name):
+		frappe.db.set_value("Grievance", name, {"escalated": 1, "escalated_at": now_datetime()})
+
+	def days(self):
+		return dashboard_rollup._incremental_window(self.today)[1]
+
+	def test_first_escalation_of_an_old_case_adds_its_filing_day(self):
+		name, filed = self.old_case(20)
+		self.assertNotIn(filed, self.days())
+		self.escalate(name)
+		self.assertIn(filed, self.days())
+
+	def test_first_public_update_of_an_old_case_adds_its_filing_day(self):
+		name, filed = self.old_case(20)
+		_public_update(name)
+		self.assertIn(filed, self.days())
+
+	def test_a_later_reply_on_an_answered_case_adds_nothing(self):
+		name, filed = self.old_case(20)
+		_public_update(name)
+		entry = frappe.db.get_value("Grievance Timeline", {"grievance": name}, "name")
+		frappe.db.set_value(
+			"Grievance Timeline", entry, "creation", get_datetime(f"{add_days(self.today, -10)} 09:00:00")
+		)
+		self.assertNotIn(filed, self.days())
+		_public_update(name)
+		self.assertNotIn(filed, self.days())
+
+	def test_a_case_filed_inside_the_window_adds_no_extra_day(self):
+		name, filed = self.old_case(1)
+		self.escalate(name)
+		self.assertNotIn(filed, self.days())
+
+	def test_the_extra_days_are_bounded_and_newest_first(self):
+		cases = [self.old_case(n) for n in (20, 30, 40)]
+		for name, _filed in cases:
+			self.escalate(name)
+		with patch.object(dashboard_rollup, "BACKFILL_DAYS_MAX", 2):
+			days = self.days()
+		self.assertLessEqual(len(days), 2)
+		self.assertNotIn(cases[2][1], days)
+
+	def test_consecutive_days_share_one_query_window(self):
+		d = getdate("2026-03-10")
+		self.assertEqual(
+			dashboard_rollup._day_ranges([d, add_days(d, 1), add_days(d, 5)]),
+			[[d, add_days(d, 2)], [add_days(d, 5), add_days(d, 6)]],
+		)
 
 
 class TestResolutionRateByRegionMonth(FrappeTestCase):
@@ -753,8 +833,8 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
 			[
-				(self.day, C.STATE_RESOLVED, "XX01", self.category, "", 0, "", 3, 0, None),
-				(self.day, C.STATE_SUBMITTED, "XX01", self.category, "", 0, "ok", 1, 0, None),
+				(self.day, C.STATE_RESOLVED, "XX01", self.category, "", 0, 0, "", 3, 0, None),
+				(self.day, C.STATE_SUBMITTED, "XX01", self.category, "", 0, 0, "ok", 1, 0, None),
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
@@ -769,6 +849,14 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 	def test_a_month_with_no_snapshot_has_no_rows(self):
 		# The 2021 snapshot is from March: April's end has nothing kept inside April.
 		self.assertEqual(_chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-04")), [])
+
+	def test_a_month_with_no_snapshot_says_so(self):
+		# An empty month and a month with nothing kept look alike in the rows; meta tells them apart.
+		res = charts_api.get_charts(charts="grvResolutionRateByRegion", as_of_month="2021-04")
+		self.assertEqual(res["data"]["grvResolutionRateByRegion"], [])
+		self.assertEqual(res["meta"]["unavailable"], {"grvResolutionRateByRegion": dashboard.NO_SNAPSHOT})
+		res = charts_api.get_charts(charts="grvResolutionRateByRegion", as_of_month="2021-03")
+		self.assertEqual(res["meta"]["unavailable"], {})
 
 	def test_the_current_month_matches_the_default(self):
 		this_month = getdate().strftime("%Y-%m")
