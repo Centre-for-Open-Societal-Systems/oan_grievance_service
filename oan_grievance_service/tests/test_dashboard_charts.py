@@ -7,16 +7,27 @@ The site may already hold grievances, so every count is asserted as a change
 against a baseline taken before the fixtures are made.
 """
 
+from unittest.mock import patch
+
 import frappe
 import pymysql
 from frappe.query_builder.functions import Sum
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, add_to_date, getdate, now_datetime
+from frappe.utils import add_days, add_months, add_to_date, get_datetime, getdate, now_datetime
 
 from oan_grievance_service.api.v1 import charts as charts_api
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard, dashboard_rollup, hooks_handlers, sla
-from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, discard_grievance
+from oan_grievance_service.tests.fixtures import (
+	a_department,
+	a_grievance,
+	a_leaf_area,
+	a_service_category,
+	discard_grievance,
+)
 
 # Keys that name a case or a person; none may appear in a public chart.
 CASE_DETAIL_KEYS = {
@@ -212,7 +223,7 @@ class TestDashboardCharts(FrappeTestCase):
 		dashboard_rollup._insert(
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
-			[(yesterday, C.STATE_SUBMITTED, "", self.category, "", 0, "ok", 7, 0, None)],
+			[(yesterday, C.STATE_SUBMITTED, "", self.category, "", 0, 0, "ok", 7, 0, None)],
 		)
 		dashboard_rollup.refresh()
 		self.assertTrue(frappe.db.exists(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday}))
@@ -296,6 +307,8 @@ class TestDashboardCharts(FrappeTestCase):
 			({"from": "2026-13-01"}, "from"),
 			({"from": "2026-09-30", "to": "2026-09-01"}, "from"),
 			({"month": "2999-01"}, "month"),
+			({"as_of_month": "2999-01"}, "as_of_month"),
+			({"as_of_month": "2021-13"}, "as_of_month"),
 		):
 			with self.subTest(raw=raw):
 				frappe.local.response = frappe._dict()
@@ -311,10 +324,16 @@ class TestDashboardCharts(FrappeTestCase):
 
 		ensure_routes_registered()
 		exempt = middleware._NAMESPACES["/api/v1"]["exempt_paths"]
+
+		def is_exempt(path):
+			# A path table matches by method; older oan_auth_service kept a plain set.
+			match = getattr(exempt, "match", None)
+			return match(path) is not None if match else path in exempt
+
 		for chart_id in dashboard.PUBLIC_CHARTS:
-			self.assertNotIn(f"/api/v1/charts/{chart_id}", exempt)
-		self.assertNotIn("/api/v1/charts/grvRecent", exempt)
-		self.assertNotIn("/api/v1/charts", exempt)
+			self.assertFalse(is_exempt(f"/api/v1/charts/{chart_id}"), chart_id)
+		self.assertFalse(is_exempt("/api/v1/charts/grvRecent"))
+		self.assertFalse(is_exempt("/api/v1/charts"))
 
 	def test_admin_endpoint(self):
 		frappe.set_user("Administrator")
@@ -358,6 +377,508 @@ class TestChartEndpointErrors(FrappeTestCase):
 			frappe.set_user("Administrator")
 		self.assertEqual(admin["code"], "PERMISSION_DENIED")
 		self.assertEqual(public["code"], "PERMISSION_DENIED")
+
+
+def _rollup_totals(start, end, *metrics, category=None):
+	"""Sums straight from the daily rollup for start <= stat_date <= end."""
+	D = frappe.qb.DocType(dashboard_rollup.DAILY)
+	query = (
+		frappe.qb.from_(D)
+		.select(*(Sum(getattr(D, metric)).as_(metric) for metric in metrics))
+		.where(D.stat_date >= start)
+		.where(D.stat_date <= end)
+	)
+	if category:
+		query = query.where(D.service_category == category)
+	row = query.run(as_dict=True)[0]
+	return {metric: float(row[metric] or 0) for metric in metrics}
+
+
+class TestEscalationRateCohorts(FrappeTestCase):
+	"""The escalation rate is of the cases filed in the period, so a case filed in one
+	month and escalated in a later one is part of the earlier month only."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		dashboard_rollup.refresh(full=True)
+
+		today = getdate()
+		cls.month_start = today.replace(day=1)
+		cls.filed_on = getdate(add_months(cls.month_start, -1)).replace(day=15)
+		cls.before_filed_day = _rollup_totals(
+			cls.filed_on, cls.filed_on, "submitted_count", "escalated_count"
+		)
+		cls.before_this_month = _rollup_totals(cls.month_start, today, "escalated_count")
+
+		# Filed last month, escalated now.
+		doc = a_grievance()
+		cls.name = doc.name
+		frappe.db.set_value(
+			"Grievance",
+			doc.name,
+			{
+				"creation": get_datetime(f"{cls.filed_on} 10:00:00"),
+				"escalated": 1,
+				"escalated_at": now_datetime(),
+			},
+		)
+		# Incremental, as the scheduler runs it: the filing day is outside the last few days.
+		cls.refreshed = dashboard_rollup.refresh()
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		discard_grievance(cls.name)
+		dashboard_rollup.refresh(full=True)
+		super().tearDownClass()
+
+	def test_escalation_is_counted_on_the_day_the_case_was_filed(self):
+		after = _rollup_totals(self.filed_on, self.filed_on, "submitted_count", "escalated_count")
+		self.assertEqual(after["submitted_count"] - self.before_filed_day["submitted_count"], 1)
+		self.assertEqual(after["escalated_count"] - self.before_filed_day["escalated_count"], 1)
+
+	def test_a_later_escalation_is_not_counted_in_the_month_it_happened(self):
+		after = _rollup_totals(self.month_start, getdate(), "escalated_count")
+		self.assertEqual(after["escalated_count"], self.before_this_month["escalated_count"])
+
+	def test_incremental_refresh_rebuilds_the_filing_day(self):
+		self.assertIn(self.filed_on, self.refreshed["days"])
+
+	def test_escalation_rate_never_exceeds_100(self):
+		for months_back in range(4):
+			month = getdate(add_months(self.month_start, -months_back)).strftime("%Y-%m")
+			with self.subTest(month=month):
+				rows = _chart("grvPerformanceKpis", dashboard.Params(month=month))
+				rate = next(r["value"] for r in rows if r["metric"] == "escalation_rate")
+				self.assertTrue(rate is None or rate <= 100, rate)
+
+
+class TestAvgResolutionByCategory(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		dashboard_rollup.refresh(full=True)
+
+		today = getdate()
+		cls.yesterday = add_days(today, -1)
+		cls.window_start = getdate(add_months(today.replace(day=1), -5))
+		cls.created = []
+
+		def resolved(days_open, resolved_on):
+			doc = a_grievance()
+			cls.created.append(doc.name)
+			resolved_at = get_datetime(f"{resolved_on} 12:00:00")
+			frappe.db.set_value(
+				"Grievance",
+				doc.name,
+				{
+					"status": C.STATE_RESOLVED,
+					"workflow_state": C.STATE_RESOLVED,
+					"creation": add_to_date(resolved_at, days=-days_open),
+					"resolved_at": resolved_at,
+				},
+			)
+
+		metrics = ("resolved_count", "resolution_hours_sum")
+		cls.category = a_service_category()
+		cls.before = _rollup_totals(cls.window_start, today, *metrics, category=cls.category)
+		cls.before_yesterday = _rollup_totals(cls.yesterday, cls.yesterday, *metrics, category=cls.category)
+
+		# One case of 2 days resolved today, two of 10 days resolved yesterday. Averaging the
+		# two days' averages would give 6; the average over the cases is 22 / 3.
+		resolved(2, today)
+		resolved(10, cls.yesterday)
+		resolved(10, cls.yesterday)
+		dashboard_rollup.refresh(full=True)
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		for name in cls.created:
+			discard_grievance(name)
+		dashboard_rollup.refresh(full=True)
+		super().tearDownClass()
+
+	def row(self, params=None):
+		rows = _chart("grvAvgResolutionByCategory", params)
+		return next(r for r in rows if r["category"] == self.category)
+
+	def test_it_is_a_public_chart(self):
+		self.assertIn("grvAvgResolutionByCategory", dashboard.PUBLIC_CHARTS)
+
+	def test_average_weighs_every_resolved_case_equally(self):
+		row = self.row()
+		count = self.before["resolved_count"] + 3
+		hours = self.before["resolution_hours_sum"] + 22 * 24
+		self.assertEqual(row["resolved"], count)
+		self.assertEqual(row["avg_resolution_days"], round(hours / count / 24, 1))
+
+	def test_the_window_narrows_the_average(self):
+		row = self.row(dashboard.Params(from_date=self.yesterday, to_date=self.yesterday))
+		count = self.before_yesterday["resolved_count"] + 2
+		hours = self.before_yesterday["resolution_hours_sum"] + 20 * 24
+		self.assertEqual(row["resolved"], count)
+		self.assertEqual(row["avg_resolution_days"], round(hours / count / 24, 1))
+
+	def test_a_category_with_nothing_resolved_is_left_out(self):
+		rows = _chart("grvAvgResolutionByCategory")
+		self.assertTrue(all(r["resolved"] > 0 for r in rows))
+		# Past the cases there is no resolution at all.
+		far = dashboard.Params(from_date=add_days(getdate(), -500), to_date=add_days(getdate(), -499))
+		self.assertEqual(
+			[r for r in _chart("grvAvgResolutionByCategory", far) if r["category"] == self.category], []
+		)
+
+	def test_endpoint_takes_the_category_and_period_filters(self):
+		res = charts_api.get_charts(
+			charts="grvAvgResolutionByCategory",
+			service_category=self.category,
+			**{"from": str(self.yesterday), "to": str(self.yesterday)},
+		)
+		self.assertEqual(res["meta"]["errors"], {})
+		rows = res["data"]["grvAvgResolutionByCategory"]
+		self.assertEqual([r["category"] for r in rows], [self.category])
+		self.assertEqual(rows[0]["resolved"], self.before_yesterday["resolved_count"] + 2)
+
+
+def _public_update(grievance, author_type="officer", entry_type="message", is_internal=0):
+	GrievanceTimeline.record(
+		grievance=grievance,
+		entry_type=entry_type,
+		body="An update.",
+		is_internal=is_internal,
+		author_type=author_type,
+	)
+
+
+def _coverage_counts():
+	"""Cases in today's snapshot, and how many of them sit with a real desk."""
+	S = frappe.qb.DocType(dashboard_rollup.SNAPSHOT)
+	rows = (
+		frappe.qb.from_(S)
+		.select(S.has_desk, Sum(S.grievance_count).as_("n"))
+		.where(S.snapshot_date == dashboard._latest_snapshot_date())
+		.where(S.status.isin(dashboard.status_order()))
+		.groupby(S.has_desk)
+		.run(as_dict=True)
+	)
+	total = sum(int(r.n) for r in rows)
+	routed = sum(int(r.n) for r in rows if r.has_desk)
+	return total, routed
+
+
+class TestPerformanceScore(FrappeTestCase):
+	"""The radar's six axes. The cases sit in the test department, which the chart is
+	narrowed to. The monthly axes are exact whatever else the site holds; the two read
+	from the snapshot count every case, so they are taken against a baseline."""
+
+	@classmethod
+	def dept_cases(cls):
+		"""Cases in the test department in today's snapshot, and how many are resolved."""
+		ctx = dashboard.Context(dashboard.Params(assigned_dept=(cls.dept,)), True)
+		by_status = dashboard._by_status(dashboard._snapshot(ctx, ("status",)))
+		return sum(by_status.values()), sum(by_status[s] for s in C.RESOLVED_STATES)
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		dashboard_rollup.refresh(full=True)
+		cls.dept = a_department()
+		cls.before_cases = cls.dept_cases()
+		cls.created = []
+
+		def case(status, dept=None, **values):
+			doc = a_grievance()
+			cls.created.append(doc.name)
+			frappe.db.set_value(
+				"Grievance",
+				doc.name,
+				{"status": status, "workflow_state": status, "assigned_dept": dept, **values},
+			)
+			return doc.name
+
+		now = now_datetime()
+		# Resolved on time, rated 5, and answered by an officer.
+		a = case(
+			C.STATE_RESOLVED,
+			cls.dept,
+			resolved_at=now,
+			sla_due_date=add_to_date(now, days=1),
+			satisfaction_rating=5,
+		)
+		# Closed late and rated 2. An internal note and a reply from the submitter do not inform.
+		b = case(
+			C.STATE_CLOSED,
+			cls.dept,
+			resolved_at=now,
+			sla_due_date=add_to_date(now, days=-1),
+			satisfaction_rating=2,
+		)
+		# Resolved with no SLA and no rating. The officer's own filing entry does not inform.
+		c = case(C.STATE_RESOLVED, cls.dept, resolved_at=now, sla_due_date=None)
+		case(C.STATE_SUBMITTED, cls.dept)
+		_public_update(a)
+		_public_update(b, entry_type="note", is_internal=1)
+		_public_update(b, author_type="submitter")
+		_public_update(c, entry_type="submission")
+
+		# Outside the department: one on the Unrouted desk, one with no desk at all, and
+		# one with an officer on a desk that has no department, which is covered.
+		case(C.STATE_SUBMITTED, C.UNROUTED_DEPARTMENT)
+		case(C.STATE_SUBMITTED, None)
+		case(C.STATE_SUBMITTED, None, assigned_to="Administrator")
+		dashboard_rollup.refresh(full=True)
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		for name in cls.created:
+			discard_grievance(name)
+		dashboard_rollup.refresh(full=True)
+		super().tearDownClass()
+
+	def axes(self, params=None):
+		rows = _chart("grvPerformanceScore", params or dashboard.Params(assigned_dept=(self.dept,)))
+		return {r["axis"]: r for r in rows}
+
+	def test_six_axes_in_radar_order(self):
+		rows = _chart("grvPerformanceScore")
+		self.assertEqual(
+			[r["axis"] for r in rows],
+			["timeliness", "resolution_rate", "satisfaction", "transparency", "follow_up", "coverage"],
+		)
+		for row in rows:
+			self.assertTrue(row["score"] is None or 0 <= row["score"] <= 100, row)
+
+	def test_timeliness_is_resolved_on_time_over_resolved_with_an_sla(self):
+		# On time and late; the case with no SLA is in neither.
+		self.assertEqual(self.axes()["timeliness"], {"axis": "timeliness", "score": 50.0, "basis": 2})
+
+	def test_resolution_rate_is_resolved_over_all_cases(self):
+		# Three of the four new cases are resolved.
+		cases, resolved = self.before_cases[0] + 4, self.before_cases[1] + 3
+		self.assertEqual(self.dept_cases(), (cases, resolved))
+		axis = self.axes()["resolution_rate"]
+		self.assertEqual(axis["basis"], cases)
+		self.assertEqual(axis["score"], round(resolved * 100 / cases, 1))
+
+	def test_satisfaction_is_rated_4_or_5_over_rated(self):
+		self.assertEqual(self.axes()["satisfaction"]["score"], 50.0)
+		self.assertEqual(self.axes()["satisfaction"]["basis"], 2)
+
+	def test_transparency_counts_only_public_officer_updates(self):
+		# One of four cases has one; an internal note, the submitter's own reply and the
+		# officer's filing entry are not updates.
+		self.assertEqual(self.axes()["transparency"]["score"], 25.0)
+		self.assertEqual(self.axes()["transparency"]["basis"], 4)
+
+	def test_follow_up_is_rated_over_resolved(self):
+		self.assertEqual(self.axes()["follow_up"]["score"], round(2 * 100 / 3, 1))
+		self.assertEqual(self.axes()["follow_up"]["basis"], 3)
+
+	def test_coverage_is_every_case_with_a_real_desk(self):
+		self.assertEqual(self.axes()["coverage"]["score"], 100.0)
+		everything = _chart("grvPerformanceScore")
+		coverage = next(r for r in everything if r["axis"] == "coverage")
+		total, routed = _coverage_counts()
+		self.assertEqual(coverage["basis"], total)
+		self.assertEqual(coverage["score"], round(routed * 100 / total, 1))
+		# The Unrouted desk and the case with no desk both count against it.
+		self.assertGreaterEqual(total - routed, 2)
+
+	def test_a_desk_without_a_department_still_covers_its_case(self):
+		S = frappe.qb.DocType(dashboard_rollup.SNAPSHOT)
+		covered = (
+			frappe.qb.from_(S)
+			.select(Sum(S.grievance_count).as_("n"))
+			.where(S.snapshot_date == dashboard._latest_snapshot_date())
+			.where(S.assigned_dept == "")
+			.where(S.has_desk == 1)
+			.run(as_dict=True)
+		)
+		self.assertGreaterEqual(int(covered[0].n or 0), 1)
+
+	def test_a_month_with_no_cases_has_no_score(self):
+		scores = self.axes(dashboard.Params(assigned_dept=(self.dept,), month="2020-01"))
+		self.assertTrue(all(row["score"] is None and row["basis"] == 0 for row in scores.values()))
+
+	def test_endpoint_returns_it_with_the_month_filter(self):
+		res = charts_api.get_charts(
+			charts="grvPerformanceScore", month=getdate().strftime("%Y-%m"), assigned_dept=self.dept
+		)
+		self.assertEqual(res["meta"]["errors"], {})
+		self.assertEqual(len(res["data"]["grvPerformanceScore"]), 6)
+
+
+class TestInformedCohorts(FrappeTestCase):
+	"""Like escalations: an officer answering an old case counts on the day it was filed."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		dashboard_rollup.refresh(full=True)
+
+		today = getdate()
+		cls.month_start = today.replace(day=1)
+		cls.filed_on = getdate(add_months(cls.month_start, -1)).replace(day=15)
+		cls.before_filed_day = _rollup_totals(cls.filed_on, cls.filed_on, "submitted_count", "informed_count")
+		cls.before_this_month = _rollup_totals(cls.month_start, today, "informed_count")
+
+		doc = a_grievance()
+		cls.name = doc.name
+		frappe.db.set_value("Grievance", doc.name, "creation", get_datetime(f"{cls.filed_on} 10:00:00"))
+		_public_update(doc.name)
+		cls.refreshed = dashboard_rollup.refresh()
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		discard_grievance(cls.name)
+		dashboard_rollup.refresh(full=True)
+		super().tearDownClass()
+
+	def test_the_update_is_counted_on_the_filing_day(self):
+		after = _rollup_totals(self.filed_on, self.filed_on, "submitted_count", "informed_count")
+		self.assertEqual(after["submitted_count"] - self.before_filed_day["submitted_count"], 1)
+		self.assertEqual(after["informed_count"] - self.before_filed_day["informed_count"], 1)
+
+	def test_it_is_not_counted_in_the_month_it_happened(self):
+		after = _rollup_totals(self.month_start, getdate(), "informed_count")
+		self.assertEqual(after["informed_count"], self.before_this_month["informed_count"])
+
+	def test_incremental_refresh_rebuilds_the_filing_day(self):
+		self.assertIn(self.filed_on, self.refreshed["days"])
+
+
+class TestIncrementalWindow(FrappeTestCase):
+	"""An incremental refresh also rebuilds the filing days of older cases first acted on in
+	the window: those days only, a bounded few, not every day since the oldest."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.today = getdate()
+
+	def old_case(self, days_ago):
+		doc = a_grievance()
+		self.addCleanup(discard_grievance, doc.name)
+		filed = add_days(self.today, -days_ago)
+		frappe.db.set_value("Grievance", doc.name, "creation", get_datetime(f"{filed} 10:00:00"))
+		return doc.name, filed
+
+	def escalate(self, name):
+		frappe.db.set_value("Grievance", name, {"escalated": 1, "escalated_at": now_datetime()})
+
+	def days(self):
+		return dashboard_rollup._incremental_window(self.today)[1]
+
+	def test_first_escalation_of_an_old_case_adds_its_filing_day(self):
+		name, filed = self.old_case(20)
+		self.assertNotIn(filed, self.days())
+		self.escalate(name)
+		self.assertIn(filed, self.days())
+
+	def test_first_public_update_of_an_old_case_adds_its_filing_day(self):
+		name, filed = self.old_case(20)
+		_public_update(name)
+		self.assertIn(filed, self.days())
+
+	def test_a_later_reply_on_an_answered_case_adds_nothing(self):
+		name, filed = self.old_case(20)
+		_public_update(name)
+		entry = frappe.db.get_value("Grievance Timeline", {"grievance": name}, "name")
+		frappe.db.set_value(
+			"Grievance Timeline", entry, "creation", get_datetime(f"{add_days(self.today, -10)} 09:00:00")
+		)
+		self.assertNotIn(filed, self.days())
+		_public_update(name)
+		self.assertNotIn(filed, self.days())
+
+	def test_a_case_filed_inside_the_window_adds_no_extra_day(self):
+		name, filed = self.old_case(1)
+		self.escalate(name)
+		self.assertNotIn(filed, self.days())
+
+	def test_the_extra_days_are_bounded_and_newest_first(self):
+		cases = [self.old_case(n) for n in (20, 30, 40)]
+		for name, _filed in cases:
+			self.escalate(name)
+		with patch.object(dashboard_rollup, "BACKFILL_DAYS_MAX", 2):
+			days = self.days()
+		self.assertLessEqual(len(days), 2)
+		self.assertNotIn(cases[2][1], days)
+
+	def test_consecutive_days_share_one_query_window(self):
+		d = getdate("2026-03-10")
+		self.assertEqual(
+			dashboard_rollup._day_ranges([d, add_days(d, 1), add_days(d, 5)]),
+			[[d, add_days(d, 2)], [add_days(d, 5), add_days(d, 6)]],
+		)
+
+
+class TestResolutionRateByRegionMonth(FrappeTestCase):
+	"""Without `as_of_month` the chart is today's snapshot; with it, the snapshot kept for that month.
+	`month`, which a page sends to every chart at once, must not move it."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		dashboard_rollup.refresh()
+		self.category = a_service_category()
+		self.day = getdate("2021-03-15")
+		dashboard_rollup._insert(
+			dashboard_rollup.SNAPSHOT,
+			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
+			[
+				(self.day, C.STATE_RESOLVED, "XX01", self.category, "", 0, 0, "", 3, 0, None),
+				(self.day, C.STATE_SUBMITTED, "XX01", self.category, "", 0, 0, "ok", 1, 0, None),
+			],
+		)
+		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
+
+	def test_a_month_reads_the_snapshot_kept_for_it(self):
+		rows = _chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-03"))
+		self.assertEqual(
+			rows,
+			[{"region_code": "XX01", "region_name": "XX01", "resolved": 3, "total": 4, "rate": 75.0}],
+		)
+
+	def test_a_month_with_no_snapshot_has_no_rows(self):
+		# The 2021 snapshot is from March: April's end has nothing kept inside April.
+		self.assertEqual(_chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-04")), [])
+
+	def test_a_month_with_no_snapshot_says_so(self):
+		# An empty month and a month with nothing kept look alike in the rows; meta tells them apart.
+		res = charts_api.get_charts(charts="grvResolutionRateByRegion", as_of_month="2021-04")
+		self.assertEqual(res["data"]["grvResolutionRateByRegion"], [])
+		self.assertEqual(res["meta"]["unavailable"], {"grvResolutionRateByRegion": dashboard.NO_SNAPSHOT})
+		res = charts_api.get_charts(charts="grvResolutionRateByRegion", as_of_month="2021-03")
+		self.assertEqual(res["meta"]["unavailable"], {})
+
+	def test_the_current_month_matches_the_default(self):
+		this_month = getdate().strftime("%Y-%m")
+		self.assertEqual(
+			_chart("grvResolutionRateByRegion", dashboard.Params(as_of_month=this_month)),
+			_chart("grvResolutionRateByRegion"),
+		)
+
+	def test_month_does_not_move_it(self):
+		self.assertEqual(
+			_chart("grvResolutionRateByRegion", dashboard.Params(month="2021-03")),
+			_chart("grvResolutionRateByRegion"),
+		)
+
+	def test_endpoint_keeps_the_region_chart_all_time_when_the_page_sends_month(self):
+		res = charts_api.get_charts(charts="grvPerformanceKpis,grvResolutionRateByRegion", month="2021-03")
+		self.assertEqual(res["data"]["grvResolutionRateByRegion"], _chart("grvResolutionRateByRegion"))
+		res = charts_api.get_charts(charts="grvResolutionRateByRegion", as_of_month="2021-03")
+		self.assertEqual([r["region_code"] for r in res["data"]["grvResolutionRateByRegion"]], ["XX01"])
+
+	def test_the_default_is_unaffected_by_history(self):
+		self.assertNotIn("XX01", [r["region_code"] for r in _chart("grvResolutionRateByRegion")])
 
 
 class TestResolutionAndEscalationStamps(FrappeTestCase):

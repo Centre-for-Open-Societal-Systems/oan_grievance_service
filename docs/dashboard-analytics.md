@@ -19,12 +19,20 @@ request                        services/dashboard.get_chart()
 ```
 
 - **Grievance Stat Daily** holds counts per `stat_date, region, service_category, assigned_dept`:
-  filed, resolved (split on time / after SLA), resolution hours, rejected, first escalated,
-  feedback and satisfied feedback (`satisfaction_rating` 4 or 5, given on confirming the
-  resolution, so dated by `resolved_at`). Events never move once they happen, so a
-  refresh rebuilds only the last three days; the nightly run rebuilds every day.
+  filed, resolved (split on time / after SLA), resolution hours, rejected, feedback and
+  satisfied feedback (`satisfaction_rating` 4 or 5, given on confirming the resolution, so
+  dated by `resolved_at`), and `escalated_count`: of the cases filed that day, how many have
+  been escalated since (dated by filing, so the escalation rate divides like by like), and
+  `informed_count`: of the cases filed that day, how many have had a public officer update since
+  (the Transparency axis of `grvPerformanceScore`). Events never move once they happen, so a
+  refresh rebuilds only the last three days, plus the filing day of each older case first
+  escalated or first answered in them (a later reply on an already answered case changes
+  nothing). Only those days are rebuilt, newest first and at most 31 a run, so the work follows
+  the days touched, not the age of the case; the nightly run rebuilds every day and absorbs
+  the rest.
 - **Grievance Stat Snapshot** holds how many cases stood in each status on a day, by the same
-  dimensions plus `escalated`, `sla_state` (ok / at_risk / breached / paused / no_sla),
+  dimensions plus `escalated`, `has_desk` (the case is not on the Unrouted desk and has a
+  department, a routing rule or an officer; behind the coverage axis), `sla_state` (ok / at_risk / breached / paused / no_sla),
   cases awaiting duplicate review, and the oldest open, non-escalated filing date. Today's rows
   are replaced on every refresh; earlier days are kept, because a past day's status counts
   cannot be rebuilt from current data.
@@ -58,7 +66,8 @@ cache another 15 minutes).
 | `GET /api/v1/charts?charts=...` | Grievance Officer (JWT too) | the public charts, narrowed to the caller's RBAC desks; counts only |
 
 All return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
-`service_category` (alias `category`), `from` / `to`, `month`, `granularity`; the admin form
+`service_category` (alias `category`), `from` / `to`, `month`, `as_of_month` (only
+`grvResolutionRateByRegion`), `granularity`; the admin form
 also takes `assigned_dept` and `limit`. An unknown value is a 400 naming the field.
 
 Each public chart is its own literal route, so an admin-only or unknown chart id never reaches
@@ -91,7 +100,7 @@ so the scope is exact down to region level and errs towards showing less:
 
 Public charts: `grvKpis`, `grvPerformanceKpis`, `grvMonthlyTrend`, `grvWeeklyTrend`,
 `grvNetBacklogTrend`, `grvStatusDistribution`, `grvByCategory`, `grvCategoryResolution`,
-`grvResolutionRateByRegion`, `grvSlaRisk`, `grvPendingDuplicates`, `grvOldestOpen` (age only),
+`grvAvgResolutionByCategory`, `grvPerformanceScore`, `grvResolutionRateByRegion`, `grvSlaRisk`, `grvPendingDuplicates`, `grvOldestOpen` (age only),
 `grvFilterRegions`, `grvFilterCategories`. Admin only: `grvRecent`, `grvFilterDepartments`, and
 `grvOldestOpen` with the case named. Row shapes are in `openapi/openapi_v1.yaml` and
 `postman/oan_grievance_dashboard_charts_collection.json`.

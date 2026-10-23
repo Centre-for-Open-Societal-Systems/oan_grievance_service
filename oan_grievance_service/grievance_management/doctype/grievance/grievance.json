@@ -426,7 +426,8 @@
    "fieldtype": "Datetime",
    "label": "First Escalated At",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "description": "When the case reached Resolved or Closed. Cleared if the case is reopened, and set again when it is next resolved.",
@@ -434,7 +435,8 @@
    "fieldtype": "Datetime",
    "label": "Resolved At",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "sec_closure",
@@ -482,7 +484,7 @@
  "is_submittable": 0,
  "links": [],
  "max_attachments": 5,
- "modified": "2026-10-09 10:00:00.000000",
+ "modified": "2026-10-23 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance",

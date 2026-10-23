@@ -74,6 +74,7 @@ class ChartsQuery(BaseModel):
 	from_date: str | None = Field(None, alias="from")
 	to_date: str | None = Field(None, alias="to")
 	month: str | None = None
+	as_of_month: str | None = None
 	granularity: Literal["month", "week"] = "month"
 	limit: int = Field(10, ge=1, le=50)
 
@@ -87,6 +88,16 @@ def _parse_date(field, value):
 		return getdate(value)
 	except Exception:
 		raise InvalidParam(field, _("Not a valid date")) from None
+
+
+def _parse_month(field, value, today):
+	if not value:
+		return None
+	if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value):
+		raise InvalidParam(field, _("Expected a month as YYYY-MM"))
+	if value > today.strftime("%Y-%m"):
+		raise InvalidParam(field, _("{0} must not be in the future").format(field))
+	return value
 
 
 def _known(doctype, fieldname, values, field, extra_filters=None):
@@ -121,12 +132,8 @@ def parse_params(raw, admin):
 	if from_date and (to_date or today) - from_date > timedelta(days=MAX_SPAN_DAYS):
 		raise InvalidParam("from", _("The period may span at most two years"))
 
-	month = query.month
-	if month:
-		if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
-			raise InvalidParam("month", _("Expected a month as YYYY-MM"))
-		if month > today.strftime("%Y-%m"):
-			raise InvalidParam("month", _("month must not be in the future"))
+	month = _parse_month("month", query.month, today)
+	as_of_month = _parse_month("as_of_month", query.as_of_month, today)
 
 	return dashboard.Params(
 		region=_known(
@@ -148,6 +155,7 @@ def parse_params(raw, admin):
 		from_date=from_date,
 		to_date=to_date,
 		month=month,
+		as_of_month=as_of_month,
 		granularity=query.granularity,
 		limit=query.limit,
 	)
@@ -219,12 +227,14 @@ def get_charts(charts: str | None = None, **kwargs):
 		return _invalid(e)
 
 	scope = None if admin else dashboard.caller_scope()
-	data, as_of, errors = {}, {}, {}
+	data, as_of, errors, unavailable = {}, {}, {}, {}
 	for chart_id in requested:
 		try:
 			result = dashboard.get_chart(chart_id, params, admin=admin, scope=scope)
 			data[chart_id] = result["rows"]
 			as_of[chart_id] = result["as_of"]
+			if result.get("unavailable"):
+				unavailable[chart_id] = result["unavailable"]
 		except Exception:
 			frappe.log_error(title=f"Dashboard chart {chart_id} failed")
 			data[chart_id] = None
@@ -233,7 +243,12 @@ def get_charts(charts: str | None = None, **kwargs):
 	return success_response(
 		data=data,
 		message=_("Charts fetched successfully"),
-		meta={"as_of": as_of, "filters": _echo(params, admin=admin), "errors": errors},
+		meta={
+			"as_of": as_of,
+			"filters": _echo(params, admin=admin),
+			"errors": errors,
+			"unavailable": unavailable,
+		},
 	)
 
 
@@ -245,11 +260,10 @@ def _public_chart(chart_id, raw):
 		return _invalid(e)
 
 	result = dashboard.get_chart(chart_id, params, admin=False)
-	return success_response(
-		data=result["rows"],
-		message=_("Chart fetched successfully"),
-		meta={"as_of": result["as_of"], "filters": _echo(params, admin=False)},
-	)
+	meta = {"as_of": result["as_of"], "filters": _echo(params, admin=False)}
+	if result.get("unavailable"):
+		meta["unavailable"] = result["unavailable"]
+	return success_response(data=result["rows"], message=_("Chart fetched successfully"), meta=meta)
 
 
 def _public_endpoint(chart_id):

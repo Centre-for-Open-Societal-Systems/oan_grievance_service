@@ -12,6 +12,7 @@
   "service_category",
   "assigned_dept",
   "escalated",
+  "has_desk",
   "sla_state",
   "sec_counts",
   "grievance_count",
@@ -59,6 +60,12 @@
    "label": "Escalated"
   },
   {
+   "description": "The case sits with a real desk: not the Unrouted catch-all, and it has a department, a routing rule or an officer.",
+   "fieldname": "has_desk",
+   "fieldtype": "Check",
+   "label": "Has Desk"
+  },
+  {
    "description": "Open cases only: breached is past its due date, at_risk is due within 24 hours, paused waits on the submitter.",
    "fieldname": "sla_state",
    "fieldtype": "Select",
@@ -91,7 +98,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-30 16:00:00.000000",
+ "modified": "2026-10-23 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Stat Snapshot",

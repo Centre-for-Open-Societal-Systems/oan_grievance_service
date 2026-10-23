@@ -7,12 +7,15 @@ The dashboards never aggregate `tabGrievance` on a request. The scheduler folds 
 into two small tables every 15 minutes, and services.dashboard answers every chart
 from those:
 
-- Grievance Stat Daily: events per day (filed, resolved, rejected, first
-  escalated, feedback) by region, category and department. Events never move
-  once they happen, so a refresh rebuilds only the last few days; the nightly run
-  rebuilds all of them to absorb anything later edited by hand.
+- Grievance Stat Daily: events per day (filed, resolved, rejected, feedback) by
+  region, category and department, and how many of the cases filed that day have
+  been escalated, and given a public officer update, since. Events never move once
+  they happen, so a refresh rebuilds only the last few days, plus the filing day of
+  each older case just escalated or first answered (at most BACKFILL_DAYS_MAX of
+  them, newest first); the nightly run rebuilds all of them to absorb the rest and
+  anything later edited by hand.
 - Grievance Stat Snapshot: how many cases stood in each status on a day, by the
-  same dimensions plus the escalation flag and SLA state. Today's rows are
+  same dimensions plus the escalation flag, whether a desk holds the case, and SLA state. Today's rows are
   replaced on every refresh; earlier days stay as they were at midnight, which is
   the only record of past status counts.
 
@@ -37,6 +40,10 @@ LOCK_KEY = "grievance_dashboard_rollup"
 # An incremental refresh rebuilds this many days, today included. More than one,
 # so a run that failed around midnight is repaired by the next.
 INCREMENTAL_DAYS = 3
+# Older filing days an incremental refresh may also rebuild. Acting on an old case moves
+# its filing day's counts, but a run's work must follow the days touched, not the age of
+# the case, so a sweep that touches more waits for the nightly full rebuild.
+BACKFILL_DAYS_MAX = 31
 AT_RISK_HOURS = 24
 SATISFIED_RATING = 4
 _EPOCH = "2000-01-01"
@@ -49,6 +56,7 @@ DAILY_METRICS = (
 	"resolution_hours_sum",
 	"rejected_count",
 	"escalated_count",
+	"informed_count",
 	"feedback_count",
 	"feedback_satisfied_count",
 )
@@ -58,6 +66,7 @@ SNAPSHOT_FIELDS = (
 	"service_category",
 	"assigned_dept",
 	"escalated",
+	"has_desk",
 	"sla_state",
 	"grievance_count",
 	"dup_pending_count",
@@ -80,6 +89,14 @@ _AREA_JOIN = """
 _DIMENSIONS = (
 	"COALESCE(r.code, '') AS region, g.service_category, COALESCE(g.assigned_dept, '') AS assigned_dept"
 )
+# A case sits with a real desk when it is not on the Unrouted catch-all and has a
+# department, a routing rule or an officer. routing.ranked_assignments treats an empty
+# department scope as a wildcard, so a desk with none is a real desk and the
+# department alone cannot say.
+_HAS_DESK = """(COALESCE(g.assigned_dept, '') != %(unrouted)s AND (
+			COALESCE(g.assigned_dept, '') != '' OR COALESCE(g.routing_rule, '') != ''
+			OR COALESCE(g.assigned_to, '') != ''
+		)) AS has_desk"""
 
 
 def _daily_sql(day_column, measures, where=None, source="`tabGrievance` g"):
@@ -103,7 +120,20 @@ _RESOLVED_SQL = _daily_sql(
 # Rejected is terminal and a rejected case is never saved again, so its last
 # modification is when it was rejected.
 _REJECTED_SQL = _daily_sql("g.modified", "COUNT(*) AS rejected_count", "g.status = 'Rejected'")
-_ESCALATED_SQL = _daily_sql("g.escalated_at", "COUNT(*) AS escalated_count")
+# Dated by filing, not by escalation: this counts the cases filed that day that have
+# been escalated since. The escalation rate divides it by submitted_count, so both
+# must describe the same cases; a case filed in March and escalated in April is
+# part of March's rate, never of April's.
+_ESCALATED_SQL = _daily_sql("g.creation", "COUNT(*) AS escalated_count", "g.escalated_at IS NOT NULL")
+# A case is informed once an officer has put a public entry on its timeline: a message,
+# a question, or the reason for an action. The submission entry an officer files on
+# someone's behalf does not count. Dated by filing, like escalated_count.
+_INFORMED_ENTRY = """EXISTS (
+			SELECT 1 FROM `tabGrievance Timeline` t
+			WHERE t.grievance = g.name AND t.is_internal = 0
+				AND t.author_type = 'officer' AND t.entry_type != 'submission'
+		)"""
+_INFORMED_SQL = _daily_sql("g.creation", "COUNT(*) AS informed_count", _INFORMED_ENTRY)
 # The submitter rates the case (1-5) only when confirming the resolution, the same
 # transition that stamps resolved_at, so that is the day the feedback was given.
 _FEEDBACK_SQL = _daily_sql(
@@ -119,7 +149,9 @@ _SNAPSHOT_SQL = (
 	"""
 	SELECT g.status, """
 	+ _DIMENSIONS
-	+ """, g.escalated,
+	+ """, g.escalated, """
+	+ _HAS_DESK
+	+ """,
 		CASE
 			WHEN g.status NOT IN %(open)s THEN ''
 			WHEN g.status IN %(paused)s THEN 'paused'
@@ -137,7 +169,7 @@ _SNAPSHOT_SQL = (
 	LEFT JOIN (
 		SELECT DISTINCT grievance FROM `tabGrievance Duplicate` WHERE is_confirmed = 0
 	) d ON d.grievance = g.name
-	GROUP BY 1, 2, 3, 4, 5, 6"""
+	GROUP BY 1, 2, 3, 4, 5, 6, 7"""
 )
 
 
@@ -157,13 +189,67 @@ def refresh(full=False):
 	try:
 		now = now_datetime()
 		today = getdate(now)
-		start = getdate(_EPOCH) if full else add_days(today, -(INCREMENTAL_DAYS - 1))
-		daily_rows = _rebuild_daily(start, add_days(today, 1))
+		if full:
+			start, days = getdate(_EPOCH), []
+		else:
+			start, days = _incremental_window(today)
+		daily_rows = _rebuild_daily(start, add_days(today, 1), days)
 		snapshot_rows = _rebuild_snapshot(today, now)
 		frappe.db.set_default(AS_OF_DEFAULT, str(now))
-		return {"as_of": now, "from": start, "daily_rows": daily_rows, "snapshot_rows": snapshot_rows}
+		return {
+			"as_of": now,
+			"from": start,
+			"days": days,
+			"daily_rows": daily_rows,
+			"snapshot_rows": snapshot_rows,
+		}
 	finally:
 		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+
+
+def _incremental_window(today):
+	"""What an incremental refresh rebuilds: the first day of the recent window, and the
+	older filing days to rebuild besides.
+
+	escalated_count and informed_count sit on the day a case was filed, so first
+	escalating a case, or first giving it a public officer update, in the window changes
+	an older day. Those days are rebuilt one by one, not everything since the oldest, so
+	the work follows how many days were touched and not how old the cases are. At most
+	BACKFILL_DAYS_MAX, newest first; the nightly rebuild takes the rest.
+
+	A later reply on a case that already had a public update changes nothing, so only a
+	case whose first one falls in the window counts.
+	"""
+	start = add_days(today, -(INCREMENTAL_DAYS - 1))
+	rows = frappe.db.sql(
+		"""SELECT d FROM (
+			SELECT DATE(creation) AS d FROM `tabGrievance`
+			WHERE escalated_at >= %(start)s AND creation < %(start)s
+			UNION
+			SELECT DATE(g.creation) FROM `tabGrievance Timeline` t
+			JOIN `tabGrievance` g ON g.name = t.grievance
+			WHERE t.creation >= %(start)s AND g.creation < %(start)s
+				AND t.is_internal = 0 AND t.author_type = 'officer' AND t.entry_type != 'submission'
+				AND NOT EXISTS (
+					SELECT 1 FROM `tabGrievance Timeline` p
+					WHERE p.grievance = t.grievance AND p.creation < %(start)s AND p.is_internal = 0
+						AND p.author_type = 'officer' AND p.entry_type != 'submission'
+				)
+		) days ORDER BY d DESC LIMIT %(limit)s""",
+		{"start": start, "limit": BACKFILL_DAYS_MAX},
+	)
+	return start, sorted(getdate(d) for (d,) in rows)
+
+
+def _day_ranges(days):
+	"""Consecutive days folded into (first, day after last) pairs, one query window each."""
+	ranges = []
+	for day in days:
+		if ranges and ranges[-1][1] == day:
+			ranges[-1][1] = add_days(day, 1)
+		else:
+			ranges.append([day, add_days(day, 1)])
+	return ranges
 
 
 def as_of():
@@ -186,25 +272,37 @@ def ensure_built():
 	)
 
 
-def _rebuild_daily(start, end):
-	params = {
-		"start": start,
-		"end": end,
-		"resolved": C.RESOLVED_STATES,
-		"satisfied": SATISFIED_RATING,
-	}
+def _rebuild_daily(start, end, days=()):
+	"""Rebuild start <= day < end, and each of `days` besides (older filing days)."""
+	windows = [(start, end), *_day_ranges(days)]
 	merged = {}
-	for sql in (_SUBMITTED_SQL, _RESOLVED_SQL, _REJECTED_SQL, _ESCALATED_SQL, _FEEDBACK_SQL):
-		for row in frappe.db.sql(
-			sql, params, as_dict=True
-		):  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
-			key = (row.stat_date, row.region, row.service_category, row.assigned_dept)
-			target = merged.setdefault(key, dict.fromkeys(DAILY_METRICS, 0))
-			for metric in DAILY_METRICS:
-				if metric in row:
-					target[metric] = row[metric] or 0
+	for window_start, window_end in windows:
+		params = {
+			"start": window_start,
+			"end": window_end,
+			"resolved": C.RESOLVED_STATES,
+			"satisfied": SATISFIED_RATING,
+		}
+		for sql in (
+			_SUBMITTED_SQL,
+			_RESOLVED_SQL,
+			_REJECTED_SQL,
+			_ESCALATED_SQL,
+			_INFORMED_SQL,
+			_FEEDBACK_SQL,
+		):
+			for row in frappe.db.sql(
+				sql, params, as_dict=True
+			):  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
+				key = (row.stat_date, row.region, row.service_category, row.assigned_dept)
+				target = merged.setdefault(key, dict.fromkeys(DAILY_METRICS, 0))
+				for metric in DAILY_METRICS:
+					if metric in row:
+						target[metric] = row[metric] or 0
 
 	frappe.db.delete(DAILY, {"stat_date": [">=", start]})
+	for day_start, day_end in windows[1:]:
+		frappe.db.delete(DAILY, {"stat_date": ["between", [day_start, add_days(day_end, -1)]]})
 	_insert(
 		DAILY,
 		("stat_date", "region", "service_category", "assigned_dept", *DAILY_METRICS),
@@ -220,6 +318,7 @@ def _rebuild_snapshot(today, now):
 		"paused": tuple(sla.states_in_category(sla.PAUSED)) or ("",),
 		"now": now,
 		"at_risk": add_to_date(now, hours=AT_RISK_HOURS),
+		"unrouted": C.UNROUTED_DEPARTMENT,
 	}
 	rows = frappe.db.sql(
 		_SNAPSHOT_SQL, params, as_dict=True

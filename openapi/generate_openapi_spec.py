@@ -1252,10 +1252,11 @@ ENVELOPES = {
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
-		description="Rows of one public dashboard chart; meta.as_of is the rollup time",
+		description="Rows of one public dashboard chart; meta.as_of is the rollup time, meta.unavailable is set when the chart is empty because no data was kept",
 	),
 	"DashboardChartsResponse": make_envelope(
-		"DashboardChartsData", description="Rows per chart; meta.as_of and meta.errors per chart"
+		"DashboardChartsData",
+		description="Rows per chart; meta.as_of, meta.errors and meta.unavailable per chart",
 	),
 }
 
@@ -1392,7 +1393,7 @@ QP["DashboardChart"] = [
 		"in": "query",
 		"required": False,
 		"schema": S(format="date"),
-		"description": "Period start (trend and category-resolution charts)",
+		"description": "Period start (trend, category-resolution and average-resolution charts)",
 	},
 	{
 		"name": "to",
@@ -1406,7 +1407,17 @@ QP["DashboardChart"] = [
 		"in": "query",
 		"required": False,
 		"schema": S(pattern=r"^\d{4}-\d{2}$"),
-		"description": "YYYY-MM for grvPerformanceKpis, default the current month",
+		"description": "YYYY-MM for grvPerformanceKpis and grvPerformanceScore, default the current month",
+	},
+	{
+		"name": "as_of_month",
+		"in": "query",
+		"required": False,
+		"schema": S(pattern=r"^\d{4}-\d{2}$"),
+		"description": (
+			"YYYY-MM for grvResolutionRateByRegion only: read it as at the end of that month "
+			"instead of today. Not `month`, so a page can send `month` to every chart safely"
+		),
 	},
 	{
 		"name": "granularity",

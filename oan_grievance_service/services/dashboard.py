@@ -37,6 +37,8 @@ from oan_grievance_service.services import sla
 
 ROLLUP_TTL = 15 * 60
 LIVE_TTL = 60
+# Why a chart has no rows besides "there are no cases": see Context.unavailable.
+NO_SNAPSHOT = "no_snapshot"
 TITLE_LENGTH = 80
 
 
@@ -56,6 +58,9 @@ class Params:
 	from_date: date | None = None
 	to_date: date | None = None
 	month: str | None = None
+	# Only grvResolutionRateByRegion reads this. It is not `month`, which a page sends to
+	# every chart in one request, so a region chart labelled "All time" is never moved by it.
+	as_of_month: str | None = None
 	granularity: str = "month"
 	limit: int = 10
 
@@ -87,6 +92,8 @@ class Context:
 		self.scope = scope
 		self.today = getdate(now_datetime())
 		self.snapshot_date = _latest_snapshot_date()
+		# Set by a builder whose empty result means "no data was kept", not "no cases".
+		self.unavailable = None
 
 
 # Caller scope
@@ -316,6 +323,8 @@ def _performance(ctx, start, end, snapshot_day):
 		"resolution_rate": (
 			_pct(sum(by_status[s] for s in C.RESOLVED_STATES), sum(by_status.values())) if by_status else None
 		),
+		# Of the cases filed in the period, the share escalated since: both counts are of the
+		# same cases, so the rate cannot pass 100%.
 		"escalation_rate": _pct(_total(events, "escalated_count"), submitted),
 		"satisfaction": _pct(_total(events, "feedback_satisfied_count"), feedback),
 		"basis": int(feedback),
@@ -335,10 +344,22 @@ def _snapshot_on_or_before(day):
 	return row[0][0] if row else None
 
 
+def _month_bounds(ctx, month=None):
+	"""First and last day of `month` (default this one); the last is never after today."""
+	month_start = getdate(f"{month}-01") if month else _month_start(ctx.today)
+	month_end = min(month_start.replace(day=monthrange(month_start.year, month_start.month)[1]), ctx.today)
+	return month_start, month_end
+
+
+def _month_snapshot_day(month_start, month_end):
+	"""The snapshot that stood at the end of the month, or None when none was kept within it."""
+	day = _snapshot_on_or_before(month_end)
+	return day if day and day >= month_start else None
+
+
 def build_performance_kpis(ctx):
 	"""Avg Resolution Time / Resolution Rate / Escalation Rate / Satisfaction for a month."""
-	month_start = getdate(f"{ctx.params.month}-01") if ctx.params.month else _month_start(ctx.today)
-	month_end = min(month_start.replace(day=monthrange(month_start.year, month_start.month)[1]), ctx.today)
+	month_start, month_end = _month_bounds(ctx, ctx.params.month)
 	prev_start = getdate(add_months(month_start, -1))
 	prev_end = month_start - timedelta(days=1)
 
@@ -481,11 +502,15 @@ def build_by_category(ctx):
 	)
 
 
+def _category_window(ctx):
+	"""The period the category charts cover: from to to, default the last six months."""
+	start = ctx.params.from_date or getdate(add_months(_month_start(ctx.today), -5))
+	return start, ctx.params.to_date or ctx.today
+
+
 def build_category_resolution(ctx):
 	"""Filed and resolved per category in the window, resolved split by SLA outcome."""
-	start = ctx.params.from_date or getdate(add_months(_month_start(ctx.today), -5))
-	end = ctx.params.to_date or ctx.today
-	rows = _daily(ctx, start, end, group_by=("service_category",))
+	rows = _daily(ctx, *_category_window(ctx), group_by=("service_category",))
 	result = [
 		{
 			"category": r.service_category,
@@ -499,10 +524,90 @@ def build_category_resolution(ctx):
 	return sorted(result, key=lambda r: (-r["filed"], r["category"] or ""))
 
 
+def build_avg_resolution_by_category(ctx):
+	"""Average days from filing to resolution per category, for the cases resolved in the window.
+
+	Summed hours over summed resolved cases, so a category's average weighs each case
+	equally however the cases split across regions and departments. A category with no
+	resolved case in the window has no average and is left out.
+	"""
+	rows = _daily(ctx, *_category_window(ctx), group_by=("service_category",))
+	result = [
+		{
+			"category": r.service_category,
+			"resolved": int(r.resolved_count),
+			"avg_resolution_days": round(float(r.resolution_hours_sum or 0) / int(r.resolved_count) / 24, 1),
+		}
+		for r in rows
+		if r.resolved_count
+	]
+	return sorted(result, key=lambda r: (-r["resolved"], r["category"] or ""))
+
+
+def build_performance_score(ctx):
+	"""The six System Performance Score axes, each 0 to 100, for a month. 100 means:
+
+	- timeliness: every resolved case that has an SLA was resolved by its due date.
+	- resolution_rate: every case is Resolved or Closed, as at the end of the month.
+	- satisfaction: every rating given was 4 or 5.
+	- coverage: every case, as at the end of the month, sits with a real desk, not none
+	  and not the Unrouted catch-all. A desk with no department still counts: see
+	  dashboard_rollup._HAS_DESK.
+	- transparency: every case filed in the month has had a public officer update.
+	- follow_up: every case resolved in the month was confirmed (rated) by its submitter.
+
+	`basis` is the number of cases the score is a share of. A score is None when there are
+	none, so the chart can show a gap rather than a false zero. The axes come in the order
+	the radar reads, clockwise from the top.
+	"""
+	month_start, month_end = _month_bounds(ctx, ctx.params.month)
+	events = _daily(ctx, month_start, month_end, group_by=())
+	on_time = _total(events, "resolved_on_time_count")
+	with_sla = on_time + _total(events, "resolved_breached_count")
+	submitted = _total(events, "submitted_count")
+	resolved = _total(events, "resolved_count")
+	feedback = _total(events, "feedback_count")
+
+	cases = resolved_cases = routed = 0
+	day = _month_snapshot_day(month_start, month_end)
+	if day:
+		for r in _snapshot(ctx, ("status", "has_desk"), on_date=day):
+			n = int(r.grievances or 0)
+			cases += n
+			if r.status in C.RESOLVED_STATES:
+				resolved_cases += n
+			if r.has_desk:
+				routed += n
+
+	def axis(name, part, whole):
+		return {"axis": name, "score": _pct(part, whole), "basis": int(whole)}
+
+	return [
+		axis("timeliness", on_time, with_sla),
+		axis("resolution_rate", resolved_cases, cases),
+		axis("satisfaction", _total(events, "feedback_satisfied_count"), feedback),
+		axis("transparency", _total(events, "informed_count"), submitted),
+		axis("follow_up", feedback, resolved),
+		axis("coverage", routed, cases),
+	]
+
+
 def build_resolution_rate_by_region(ctx):
+	"""Resolved or Closed over all cases per region: as at today, or at the end of `as_of_month`.
+
+	A month with no snapshot kept inside it has no history to read. It returns no rows,
+	as a month with no cases does, but marks the chart `unavailable` so a client can tell
+	the two apart.
+	"""
 	names = _region_names()
 	totals = {}
-	for r in _snapshot(ctx, ("region", "status")):
+	snapshot_day = None
+	if ctx.params.as_of_month:
+		snapshot_day = _month_snapshot_day(*_month_bounds(ctx, ctx.params.as_of_month))
+		if not snapshot_day:
+			ctx.unavailable = NO_SNAPSHOT
+			return []
+	for r in _snapshot(ctx, ("region", "status"), on_date=snapshot_day):
 		if not r.region:
 			continue
 		entry = totals.setdefault(r.region, {"resolved": 0, "total": 0})
@@ -672,7 +777,9 @@ CHARTS = {
 	"grvStatusDistribution": Chart(build_status_distribution),
 	"grvByCategory": Chart(build_by_category),
 	"grvCategoryResolution": Chart(build_category_resolution, params=PERIOD),
-	"grvResolutionRateByRegion": Chart(build_resolution_rate_by_region),
+	"grvAvgResolutionByCategory": Chart(build_avg_resolution_by_category, params=PERIOD),
+	"grvPerformanceScore": Chart(build_performance_score, params=FILTERS | {"month"}),
+	"grvResolutionRateByRegion": Chart(build_resolution_rate_by_region, params=FILTERS | {"as_of_month"}),
 	"grvSlaRisk": Chart(build_sla_risk),
 	"grvPendingDuplicates": Chart(build_pending_duplicates),
 	"grvOldestOpen": Chart(build_oldest_open, live_for_admin=True),
@@ -712,8 +819,13 @@ def get_chart(chart_id, params, admin, scope=None):
 	if cached is not None:
 		return cached
 
-	rows = chart.build(Context(params, admin, scope))
+	ctx = Context(params, admin, scope)
+	rows = chart.build(ctx)
 	stamp = now_datetime() if live else refreshed
-	result = {"rows": rows, "as_of": to_tz_aware_iso(stamp) if stamp else None}
+	result = {
+		"rows": rows,
+		"as_of": to_tz_aware_iso(stamp) if stamp else None,
+		"unavailable": ctx.unavailable,
+	}
 	frappe.cache.set_value(key, result, expires_in_sec=LIVE_TTL if live else ROLLUP_TTL)
 	return result
