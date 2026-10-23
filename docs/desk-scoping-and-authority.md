@@ -121,6 +121,11 @@ It is excluded from passes 1–3 and used only last. Cases are reassigned from t
 waiting for the receiving department head. A
 case stays unassigned only if the Unrouted desk is deactivated.
 
+Separately, a case in the `Other` category moved to another category skips the receiving head's
+ruling only when the person moving it is an officer on a desk for `Other` itself
+(`reassignment._sits_on_fallback_desk`). Anyone else, a department head included, still goes through the
+receiving head.
+
 `find_matching_assignment` (used by reassignment side effects) still uses the original strict
 match.
 

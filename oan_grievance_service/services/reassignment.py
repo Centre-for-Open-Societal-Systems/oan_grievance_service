@@ -5,8 +5,8 @@ Rules:
 - For a move within the same department, that is the department's own head.
 - Approver = department_head_of(target department, area).
 - Decider may act directly if admin, if the desk flag reassignment_requires_approval is OFF,
-  if the case sits in the fallback "Other" category and the move takes it to another (the receiving
-  category's head does not rule),
+  if the case sits in the fallback "Other" category, the move takes it to another and the user is an
+  officer on an "Other" desk (the receiving category's head does not rule),
   or if the user is the head of the target department.
 - Category and type follow receiving desks; SLA restarts if category changed.
 """
@@ -16,6 +16,7 @@ from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	department_head_of,
+	query_active_officer_assignments,
 )
 from oan_grievance_service.permissions import is_department_head, is_unrestricted
 from oan_grievance_service.services import constants as C
@@ -113,17 +114,24 @@ def may_decide(user, grievance, request) -> bool:
 		return True
 	if not desk_requires_approval(grievance):
 		return True
-	# The fallback ("Other") desk triages: it sends a case on to its real category with no
-	# ruling from that category's head.
+	# The fallback ("Other") desk triages: its officers send a case on to its real category with
+	# no ruling from that category's head. Nobody else gets this.
 	if (
 		grievance.service_category == C.FALLBACK_SERVICE_CATEGORY
 		and target_category(grievance, request) != grievance.service_category
+		and _sits_on_fallback_desk(user)
 	):
 		return True
 	target_dept = target_department(grievance, request)
 	return is_department_head(
 		user, target_dept, grievance.administrative_area, category=target_category(grievance, request)
 	)
+
+
+def _sits_on_fallback_desk(user) -> bool:
+	"""Whether `user` is an active officer on a desk for the fallback category itself."""
+	rows = query_active_officer_assignments(user=user, fields=["p.category_scope"], order_by=None)
+	return any(row.get("category_scope") == C.FALLBACK_SERVICE_CATEGORY for row in rows)
 
 
 def approver(grievance, request):
