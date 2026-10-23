@@ -156,6 +156,8 @@ def socket_service():
 HELM_VALUES = {
 	"OAN_GRIEVANCE_UPSTREAM_HOST": ".Values.web.serviceName",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST": ".Values.socket.serviceName",
+	"OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST": ".Values.web.externalHost",
+	"OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST": ".Values.socket.externalHost",
 	"FRAPPE_SITE_NAME": ".Values.siteName",
 	"WEB_PORT": ".Values.web.port",
 	"SOCKET_PORT": ".Values.socket.port",
@@ -166,9 +168,18 @@ HELM_REQUIRED = {
 	"FRAPPE_SITE_NAME",
 	"APISIX_REDIS_HOST",
 }
+# The third placeholder is the address of Frappe in another cluster, for a central gateway.
 HELM_BACKENDS = {
-	f"{APP}-service-v1": ("${OAN_GRIEVANCE_UPSTREAM_HOST}", "${WEB_PORT}"),
-	f"{APP}-realtime-v1": ("${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}", "${SOCKET_PORT}"),
+	f"{APP}-service-v1": (
+		"${OAN_GRIEVANCE_UPSTREAM_HOST}",
+		"${WEB_PORT}",
+		"${OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST}",
+	),
+	f"{APP}-realtime-v1": (
+		"${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}",
+		"${SOCKET_PORT}",
+		"${OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST}",
+	),
 }
 
 

@@ -9,6 +9,12 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+{{- if .Values.web.externalHost }}
+  externalNodes:
+  - type: Domain
+    name: {{ .Values.web.externalHost | quote }}
+    port: {{ .Values.web.port }}
+{{- end }}
   scheme: http
   passHost: rewrite
   upstreamHost: {{ required "siteName is required" .Values.siteName | quote }}
@@ -25,6 +31,12 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+{{- if .Values.socket.externalHost }}
+  externalNodes:
+  - type: Domain
+    name: {{ .Values.socket.externalHost | quote }}
+    port: {{ .Values.socket.port }}
+{{- end }}
   scheme: http
   passHost: pass
   retries: 0
