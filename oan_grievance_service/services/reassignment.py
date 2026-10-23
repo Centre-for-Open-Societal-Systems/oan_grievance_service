@@ -28,11 +28,11 @@ from oan_grievance_service.services.routing import (
 	pick_officer_by_strategy,
 )
 
-TRIGGER_FIELDS = ("assigned_dept", "assigned_to")
+TRIGGER_FIELDS = ("assigned_dept", "assigned_to", "service_category")
 
 
 def is_reassignment(request) -> bool:
-	"""Whether the change request is a reassignment (touches assigned_dept or assigned_to)."""
+	"""Whether the change request is a reassignment (touches assigned_dept, assigned_to or service_category)."""
 	changes = getattr(request, "changes", None) or []
 	return any(getattr(r, "fieldname", None) in TRIGGER_FIELDS for r in changes)
 

@@ -211,6 +211,21 @@ class ReassignGrievanceRequest(BaseModel):
 	target_grievance_type: str | None = None
 	reason: str | None = None
 
+	@model_validator(mode="after")
+	def _require_a_target(self):
+		targets = (
+			self.target_department,
+			self.target_officer,
+			self.target_category,
+			self.target_grievance_type,
+		)
+		if not any(targets):
+			raise ValueError(
+				"Name at least one of target_department, target_officer, target_category "
+				"or target_grievance_type."
+			)
+		return self
+
 
 class DeferSLARequest(BaseModel):
 	model_config = {"extra": "allow"}
