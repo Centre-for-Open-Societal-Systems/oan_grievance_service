@@ -372,7 +372,9 @@ class TestSubmitterProfile(FrappeTestCase):
 
 	def test_submitter_options_returns_phone_extensions(self):
 		from oan_grievance_service.api.v1.submitter import options
+		from oan_grievance_service.tests.fixtures import a_staffed_desk
 
+		a_staffed_desk("Inputs")
 		res = options()
 		self.assertIn("data", res)
 		data = res["data"]
