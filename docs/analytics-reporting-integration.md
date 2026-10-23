@@ -192,13 +192,13 @@ Notes:
   the end of the month and need a daily snapshot kept inside it, so they are `null` for months
   before the rollups began. The other four are for the month only.
 
-| Axis              | A score of 100 means                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| `timeliness`      | Every case resolved in the month that has an SLA was resolved by its due date.              |
-| `resolution_rate` | Every case is Resolved or Closed. Same as the KPI card.                                     |
-| `satisfaction`    | Every rating given was 4 or 5. Same as the KPI card.                                        |
-| `transparency`    | Every case filed in the month has had a public update from an officer.                      |
-| `follow_up`       | Every case resolved in the month was confirmed and rated by its submitter.                  |
+| Axis              | A score of 100 means                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `timeliness`      | Every case resolved in the month that has an SLA was resolved by its due date.                                                      |
+| `resolution_rate` | Every case is Resolved or Closed. Same as the KPI card.                                                                             |
+| `satisfaction`    | Every rating given was 4 or 5. Same as the KPI card.                                                                                |
+| `transparency`    | Every case filed in the month has had a public update from an officer.                                                              |
+| `follow_up`       | Every case resolved in the month was confirmed and rated by its submitter.                                                          |
 | `coverage`        | Every case sits with a real desk: not unassigned, and not on the "Unrouted" catch-all desk. A desk with no department still counts. |
 
 Notes:
