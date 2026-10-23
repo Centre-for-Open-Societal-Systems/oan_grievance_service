@@ -374,7 +374,7 @@ class TestSubmitterProfile(FrappeTestCase):
 		from oan_grievance_service.api.v1.submitter import options
 		from oan_grievance_service.tests.fixtures import a_staffed_desk
 
-		a_staffed_desk("Inputs")
+		a_staffed_desk(self, "Inputs")
 		res = options()
 		self.assertIn("data", res)
 		data = res["data"]

@@ -827,7 +827,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		a_staffed_desk("Inputs", "Test Agri Dept")
+		a_staffed_desk(self, "Inputs", "Test Agri Dept")
 
 		# Setup officer user
 		if frappe.db.exists("User", "officer.options@example.com"):
