@@ -35,6 +35,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
+from oan_auth_service.api.iam_users import is_delegated_user
 from pypika.functions import Max
 from pypika.terms import Case
 
@@ -58,6 +59,9 @@ CODE_LEVELS = {code: level for level, code in LEVEL_CODES.items()}
 DEFAULT_STATUS = "Active"
 DEFAULT_ROLE = "Officer"
 REVIEWER_ROLE = "Reviewer"
+REVIEWER_LEVEL = "reviewer"
+# What the identity provider owns for a delegated officer (`sync_delegated_placement`).
+DELEGATED_FIELDS = frozenset({"level", "department", "service_categories", "region", "desk_names"})
 # The Frappe role a User must hold, and the role levels that make a row that role's.
 FRAPPE_ROLES = {DEFAULT_ROLE: C.ROLE_OFFICER, REVIEWER_ROLE: C.ROLE_REVIEW_OFFICER}
 ROLE_CODES = {
@@ -109,6 +113,15 @@ def create(
 	tells the admin when that happened.
 	"""
 	_assert_status(role, status)
+	if is_delegated_user(email) and FRAPPE_ROLES[role] not in account.user_roles(email):
+		# The identity provider is the only source of a delegated login's roles: one added here
+		# would be removed at their next token. So the role has to be granted there first.
+		frappe.throw(
+			_("{0} signs in through the identity provider. Grant them the {1} role there first.").format(
+				email, FRAPPE_ROLES[role]
+			),
+			frappe.ValidationError,
+		)
 	existing = role_of(email)
 	if existing:
 		message = (
@@ -171,6 +184,84 @@ def reset_temporary_password(user_id: str, password: str) -> str:
 	return user_id
 
 
+def sync_delegated_placement(user_id: str, roles: set[str], claims: dict) -> bool:
+	"""Seat an identity-provider officer on the desks their `grievance_*` claims name.
+
+	Claims: `grievance_level` (L1, L2, L3 or reviewer), `grievance_categories`, and the
+	optional `grievance_department` and `grievance_region`. Rows on other desks are
+	deactivated. A login without an officer or review role loses every desk. Without
+	`grievance_level` the desks are left alone: the provider's userinfo is best effort, so a
+	missing claim may only mean it was unreachable. `on_leave` and `reports_to` stay with
+	the officer API. Returns whether any row changed.
+	"""
+	rows = _rows([user_id])
+	if not roles & {C.ROLE_OFFICER, C.ROLE_REVIEW_OFFICER}:
+		return _retire(user_id, rows, keep=set())
+	level = str(claims.get("grievance_level") or "").strip()
+	if not level:
+		return False
+
+	role = REVIEWER_ROLE if level == REVIEWER_LEVEL else DEFAULT_ROLE
+	if role == DEFAULT_ROLE and level not in LEVEL_CODES:
+		frappe.throw(
+			_("grievance_level '{0}' is not L1, L2, L3 or reviewer.").format(level), frappe.ValidationError
+		)
+	if FRAPPE_ROLES[role] not in roles:
+		frappe.throw(
+			_("grievance_level '{0}' needs the {1} role.").format(level, FRAPPE_ROLES[role]),
+			frappe.ValidationError,
+		)
+	department = claims.get("grievance_department")
+	department = resolve_department(department) if department else None
+	categories = claims.get("grievance_categories") or []
+	categories = [categories] if isinstance(categories, str) else categories
+	is_head = role == DEFAULT_ROLE and _is_head(level)
+	desks, missing = _category_desks(department, categories, allow_missing=is_head)
+
+	values = _placement(role, level, DEFAULT_STATUS)
+	values.pop("on_leave")
+	values["administrative_area"] = _resolve_region(claims.get("grievance_region"))
+	if any(row.active and row.role_level != values["role_level"] for row in rows):
+		_assert_no_reports(user_id)
+		values["reports_to"] = None
+
+	target = {desk.name for desk in desks}
+	changed = _retire(user_id, rows, keep=target)
+	current = {row.parent: row for row in rows}
+	for name in sorted(target):
+		row = current.get(name)
+		if row and all(row.get(field) == value for field, value in values.items()):
+			continue
+		_save_desk(name, user_id, values, on_new={"on_leave": 0}, ignore_permissions=True)
+		changed = True
+	for category in sorted(missing, key=str):
+		category_assignment.open_desk(
+			category, department, {"user": user_id, **values, "on_leave": 0}, ignore_permissions=True
+		)
+		changed = True
+	return changed
+
+
+def _retire(user_id: str, rows: list, keep: set[str]) -> bool:
+	"""Deactivate the user's active rows on desks outside `keep`. True if any was."""
+	retired = False
+	for row in rows:
+		if row.active and row.parent not in keep:
+			_save_desk(row.parent, user_id, {"active": 0}, ignore_permissions=True)
+			retired = True
+	return retired
+
+
+def _refuse_delegated(user_id: str) -> None:
+	frappe.throw(
+		_(
+			"{0} signs in through the identity provider. Their level, categories, department, "
+			"region and deactivation are managed there."
+		).format(user_id),
+		frappe.ValidationError,
+	)
+
+
 def role_of(user_id: str) -> str | None:
 	"""Officer or Reviewer, from the levels of the user's desk rows. None for any other login."""
 	for role in ROLE_CODES:
@@ -196,6 +287,10 @@ def update(user_id: str, changes: dict) -> str:
 	A Reviewer has no level or supervisor, so those are refused for them.
 	"""
 	account.assert_manageable(user_id)
+	if is_delegated_user(user_id) and (
+		DELEGATED_FIELDS & changes.keys() or changes.get("status") == "Inactive"
+	):
+		_refuse_delegated(user_id)
 	role = role_of(user_id)
 	if not role:
 		_not_found(user_id)
@@ -340,6 +435,54 @@ def status_counts(
 	for available, reachable, count in outcomes:
 		counts["active" if available else "on_leave" if reachable else "inactive"] += count
 	return {**counts, "total": sum(counts.values())}
+
+
+def list_candidates(*, role=DEFAULT_ROLE, q=None, limit=50):
+	"""Enabled logins that hold `role`'s Frappe role but sit on no desk yet: who an admin can place.
+
+	A delegated login gets the role from the identity provider, so this is how an officer
+	onboarded there shows up before they have a placement. System Manager and Administrator
+	accounts are never listed.
+	"""
+	user, has_role, row = DocType("User"), DocType("Has Role"), DocType(ROW)
+	placed = frappe.qb.from_(row).select(row.user).where(row.parenttype == DESK)
+	privileged = (
+		frappe.qb.from_(has_role)
+		.select(has_role.parent)
+		.where(has_role.parenttype == "User")
+		.where(has_role.role.isin(list(C.PRIVILEGED_ROLES)))
+	)
+	query = (
+		frappe.qb.from_(user)
+		.join(has_role)
+		.on((has_role.parent == user.name) & (has_role.parenttype == "User"))
+		.where(has_role.role == FRAPPE_ROLES[role])
+		.where(user.enabled == 1)
+		.where(user.name.notin(["Administrator", "Guest"]))
+		.where(user.name.notin(placed))
+		.where(user.name.notin(privileged))
+	)
+	if q:
+		like = f"%{q.strip()}%"
+		query = query.where(user.full_name.like(like) | user.email.like(like) | user.name.like(like))
+	rows = (
+		query.select(user.name, user.full_name, user.email, user.mobile_no)
+		.distinct()
+		.orderby(user.full_name)
+		.orderby(user.name)
+		.limit(limit)
+		.run(as_dict=True)
+	)
+	return [
+		{
+			"name": r.name,
+			"full_name": r.full_name or r.name,
+			"email": r.email or r.name,
+			"phone": r.mobile_no,
+			"delegated": is_delegated_user(r.name),
+		}
+		for r in rows
+	]
 
 
 def _officer_query(*, role, level, department, service_category, region, q):
@@ -493,6 +636,7 @@ def _rows(user_ids: list[str], role: str | None = None) -> list:
 			row.reports_to,
 			row.active,
 			row.on_leave,
+			row.is_primary,
 			desk.department_scope,
 			desk.category_scope,
 			level.level_order,
@@ -596,16 +740,21 @@ def _change_level(user_id: str, old: str, new: str) -> dict:
 	Only an L1 reports to an L2, so any move clears the officer's own supervisor, and an L2
 	cannot change level while L1 officers still report to them: escalation would climb to an L1.
 	"""
-	if old in ("L2", "L3") and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK}):
-		frappe.throw(
-			_("{0} cannot change level while other officers report to them.").format(user_id),
-			frappe.ValidationError,
-		)
+	if old in ("L2", "L3"):
+		_assert_no_reports(user_id)
 	return {
 		"role_level": LEVEL_CODES[new],
 		"is_primary": 1 if new == "L1" else 0,
 		"reports_to": None,
 	}
+
+
+def _assert_no_reports(user_id: str) -> None:
+	if frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK}):
+		frappe.throw(
+			_("{0} cannot change level while other officers report to them.").format(user_id),
+			frappe.ValidationError,
+		)
 
 
 def _resolve_region(value: str | None) -> str | None:
@@ -728,7 +877,13 @@ def _narrow(records: list, department: str | None, categories: list[str] | None)
 	return records
 
 
-def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):
+def _save_desk(
+	desk_name: str,
+	user_id: str,
+	values: dict | None,
+	on_new: dict | None = None,
+	ignore_permissions: bool = False,
+):
 	"""Put `user_id` on a desk with `values`, or take them off when `values` is None.
 
 	`on_new` fills the fields of a row that did not exist yet. The desk is locked so two
@@ -749,4 +904,4 @@ def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict |
 	else:
 		desk.append("officers", {"user": user_id, **(on_new or {}), **values})
 	desk.assigned_by = frappe.session.user
-	desk.save()
+	desk.save(ignore_permissions=ignore_permissions)

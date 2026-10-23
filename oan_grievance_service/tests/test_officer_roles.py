@@ -333,12 +333,13 @@ class TestReviewerOnTheDesk(RoleCase):
 		)
 		self.assertEqual(get_officer(reviewer["name"])["data"]["officer"], reviewer)
 
-	def test_a_reviewer_needs_a_department_and_categories_and_takes_no_level(self):
+	def test_a_reviewer_needs_categories_and_takes_no_level(self):
 		base = {"role": "Reviewer", "full_name": "X", "temporary_password": PASSWORD}
 		email = f"{PREFIX}rv@example.com"
 		with _keep_transaction():
 			missing = create_officer(**base, email=email)
-			self.assertLessEqual({"department", "service_categories"}, set(missing["details"]))
+			self.assertIn("service_categories", missing["details"])
+			self.assertNotIn("department", missing["details"])
 			for field, value in (("level", "L1"), ("reports_to", self.l2_seed)):
 				result = create_officer(
 					**base,

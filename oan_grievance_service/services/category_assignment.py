@@ -135,7 +135,7 @@ def create(
 	return desk
 
 
-def open_desk(service_category: str, department: str | None, officer: dict):
+def open_desk(service_category: str, department: str | None, officer: dict, ignore_permissions: bool = False):
 	"""Create the category-only desk of `department` for `service_category` with one officer row on it."""
 	desk = frappe.new_doc(DOCTYPE)
 	desk.update(
@@ -149,7 +149,7 @@ def open_desk(service_category: str, department: str | None, officer: dict):
 		}
 	)
 	desk.append("officers", officer)
-	desk.insert()
+	desk.insert(ignore_permissions=ignore_permissions)
 	return desk
 
 

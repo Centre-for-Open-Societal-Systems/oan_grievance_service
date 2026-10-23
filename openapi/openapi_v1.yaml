@@ -939,13 +939,13 @@ paths:
     post:
       tags:
       - Grievance Lifecycle & Actions
-      summary: Reassign grievance department and officer
-      description: 'Request a new department and/or officer for the case.
+      summary: Reassign grievance officer, category or department
+      description: 'Request a new officer, category or department for the case.
 
 
-        Applied at once for the target department head or an admin; otherwise it waits
+        Applied at once for the receiving desk''s head or an admin; otherwise it waits
 
-        for the receiving department''s head and the case does not move.'
+        for that head and the case does not move.'
       operationId: post_api_v1_grievances_ticket_number_reassign
       responses:
         '200':
@@ -996,7 +996,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -4636,19 +4636,20 @@ paths:
       - Administration
       summary: Create an officer
       description: 'Make a login an officer or a Reviewer on the category desks of a department. role
-        defaults to Officer. An Officer needs level (L1, L2 or L3), department and service_categories;
-        designation is optional. Level L3 makes a department head, who may leave out the department (every
-        department) and the service_categories (a last-resort desk for every case); a more specific head
-        always wins over them. A Reviewer needs department and service_categories and takes no level or
-        reports_to: they read those desks'' cases only, are never assigned one and cannot change one.
-        For an L1, L2 or Reviewer every service category must already have a category assignment for the
-        department. For an L3 a missing category assignment is created with the head on it, and with create_department
-        (default false) the department is created too, refused when it already exists. reports_to is an
-        L2 officer and is only for an L1. The login is created when the email is new. An existing login
-        keeps its own roles and is given the officer or review role; a System Manager or Administrator
-        is never managed here. temporary_password is required: the account holder signs in with it only
-        to replace it through /api/v1/auth/password/initial. It is applied to a new login only. An email
-        that already has a login keeps its own password and the message says so.'
+        defaults to Officer. An Officer needs level (L1, L2 or L3) and service_categories; department
+        and designation are optional. Without a department the officer sits on the category assignments
+        that have no department. Level L3 makes a category admin, who may also leave out the service_categories
+        (a last-resort desk for every case); a more specific head always wins over them. A Reviewer needs
+        service_categories and takes no level or reports_to: they read those desks'' cases only, are never
+        assigned one and cannot change one. For an L1, L2 or Reviewer every service category must already
+        have a category assignment for the department (or with no department). For an L3 a missing category
+        assignment is created with the head on it, and with create_department (default false) the department
+        is created too, refused when it already exists. reports_to is an L2 officer and is only for an
+        L1. The login is created when the email is new. An existing login keeps its own roles and is given
+        the officer or review role; a System Manager or Administrator is never managed here. temporary_password
+        is required: the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
+        It is applied to a new login only. An email that already has a login keeps its own password and
+        the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -4697,6 +4698,82 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
+  /api/v1/officers/candidates:
+    get:
+      tags:
+      - Administration
+      summary: List accounts that can be made officers
+      description: Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) role
+        but are on no desk yet, so an admin can place them with POST /api/v1/officers. An identity-provider
+        login shows up here once the provider has granted the role. q matches name or email. System Manager
+        and Administrator accounts are never listed.
+      operationId: get_api_v1_officers_candidates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerCandidateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: limit
+        in: query
+        required: false
+        schema:
+          default: 50
+          maximum: 200
+          minimum: 1
+          type: integer
+      x-legacy-rpc-method: oan_grievance_service.api.v1.officer.officer_candidates
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
   /api/v1/officers/status-counts:
     get:
       tags:
@@ -9193,6 +9270,35 @@ components:
       required:
       - officers
       type: object
+    OfficerCandidate:
+      properties:
+        name:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        delegated:
+          type: boolean
+      required:
+      - name
+      - full_name
+      - email
+      - delegated
+      type: object
+    OfficerCandidateData:
+      properties:
+        candidates:
+          items:
+            $ref: '#/components/schemas/OfficerCandidate'
+          type: array
+      required:
+      - candidates
+      type: object
     StatusCounts:
       properties:
         active:
@@ -10164,6 +10270,9 @@ components:
         target_department:
           minLength: 1
           type: string
+          default: null
+          description: Omit to pick the desk by officer and category alone
+          nullable: true
         target_officer:
           type: string
           default: null
@@ -10180,8 +10289,6 @@ components:
           type: string
           default: null
           nullable: true
-      required:
-      - target_department
       type: object
     DecideReassignmentRequest:
       additionalProperties: true
@@ -10404,11 +10511,11 @@ components:
       description: 'An officer needs a level; a Reviewer is placed on the same desks without one.
 
 
-        `level`, `department` and `service_categories` are required for an Officer; an L3 may omit
+        `level` and `service_categories` are required for an Officer; an L3 may omit the categories.
 
-        the department and categories.
+        `department` is optional: without it the officer sits on the category desks that have no
 
-        A Reviewer needs the department and categories whose desks they read, and has no level or
+        department. A Reviewer needs the categories whose desks they read, and has no level or
 
         supervisor, so those are refused for them. The checks are in one model validator because
 
@@ -11930,6 +12037,31 @@ components:
       - status
       - data
       description: OfficerListData response
+    OfficerCandidateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/OfficerCandidateData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: OfficerCandidateData response
     StatusCountsResponse:
       type: object
       properties:

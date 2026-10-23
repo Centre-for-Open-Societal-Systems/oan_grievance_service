@@ -260,7 +260,7 @@ def officer_desks(grievance, department, officer):
 		if not desk_name or desk_name in seen:
 			continue
 
-		if desk.get("department_scope") and desk.get("department_scope") != department:
+		if department and desk.get("department_scope") and desk.get("department_scope") != department:
 			continue
 
 		matched, area_span, specificity = _score_desk(desk, case_area, case_lft, case_rgt)
@@ -277,9 +277,12 @@ def officer_desks(grievance, department, officer):
 def department_desks(grievance, department):
 	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
 	today = frappe.utils.today()
+	filters = {"active": 1, "effective_from": ["<=", today]}
+	if department:
+		filters["department_scope"] = department
 	assignments = frappe.get_all(
 		"Grievance RBAC Assignment",
-		filters={"active": 1, "department_scope": department, "effective_from": ["<=", today]},
+		filters=filters,
 		or_filters=[
 			["effective_to", "is", "not set"],
 			["effective_to", ">=", today],
@@ -294,6 +297,8 @@ def department_desks(grievance, department):
 			"reassignment_requires_approval",
 		],
 	)
+	if not department:
+		assignments = [a for a in assignments if a.department_scope != C.UNROUTED_DEPARTMENT]
 
 	fits = _desk_area_fits([a.name for a in assignments], case_area, case_lft, case_rgt)
 	candidates = []
@@ -417,7 +422,9 @@ def apply_routing(grievance, commit_status=True):
 	doc = officer_user = None
 	for assignment in ranked_assignments(grievance):
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
-		if not candidate.department_scope:
+		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
+		# the Unrouted triage desk.
+		if not (candidate.department_scope or candidate.category_scope):
 			continue
 		# No officer covers the case's region: any officer on the desk beats none.
 		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)

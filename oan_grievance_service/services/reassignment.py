@@ -5,6 +5,8 @@ Rules:
 - For a move within the same department, that is the department's own head.
 - Approver = department_head_of(target department, area).
 - Decider may act directly if admin, if the desk flag reassignment_requires_approval is OFF,
+  if the case sits in the fallback "Other" category and the move takes it to another (the receiving
+  category's head does not rule),
   or if the user is the head of the target department.
 - Category and type follow receiving desks; SLA restarts if category changed.
 """
@@ -111,6 +113,13 @@ def may_decide(user, grievance, request) -> bool:
 		return True
 	if not desk_requires_approval(grievance):
 		return True
+	# The fallback ("Other") desk triages: it sends a case on to its real category with no
+	# ruling from that category's head.
+	if (
+		grievance.service_category == C.FALLBACK_SERVICE_CATEGORY
+		and target_category(grievance, request) != grievance.service_category
+	):
+		return True
 	target_dept = target_department(grievance, request)
 	return is_department_head(
 		user, target_dept, grievance.administrative_area, category=target_category(grievance, request)
@@ -125,10 +134,11 @@ def approver(grievance, request):
 	)
 
 
-def resolve(grievance, department, officer=None, actor=None, category=None, grievance_type=None) -> dict:
+def resolve(grievance, department=None, officer=None, actor=None, category=None, grievance_type=None) -> dict:
 	"""Resolve receiving department, officer, category and type for a reassignment.
 
-	Returns a dict of fields that differ from current grievance values.
+	Without `department` every desk is a candidate and the case takes the chosen desk's
+	department, if it has one. Returns a dict of fields that differ from current grievance values.
 	Throws ValidationError if the move is invalid or underspecified.
 	"""
 	actor = actor or frappe.session.user
@@ -148,12 +158,16 @@ def resolve(grievance, department, officer=None, actor=None, category=None, grie
 			)
 		if officer:
 			frappe.throw(
-				_("Invalid Officer: {0} does not cover {1} in this area.").format(officer, department),
+				_("Invalid Officer: {0} does not cover {1} in this area.").format(officer, department)
+				if department
+				else _("Invalid Officer: {0} does not cover this area.").format(officer),
 				frappe.ValidationError,
 				title=_("Invalid Officer"),
 			)
 		frappe.throw(
-			_("No assignment in {0} covers this area.").format(department),
+			_("No assignment in {0} covers this area.").format(department)
+			if department
+			else _("No assignment covers this area."),
 			frappe.ValidationError,
 			title=_("No Desk Available"),
 		)
@@ -166,7 +180,9 @@ def resolve(grievance, department, officer=None, actor=None, category=None, grie
 		if not cat_desks:
 			target_name = officer or department
 			frappe.throw(
-				_("{0} does not handle {1}").format(target_name, category),
+				_("{0} does not handle {1}").format(target_name, category)
+				if target_name
+				else _("No desk handles {0}").format(category),
 				frappe.ValidationError,
 				title=_("Category Not Supported"),
 			)
@@ -218,7 +234,9 @@ def resolve(grievance, department, officer=None, actor=None, category=None, grie
 		if not type_desks:
 			target_name = officer or department
 			frappe.throw(
-				_("{0} does not handle type {1}").format(target_name, grievance_type),
+				_("{0} does not handle type {1}").format(target_name, grievance_type)
+				if target_name
+				else _("No desk handles type {0}").format(grievance_type),
 				frappe.ValidationError,
 				title=_("Grievance Type Not Supported"),
 			)
@@ -277,8 +295,9 @@ def resolve(grievance, department, officer=None, actor=None, category=None, grie
 				frappe.throw(_("No active officer; name one."), frappe.ValidationError, title=_("No Officer"))
 
 	# 5. Difference comparison
+	department = department or candidate_desks[0].get("department_scope")
 	changes = {}
-	if department != grievance.assigned_dept:
+	if department and department != grievance.assigned_dept:
 		changes["assigned_dept"] = department
 	if chosen_officer != grievance.assigned_to:
 		changes["assigned_to"] = chosen_officer
@@ -340,7 +359,7 @@ def _resolve_admin_no_desk(grievance, department, officer, category=None, grieva
 				)
 
 	changes = {}
-	if department != grievance.assigned_dept:
+	if department and department != grievance.assigned_dept:
 		changes["assigned_dept"] = department
 	if officer != grievance.assigned_to:
 		changes["assigned_to"] = officer

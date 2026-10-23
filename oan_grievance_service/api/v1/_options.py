@@ -91,7 +91,7 @@ def get_department_officers(
 	on several matching desks appears once, with their primary desk first.
 	`exclude_user` (the caller) is left out, so nobody is offered themselves.
 	"""
-	if not department:
+	if not department and not service_category:
 		return []
 
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (

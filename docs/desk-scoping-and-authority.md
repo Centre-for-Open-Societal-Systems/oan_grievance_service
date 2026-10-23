@@ -44,11 +44,11 @@ Type- and provider-scoped desks predate these rules and are left alone.
 
 ### What an empty scope does in each subsystem
 
-| Subsystem                      | Empty department                            | Empty category                        |
-| :----------------------------- | :------------------------------------------ | :------------------------------------ |
-| Read access (`permissions.py`) | Not filtered on department                  | Not filtered on category              |
-| Auto-routing (`routing.py`)    | Desk skipped (a case needs `assigned_dept`) | Wildcard match                        |
-| Escalation / approver lookups  | Wildcard, ranked below specific desks       | Wildcard, ranked below specific desks |
+| Subsystem                      | Empty department                           | Empty category                        |
+| :----------------------------- | :----------------------------------------- | :------------------------------------ |
+| Read access (`permissions.py`) | Not filtered on department                 | Not filtered on category              |
+| Auto-routing (`routing.py`)    | Wildcard match; `assigned_dept` left empty | Wildcard match                        |
+| Escalation / approver lookups  | Wildcard, ranked below specific desks      | Wildcard, ranked below specific desks |
 
 A desk with **no field set at all** grants no read access (`_scope_covers`: a scope with no
 field set covers nothing). Exception: if the officer row has an `administrative_area`, the area
@@ -102,8 +102,10 @@ desks with more matching scopes (the order `find_matching_assignment` always use
 the last thing given up: a desk qualifies even
 when none of its officers cover the case's area, because the officer pick climbs rungs to one
 with no area (usually the Category Admin). If no rung covers the area, any officer on the desk
-is used. A desk with no officer is skipped. Desks with no department are skipped because a
-case needs an `assigned_dept`.
+is used. A desk with no officer is skipped. A desk with neither a department nor a category is
+skipped: it is a Category Admin's last-resort desk and must not take cases ahead of the
+Unrouted triage desk. A case routed to a desk with no department keeps `assigned_dept` empty;
+work on it needs only an assigned officer (`api/v1/grievance.py::_ensure_owner`).
 
 ### The Unrouted desk
 
@@ -112,13 +114,23 @@ Seeded idempotently on every migrate by `setup/install.py::seed_unrouted_desk`:
 - department `Unrouted` (`C.UNROUTED_DEPARTMENT`);
 - user `unrouted@grievance.local` (`C.UNROUTED_OFFICER`), role `Grievance Officer`, no
   password, no welcome email;
-- a desk on the default category (`Other`) held by that user at `nodal_officer`.
+- a desk on the default category (`Other`) held by that user at `nodal_officer`, with
+  `reassignment_requires_approval` off.
 
-It is excluded from passes 1–3 and used only last. An administrator reassigns from there. A
+It is excluded from passes 1–3 and used only last. Cases are reassigned from there without
+waiting for the receiving department head. A
 case stays unassigned only if the Unrouted desk is deactivated.
 
 `find_matching_assignment` (used by reassignment side effects) still uses the original strict
 match.
+
+### Reassigning without a department
+
+`target_department` on `POST /grievances/<ticket>/reassign` is optional. Without it the
+candidates are every desk except the Unrouted desk (`routing.department_desks`), or the
+target officer's desks in any department (`routing.officer_desks`); `target_category` and
+`target_grievance_type` narrow them as before. The case takes the chosen desk's department
+when it has one. An existing `assigned_dept` is never cleared.
 
 ## 5. Staffing rules
 
@@ -134,13 +146,44 @@ match.
 | :------------------- | :------- | :----------------------------------- | :------- |
 | `level`              | Required | Required                             | Refused  |
 | `designation`        | Optional | Optional                             | Optional |
-| `department`         | Required | Optional (every department)          | Required |
+| `department`         | Optional | Optional (every department)          | Optional |
 | `service_categories` | Required | Optional (the desk with no category) | Required |
 
 An officer has no record of their own: they are a User plus desk rows, and `role_of()` finds
 them by those rows. That is why an L3 without a department or categories is still placed on a
 desk (one with those scopes empty) instead of being a bare login. `designation` is a label on
 the rows and is not read by routing, permissions or escalation.
+
+### Officers who sign in through Keycloak
+
+An officer or reviewer provisioned by delegated login (`<hash>@iam.internal`) is seated from
+their Keycloak placement, not from the officer API. `api/v1/profile.py::on_delegated_login_hook`
+calls `services/officer.py::sync_delegated_placement` once per token, after `oan_auth_service`
+has synced their roles. The Keycloak side (user-profile attributes, the `grievance-placement`
+client scope that puts them in userinfo, the client roles) is in `keycloak/`, applied with
+`keycloak/apply.sh`. The login row needs `userinfo_url` set, because IAM's principal carries
+only `sub`, `name` and the roles.
+
+| Claim                  | Meaning                                                        |
+| :--------------------- | :------------------------------------------------------------- |
+| `grievance_level`      | `L1`, `L2`, `L3` or `reviewer`; needs the matching client role |
+| `grievance_categories` | Category ids, names or codes; the desks the officer sits on    |
+| `grievance_department` | Optional; without it the desks with no department              |
+| `grievance_region`     | Optional; the officer row's `administrative_area`              |
+
+- Rows on desks the claims no longer name are deactivated, not removed. An L3 gets missing
+  category desks opened, as through the officer API.
+- No `Grievance Officer` or `Grievance Review Officer` role: every row is deactivated.
+- No `grievance_level` claim: nothing changes. Userinfo is best effort, so a missing claim may
+  mean the provider was unreachable rather than that the placement was removed.
+- A placement that cannot be applied (unknown category, an L1 category with no desk, an L2
+  changing level while others report to them) is logged to Error Log and the login goes on
+  with the old desks.
+- `on_leave` and `reports_to` stay with the officer API. Level, categories, department, region
+  and deactivation are refused there for such users (`_refuse_delegated`).
+- `Grievance Desk Head` must be granted in Keycloak with `grievance_level` `L3`:
+  `oan_auth_service` removes roles Keycloak does not grant, so `_sync_desk_head_role` is not
+  used for these users.
 
 ### Moving a Category Admin to another department
 
