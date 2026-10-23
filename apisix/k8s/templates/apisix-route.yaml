@@ -300,6 +300,7 @@ spec:
 {{- end }}
       paths:
       - /v1/auth/forgot-password
+      - /v1/auth/iam/login
       - /v1/auth/login
       - /v1/auth/logout
       - /v1/auth/password/forgot
@@ -361,6 +362,7 @@ spec:
 {{- end }}
       paths:
       - /v1/auth/health
+      - /v1/auth/iam/providers
       - /v1/auth/keys
       - /v1/auth/metadata
       methods:

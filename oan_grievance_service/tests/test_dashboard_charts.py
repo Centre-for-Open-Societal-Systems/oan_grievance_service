@@ -323,10 +323,16 @@ class TestDashboardCharts(FrappeTestCase):
 
 		ensure_routes_registered()
 		exempt = middleware._NAMESPACES["/api/v1"]["exempt_paths"]
+
+		def is_exempt(path):
+			# A path table matches by method; older oan_auth_service kept a plain set.
+			match = getattr(exempt, "match", None)
+			return match(path) is not None if match else path in exempt
+
 		for chart_id in dashboard.PUBLIC_CHARTS:
-			self.assertNotIn(f"/api/v1/charts/{chart_id}", exempt)
-		self.assertNotIn("/api/v1/charts/grvRecent", exempt)
-		self.assertNotIn("/api/v1/charts", exempt)
+			self.assertFalse(is_exempt(f"/api/v1/charts/{chart_id}"), chart_id)
+		self.assertFalse(is_exempt("/api/v1/charts/grvRecent"))
+		self.assertFalse(is_exempt("/api/v1/charts"))
 
 	def test_admin_endpoint(self):
 		frappe.set_user("Administrator")
