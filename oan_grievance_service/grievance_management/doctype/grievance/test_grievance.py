@@ -827,6 +827,8 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+		# This class commits (below), so the desk's removal has to be committed too.
+		self.addCleanup(frappe.db.commit)
 		a_staffed_desk(self, "Inputs", "Test Agri Dept")
 
 		# Setup officer user

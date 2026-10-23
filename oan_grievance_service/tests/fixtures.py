@@ -247,9 +247,7 @@ def a_staffed_desk(case, category, department=None):
 	name = desk["data"]["assignment"]["name"]
 
 	def remove():
-		# The desk was committed by its creation, so its removal has to be too.
 		frappe.delete_doc("Grievance RBAC Assignment", name, force=True, ignore_permissions=True)
 		frappe.delete_doc("User", officer, force=True, ignore_permissions=True)
-		frappe.db.commit()
 
 	case.addCleanup(remove)
