@@ -6716,9 +6716,9 @@ paths:
       description: Create a category with a name, a unique 3-character ticket code, a sort order and whether
         it is the default, the category unclassified cases fall to. Making it the default clears the flag
         on the previous default. The code uses the ticket alphabet, which excludes I, L, O and U. It cannot
-        change once tickets have been issued under the category. Optional sla_days, auto_escalate, and
-        notify_on_breach establish the category's SLA configuration atomically. Optional department also
-        creates the category assignment for that department, with no officers yet; with create_department
+        change once tickets have been issued under the category. Optional sla_days (default 7), auto_escalate,
+        and notify_on_breach establish the category's SLA configuration atomically. Optional department
+        also creates the category assignment for that department, with no officers yet; with create_department
         the department is created too, refused when it already exists.
       operationId: post_api_v1_service_categories
       responses:
