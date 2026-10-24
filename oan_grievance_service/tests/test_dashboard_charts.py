@@ -847,6 +847,17 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
+		self.today = getdate()
+		dashboard_rollup._insert(
+			dashboard_rollup.SNAPSHOT,
+			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
+			[
+				(self.today, C.STATE_RESOLVED, "XX02", self.category, "", 0, 0, "", 1, 0, None),
+			],
+		)
+		self.addCleanup(
+			frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.today, "region": "XX02"}
+		)
 
 	def test_a_month_reads_the_snapshot_kept_for_it(self):
 		rows = _chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-03"))
