@@ -330,7 +330,12 @@ class Grievance(Document):
 				title=_("Field Not Requestable"),
 			)
 
-		if fieldname == "assigned_dept" and not frappe.db.exists("Grievance Department", new_value):
+		# Empty is allowed: a case moved to a desk with no department has none.
+		if (
+			fieldname == "assigned_dept"
+			and new_value
+			and not frappe.db.exists("Grievance Department", new_value)
+		):
 			frappe.throw(
 				_("Department '{0}' does not exist.").format(new_value), title=_("Invalid Department")
 			)

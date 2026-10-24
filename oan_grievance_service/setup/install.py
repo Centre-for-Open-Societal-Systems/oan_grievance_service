@@ -926,6 +926,7 @@ def seed_unrouted_desk():
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": C.UNROUTED_DEPARTMENT,
 				"category_scope": C.FALLBACK_SERVICE_CATEGORY,
+				"reassignment_requires_approval": 0,
 				"active": 1,
 				"effective_from": frappe.utils.today(),
 				"officers": [

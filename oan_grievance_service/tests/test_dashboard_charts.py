@@ -587,7 +587,14 @@ class TestPerformanceScore(FrappeTestCase):
 		super().setUpClass()
 		frappe.set_user("Administrator")
 		dashboard_rollup.refresh(full=True)
-		cls.dept = a_department()
+		dept_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": f"Perf Dept {frappe.generate_hash(length=6)}",
+				"short_name": f"P{frappe.generate_hash(length=3)}",
+			}
+		).insert(ignore_permissions=True)
+		cls.dept = dept_doc.name
 		cls.before_cases = cls.dept_cases()
 		cls.created = []
 
@@ -638,6 +645,8 @@ class TestPerformanceScore(FrappeTestCase):
 		frappe.set_user("Administrator")
 		for name in cls.created:
 			discard_grievance(name)
+		if hasattr(cls, "dept") and frappe.db.exists("Grievance Department", cls.dept):
+			frappe.delete_doc("Grievance Department", cls.dept, force=True, ignore_permissions=True)
 		dashboard_rollup.refresh(full=True)
 		super().tearDownClass()
 
@@ -838,6 +847,17 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
+		self.today = getdate()
+		dashboard_rollup._insert(
+			dashboard_rollup.SNAPSHOT,
+			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
+			[
+				(self.today, C.STATE_RESOLVED, "XX02", self.category, "", 0, 0, "", 1, 0, None),
+			],
+		)
+		self.addCleanup(
+			frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.today, "region": "XX02"}
+		)
 
 	def test_a_month_reads_the_snapshot_kept_for_it(self):
 		rows = _chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-03"))

@@ -939,13 +939,13 @@ paths:
     post:
       tags:
       - Grievance Lifecycle & Actions
-      summary: Reassign grievance department and officer
-      description: 'Request a new department and/or officer for the case.
+      summary: Reassign grievance officer, category or department
+      description: 'Request a new officer, category or department for the case.
 
 
-        Applied at once for the target department head or an admin; otherwise it waits
+        Applied at once for the receiving desk''s head or an admin; otherwise it waits
 
-        for the receiving department''s head and the case does not move.'
+        for that head and the case does not move.'
       operationId: post_api_v1_grievances_ticket_number_reassign
       responses:
         '200':
@@ -996,7 +996,7 @@ paths:
       security:
       - BearerAuth: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -1325,20 +1325,22 @@ paths:
       summary: Get grievance options and dropdowns
       description: "Management and lookup options for submitters, grievance officers and admins.\n\nReturns\
         \ reference lists for case filing, management, triage, and filtering,\nincluding departments,\
-        \ lifecycle statuses, categories, and types.\nWhen `department` is provided, `service_categories`\
-        \ shrinks to the categories that\ndepartment has an active category assignment for. When the caller\
-        \ is also staff, it\ncascades and includes active officers under that department (optionally narrowed\
-        \ by\n`service_category` and `administrative_area`). The caller is never listed. Submitters\n\
-        never receive officers.\n\nArgs:\n    service_category (str, optional): Filter grievance types\
-        \ & officers by service category (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n\
-        \    department (str, optional): Department ID. Limits service_categories to that department's\n\
-        \        category assignments and, for staff, fetches its assigned officers.\n    administrative_area\
-        \ (str, optional): Administrative area to scope officer assignments.\n\nReturns:\n    departments:\
-        \ Active grievance departments\n    statuses: Grievance lifecycle statuses with metadata\n   \
-        \ service_categories: Active service categories (only the department's when `department` is given)\n\
+        \ lifecycle statuses, categories, and types. Departments and\ncategories are only those with a\
+        \ desk that has an active officer.\nWhen `department` is provided, `service_categories` shrinks\
+        \ to the categories that\ndepartment has an active category assignment for. When the caller is\
+        \ also staff, it\ncascades and includes active officers under that department (optionally narrowed\
+        \ by\n`service_category` and `administrative_area`). With only `service_category`, it lists the\n\
+        officers on desks for that category. The caller is never listed. Submitters\nnever receive officers.\n\
+        \nArgs:\n    service_category (str, optional): Filter grievance types & officers by service category\
+        \ (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n    department\
+        \ (str, optional): Department ID. Limits service_categories to that department's\n        category\
+        \ assignments and, for staff, fetches its assigned officers.\n    administrative_area (str, optional):\
+        \ Administrative area to scope officer assignments.\n\nReturns:\n    departments: Departments\
+        \ with a staffed desk\n    statuses: Grievance lifecycle statuses with metadata\n    service_categories:\
+        \ Active service categories with a staffed desk (only the department's when `department` is given)\n\
         \    grievance_types: Active grievance types (optionally filtered by service_category)\n    submission_channels:\
-        \ Active intake channels\n    officers: Active officers under the specified department (staff\
-        \ only, present only if `department` is passed)"
+        \ Active intake channels\n    officers: Active officers under the specified department and/or\
+        \ service category (staff only, present only if either is passed)"
       operationId: get_api_v1_grievances_options
       responses:
         '200':
@@ -4636,19 +4638,20 @@ paths:
       - Administration
       summary: Create an officer
       description: 'Make a login an officer or a Reviewer on the category desks of a department. role
-        defaults to Officer. An Officer needs level (L1, L2 or L3), department and service_categories;
-        designation is optional. Level L3 makes a department head, who may leave out the department (every
-        department) and the service_categories (a last-resort desk for every case); a more specific head
-        always wins over them. A Reviewer needs department and service_categories and takes no level or
-        reports_to: they read those desks'' cases only, are never assigned one and cannot change one.
-        For an L1, L2 or Reviewer every service category must already have a category assignment for the
-        department. For an L3 a missing category assignment is created with the head on it, and with create_department
-        (default false) the department is created too, refused when it already exists. reports_to is an
-        L2 officer and is only for an L1. The login is created when the email is new. An existing login
-        keeps its own roles and is given the officer or review role; a System Manager or Administrator
-        is never managed here. temporary_password is required: the account holder signs in with it only
-        to replace it through /api/v1/auth/password/initial. It is applied to a new login only. An email
-        that already has a login keeps its own password and the message says so.'
+        defaults to Officer. An Officer needs level (L1, L2 or L3) and service_categories; department
+        and designation are optional. Without a department the officer sits on the category assignments
+        that have no department. Level L3 makes a category admin, who may also leave out the service_categories
+        (a last-resort desk for every case); a more specific head always wins over them. A Reviewer needs
+        service_categories and takes no level or reports_to: they read those desks'' cases only, are never
+        assigned one and cannot change one. For an L1, L2 or Reviewer every service category must already
+        have a category assignment for the department (or with no department). For an L3 a missing category
+        assignment is created with the head on it, and with create_department (default false) the department
+        is created too, refused when it already exists. reports_to is an L2 officer and is only for an
+        L1. The login is created when the email is new. An existing login keeps its own roles and is given
+        the officer or review role; a System Manager or Administrator is never managed here. temporary_password
+        is required: the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
+        It is applied to a new login only. An email that already has a login keeps its own password and
+        the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -6713,9 +6716,9 @@ paths:
       description: Create a category with a name, a unique 3-character ticket code, a sort order and whether
         it is the default, the category unclassified cases fall to. Making it the default clears the flag
         on the previous default. The code uses the ticket alphabet, which excludes I, L, O and U. It cannot
-        change once tickets have been issued under the category. Optional sla_days, auto_escalate, and
-        notify_on_breach establish the category's SLA configuration atomically. Optional department also
-        creates the category assignment for that department, with no officers yet; with create_department
+        change once tickets have been issued under the category. Optional sla_days (default 7), auto_escalate,
+        and notify_on_breach establish the category's SLA configuration atomically. Optional department
+        also creates the category assignment for that department, with no officers yet; with create_department
         the department is created too, refused when it already exists.
       operationId: post_api_v1_service_categories
       responses:
@@ -10164,6 +10167,9 @@ components:
         target_department:
           minLength: 1
           type: string
+          default: null
+          description: Omit to pick the desk by officer and category alone
+          nullable: true
         target_officer:
           type: string
           default: null
@@ -10180,8 +10186,6 @@ components:
           type: string
           default: null
           nullable: true
-      required:
-      - target_department
       type: object
     DecideReassignmentRequest:
       additionalProperties: true
@@ -10404,11 +10408,11 @@ components:
       description: 'An officer needs a level; a Reviewer is placed on the same desks without one.
 
 
-        `level`, `department` and `service_categories` are required for an Officer; an L3 may omit
+        `level` and `service_categories` are required for an Officer; an L3 may omit the categories.
 
-        the department and categories.
+        `department` is optional: without it the officer sits on the category desks that have no
 
-        A Reviewer needs the department and categories whose desks they read, and has no level or
+        department. A Reviewer needs the categories whose desks they read, and has no level or
 
         supervisor, so those are refused for them. The checks are in one model validator because
 

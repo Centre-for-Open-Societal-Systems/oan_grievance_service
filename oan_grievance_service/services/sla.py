@@ -397,9 +397,8 @@ def rearm_after_reopen(grievance):
 def state_timer(service_category, state):
 	"""(hours, on_expiry) for a state, or None when it has no timer.
 
-	Read from the category's SLA Configuration. Resolved always has one: with
-	no row configured, the confirmation window falls back to the site's
-	`grievance_confirmation_window_days`, then to seven days.
+	Read from the category's SLA Configuration, which starts with the
+	`DEFAULT_STATE_TIMERS` rows.
 	"""
 	config = (
 		frappe.db.get_value(
@@ -417,9 +416,6 @@ def state_timer(service_category, state):
 		)
 		if row:
 			return row.hours, row.on_expiry
-	if state == C.STATE_RESOLVED:
-		days = int(frappe.conf.get("grievance_confirmation_window_days") or C.DEFAULT_CONFIRMATION_DAYS)
-		return days * 24, "Auto Close"
 	return None
 
 

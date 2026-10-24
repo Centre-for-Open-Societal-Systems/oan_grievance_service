@@ -203,11 +203,28 @@ class ReassignGrievanceRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
-	target_department: str = Field(..., min_length=1)
+	target_department: str | None = Field(
+		None, min_length=1, description="Omit to pick the desk by officer and category alone"
+	)
 	target_officer: str | None = None
 	target_category: str | None = None
 	target_grievance_type: str | None = None
 	reason: str | None = None
+
+	@model_validator(mode="after")
+	def _require_a_target(self):
+		targets = (
+			self.target_department,
+			self.target_officer,
+			self.target_category,
+			self.target_grievance_type,
+		)
+		if not any(targets):
+			raise ValueError(
+				"Name at least one of target_department, target_officer, target_category "
+				"or target_grievance_type."
+			)
+		return self
 
 
 class DeferSLARequest(BaseModel):
@@ -1216,7 +1233,7 @@ def action(
 	if matching_action == "Assign":
 		frappe.throw(
 			_(
-				"Direct 'Assign' action is not permitted on this endpoint. Use the assignment/reassignment API to assign a department and officer."
+				"Direct 'Assign' action is not permitted on this endpoint. Use the assignment/reassignment API to assign an officer."
 			),
 			frappe.ValidationError,
 			title=_("Action Not Permitted"),
@@ -1226,7 +1243,7 @@ def action(
 		doc.workflow_state == C.STATE_ASSIGNED
 		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
 	):
-		_ensure_department(doc)
+		_ensure_owner(doc)
 
 	# Submitter closing the case accepts and confirms the resolution.
 	confirmed = matching_action == "Close Case"
@@ -1306,8 +1323,9 @@ def action(
 	)
 
 
-def _ensure_department(doc):
-	"""Work starts in a department: fall back to the assigned officer's, else refuse."""
+def _ensure_owner(doc):
+	"""Work starts with an owner: an officer or a department. A case without a department
+	takes the officer's first desk department, when that desk has one."""
 	if doc.assigned_dept:
 		return
 	if doc.assigned_to:
@@ -1318,11 +1336,11 @@ def _ensure_department(doc):
 		scopes = active_scopes(doc.assigned_to)
 		if scopes and scopes[0].get("department_scope"):
 			doc.db_set("assigned_dept", scopes[0].get("department_scope"), update_modified=False)
-	if not doc.assigned_dept:
+	if not (doc.assigned_dept or doc.assigned_to):
 		frappe.throw(
-			_("Cannot start work on a grievance without an assigned department."),
+			_("Cannot start work on a grievance without an assigned officer."),
 			frappe.ValidationError,
-			title=_("Department Required"),
+			title=_("Officer Required"),
 		)
 
 
@@ -1549,7 +1567,7 @@ def timeline(
 	from oan_grievance_service.api.v1.change_request import serialize_public as serialize_cr_public
 
 	deferral_req_name = get_pending_request(doc.name, ["sla_due_date"])
-	reassign_req_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
+	reassign_req_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to", "service_category"])
 
 	active_deferral_request = None
 	active_reassignment_request = None
@@ -1741,7 +1759,7 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 @route(
 	"/<ticket_number>/reassign",
 	methods=("POST",),
-	summary="Reassign grievance department and officer",
+	summary="Reassign grievance officer, category or department",
 	tier="officer-core",
 )
 @validate_request(ReassignGrievanceRequest)
@@ -1749,17 +1767,17 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 @require_role(STAFF_ROLES)
 def reassign(
 	ticket_number: str,
-	target_department: str,
+	target_department: str | None = None,
 	target_officer: str | None = None,
 	target_category: str | None = None,
 	target_grievance_type: str | None = None,
 	reason: str | None = None,
 	**kwargs,
 ):
-	"""Request a new department and/or officer for the case.
+	"""Request a new officer, category or department for the case.
 
-	Applied at once for the target department head or an admin; otherwise it waits
-	for the receiving department's head and the case does not move.
+	Applied at once for the receiving desk's head or an admin; otherwise it waits
+	for that head and the case does not move.
 	"""
 	from oan_grievance_service.api.v1.change_request import raise_change_request
 	from oan_grievance_service.services import reassignment
@@ -1813,7 +1831,7 @@ def decide_reassignment(ticket_number: str, decision: str, note: str | None = No
 	from oan_grievance_service.api.v1.change_request import decide as cr_decide
 	from oan_grievance_service.api.v1.change_request import get_pending_request
 
-	request_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to"])
+	request_name = get_pending_request(doc.name, ["assigned_dept", "assigned_to", "service_category"])
 	if not request_name:
 		frappe.throw(_("No pending reassignment request found for this grievance."), frappe.DoesNotExistError)
 
@@ -1988,11 +2006,13 @@ def options(
 	"""Management and lookup options for submitters, grievance officers and admins.
 
 	Returns reference lists for case filing, management, triage, and filtering,
-	including departments, lifecycle statuses, categories, and types.
+	including departments, lifecycle statuses, categories, and types. Departments and
+	categories are only those with a desk that has an active officer.
 	When `department` is provided, `service_categories` shrinks to the categories that
 	department has an active category assignment for. When the caller is also staff, it
 	cascades and includes active officers under that department (optionally narrowed by
-	`service_category` and `administrative_area`). The caller is never listed. Submitters
+	`service_category` and `administrative_area`). With only `service_category`, it lists the
+	officers on desks for that category. The caller is never listed. Submitters
 	never receive officers.
 
 	Args:
@@ -2003,12 +2023,12 @@ def options(
 	    administrative_area (str, optional): Administrative area to scope officer assignments.
 
 	Returns:
-	    departments: Active grievance departments
+	    departments: Departments with a staffed desk
 	    statuses: Grievance lifecycle statuses with metadata
-	    service_categories: Active service categories (only the department's when `department` is given)
+	    service_categories: Active service categories with a staffed desk (only the department's when `department` is given)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
-	    officers: Active officers under the specified department (staff only, present only if `department` is passed)
+	    officers: Active officers under the specified department and/or service category (staff only, present only if either is passed)
 	"""
 	cat = service_category or category
 	# One lookup serves both lists, so a short name works for either. An unknown department
@@ -2025,7 +2045,7 @@ def options(
 		"submission_channels": active_channels(),
 	}
 
-	if department and permissions.is_staff():
+	if (department or cat) and permissions.is_staff():
 		data["officers"] = get_department_officers(
 			department=department_id,
 			service_category=cat,

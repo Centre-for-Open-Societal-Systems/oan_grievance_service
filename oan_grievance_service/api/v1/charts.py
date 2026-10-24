@@ -13,9 +13,10 @@ only.
 
 The OAN dashboards call the public form as a Frappe user holding Grievance Dashboard
 Reader, with that user's API key and secret (`Authorization: token <key>:<secret>`).
-Frappe checks the key before the JWT middleware runs, so the middleware leaves the
-request alone, and a caller without one gets 401 from Frappe itself whichever way it
-reached the backend.
+Frappe checks the key before the middleware runs; the middleware then accepts it
+because these routes declare `auth=("jwt", "api_key")`. Both chart routes take a JWT
+or an API key for now, as before per-route auth existed; the plan is to move them to
+JWT only.
 
 Each public chart is its own literal route rather than one `<chart_id>` route, so an
 unknown or admin-only id never reaches this code at all.
@@ -189,6 +190,9 @@ def _is_admin():
 	methods=("GET",),
 	summary="Dashboard charts (Grievance Admin, Grievance Officer)",
 	tier="officer-core",
+	# Transitional: JWT only once API-key callers have moved.
+	auth=("jwt", "api_key"),
+	roles=CHARTS_ROLES,
 )
 @handle_api_errors
 @require_role(CHARTS_ROLES)
@@ -280,4 +284,7 @@ for _chart_id in dashboard.PUBLIC_CHARTS:
 		methods=("GET",),
 		summary=f"Public dashboard chart {_chart_id} (counts only)",
 		tier="public-dashboards",
+		# Transitional: JWT only once the dashboards hold JWTs.
+		auth=("jwt", "api_key"),
+		roles=PUBLIC_CHART_ROLES,
 	)(_public_endpoint(_chart_id))

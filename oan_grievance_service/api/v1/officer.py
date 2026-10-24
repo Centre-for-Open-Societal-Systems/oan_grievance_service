@@ -136,9 +136,9 @@ class OfficerRef(Body):
 class CreateOfficer(Body):
 	"""An officer needs a level; a Reviewer is placed on the same desks without one.
 
-	`level`, `department` and `service_categories` are required for an Officer; an L3 may omit
-	the department and categories.
-	A Reviewer needs the department and categories whose desks they read, and has no level or
+	`level` and `service_categories` are required for an Officer; an L3 may omit the categories.
+	`department` is optional: without it the officer sits on the category desks that have no
+	department. A Reviewer needs the categories whose desks they read, and has no level or
 	supervisor, so those are refused for them. The checks are in one model validator because
 	they depend on `role`.
 	"""
@@ -172,8 +172,6 @@ class CreateOfficer(Body):
 		# An Officer's department and categories are checked once the caller is known: a Desk
 		# Head's officers go on the head's own records.
 		if self.role != "Officer":
-			if not self.department:
-				errors["department"] = f"Required when role is {self.role}"
 			if not self.service_categories:
 				errors["service_categories"] = f"Required when role is {self.role}: give at least one"
 		if self.role == "Officer":
@@ -376,13 +374,14 @@ def get_officer(officer: str, **kwargs):
 @api_doc(
 	summary="Create an officer",
 	description="Make a login an officer or a Reviewer on the category desks of a department. "
-	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3), department and "
-	+ "service_categories; designation is optional. Level L3 makes a department head, who may leave "
-	+ "out the department (every department) and the service_categories (a last-resort desk for every "
-	+ "case); a more specific head always wins over them. A Reviewer needs department and "
-	+ "service_categories and takes no level or reports_to: they read those desks' cases only, "
-	+ "are never assigned one and cannot change one. For an L1, L2 or Reviewer every service "
-	+ "category must already have a category assignment for the department. For an L3 a missing "
+	+ "role defaults to Officer. An Officer needs level (L1, L2 or L3) and service_categories; "
+	+ "department and designation are optional. Without a department the officer sits on the "
+	+ "category assignments that have no department. Level L3 makes a category admin, who may also "
+	+ "leave out the service_categories (a last-resort desk for every case); a more specific head "
+	+ "always wins over them. A Reviewer needs service_categories and takes no level or "
+	+ "reports_to: they read those desks' cases only, are never assigned one and cannot change "
+	+ "one. For an L1, L2 or Reviewer every service category must already have a category "
+	+ "assignment for the department (or with no department). For an L3 a missing "
 	+ "category assignment is created with the head on it, and with create_department (default "
 	+ "false) the department is created too, refused when it already exists. reports_to is an L2 officer and is only for "
 	+ "an L1. The login is created when the email is new. An existing login keeps its own "
@@ -430,13 +429,8 @@ def create_officer(
 		},
 	)
 	if is_unrestricted(caller) and role == "Officer" and level != "L3":
-		missing = {
-			field: "Required for an L1 or L2 officer"
-			for field, value in (("department", department), ("service_categories", service_categories))
-			if not value
-		}
-		if missing:
-			field_errors(CreateOfficer, missing)
+		if not service_categories:
+			field_errors(CreateOfficer, {"service_categories": "Required for an L1 or L2 officer"})
 	user_id, password_applied = service.create(**fields)
 	message = _("{0} created").format(role)
 	if not password_applied:

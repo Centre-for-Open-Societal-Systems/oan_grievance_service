@@ -44,11 +44,11 @@ Type- and provider-scoped desks predate these rules and are left alone.
 
 ### What an empty scope does in each subsystem
 
-| Subsystem                      | Empty department                            | Empty category                        |
-| :----------------------------- | :------------------------------------------ | :------------------------------------ |
-| Read access (`permissions.py`) | Not filtered on department                  | Not filtered on category              |
-| Auto-routing (`routing.py`)    | Desk skipped (a case needs `assigned_dept`) | Wildcard match                        |
-| Escalation / approver lookups  | Wildcard, ranked below specific desks       | Wildcard, ranked below specific desks |
+| Subsystem                      | Empty department                           | Empty category                        |
+| :----------------------------- | :----------------------------------------- | :------------------------------------ |
+| Read access (`permissions.py`) | Not filtered on department                 | Not filtered on category              |
+| Auto-routing (`routing.py`)    | Wildcard match; `assigned_dept` left empty | Wildcard match                        |
+| Escalation / approver lookups  | Wildcard, ranked below specific desks      | Wildcard, ranked below specific desks |
 
 A desk with **no field set at all** grants no read access (`_scope_covers`: a scope with no
 field set covers nothing). Exception: if the officer row has an `administrative_area`, the area
@@ -102,8 +102,10 @@ desks with more matching scopes (the order `find_matching_assignment` always use
 the last thing given up: a desk qualifies even
 when none of its officers cover the case's area, because the officer pick climbs rungs to one
 with no area (usually the Category Admin). If no rung covers the area, any officer on the desk
-is used. A desk with no officer is skipped. Desks with no department are skipped because a
-case needs an `assigned_dept`.
+is used. A desk with no officer is skipped. A desk with neither a department nor a category is
+skipped: it is a Category Admin's last-resort desk and must not take cases ahead of the
+Unrouted triage desk. A case routed to a desk with no department keeps `assigned_dept` empty;
+work on it needs only an assigned officer (`api/v1/grievance.py::_ensure_owner`).
 
 ### The Unrouted desk
 
@@ -112,15 +114,33 @@ Seeded idempotently on every migrate by `setup/install.py::seed_unrouted_desk`:
 - department `Unrouted` (`C.UNROUTED_DEPARTMENT`);
 - user `unrouted@grievance.local` (`C.UNROUTED_OFFICER`), role `Grievance Officer`, no
   password, no welcome email;
-- a desk on the default category (`Other`) held by that user at `nodal_officer`.
+- a desk on the default category (`Other`) held by that user at `nodal_officer`, with
+  `reassignment_requires_approval` off.
 
-It is excluded from passes 1–3 and used only last. An administrator reassigns from there. A
+It is excluded from passes 1–3 and used only last. Cases are reassigned from there without
+waiting for the receiving department head. A
 case stays unassigned only if the Unrouted desk is deactivated.
+
+Separately, a case in the `Other` category moved to another category skips the receiving head's
+ruling only when the person moving it is an officer on a desk for `Other` itself
+(`reassignment._sits_on_fallback_desk`). Anyone else, a department head included, still goes through the
+receiving head.
 
 `find_matching_assignment` (used by reassignment side effects) still uses the original strict
 match.
 
-## 5. Staffing rules
+### Reassigning with only a department or a category
+
+`target_department` and `target_category` on `POST /grievances/<ticket>/reassign` are each
+optional. The one left out is kept when a desk still matches it: a category-only move first looks
+for desks in the case's current department (a case with no department matches desks with none),
+and a department-only move first looks for desks on the case's current category. Only when none
+matches are the other desks considered (every desk except the Unrouted desk, or the target
+officer's desks). `target_grievance_type` narrows them as before.
+
+The case then takes the department of the desk its officer sits on: the current officer when
+they are on a surviving desk, otherwise the officer picked on the first one. A desk with no
+department clears `assigned_dept`. A desk with no category keeps the case's category.
 
 ### Category assignment API (`api/v1/category_assignment.py`)
 
@@ -134,7 +154,7 @@ match.
 | :------------------- | :------- | :----------------------------------- | :------- |
 | `level`              | Required | Required                             | Refused  |
 | `designation`        | Optional | Optional                             | Optional |
-| `department`         | Required | Optional (every department)          | Required |
+| `department`         | Optional | Optional (every department)          | Optional |
 | `service_categories` | Required | Optional (the desk with no category) | Required |
 
 An officer has no record of their own: they are a User plus desk rows, and `role_of()` finds

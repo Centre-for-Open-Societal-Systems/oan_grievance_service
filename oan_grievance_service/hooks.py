@@ -123,6 +123,7 @@ scheduler_events = {
 
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 on_user_registered = ["oan_grievance_service.api.v1.profile.on_user_registered_hook"]
+oan_auth_on_delegated_login = ["oan_grievance_service.api.v1.profile.on_delegated_login_hook"]
 
 # Portal
 # ------------------
