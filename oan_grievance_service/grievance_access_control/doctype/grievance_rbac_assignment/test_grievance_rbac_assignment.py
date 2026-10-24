@@ -442,6 +442,11 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		switched off here: the queue is what keeps the case then.
 		"""
 		_set_unrouted_desk_active(0)
+		credit_desks = frappe.get_all(
+			"Grievance RBAC Assignment", filters={"category_scope": "Credit", "active": 1}, pluck="name"
+		)
+		for dname in credit_desks:
+			frappe.db.set_value("Grievance RBAC Assignment", dname, "active", 0)
 		desk = frappe.get_doc(
 			{
 				"doctype": "Grievance RBAC Assignment",
@@ -514,6 +519,9 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 			self.assertIsNone(unmatched_g.assigned_to)
 			self.assertEqual(unmatched_g.routed_automatically, 0)
 		finally:
+			_set_unrouted_desk_active(1)
+			for dname in credit_desks:
+				frappe.db.set_value("Grievance RBAC Assignment", dname, "active", 1)
 			if frappe.db.exists("Grievance RBAC Assignment", desk.name):
 				frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
 

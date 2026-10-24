@@ -159,14 +159,15 @@ class TestTaxonomy(FrappeTestCase):
 				)
 				self.assertEqual(res["code"], "VALIDATION_ERROR", msg=res)
 
-	def test_create_service_category_without_sla_days_leaves_sla_unconfigured(self):
+	def test_create_service_category_without_sla_days_defaults_to_standard_sla(self):
 		name = "STG406 No SLA Category"
 		code = "Q90"
 		res = create_service_category(category_name=name, code=code)
 		self.assertEqual(res["status"], "success", msg=res)
-		self.assertFalse(
-			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
+		sla_days = frappe.db.get_value(
+			"Grievance SLA Configuration", {"service_category": name, "active": 1}, "sla_days"
 		)
+		self.assertEqual(sla_days, C.DEFAULT_SLA_DAYS)
 
 	def test_missing_category_is_not_found(self):
 		for result in (

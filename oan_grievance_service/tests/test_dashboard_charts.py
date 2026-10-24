@@ -587,7 +587,14 @@ class TestPerformanceScore(FrappeTestCase):
 		super().setUpClass()
 		frappe.set_user("Administrator")
 		dashboard_rollup.refresh(full=True)
-		cls.dept = a_department()
+		dept_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": f"Perf Dept {frappe.generate_hash(length=6)}",
+				"short_name": f"P{frappe.generate_hash(length=3)}",
+			}
+		).insert(ignore_permissions=True)
+		cls.dept = dept_doc.name
 		cls.before_cases = cls.dept_cases()
 		cls.created = []
 
@@ -638,6 +645,8 @@ class TestPerformanceScore(FrappeTestCase):
 		frappe.set_user("Administrator")
 		for name in cls.created:
 			discard_grievance(name)
+		if hasattr(cls, "dept") and frappe.db.exists("Grievance Department", cls.dept):
+			frappe.delete_doc("Grievance Department", cls.dept, force=True, ignore_permissions=True)
 		dashboard_rollup.refresh(full=True)
 		super().tearDownClass()
 

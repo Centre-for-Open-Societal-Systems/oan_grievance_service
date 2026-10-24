@@ -75,10 +75,10 @@ class RoleCase(FrappeTestCase):
 		self.l1_seed = _user("seed443-l1@example.com", "Seed Nodal")
 		self.l2_seed = _user("seed443-l2@example.com", "Seed Senior")
 		for category, department in (
-			(self.inputs, "S443"),
-			(self.credit, "S443"),
-			(a_service_category(), "S443"),
-			(a_service_category(), "S444"),
+			(self.inputs, self.department),
+			(self.credit, self.department),
+			(a_service_category(), self.department),
+			(a_service_category(), self.other_department),
 		):
 			for name in frappe.get_all(
 				DESK, filters={"category_scope": category, "department_scope": department}, pluck="name"
