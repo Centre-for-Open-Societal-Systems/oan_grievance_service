@@ -22,6 +22,7 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	require_role,
 	success_response,
 	validate_request,
@@ -30,7 +31,7 @@ from pydantic import AfterValidator, BaseModel, Field, StringConstraints, field_
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import organization as service
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_SUBMITTER
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_SUBMITTER
 from oan_grievance_service.services.identity import REGISTRATION_PATTERN
 
 route = prefixed("/api/v1/orgs")
@@ -286,7 +287,7 @@ def get_organization(org_id: str, **kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission("Grievance Organization", "write")
 @validate_request(SetOrganizationStatus)
 @api_doc(
 	summary="Set an organization's verification status",

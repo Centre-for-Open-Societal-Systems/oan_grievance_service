@@ -16,6 +16,7 @@ from oan_auth_service.api.utils import (
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
+	require_permission,
 	require_role,
 	success_response,
 	to_tz_aware_iso,
@@ -24,7 +25,6 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from oan_grievance_service import permissions
-from oan_grievance_service.api.v1._guards import require_permission
 from oan_grievance_service.api.v1._options import (
 	active_channels,
 	expand_status_filter,

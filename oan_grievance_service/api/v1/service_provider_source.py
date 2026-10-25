@@ -15,7 +15,7 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
-	require_role,
+	require_permission,
 	success_response,
 	validate_request,
 )
@@ -25,7 +25,6 @@ from oan_grievance_service.api.v1._schemas import Body, NonBlank
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_source.grievance_service_provider_source import (
 	list_sources,
 )
-from oan_grievance_service.services.constants import ADMIN_ROLES
 from oan_grievance_service.services.service_provider_sync import enqueue_sync
 
 route = prefixed("/api/v1/service-provider-sources")
@@ -60,7 +59,7 @@ class ServiceProviderSourceRef(Body):
 
 @route("", methods=("GET",), summary="List service provider sources", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission("Grievance Service Provider Source", "read")
 @api_doc(
 	summary="List service provider sources",
 	description="Each source with its last sync result and how many providers it owns. "
@@ -85,7 +84,7 @@ def list_service_provider_sources(**kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission("Grievance Service Provider Source", "write")
 @validate_request(ServiceProviderSourceRef)
 @api_doc(
 	summary="Sync a service provider source",

@@ -25,6 +25,7 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	require_role,
 	success_response,
 	validate_request,
@@ -43,13 +44,12 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 from oan_grievance_service.permissions import assert_heads_category
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_DESK_HEAD
 from oan_grievance_service.services.resolvers import new_or_resolved_department, resolve_service_category
 
 route = prefixed("/api/v1")
 
 CATEGORY = "Grievance Service Category"
-DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 DESK_HEAD_READ_ROLES = [*ADMIN_READ_ROLES, ROLE_DESK_HEAD]
 TYPE = "Grievance Type"
 
@@ -272,7 +272,7 @@ def get_service_category(category: str, **kwargs):
 
 @route("/service-categories", methods=("POST",), summary="Create a service category", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "create")
 @validate_request(CreateServiceCategory)
 @api_doc(
 	summary="Create a service category",
@@ -331,7 +331,7 @@ def create_service_category(
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "write")
 @validate_request(UpdateServiceCategory, exclude_unset=True)
 @api_doc(
 	summary="Update a service category",
@@ -374,7 +374,7 @@ def update_service_category(category: str, **kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "write")
 @validate_request(CategoryRef)
 @api_doc(
 	summary="Deactivate a service category",
@@ -518,7 +518,7 @@ def get_grievance_type(grievance_type: str, **kwargs):
 
 @route("/grievance-types", methods=("POST",), summary="Create a grievance type", tier="officer-core")
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "create")
 @validate_request(CreateGrievanceType)
 @api_doc(
 	summary="Create a grievance type",
@@ -556,7 +556,7 @@ def create_grievance_type(
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "write")
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
@@ -587,7 +587,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "write")
 @validate_request(TypeRef)
 @api_doc(
 	summary="Deactivate a grievance type",
