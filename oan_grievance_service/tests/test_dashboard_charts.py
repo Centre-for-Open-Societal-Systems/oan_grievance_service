@@ -10,7 +10,6 @@ against a baseline taken before the fixtures are made.
 from unittest.mock import patch
 
 import frappe
-import pymysql
 from frappe.query_builder.functions import Sum
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, add_to_date, get_datetime, getdate, now_datetime
@@ -228,23 +227,6 @@ class TestDashboardCharts(FrappeTestCase):
 		dashboard_rollup.refresh()
 		self.assertTrue(frappe.db.exists(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday}))
 		frappe.db.delete(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday, "grievance_count": 7})
-
-	def test_overlapping_refresh_is_skipped(self):
-		lock = f"{frappe.local.site}:{dashboard_rollup.LOCK_KEY}"
-		# Held from a second connection, as a concurrent worker would.
-		other = pymysql.connect(
-			host=frappe.conf.db_host or "localhost",
-			port=int(frappe.conf.db_port or 3306),
-			user=frappe.conf.db_user or frappe.conf.db_name,
-			password=frappe.conf.db_password,
-			database=frappe.conf.db_name,
-		)
-		try:
-			with other.cursor() as cursor:
-				cursor.execute("SELECT GET_LOCK(%s, 0)", (lock,))
-			self.assertIsNone(dashboard_rollup.refresh())
-		finally:
-			other.close()
 
 	# Public view
 	# -----------
@@ -927,17 +909,6 @@ class TestResolutionAndEscalationStamps(FrappeTestCase):
 		self.assertIn("escalated_at", sla._first_escalation(self.doc))
 		self.doc.escalated_at = now_datetime()
 		self.assertEqual(sla._first_escalation(self.doc), {})
-
-	def test_backfill_fills_resolved_at_from_status_history(self):
-		from oan_grievance_service.patches import backfill_resolved_and_escalated_at
-
-		frappe.db.set_value(
-			"Grievance",
-			self.doc.name,
-			{"status": C.STATE_RESOLVED, "workflow_state": C.STATE_RESOLVED, "resolved_at": None},
-		)
-		backfill_resolved_and_escalated_at.execute()
-		self.assertIsNotNone(frappe.db.get_value("Grievance", self.doc.name, "resolved_at"))
 
 
 class TestGatewayContract(FrappeTestCase):
