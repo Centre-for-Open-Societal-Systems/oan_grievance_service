@@ -27,7 +27,6 @@
   "is_anonymous",
   "anonymity_status",
   "col_anonymity",
-  "anonymity_approved_by",
   "sec_area",
   "administrative_area",
   "col_area",
@@ -213,14 +212,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "is_anonymous",
-   "fieldname": "anonymity_approved_by",
-   "fieldtype": "Link",
-   "label": "Anonymity Approved By",
-   "options": "User",
-   "read_only": 1
-  },
-  {
    "fieldname": "sec_area",
    "fieldtype": "Section Break",
    "label": "Administrative Scope & Area"
@@ -346,14 +337,16 @@
    "fieldname": "routed_automatically",
    "fieldtype": "Check",
    "label": "Routed Automatically",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "routing_rule",
    "fieldtype": "Link",
    "label": "Matched Routing Rule",
    "options": "Grievance RBAC Assignment",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "sec_sla",
@@ -364,14 +357,16 @@
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "label": "SLA Days",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "description": "Set when the case is assigned to a department; the SLA window counts from here",
    "fieldname": "sla_start_at",
    "fieldtype": "Datetime",
    "label": "SLA Start",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "sla_due_date",
@@ -385,7 +380,8 @@
    "fieldname": "on_hold_since",
    "fieldtype": "Datetime",
    "label": "On Hold Since",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "col_sla",
@@ -396,7 +392,8 @@
    "fieldname": "total_hold_time",
    "fieldtype": "Duration",
    "label": "Total Hold Time",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "default": "0",
@@ -404,21 +401,24 @@
    "fieldname": "reminder_50_sent",
    "fieldtype": "Check",
    "label": "50% Reminder Sent",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "default": "0",
    "fieldname": "reminder_80_sent",
    "fieldtype": "Check",
    "label": "80% Reminder Sent",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "description": "When the next escalation is due. Set to the SLA deadline when the clock starts, then pushed out by the current level's escalation hours on every reassignment upward. Empty once the case reaches a terminal level.",
    "fieldname": "next_escalation_at",
    "fieldtype": "Datetime",
    "label": "Next Escalation At",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "description": "When the case first escalated. Kept after a response clears the Escalated flag, so escalation rates count each case once.",
@@ -427,7 +427,8 @@
    "label": "First Escalated At",
    "no_copy": 1,
    "read_only": 1,
-   "search_index": 1
+   "search_index": 1,
+   "permlevel": 1
   },
   {
    "description": "When the case reached Resolved or Closed. Cleared if the case is reopened, and set again when it is next resolved.",
@@ -436,7 +437,8 @@
    "label": "Resolved At",
    "no_copy": 1,
    "read_only": 1,
-   "search_index": 1
+   "search_index": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "sec_closure",
@@ -449,13 +451,15 @@
    "fieldtype": "Datetime",
    "label": "State Deadline",
    "read_only": 1,
-   "search_index": 1
+   "search_index": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "reopen_count",
    "fieldtype": "Int",
    "label": "Reopen Count",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "col_closure",
@@ -561,6 +565,48 @@
    "share": 1,
    "write": 1,
    "role": "Grievance Assisted Submitter"
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Admin",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Officer",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "report": 1,
+   "export": 0
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Assisted Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 1
   }
  ],
  "row_format": "Dynamic",
