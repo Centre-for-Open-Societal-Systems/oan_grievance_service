@@ -391,7 +391,7 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 					"assigned_to": ["in", users],
 					"status": ["not in", sla.states_in_category(sla.STOPPED) or [""]],
 				},
-				fields=["assigned_to", "count(name) as open_count"],
+				fields=["assigned_to", {"COUNT": "name", "as": "open_count"}],
 				group_by="assigned_to",
 			)
 			counts = {r.assigned_to: r.open_count for r in rows}
