@@ -1,6 +1,8 @@
 """Shared dropdown and reference data helpers for API options endpoints."""
 
 import frappe
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Coalesce, NullIf
 
 from oan_grievance_service.permissions import is_staff
 from oan_grievance_service.services import constants as C
@@ -16,8 +18,9 @@ def _staffed_desks() -> list[tuple[str | None, str | None]]:
 	)
 
 	rows = query_active_officer_assignments(
-		fields=["DISTINCT p.department_scope AS department", "p.category_scope AS category"],
+		fields=lambda c, p, u: [p.department_scope.as_("department"), p.category_scope.as_("category")],
 		order_by=None,
+		distinct=True,
 	)
 	return [(row["department"] or None, row["category"] or None) for row in rows]
 
@@ -117,14 +120,14 @@ def get_department_officers(
 		category=service_category,
 		administrative_area=administrative_area,
 		include_user_details=True,
-		fields=[
-			"c.user AS user_id",
-			"COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name",
-			"c.role_level",
-			"c.is_primary",
-			"c.administrative_area AS administrative_area_scope",
+		fields=lambda c, p, u: [
+			c.user.as_("user_id"),
+			Coalesce(NullIf(u.full_name, ""), u.name).as_("full_name"),
+			c.role_level,
+			c.is_primary,
+			c.administrative_area.as_("administrative_area_scope"),
 		],
-		order_by="c.is_primary DESC, u.full_name ASC, c.user ASC",
+		order_by=lambda c, p, u: [(c.is_primary, Order.desc), (u.full_name, Order.asc), (c.user, Order.asc)],
 	)
 
 	unique = {}

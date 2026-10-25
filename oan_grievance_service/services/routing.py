@@ -239,15 +239,15 @@ def officer_desks(grievance, department, officer):
 	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
 	rows = query_active_officer_assignments(
 		user=officer,
-		fields=[
-			"p.name AS name",
-			"p.department_scope",
-			"p.category_scope",
-			"p.grievance_type_scope",
-			"p.service_provider_scope",
-			"c.administrative_area AS administrative_area_scope",
-			"p.routing_strategy",
-			"p.reassignment_requires_approval",
+		fields=lambda c, p, u: [
+			p.name,
+			p.department_scope,
+			p.category_scope,
+			p.grievance_type_scope,
+			p.service_provider_scope,
+			c.administrative_area.as_("administrative_area_scope"),
+			p.routing_strategy,
+			p.reassignment_requires_approval,
 		],
 		order_by=None,
 	)
@@ -385,16 +385,14 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
-			rows = frappe.db.sql(
-				"""
-				SELECT assigned_to, COUNT(name) AS open_count
-				FROM `tabGrievance`
-				WHERE assigned_to IN %(users)s
-				  AND status NOT IN %(concluded)s
-				GROUP BY assigned_to
-				""",
-				{"users": tuple(users), "concluded": tuple(sla.states_in_category(sla.STOPPED)) or ("",)},
-				as_dict=True,
+			rows = frappe.get_all(
+				"Grievance",
+				filters={
+					"assigned_to": ["in", users],
+					"status": ["not in", sla.states_in_category(sla.STOPPED) or [""]],
+				},
+				fields=["assigned_to", "count(name) as open_count"],
+				group_by="assigned_to",
 			)
 			counts = {r.assigned_to: r.open_count for r in rows}
 

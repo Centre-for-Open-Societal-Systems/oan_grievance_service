@@ -130,7 +130,9 @@ def may_decide(user, grievance, request) -> bool:
 
 def _sits_on_fallback_desk(user) -> bool:
 	"""Whether `user` is an active officer on a desk for the fallback category itself."""
-	rows = query_active_officer_assignments(user=user, fields=["p.category_scope"], order_by=None)
+	rows = query_active_officer_assignments(
+		user=user, fields=lambda c, p, u: [p.category_scope], order_by=None
+	)
 	return any(row.get("category_scope") == C.FALLBACK_SERVICE_CATEGORY for row in rows)
 
 

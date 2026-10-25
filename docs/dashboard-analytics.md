@@ -39,7 +39,9 @@ request                        services/dashboard.get_chart()
 - Only counts, sums and minimums are stored. Rates and averages are worked out when a chart is
   read, so every filter combination is exact.
 - A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`).
-- Refreshes never overlap: each takes a database lock and a second run skips.
+- Refreshes never overlap: the 15-minute refresh, the nightly rebuild and the first build after
+  migrate all queue one background job under a shared job id, and a run is not queued while
+  another is queued or running. A nightly rebuild skipped that way is picked up the next night.
 
 Staleness: at most 15 minutes here, plus whatever the consumer caches (the OAN dashboards
 cache another 15 minutes).
