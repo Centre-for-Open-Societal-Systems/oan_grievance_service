@@ -19,7 +19,7 @@ from oan_grievance_service.services import lifecycle, notifications, sla
 
 def open_grievances_with_sla(extra_filters=None):
 	filters = {
-		"sla_due_date": ["is", "set"],
+		"sla_due_date": ["!=", None],
 		# A stopped clock has nothing left to remind anyone about.
 		"status": ["not in", list(sla.states_in_category(sla.STOPPED))],
 	}
@@ -95,9 +95,9 @@ def escalate_breached():
 	due_now = frappe.get_all(
 		"Grievance",
 		filters=[
-			["next_escalation_at", "is", "set"],
+			["next_escalation_at", "!=", None],
 			["next_escalation_at", "<=", now_datetime()],
-			["on_hold_since", "is", "not set"],
+			["on_hold_since", "=", None],
 		],
 		pluck="name",
 	)
@@ -170,7 +170,7 @@ def expire_state_timers():
 	expired = frappe.get_all(
 		"Grievance",
 		filters=[
-			["state_deadline", "is", "set"],
+			["state_deadline", "!=", None],
 			["state_deadline", "<", now_datetime()],
 		],
 		pluck="name",

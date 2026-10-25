@@ -204,6 +204,10 @@ def list_orgs(
 		page_length=page_length,
 	)
 	total = frappe.get_all(
-		DOCTYPE, filters=filters, or_filters=or_filters, fields=[{"COUNT": "name", "as": "total"}]
+		DOCTYPE,
+		filters=filters,
+		or_filters=or_filters,
+		fields=[{"COUNT": "name", "as": "total"}],
+		order_by=None,
 	)[0].total
 	return rows, total

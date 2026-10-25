@@ -125,7 +125,7 @@ def find_matching_assignment(grievance):
 			"effective_from": ["<=", today],
 		},
 		or_filters=[
-			["effective_to", "is", "not set"],
+			["effective_to", "=", None],
 			["effective_to", ">=", today],
 		],
 		fields=[
@@ -183,7 +183,7 @@ def _active_assignments():
 	return frappe.get_all(
 		"Grievance RBAC Assignment",
 		filters={"active": 1, "effective_from": ["<=", today]},
-		or_filters=[["effective_to", "is", "not set"], ["effective_to", ">=", today]],
+		or_filters=[["effective_to", "=", None], ["effective_to", ">=", today]],
 		fields=[
 			"name",
 			"department_scope",
@@ -284,7 +284,7 @@ def department_desks(grievance, department):
 		"Grievance RBAC Assignment",
 		filters=filters,
 		or_filters=[
-			["effective_to", "is", "not set"],
+			["effective_to", "=", None],
 			["effective_to", ">=", today],
 		],
 		fields=[

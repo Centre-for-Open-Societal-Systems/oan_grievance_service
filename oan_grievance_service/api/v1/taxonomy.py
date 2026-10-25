@@ -302,7 +302,7 @@ def create_service_category(
 ):
 	"""Create a service category."""
 	if sort_order is None:
-		top = frappe.get_all(CATEGORY, fields=[{"MAX": "sort_order", "as": "top"}])
+		top = frappe.get_all(CATEGORY, fields=[{"MAX": "sort_order", "as": "top"}], order_by=None)
 		sort_order = (top[0].top or 0) + 1
 	doc = frappe.get_doc(
 		{
@@ -631,7 +631,11 @@ def _search(doctype: str, text: str | None, fieldnames: tuple[str, ...]) -> list
 
 def _count(doctype: str, filters: dict, or_filters: list | None) -> int:
 	rows = frappe.get_all(
-		doctype, filters=filters, or_filters=or_filters, fields=[{"COUNT": "*", "as": "total"}]
+		doctype,
+		filters=filters,
+		or_filters=or_filters,
+		fields=[{"COUNT": "*", "as": "total"}],
+		order_by=None,
 	)
 	return int(rows[0].total) if rows else 0
 

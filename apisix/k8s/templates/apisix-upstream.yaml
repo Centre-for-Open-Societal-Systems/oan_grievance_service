@@ -9,11 +9,17 @@ metadata:
   labels:
     app: oan-grievance
 spec:
-{{- if .Values.web.externalHost }}
+{{- if .Values.web.externalHosts }}
   externalNodes:
+{{- range .Values.web.externalHosts }}
   - type: Domain
-    name: {{ .Values.web.externalHost | quote }}
-    port: {{ .Values.web.port }}
+    name: {{ . | quote }}
+    port: {{ $.Values.web.port }}
+{{- end }}
+{{- with .Values.web.healthCheck }}
+  healthCheck:
+{{- toYaml . | nindent 4 }}
+{{- end }}
 {{- end }}
   scheme: http
   passHost: rewrite
@@ -31,11 +37,17 @@ metadata:
   labels:
     app: oan-grievance
 spec:
-{{- if .Values.socket.externalHost }}
+{{- if .Values.socket.externalHosts }}
   externalNodes:
+{{- range .Values.socket.externalHosts }}
   - type: Domain
-    name: {{ .Values.socket.externalHost | quote }}
-    port: {{ .Values.socket.port }}
+    name: {{ . | quote }}
+    port: {{ $.Values.socket.port }}
+{{- end }}
+{{- with .Values.socket.healthCheck }}
+  healthCheck:
+{{- toYaml . | nindent 4 }}
+{{- end }}
 {{- end }}
   scheme: http
   passHost: pass

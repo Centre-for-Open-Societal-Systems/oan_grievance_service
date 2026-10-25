@@ -664,6 +664,7 @@ def list_grievances(
 		filters=filters,
 		or_filters=or_filters if or_filters else None,
 		fields=[{"COUNT": "*", "as": "total"}],
+		order_by=None,
 		limit=1,
 	)
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0

@@ -156,8 +156,8 @@ def socket_service():
 HELM_VALUES = {
 	"OAN_GRIEVANCE_UPSTREAM_HOST": ".Values.web.serviceName",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST": ".Values.socket.serviceName",
-	"OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST": ".Values.web.externalHost",
-	"OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST": ".Values.socket.externalHost",
+	"OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST": ".Values.web.externalHosts",
+	"OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST": ".Values.socket.externalHosts",
 	"FRAPPE_SITE_NAME": ".Values.siteName",
 	"WEB_PORT": ".Values.web.port",
 	"SOCKET_PORT": ".Values.socket.port",
