@@ -222,7 +222,7 @@ class TestDashboardCharts(FrappeTestCase):
 		dashboard_rollup._insert(
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
-			[(yesterday, C.STATE_SUBMITTED, "", "", self.category, "", 0, 0, "ok", 7, 0, None)],
+			[(yesterday, C.STATE_SUBMITTED, "", self.category, "", 0, 0, "ok", 7, 0, None)],
 		)
 		dashboard_rollup.refresh()
 		self.assertTrue(frappe.db.exists(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday}))
@@ -824,8 +824,8 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
 			[
-				(self.day, C.STATE_RESOLVED, "XX01", "", self.category, "", 0, 0, "", 3, 0, None),
-				(self.day, C.STATE_SUBMITTED, "XX01", "", self.category, "", 0, 0, "ok", 1, 0, None),
+				(self.day, C.STATE_RESOLVED, "XX01", self.category, "", 0, 0, "", 3, 0, None),
+				(self.day, C.STATE_SUBMITTED, "XX01", self.category, "", 0, 0, "ok", 1, 0, None),
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
@@ -834,7 +834,7 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			dashboard_rollup.SNAPSHOT,
 			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
 			[
-				(self.today, C.STATE_RESOLVED, "XX02", "", self.category, "", 0, 0, "", 1, 0, None),
+				(self.today, C.STATE_RESOLVED, "XX02", self.category, "", 0, 0, "", 1, 0, None),
 			],
 		)
 		self.addCleanup(

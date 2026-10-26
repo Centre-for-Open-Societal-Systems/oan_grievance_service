@@ -4,6 +4,12 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area import (
+	grievance_administrative_area as area_module,
+)
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.tests.fixtures import a_free_ticket_code, an_administrative_area
+
 
 class TestAdministrativeAreaTicketCode(FrappeTestCase):
 	"""The ticket character is checked on save, not when a farmer files.
@@ -181,3 +187,82 @@ class TestAdministrativeArea(FrappeTestCase):
 		self.assertIn("data", res_ancestors)
 		self.assertIn("breadcrumbs", res_ancestors["data"])
 		self.assertGreaterEqual(len(res_ancestors["data"]["breadcrumbs"]), 1)
+
+
+class TestRollupLookups(FrappeTestCase):
+	"""How the dashboard rollups identify areas: Region by code, Woreda by code or else name."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		suffix = frappe.generate_hash(length=6)
+		cls.areas = []
+
+		def area(name, parent, level_name, **overrides):
+			created = an_administrative_area(f"{name} {suffix}", parent, level_name, **overrides)
+			cls.areas.append(created)
+			return created
+
+		cls.country = area("Lookup Country", None, C.AREA_LEVEL_COUNTRY)
+		cls.region = area("Lookup Region", cls.country, C.AREA_LEVEL_REGION, ticket_code=a_free_ticket_code())
+		cls.coded = area("Lookup Coded", cls.region, C.AREA_LEVEL_WOREDA)
+		cls.uncoded = area("Lookup Uncoded", cls.region, C.AREA_LEVEL_WOREDA, code=None)
+		cls.suffix = suffix
+
+	@classmethod
+	def tearDownClass(cls):
+		for name in reversed(cls.areas):
+			frappe.delete_doc("Grievance Administrative Area", name, force=True, ignore_permissions=True)
+		super().tearDownClass()
+
+	def _row(self, name):
+		return frappe.db.get_value(
+			"Grievance Administrative Area", name, ["name", "lft", "rgt", "code"], as_dict=True
+		)
+
+	def test_a_woreda_is_keyed_by_code_or_else_name_and_a_region_by_code_only(self):
+		self.assertEqual(area_module.rollup_key(C.AREA_LEVEL_WOREDA, "W1", "Name"), "W1")
+		self.assertEqual(area_module.rollup_key(C.AREA_LEVEL_WOREDA, None, "Name"), "Name")
+		self.assertEqual(area_module.rollup_key(C.AREA_LEVEL_REGION, "R1", "Name"), "R1")
+		self.assertIsNone(area_module.rollup_key(C.AREA_LEVEL_REGION, None, "Name"))
+
+	def test_the_keys_within_an_area_include_itself_and_every_woreda_below(self):
+		region = self._row(self.region)
+		keys = area_module.rollup_keys_within(C.AREA_LEVEL_WOREDA, region)
+		self.assertEqual(set(keys), {self._row(self.coded).code, self.uncoded})
+		self.assertEqual(
+			area_module.rollup_keys_within(C.AREA_LEVEL_REGION, region), (self._row(self.region).code,)
+		)
+		self.assertEqual(area_module.rollup_keys_within(C.AREA_LEVEL_REGION, self._row(self.coded)), ())
+
+	def test_names_come_back_for_the_requested_keys_only(self):
+		code = self._row(self.coded).code
+		names = area_module.area_names(C.AREA_LEVEL_WOREDA, [code, self.uncoded])
+		self.assertEqual(
+			names, {code: f"Lookup Coded {self.suffix}", self.uncoded: f"Lookup Uncoded {self.suffix}"}
+		)
+		self.assertEqual(
+			area_module.area_names(C.AREA_LEVEL_WOREDA, [code]), {code: f"Lookup Coded {self.suffix}"}
+		)
+		self.assertEqual(area_module.area_names(C.AREA_LEVEL_WOREDA, []), {})
+
+	def test_scope_areas_carry_the_level_and_agree_with_area_bounds(self):
+		scopes = [{"administrative_area_scope": self.region}, {"administrative_area_scope": None}]
+		areas = area_module.scope_areas(scopes)
+		self.assertEqual(set(areas), {self.region})
+		self.assertEqual(areas[self.region].level_name, C.AREA_LEVEL_REGION)
+		region = self._row(self.region)
+		self.assertEqual(area_module.area_bounds(scopes), {self.region: (region.lft, region.rgt)})
+		self.assertEqual(area_module.scope_areas([]), {})
+
+	def test_the_country_is_the_first_country_area(self):
+		country = area_module.country_area()
+		self.assertIsNotNone(country)
+		first = frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"level_name": C.AREA_LEVEL_COUNTRY},
+			fields=["code", "area_name"],
+			order_by="lft asc",
+			limit=1,
+		)[0]
+		self.assertEqual(country, first)

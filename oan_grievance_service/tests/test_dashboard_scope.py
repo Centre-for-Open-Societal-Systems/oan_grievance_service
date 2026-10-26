@@ -18,6 +18,7 @@ from oan_grievance_service.tests.fixtures import (
 	a_grievance_type,
 	a_leaf_area,
 	a_service_category,
+	a_unique_department,
 	discard_grievance,
 )
 
@@ -27,14 +28,6 @@ def _area_at_level(level, containing_lft=None):
 	if containing_lft is not None:
 		filters.update({"lft": ["<=", containing_lft], "rgt": [">=", containing_lft]})
 	return frappe.db.get_value("Grievance Administrative Area", filters, "name")
-
-
-def _department(label):
-	name = f"Scope {label} {frappe.generate_hash(length=6)}"
-	frappe.get_doc({"doctype": "Grievance Department", "dept_name": name, "short_name": label[:3]}).insert(
-		ignore_permissions=True
-	)
-	return name
 
 
 def _officer(label):
@@ -82,8 +75,8 @@ class TestOfficerChartScope(FrappeTestCase):
 			"name",
 		)
 		cls.category = a_service_category()
-		cls.dept = _department("Inside")
-		cls.other_dept = _department("Outside")
+		cls.dept = a_unique_department("Inside")
+		cls.other_dept = a_unique_department("Outside")
 		cls.officer = _officer("a")
 		cls.other_officer = _officer("b")
 

@@ -32,6 +32,12 @@ from oan_auth_service.api.utils import to_tz_aware_iso
 from pypika.terms import Criterion
 
 from oan_grievance_service import permissions as perms
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+	area_names,
+	country_area,
+	rollup_keys_within,
+	scope_areas,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard_rollup as rollup
 from oan_grievance_service.services import sla
@@ -50,7 +56,7 @@ LEVELS = (LEVEL_FEDERAL, LEVEL_REGION, LEVEL_WOREDA)
 def status_order():
 	"""Every state, in lifecycle order, so the donut always has the same
 	segments whether or not a state currently holds a case."""
-	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED)
+	return rollup.live_states()
 
 
 @dataclass(frozen=True)
@@ -88,8 +94,8 @@ class Chart:
 	public: bool = True
 	# "live" charts read Grievance directly (admin view only) and cache briefly.
 	live_for_admin: bool = False
-	# Only the snapshot has a Woreda column, so only a chart that reads nothing else can
-	# honour a desk scoped to Woreda level; see get_chart.
+	# Only Grievance Stat Area has a Woreda column, so only a chart that reads it can honour
+	# a desk scoped to Woreda level; see get_chart.
 	by_woreda: bool = False
 
 
@@ -125,41 +131,14 @@ class Clause:
 	level: str = LEVEL_FEDERAL
 
 
-def _area_info(scopes):
-	"""Nested Set bounds and level for every area named by `scopes`, in one query."""
-	names = {s.get("administrative_area_scope") for s in scopes} - {None, ""}
-	if not names:
-		return {}
-	return {
-		a.name: a
-		for a in frappe.get_all(
-			"Grievance Administrative Area",
-			filters={"name": ["in", list(names)]},
-			fields=["name", "lft", "rgt", "level_name"],
-		)
-		if a.lft is not None and a.rgt is not None
-	}
-
-
-def _area_codes(level_name, area):
-	"""The rollup keys of the `level_name` areas inside `area` (itself included)."""
-	rows = frappe.get_all(
-		"Grievance Administrative Area",
-		filters={"level_name": level_name, "lft": ["between", [area.lft, area.rgt]]},
-		fields=["name", "code"],
-	)
-	keys = ((r.code or r.name) if level_name == "Woreda" else r.code for r in rows)
-	return tuple(sorted(key for key in keys if key))
-
-
 def caller_scope(user=None):
 	"""The rollup filters for what `user` may see: None for no restriction, else desk clauses.
 
 	Mirrors permissions.grievance_query_conditions, as far as the rollups can. They are
-	grouped by region, category and department only (the snapshot also by woreda), so:
+	grouped by region, category and department only (Grievance Stat Area also by woreda), so:
 
 	- A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no
-	  Region inside it and counts as the Woredas inside it instead, which only the snapshot
+	  Region inside it and counts as the Woredas inside it instead, which only Grievance Stat Area
 	  knows (see `Chart.by_woreda`). A desk below Woreda level contributes nothing rather
 	  than its whole Woreda.
 	- A desk narrowed by grievance type or service provider contributes nothing.
@@ -173,7 +152,7 @@ def caller_scope(user=None):
 		return None
 
 	scopes = perms.active_scopes(user)
-	info = _area_info(scopes)
+	areas = scope_areas(scopes)
 	clauses = []
 	for scope in scopes:
 		if scope.grievance_type_scope or scope.service_provider_scope:
@@ -183,14 +162,15 @@ def caller_scope(user=None):
 		regions = woredas = None
 		level = LEVEL_FEDERAL
 		if scope.administrative_area_scope:
-			area = info.get(scope.administrative_area_scope)
+			area = areas.get(scope.administrative_area_scope)
 			if not area:
 				continue
-			regions = _area_codes("Region", area)
+			regions = rollup_keys_within(C.AREA_LEVEL_REGION, area)
 			if regions:
-				level = LEVEL_FEDERAL if area.level_name == "Country" else LEVEL_REGION
+				level = LEVEL_FEDERAL if area.level_name == C.AREA_LEVEL_COUNTRY else LEVEL_REGION
 			else:
-				regions, woredas, level = None, _area_codes("Woreda", area), LEVEL_WOREDA
+				regions, woredas = None, rollup_keys_within(C.AREA_LEVEL_WOREDA, area)
+				level = LEVEL_WOREDA
 				if not woredas:
 					continue
 		clauses.append(
@@ -736,28 +716,6 @@ def build_recent(ctx):
 	]
 
 
-def _woreda_names():
-	return {
-		(a.code or a.name): a.area_name
-		for a in frappe.get_all(
-			"Grievance Administrative Area",
-			filters={"level_name": "Woreda"},
-			fields=["name", "code", "area_name"],
-		)
-	}
-
-
-def _country():
-	rows = frappe.get_all(
-		"Grievance Administrative Area",
-		filters={"level_name": "Country"},
-		fields=["code", "area_name"],
-		order_by="lft asc",
-		limit=1,
-	)
-	return rows[0] if rows else {"code": None, "area_name": None}
-
-
 def _visible_levels(ctx):
 	"""The levels the caller may read: their own and the ones below it, never a wider one.
 
@@ -773,6 +731,13 @@ def _visible_levels(ctx):
 	return LEVELS[widest:]
 
 
+def _area_counts(ctx):
+	"""Today's cases per (region, woreda) after the caller's scope and the filters."""
+	A = frappe.qb.DocType(rollup.AREA)
+	query = frappe.qb.from_(A).select(A.region, A.woreda, Sum(A.grievance_count).as_("grievances"))
+	return _apply_filters(query, A, ctx.params, ctx.scope).groupby(A.region, A.woreda).run(as_dict=True)
+
+
 def build_by_admin_level(ctx):
 	"""Grievance counts at each administrative level: federal, per region and per woreda.
 
@@ -781,7 +746,7 @@ def build_by_admin_level(ctx):
 	woredas holding no case are left out, as an empty category is. A case filed above
 	Woreda level (on a Region or Zone) counts at federal and region level only.
 	"""
-	rows = _snapshot(ctx, ("region", "woreda"))
+	rows = _area_counts(ctx)
 	visible = [lvl for lvl in _visible_levels(ctx) if not ctx.params.level or lvl in ctx.params.level]
 
 	by_region, by_woreda, woreda_region = {}, {}, {}
@@ -795,7 +760,7 @@ def build_by_admin_level(ctx):
 
 	result = []
 	if LEVEL_FEDERAL in visible:
-		country = _country()
+		country = country_area() or {"code": None, "area_name": None}
 		result.append(
 			{
 				"level": LEVEL_FEDERAL,
@@ -819,7 +784,7 @@ def build_by_admin_level(ctx):
 			if n
 		]
 	if LEVEL_WOREDA in visible:
-		names = _woreda_names()
+		names = area_names(C.AREA_LEVEL_WOREDA, by_woreda)
 		result += [
 			{
 				"level": LEVEL_WOREDA,

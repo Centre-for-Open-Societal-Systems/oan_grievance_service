@@ -251,6 +251,84 @@ def an_administrative_area(area_name, parent=None, level_name="Region", **overri
 	return frappe.get_doc(values).insert(ignore_permissions=True).name
 
 
+def a_free_ticket_code():
+	"""A Region ticket character no Region holds yet. Regions need a unique one."""
+	from oan_grievance_service.services.ticket_number import ALPHABET
+
+	taken = set(
+		frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"ticket_code": ["is", "set"]},
+			pluck="ticket_code",
+		)
+	)
+	return next(char for char in ALPHABET if char not in taken)
+
+
+def a_unique_department(label):
+	"""A new department whose name no other test shares, so a count over it is exact."""
+	name = f"Scope {label} {frappe.generate_hash(length=6)}"
+	frappe.get_doc({"doctype": "Grievance Department", "dept_name": name, "short_name": label[:3]}).insert(
+		ignore_permissions=True
+	)
+	return name
+
+
+def a_user_with_role(role, label="user"):
+	"""A new user holding only `role`; the email is unique, and the caller deletes the user."""
+	email = f"{label}-{frappe.generate_hash(length=6)}@test.local"
+	frappe.get_doc(
+		{
+			"doctype": "User",
+			"email": email,
+			"first_name": label,
+			"send_welcome_email": 0,
+			"roles": [{"role": role}],
+		}
+	).insert(ignore_permissions=True)
+	return email
+
+
+def a_role_level():
+	"""A new Grievance Role Level, for a desk's officers; returns its code. The caller deletes it."""
+	code = f"lvl_{frappe.generate_hash(length=6)}"
+	frappe.get_doc(
+		{"doctype": "Grievance Role Level", "level_name": code, "level_code": code, "level_order": 1}
+	).insert(ignore_permissions=True)
+	return code
+
+
+def a_desk(department, category, role_level, *officers):
+	"""An active RBAC desk for `department` and `category`, held by each (user, area) pair.
+
+	A department and category take one desk, so officers who share them share the desk. The
+	caller deletes it. Returns its name.
+	"""
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": department,
+				"category_scope": category,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": user,
+						"role_level": role_level,
+						"administrative_area": area,
+						"is_primary": 0,
+						"active": 1,
+					}
+					for user, area in officers
+				],
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
 def _seed_provider_types():
 	"""The provider types are reference data from the seed; make sure a bare test site has them."""
 	from oan_grievance_service.setup.install import seed_service_provider_types

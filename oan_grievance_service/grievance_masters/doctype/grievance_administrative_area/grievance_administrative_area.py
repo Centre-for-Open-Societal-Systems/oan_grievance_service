@@ -15,6 +15,7 @@ from frappe import _
 from frappe.utils.nestedset import NestedSet
 from pypika import Criterion
 
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 
 
@@ -156,21 +157,70 @@ def is_in_area_subtree(target_area_or_lft, ancestor_area: str) -> bool:
 	return anc_lft <= target_lft <= anc_rgt
 
 
-def area_bounds(scopes):
-	"""Nested Set intervals for every area named by `scopes`, in one query."""
+def scope_areas(scopes):
+	"""Nested Set bounds and level of every area named by `scopes`, in one query."""
 	names = {s.get("administrative_area_scope") for s in scopes}
 	names = {n for n in names if n}
 	if not names:
 		return {}
 	return {
-		a.name: (a.lft, a.rgt)
+		a.name: a
 		for a in frappe.get_all(
 			"Grievance Administrative Area",
 			filters={"name": ["in", list(names)]},
-			fields=["name", "lft", "rgt"],
+			fields=["name", "lft", "rgt", "level_name"],
 		)
 		if a.lft is not None and a.rgt is not None
 	}
+
+
+def area_bounds(scopes):
+	"""Nested Set intervals for every area named by `scopes`, in one query."""
+	return {name: (a.lft, a.rgt) for name, a in scope_areas(scopes).items()}
+
+
+def rollup_key(level_name, code, name):
+	"""How the dashboard rollups identify an area: by its code, or for a Woreda by its name
+	when the registry gave it none. Keep in step with dashboard_rollup._woreda."""
+	return code or (name if level_name == C.AREA_LEVEL_WOREDA else None)
+
+
+def rollup_keys_within(level_name, area):
+	"""The rollup keys of the `level_name` areas inside `area` (itself included), sorted."""
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": level_name, "lft": ["between", [area.lft, area.rgt]]},
+		fields=["name", "code"],
+	)
+	keys = (rollup_key(level_name, r.code, r.name) for r in rows)
+	return tuple(sorted(key for key in keys if key))
+
+
+def area_names(level_name, keys):
+	"""Display names of the `level_name` areas whose rollup key is in `keys`, by key."""
+	keys = list(keys)
+	if not keys:
+		return {}
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": level_name},
+		or_filters=[["code", "in", keys], ["name", "in", keys]],
+		fields=["name", "code", "area_name"],
+	)
+	names = {rollup_key(level_name, r.code, r.name): r.area_name for r in rows}
+	return {key: name for key, name in names.items() if key in keys}
+
+
+def country_area():
+	"""The first Country area (code and name), or None when the tree has none."""
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": C.AREA_LEVEL_COUNTRY},
+		fields=["code", "area_name"],
+		order_by="lft asc",
+		limit=1,
+	)
+	return rows[0] if rows else None
 
 
 def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[dict]:

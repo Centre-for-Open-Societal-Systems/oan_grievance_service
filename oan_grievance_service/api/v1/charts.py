@@ -27,7 +27,7 @@ unknown or admin-only id never reaches this code at all.
 
 import re
 from datetime import timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 import frappe
 from frappe import _
@@ -41,7 +41,7 @@ from oan_auth_service.api.utils import (
 	require_role,
 	success_response,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard
@@ -80,7 +80,15 @@ class ChartsQuery(BaseModel):
 	month: str | None = None
 	as_of_month: str | None = None
 	granularity: Literal["month", "week"] = "month"
-	level: str | list[str] | None = None
+	# At most every level once, comma-separated ("federal,region,woreda" is 21 characters).
+	level: (
+		Annotated[str, StringConstraints(max_length=40)]
+		| Annotated[
+			list[Annotated[str, StringConstraints(max_length=16)]],
+			Field(max_length=len(dashboard.LEVELS)),
+		]
+		| None
+	) = None
 	limit: int = Field(10, ge=1, le=50)
 
 

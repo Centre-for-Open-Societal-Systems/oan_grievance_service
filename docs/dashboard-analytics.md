@@ -1,7 +1,7 @@
 # Dashboard analytics
 
 The grievance dashboards (the officer/admin dashboard and the public OAN programme
-dashboards) are served from two rollup tables that the scheduler refreshes every 15
+dashboards) are served from rollup tables that the scheduler refreshes every 15
 minutes. No dashboard request ever aggregates `tabGrievance`.
 
 ## Data flow
@@ -11,6 +11,7 @@ every 15 min (cron */15)      services/dashboard_rollup.refresh()
   tabGrievance, Status History, Duplicate
       -> Grievance Stat Daily      events per day (last 3 days rebuilt; all nightly)
       -> Grievance Stat Snapshot   status counts per day (today replaced; history kept)
+      -> Grievance Stat Area       cases per region and woreda (whole table replaced; no history)
       -> as_of (system default)
 
 request                        services/dashboard.get_chart()
@@ -38,10 +39,14 @@ request                        services/dashboard.get_chart()
   cannot be rebuilt from current data.
 - Only counts, sums and minimums are stored. Rates and averages are worked out when a chart is
   read, so every filter combination is exact.
-- A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`). The
-  snapshot (not the daily table) also keeps the Woreda-level ancestor in `woreda`: its code, or
-  its name when the registry gave it none. Past snapshot days predate the column and hold an
-  empty `woreda`; only `grvByAdminLevel` reads it, and only for today.
+- **Grievance Stat Area** holds how many cases stand in each region and woreda, by service
+  category and department, and nothing else: no status, no history. Every refresh replaces the
+  whole table, so it stays as small as the woredas that hold cases, and a woreda is not a
+  dimension of the retained snapshot, which would multiply every kept day. Only
+  `grvByAdminLevel` reads it. It counts the same states as every other chart.
+- A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`). A
+  woreda is its Woreda-level ancestor, stored as its code, or its name when the registry gave it
+  none.
 - Refreshes never overlap: the 15-minute refresh, the nightly rebuild and the first build after
   migrate all queue one background job under a shared job id, and a run is not queued while
   another is queued or running. A nightly rebuild skipped that way is picked up the next night.
@@ -95,7 +100,7 @@ unscoped. A request without a valid bearer token is 401; a submitter or a Dashbo
 
 A desk is an area, a department and a category, all optional. The desks are alternatives; within
 one desk every part must match. The rollups are grouped by region, category and department
-(the snapshot also by woreda), so the scope is exact down to region level, and down to woreda
+(Grievance Stat Area also by woreda), so the scope is exact down to region level, and down to woreda
 level for `grvByAdminLevel`, and errs towards showing less:
 
 - A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no Region
