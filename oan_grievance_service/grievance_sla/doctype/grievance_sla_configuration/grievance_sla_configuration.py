@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from oan_grievance_service.services import constants as C
+
 
 def get_active_config(name: str):
 	"""The active SLA configuration with this name, or DoesNotExistError.
@@ -43,6 +45,9 @@ def save_sla_configuration(
 	if notify_on_breach is not None:
 		sla.notify_on_breach = 1 if notify_on_breach else 0
 	sla.active = 1
+	if sla.is_new():
+		for state, hours, on_expiry in C.DEFAULT_STATE_TIMERS:
+			sla.append("state_timers", {"workflow_state": state, "hours": hours, "on_expiry": on_expiry})
 	sla.save()
 	return sla
 

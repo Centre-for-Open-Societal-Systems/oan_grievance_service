@@ -13,6 +13,7 @@ functions return facts; permissions.py turns them into access rules.
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.query_builder import Order
 
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
@@ -129,6 +130,29 @@ def _assert_active(doctype: str, name: str, flag_field: str, label: str):
 		frappe.throw(_("{0} '{1}' is inactive.").format(label, name), frappe.ValidationError)
 
 
+def _default_fields(c, p, u):
+	return [
+		c.user,
+		c.role_level,
+		c.is_primary,
+		p.name.as_("assignment_name"),
+		c.administrative_area.as_("administrative_area_scope"),
+		p.department_scope,
+		p.category_scope,
+		p.grievance_type_scope,
+		p.service_provider_scope,
+		p.reassignment_requires_approval,
+	]
+
+
+def _default_order(c, p, u):
+	return [(c.is_primary, Order.desc), (p.modified, Order.desc)]
+
+
+def _matches_or_unscoped(column, value):
+	return (column == str(value).strip()) | column.isnull() | (column == "")
+
+
 def query_active_officer_assignments(
 	user=None,
 	role_level=None,
@@ -137,80 +161,54 @@ def query_active_officer_assignments(
 	category=None,
 	administrative_area=None,
 	include_user_details=False,
-	fields=None,
-	order_by="c.is_primary DESC, p.modified DESC",
+	fields=_default_fields,
+	order_by=_default_order,
 	limit=None,
 	include_reviewers=False,
+	distinct=False,
 ):
 	"""Consolidated query builder for active Grievance RBAC Assignments & Officers.
+
+	`fields` and `order_by` take the officer row `c`, its desk `p` and, with
+	`include_user_details`, the `User` `u`; `order_by` returns (column, Order) pairs.
 
 	A Reviewer's rows are left out unless `include_reviewers`: a Reviewer is on a desk to read
 	it, so is no assignee, supervisor or rung. Their own scopes are read with `active_scopes`.
 	"""
 	today = frappe.utils.today()
-	conditions = [
-		"c.active = 1",
-		"p.active = 1",
-		"p.effective_from <= %(today)s",
-		"(p.effective_to IS NULL OR p.effective_to = '' OR p.effective_to >= %(today)s)",
-	]
-	params = {"today": today}
+	c = frappe.qb.DocType("Grievance RBAC Assignment Officer", alias="c")
+	p = frappe.qb.DocType("Grievance RBAC Assignment", alias="p")
+	u = frappe.qb.DocType("User", alias="u") if include_user_details else None
 
+	query = frappe.qb.from_(c).join(p).on(p.name == c.parent)
+	if u:
+		query = query.join(u).on(u.name == c.user)
+	query = query.select(*fields(c, p, u)).where(
+		(c.active == 1)
+		& (p.active == 1)
+		& (p.effective_from <= today)
+		& (p.effective_to.isnull() | (p.effective_to >= today))
+	)
+	if distinct:
+		query = query.distinct()
 	if not include_reviewers:
-		conditions.append("c.role_level != %(reviewer_level)s")
-		params["reviewer_level"] = ROLE_LEVEL_REVIEW_OFFICER
-
+		query = query.where(c.role_level != ROLE_LEVEL_REVIEW_OFFICER)
 	if user:
-		conditions.append("c.user = %(user)s")
-		params["user"] = user
+		query = query.where(c.user == user)
 	if role_level:
-		conditions.append("c.role_level = %(role_level)s")
-		params["role_level"] = role_level
+		query = query.where(c.role_level == role_level)
 	if reports_to_list:
-		conditions.append("c.reports_to IN %(reports_to_list)s")
-		params["reports_to_list"] = tuple(reports_to_list)
+		query = query.where(c.reports_to.isin(list(reports_to_list)))
 	if department:
-		conditions.append(
-			"(p.department_scope = %(department)s OR p.department_scope IS NULL OR p.department_scope = '')"
-		)
-		params["department"] = str(department).strip()
+		query = query.where(_matches_or_unscoped(p.department_scope, department))
 	if category:
-		conditions.append(
-			"(p.category_scope = %(category)s OR p.category_scope IS NULL OR p.category_scope = '')"
-		)
-		params["category"] = str(category).strip()
-
-	if include_user_details:
-		field_str = (
-			", ".join(fields)
-			if fields
-			else "DISTINCT c.user AS user_id, COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name, u.email, c.role_level, c.is_primary, c.reports_to, c.administrative_area AS administrative_area_scope"
-		)
-		sql = f"""  # nosemgrep: frappe-sql-format-injection
-			SELECT {field_str}
-			FROM `tabGrievance RBAC Assignment Officer` c
-			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-			JOIN `tabUser` u ON u.name = c.user
-			WHERE {" AND ".join(conditions)}
-		"""
-	else:
-		field_str = (
-			", ".join(fields)
-			if fields
-			else "c.user, c.role_level, c.is_primary, p.name AS assignment_name, c.administrative_area AS administrative_area_scope, p.department_scope, p.category_scope, p.grievance_type_scope, p.service_provider_scope, p.reassignment_requires_approval"
-		)
-		sql = f"""  # nosemgrep: frappe-sql-format-injection
-			SELECT {field_str}
-			FROM `tabGrievance RBAC Assignment Officer` c
-			JOIN `tabGrievance RBAC Assignment` p ON p.name = c.parent
-			WHERE {" AND ".join(conditions)}
-		"""
-	if order_by:
-		sql += f" ORDER BY {order_by}"
+		query = query.where(_matches_or_unscoped(p.category_scope, category))
+	for column, order in order_by(c, p, u) if order_by else ():
+		query = query.orderby(column, order=order)
 	if limit:
-		sql += f" LIMIT {int(limit)}"
+		query = query.limit(int(limit))
 
-	rows = frappe.db.sql(sql, params, as_dict=True)  # nosemgrep: frappe-sql-format-injection
+	rows = query.run(as_dict=True)
 
 	if administrative_area and rows:
 		target_lft = frappe.db.get_value("Grievance Administrative Area", administrative_area, "lft")
@@ -228,18 +226,22 @@ def query_active_officer_assignments(
 def active_scopes(user=None):
 	"""The user's live RBAC assignments, honouring the effective date window."""
 	user = user or frappe.session.user
-	fields = [
-		"p.name AS assignment_name",
-		"c.administrative_area AS administrative_area_scope",
-		"p.department_scope",
-		"p.category_scope",
-		"p.grievance_type_scope",
-		"p.service_provider_scope",
-		"c.role_level",
-		"c.is_primary",
-		"c.max_open_cases",
-	]
-	return query_active_officer_assignments(user=user, fields=fields, order_by=None, include_reviewers=True)
+	return query_active_officer_assignments(
+		user=user,
+		fields=lambda c, p, u: [
+			p.name.as_("assignment_name"),
+			c.administrative_area.as_("administrative_area_scope"),
+			p.department_scope,
+			p.category_scope,
+			p.grievance_type_scope,
+			p.service_provider_scope,
+			c.role_level,
+			c.is_primary,
+			c.max_open_cases,
+		],
+		order_by=None,
+		include_reviewers=True,
+	)
 
 
 def covering_rows(rows, department=None, category=None, administrative_area=None):
@@ -284,15 +286,17 @@ def covering_rows(rows, department=None, category=None, administrative_area=None
 
 def find_officer_by_role_level(role_level, department=None, administrative_area=None, category=None):
 	"""The officer at `role_level` whose desk covers the case most specifically (`covering_rows`)."""
-	fields = [
-		"c.user",
-		"c.is_primary",
-		"c.administrative_area AS administrative_area_scope",
-		"p.department_scope",
-		"p.category_scope",
-	]
 	officers = query_active_officer_assignments(
-		role_level=role_level, fields=fields, department=department, category=category
+		role_level=role_level,
+		fields=lambda c, p, u: [
+			c.user,
+			c.is_primary,
+			c.administrative_area.as_("administrative_area_scope"),
+			p.department_scope,
+			p.category_scope,
+		],
+		department=department,
+		category=category,
 	)
 	best = covering_rows(officers, department, category, administrative_area)
 	return best[0].user if best else None
@@ -323,10 +327,10 @@ def holds_rung(user, role_level, department=None, area=None, category=None):
 	rows = query_active_officer_assignments(
 		user=user,
 		role_level=role_level,
-		fields=[
-			"p.department_scope",
-			"p.category_scope",
-			"c.administrative_area AS administrative_area_scope",
+		fields=lambda c, p, u: [
+			p.department_scope,
+			p.category_scope,
+			c.administrative_area.as_("administrative_area_scope"),
 		],
 		order_by=None,
 		department=department,
@@ -344,8 +348,9 @@ def get_subordinate_officers(user):
 	while frontier:
 		rows = query_active_officer_assignments(
 			reports_to_list=frontier,
-			fields=["DISTINCT c.user"],
+			fields=lambda c, p, u: [c.user],
 			order_by=None,
+			distinct=True,
 		)
 		new_users = {r.user for r in rows if r.user and r.user not in subordinates}
 		if not new_users:
@@ -368,7 +373,7 @@ def current_level_of(user):
 
 	rows = query_active_officer_assignments(
 		user=user,
-		fields=["c.role_level"],
+		fields=lambda c, p, u: [c.role_level],
 		limit=1,
 	)
 	rows = [r for r in rows if r.role_level]
@@ -387,11 +392,11 @@ def get_officer_supervisor(user, department=None, administrative_area=None, stri
 
 	rows = query_active_officer_assignments(
 		user=user,
-		fields=[
-			"c.reports_to",
-			"p.department_scope",
-			"p.category_scope",
-			"c.administrative_area AS administrative_area_scope",
+		fields=lambda c, p, u: [
+			c.reports_to,
+			p.department_scope,
+			p.category_scope,
+			c.administrative_area.as_("administrative_area_scope"),
 		],
 	)
 	rows = [r for r in rows if r.reports_to]

@@ -35,13 +35,12 @@ class GrievanceHolidayList(Document):
 
 	def ensure_single_default(self):
 		if self.is_default:
-			frappe.db.sql(
-				"""
-				UPDATE `tabGrievance Holiday List`
-				SET is_default = 0
-				WHERE name != %s AND is_default = 1
-				""",
-				(self.name,),
+			frappe.db.set_value(
+				"Grievance Holiday List",
+				{"name": ["!=", self.name], "is_default": 1},
+				"is_default",
+				0,
+				update_modified=False,
 			)
 
 	def on_update(self):

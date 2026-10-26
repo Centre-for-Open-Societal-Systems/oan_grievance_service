@@ -27,6 +27,7 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	require_role,
 	success_response,
 	validate_request,
@@ -44,7 +45,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	get_active_config,
 )
 from oan_grievance_service.services import category_assignment
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1")
@@ -204,7 +205,7 @@ def get_global_policy(**kwargs):
 
 @route("/sla-policy", methods=("PATCH",), summary="Update the global SLA policy", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission("Grievance Deferral Policy", "write")
 @validate_request(UpdateGlobalSlaPolicy, exclude_unset=True)
 @api_doc(
 	summary="Update the global SLA policy",
@@ -290,7 +291,7 @@ def list_sla_configurations(
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission("Grievance SLA Configuration", "write")
 @validate_request(UpdateSlaConfiguration, exclude_unset=True)
 @api_doc(
 	summary="Update a category's SLA settings",

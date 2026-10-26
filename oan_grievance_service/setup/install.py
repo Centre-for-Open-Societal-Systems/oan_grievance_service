@@ -6,6 +6,7 @@ notification matrix.
 """
 
 import gzip
+import json
 import os
 
 import frappe
@@ -637,20 +638,20 @@ def seed_grievance_types():
 
 
 def seed_administrative_areas():
-	"""Seed pre-calculated Ethiopian administrative area tree (21,028 nodes) from SQL seed if empty."""
+	"""Seed pre-calculated Ethiopian administrative area tree (21,028 nodes) from the JSON seed if empty."""
 	if frappe.db.count("Grievance Administrative Area") > 0:
 		return 0
 
-	sql_path = os.path.join(os.path.dirname(__file__), "data", "ethiopia_administrative_areas.sql.gz")
-	if not os.path.exists(sql_path):
+	seed_path = os.path.join(os.path.dirname(__file__), "data", "ethiopia_administrative_areas.json.gz")
+	if not os.path.exists(seed_path):
 		return 0
 
-	with gzip.open(sql_path, "rt", encoding="utf-8") as f:
-		sql_content = f.read()
+	with gzip.open(seed_path, "rt", encoding="utf-8") as f:
+		seed = json.load(f)
 
-	statements = [s.strip() for s in sql_content.split(";\n") if s.strip() and not s.strip().startswith("--")]
-	for statement in statements:
-		frappe.db.sql(statement)  # nosemgrep
+	frappe.db.bulk_insert(
+		"Grievance Administrative Area", seed["columns"], seed["rows"], ignore_duplicates=True
+	)
 
 	return frappe.db.count("Grievance Administrative Area")
 
@@ -926,6 +927,7 @@ def seed_unrouted_desk():
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": C.UNROUTED_DEPARTMENT,
 				"category_scope": C.FALLBACK_SERVICE_CATEGORY,
+				"reassignment_requires_approval": 0,
 				"active": 1,
 				"effective_from": frappe.utils.today(),
 				"officers": [

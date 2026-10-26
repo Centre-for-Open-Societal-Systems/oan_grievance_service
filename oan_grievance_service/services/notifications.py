@@ -503,7 +503,7 @@ def resolve_recipient(grievance, recipient_role, override=None, role_level=None)
 	if recipient_role == RECIPIENT_ASSIGNED_OFFICER:
 		return grievance.assigned_to
 
-	if not grievance.assigned_dept:
+	if not (grievance.assigned_dept or grievance.service_category):
 		return None
 
 	if recipient_role == RECIPIENT_ROLE_LEVEL and role_level:

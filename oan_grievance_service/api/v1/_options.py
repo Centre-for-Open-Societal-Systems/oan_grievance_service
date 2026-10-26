@@ -1,32 +1,47 @@
 """Shared dropdown and reference data helpers for API options endpoints."""
 
 import frappe
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Coalesce, NullIf
 
 from oan_grievance_service.permissions import is_staff
-from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services import constants as C
 
 
-def get_service_categories(department: str | None = None) -> list[dict]:
-	"""Retrieve active grievance service categories.
+def _staffed_desks() -> list[tuple[str | None, str | None]]:
+	"""The (department, category) scopes of every active desk that has an active officer.
 
-	With a `department` (its canonical id), only the categories that department has an active
-	category assignment for: the same pairing an officer needs before they can be placed on it.
+	A Reviewer does not staff a desk: they only read its cases.
 	"""
-	filters = {"is_active": 1}
-	if department:
-		filters["name"] = [
-			"in",
-			frappe.get_all(
-				"Grievance RBAC Assignment",
-				filters=category_assignment.desk_filters(department_scope=department, active=1),
-				pluck="category_scope",
-				ignore_permissions=True,
-			),
-		]
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		query_active_officer_assignments,
+	)
+
+	rows = query_active_officer_assignments(
+		fields=lambda c, p, u: [p.department_scope.as_("department"), p.category_scope.as_("category")],
+		order_by=None,
+		distinct=True,
+	)
+	return [(row["department"] or None, row["category"] or None) for row in rows]
+
+
+def get_service_categories(department: str | None = None) -> list[dict]:
+	"""Retrieve the active grievance service categories that a desk with officers handles.
+
+	With a `department` (its canonical id), only the categories that department has a staffed
+	desk for. Without one, the fallback category is always listed too: it is where a case with
+	no better home goes.
+	"""
+	names = {
+		category
+		for desk_department, category in _staffed_desks()
+		if category and (not department or desk_department == department)
+	}
+	if not department:
+		names.add(C.FALLBACK_SERVICE_CATEGORY)
 	return frappe.get_all(
 		"Grievance Service Category",
-		filters=filters,
+		filters={"is_active": 1, "name": ["in", sorted(names)]},
 		fields=["name as category_name", "code", "sort_order"],
 		order_by="sort_order asc, name asc",
 		ignore_permissions=True,
@@ -70,9 +85,11 @@ def get_submission_types() -> list[dict]:
 
 
 def get_departments() -> list[dict]:
-	"""Retrieve grievance departments."""
+	"""Retrieve the grievance departments that have a desk with officers."""
+	staffed = sorted({department for department, _category in _staffed_desks() if department})
 	return frappe.get_all(
 		"Grievance Department",
+		filters={"name": ["in", staffed]},
 		fields=["name as department_id", "dept_name as department_name", "short_name"],
 		order_by="dept_name asc",
 		ignore_permissions=True,
@@ -91,7 +108,7 @@ def get_department_officers(
 	on several matching desks appears once, with their primary desk first.
 	`exclude_user` (the caller) is left out, so nobody is offered themselves.
 	"""
-	if not department:
+	if not department and not service_category:
 		return []
 
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
@@ -103,14 +120,14 @@ def get_department_officers(
 		category=service_category,
 		administrative_area=administrative_area,
 		include_user_details=True,
-		fields=[
-			"c.user AS user_id",
-			"COALESCE(NULLIF(u.full_name, ''), u.name) AS full_name",
-			"c.role_level",
-			"c.is_primary",
-			"c.administrative_area AS administrative_area_scope",
+		fields=lambda c, p, u: [
+			c.user.as_("user_id"),
+			Coalesce(NullIf(u.full_name, ""), u.name).as_("full_name"),
+			c.role_level,
+			c.is_primary,
+			c.administrative_area.as_("administrative_area_scope"),
 		],
-		order_by="c.is_primary DESC, u.full_name ASC, c.user ASC",
+		order_by=lambda c, p, u: [(c.is_primary, Order.desc), (u.full_name, Order.asc), (c.user, Order.asc)],
 	)
 
 	unique = {}

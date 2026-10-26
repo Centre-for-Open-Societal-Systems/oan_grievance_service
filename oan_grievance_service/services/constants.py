@@ -89,8 +89,13 @@ EVENT_EC_ID = {
 	EVENT_REASSIGNMENT_REQUESTED: "EC-019",
 }
 
-# Default submitter confirmation window.
-DEFAULT_CONFIRMATION_DAYS = 7
+# SLA window, in days, for a category created without one.
+DEFAULT_SLA_DAYS = 7
+# State timers every new SLA Configuration starts with: (state, hours, on_expiry).
+DEFAULT_STATE_TIMERS = (
+	(STATE_RESOLVED, 7 * 24, "Auto Close"),
+	(STATE_MORE_INFO_NEEDED, 7 * 24, "Auto Close"),
+)
 # Reminder thresholds as a percentage of the SLA window.
 SLA_REMINDER_THRESHOLDS = (50, 80)
 # Global default ceiling on a single deferral.

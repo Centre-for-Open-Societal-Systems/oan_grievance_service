@@ -291,7 +291,7 @@ def _template_scope_clause(scope):
 		value = scope.get(scope_field)
 		if value:
 			parts.append(
-				f"ifnull(`tabGrievance Response Template`.{template_field}, '') in ('', {frappe.db.escape(value)})"
+				f"COALESCE(`tabGrievance Response Template`.{template_field}, '') in ('', {frappe.db.escape(value)})"
 			)
 	return "(" + " and ".join(parts) + ")" if parts else "1 = 1"
 
@@ -308,8 +308,8 @@ def response_template_query_conditions(user=None):
 	scopes = active_scopes(user)
 	clauses = [_template_scope_clause(scope) for scope in scopes] or [
 		(
-			"(ifnull(`tabGrievance Response Template`.department, '') = ''"
-			+ " and ifnull(`tabGrievance Response Template`.service_category, '') = '')"
+			"(COALESCE(`tabGrievance Response Template`.department, '') = ''"
+			+ " and COALESCE(`tabGrievance Response Template`.service_category, '') = '')"
 		)
 	]
 	return "(`tabGrievance Response Template`.is_active = 1 and (" + " or ".join(clauses) + "))"
@@ -371,7 +371,10 @@ def head_scopes(user) -> list[tuple[str | None, str | None]]:
 	if not top or ROLE_DESK_HEAD not in frappe.get_roles(user):
 		return []
 	rows = query_active_officer_assignments(
-		user=user, role_level=top, fields=["p.department_scope", "p.category_scope"], order_by=None
+		user=user,
+		role_level=top,
+		fields=lambda c, p, u: [p.department_scope, p.category_scope],
+		order_by=None,
 	)
 	return [(row.department_scope or None, row.category_scope or None) for row in rows]
 

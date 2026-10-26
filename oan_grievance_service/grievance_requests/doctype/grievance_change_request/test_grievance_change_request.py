@@ -57,7 +57,17 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.area = a_leaf_area()
-		self.dept = a_department()
+		dept_name = f"Primary Dept {frappe.generate_hash(length=6)}"
+		self.dept = (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": dept_name,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
 
 		self.officer1 = _ensure_test_user("cr_officer1@example.com", "Grievance Officer", "Officer One")
 		self.officer2 = _ensure_test_user("cr_officer2@example.com", "Grievance Officer", "Officer Two")

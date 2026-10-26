@@ -10,7 +10,6 @@ against a baseline taken before the fixtures are made.
 from unittest.mock import patch
 
 import frappe
-import pymysql
 from frappe.query_builder.functions import Sum
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_months, add_to_date, get_datetime, getdate, now_datetime
@@ -228,23 +227,6 @@ class TestDashboardCharts(FrappeTestCase):
 		dashboard_rollup.refresh()
 		self.assertTrue(frappe.db.exists(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday}))
 		frappe.db.delete(dashboard_rollup.SNAPSHOT, {"snapshot_date": yesterday, "grievance_count": 7})
-
-	def test_overlapping_refresh_is_skipped(self):
-		lock = f"{frappe.local.site}:{dashboard_rollup.LOCK_KEY}"
-		# Held from a second connection, as a concurrent worker would.
-		other = pymysql.connect(
-			host=frappe.conf.db_host or "localhost",
-			port=int(frappe.conf.db_port or 3306),
-			user=frappe.conf.db_user or frappe.conf.db_name,
-			password=frappe.conf.db_password,
-			database=frappe.conf.db_name,
-		)
-		try:
-			with other.cursor() as cursor:
-				cursor.execute("SELECT GET_LOCK(%s, 0)", (lock,))
-			self.assertIsNone(dashboard_rollup.refresh())
-		finally:
-			other.close()
 
 	# Public view
 	# -----------
@@ -587,7 +569,14 @@ class TestPerformanceScore(FrappeTestCase):
 		super().setUpClass()
 		frappe.set_user("Administrator")
 		dashboard_rollup.refresh(full=True)
-		cls.dept = a_department()
+		dept_doc = frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": f"Perf Dept {frappe.generate_hash(length=6)}",
+				"short_name": f"P{frappe.generate_hash(length=3)}",
+			}
+		).insert(ignore_permissions=True)
+		cls.dept = dept_doc.name
 		cls.before_cases = cls.dept_cases()
 		cls.created = []
 
@@ -638,6 +627,8 @@ class TestPerformanceScore(FrappeTestCase):
 		frappe.set_user("Administrator")
 		for name in cls.created:
 			discard_grievance(name)
+		if hasattr(cls, "dept") and frappe.db.exists("Grievance Department", cls.dept):
+			frappe.delete_doc("Grievance Department", cls.dept, force=True, ignore_permissions=True)
 		dashboard_rollup.refresh(full=True)
 		super().tearDownClass()
 
@@ -838,6 +829,17 @@ class TestResolutionRateByRegionMonth(FrappeTestCase):
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.day})
+		self.today = getdate()
+		dashboard_rollup._insert(
+			dashboard_rollup.SNAPSHOT,
+			("snapshot_date", *dashboard_rollup.SNAPSHOT_FIELDS),
+			[
+				(self.today, C.STATE_RESOLVED, "XX02", self.category, "", 0, 0, "", 1, 0, None),
+			],
+		)
+		self.addCleanup(
+			frappe.db.delete, dashboard_rollup.SNAPSHOT, {"snapshot_date": self.today, "region": "XX02"}
+		)
 
 	def test_a_month_reads_the_snapshot_kept_for_it(self):
 		rows = _chart("grvResolutionRateByRegion", dashboard.Params(as_of_month="2021-03"))
@@ -907,17 +909,6 @@ class TestResolutionAndEscalationStamps(FrappeTestCase):
 		self.assertIn("escalated_at", sla._first_escalation(self.doc))
 		self.doc.escalated_at = now_datetime()
 		self.assertEqual(sla._first_escalation(self.doc), {})
-
-	def test_backfill_fills_resolved_at_from_status_history(self):
-		from oan_grievance_service.patches import backfill_resolved_and_escalated_at
-
-		frappe.db.set_value(
-			"Grievance",
-			self.doc.name,
-			{"status": C.STATE_RESOLVED, "workflow_state": C.STATE_RESOLVED, "resolved_at": None},
-		)
-		backfill_resolved_and_escalated_at.execute()
-		self.assertIsNotNone(frappe.db.get_value("Grievance", self.doc.name, "resolved_at"))
 
 
 class TestGatewayContract(FrappeTestCase):

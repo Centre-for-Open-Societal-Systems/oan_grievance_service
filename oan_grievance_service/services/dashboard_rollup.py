@@ -24,7 +24,10 @@ a chart is read, so every filter combination stays exact.
 """
 
 import frappe
+from frappe.query_builder import Case, Order
+from frappe.query_builder.functions import Coalesce, Count, Date, Min, Sum, UnixTimestamp
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
+from pypika.terms import ExistsCriterion, LiteralValue
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import sla
@@ -35,7 +38,7 @@ SNAPSHOT = "Grievance Stat Snapshot"
 # Where the time of the last completed refresh is kept, as a system default: it is
 # what every chart reports as its as_of.
 AS_OF_DEFAULT = "grievance_dashboard_as_of"
-LOCK_KEY = "grievance_dashboard_rollup"
+JOB_ID = "grievance_dashboard_rollup"
 
 # An incremental refresh rebuilds this many days, today included. More than one,
 # so a run that failed around midnight is repaired by the next.
@@ -73,138 +76,219 @@ SNAPSHOT_FIELDS = (
 	"oldest_open_creation",
 )
 
-# The SQL below is assembled once, here, from constant fragments; no request
-# value is ever formatted into it -- windows and states go in as parameters.
 # GROUP BY is positional: MariaDB resolves a GROUP BY name against the tables
 # before the select list, so `assigned_dept` would group on the raw column and
-# split NULL from '' after COALESCE had merged them.
+# split NULL from '' after COALESCE had merged them. LiteralValue keeps the
+# positions out of the query parameters.
 #
 # A grievance's region is the Region-level ancestor of its filing area, found
 # through the area's own lft rather than the copy on Grievance, which goes stale
 # when the tree is rebuilt. It is stored as the region's P-code.
-_AREA_JOIN = """
-	JOIN `tabGrievance Administrative Area` a ON a.name = g.administrative_area
-	LEFT JOIN `tabGrievance Administrative Area` r
-		ON r.level_name = 'Region' AND a.lft BETWEEN r.lft AND r.rgt"""
-_DIMENSIONS = (
-	"COALESCE(r.code, '') AS region, g.service_category, COALESCE(g.assigned_dept, '') AS assigned_dept"
-)
-# A case sits with a real desk when it is not on the Unrouted catch-all and has a
-# department, a routing rule or an officer. routing.ranked_assignments treats an empty
-# department scope as a wildcard, so a desk with none is a real desk and the
-# department alone cannot say.
-_HAS_DESK = """(COALESCE(g.assigned_dept, '') != %(unrouted)s AND (
-			COALESCE(g.assigned_dept, '') != '' OR COALESCE(g.routing_rule, '') != ''
-			OR COALESCE(g.assigned_to, '') != ''
-		)) AS has_desk"""
 
 
-def _daily_sql(day_column, measures, where=None, source="`tabGrievance` g"):
-	where = f" AND {where}" if where else ""
-	return f"""
-		SELECT DATE({day_column}) AS stat_date, {_DIMENSIONS}, {measures}
-		FROM {source}{_AREA_JOIN}
-		WHERE {day_column} >= %(start)s AND {day_column} < %(end)s{where}
-		GROUP BY 1, 2, 3, 4"""
+def _positions(count):
+	return [LiteralValue(str(i)) for i in range(1, count + 1)]
 
 
-_SUBMITTED_SQL = _daily_sql("g.creation", "COUNT(*) AS submitted_count")
-_RESOLVED_SQL = _daily_sql(
-	"g.resolved_at",
-	"""COUNT(*) AS resolved_count,
-		SUM(g.sla_due_date IS NOT NULL AND g.resolved_at <= g.sla_due_date) AS resolved_on_time_count,
-		SUM(g.sla_due_date IS NOT NULL AND g.resolved_at > g.sla_due_date) AS resolved_breached_count,
-		SUM(TIMESTAMPDIFF(SECOND, g.creation, g.resolved_at)) / 3600 AS resolution_hours_sum""",
-	"g.status IN %(resolved)s",
-)
-# Rejected is terminal and a rejected case is never saved again, so its last
-# modification is when it was rejected.
-_REJECTED_SQL = _daily_sql("g.modified", "COUNT(*) AS rejected_count", "g.status = 'Rejected'")
-# Dated by filing, not by escalation: this counts the cases filed that day that have
-# been escalated since. The escalation rate divides it by submitted_count, so both
-# must describe the same cases; a case filed in March and escalated in April is
-# part of March's rate, never of April's.
-_ESCALATED_SQL = _daily_sql("g.creation", "COUNT(*) AS escalated_count", "g.escalated_at IS NOT NULL")
-# A case is informed once an officer has put a public entry on its timeline: a message,
-# a question, or the reason for an action. The submission entry an officer files on
-# someone's behalf does not count. Dated by filing, like escalated_count.
-_INFORMED_ENTRY = """EXISTS (
-			SELECT 1 FROM `tabGrievance Timeline` t
-			WHERE t.grievance = g.name AND t.is_internal = 0
-				AND t.author_type = 'officer' AND t.entry_type != 'submission'
-		)"""
-_INFORMED_SQL = _daily_sql("g.creation", "COUNT(*) AS informed_count", _INFORMED_ENTRY)
-# The submitter rates the case (1-5) only when confirming the resolution, the same
-# transition that stamps resolved_at, so that is the day the feedback was given.
-_FEEDBACK_SQL = _daily_sql(
-	"g.resolved_at",
-	"""COUNT(*) AS feedback_count,
-		SUM(g.satisfaction_rating >= %(satisfied)s) AS feedback_satisfied_count""",
-	"g.status IN %(resolved)s AND g.satisfaction_rating > 0",
-)
+def _count_if(condition):
+	return Sum(Case().when(condition, 1).else_(0))
 
-# Joined from the constant fragments above, like _daily_sql; no value is ever
-# interpolated, every value is a %(name)s parameter.
-_SNAPSHOT_SQL = (
-	"""
-	SELECT g.status, """
-	+ _DIMENSIONS
-	+ """, g.escalated, """
-	+ _HAS_DESK
-	+ """,
-		CASE
-			WHEN g.status NOT IN %(open)s THEN ''
-			WHEN g.status IN %(paused)s THEN 'paused'
-			WHEN g.sla_due_date IS NULL THEN 'no_sla'
-			WHEN g.sla_due_date < %(now)s THEN 'breached'
-			WHEN g.sla_due_date < %(at_risk)s THEN 'at_risk'
-			ELSE 'ok'
-		END AS sla_state,
-		COUNT(*) AS grievance_count,
-		SUM(d.grievance IS NOT NULL AND g.status IN %(open)s) AS dup_pending_count,
-		MIN(CASE WHEN g.status IN %(open)s AND g.escalated = 0 THEN g.creation END) AS oldest_open_creation
-	FROM `tabGrievance` g"""
-	+ _AREA_JOIN
-	+ """
-	LEFT JOIN (
-		SELECT DISTINCT grievance FROM `tabGrievance Duplicate` WHERE is_confirmed = 0
-	) d ON d.grievance = g.name
-	GROUP BY 1, 2, 3, 4, 5, 6, 7"""
-)
+
+def _grievances():
+	"""Grievance joined to its filing area and that area's region."""
+	g = frappe.qb.DocType("Grievance", alias="g")
+	a = frappe.qb.DocType("Grievance Administrative Area", alias="a")
+	r = frappe.qb.DocType("Grievance Administrative Area", alias="r")
+	query = (
+		frappe.qb.from_(g)
+		.join(a)
+		.on(a.name == g.administrative_area)
+		.left_join(r)
+		.on((r.level_name == "Region") & a.lft.between(r.lft, r.rgt))
+	)
+	dimensions = (
+		Coalesce(r.code, "").as_("region"),
+		g.service_category,
+		Coalesce(g.assigned_dept, "").as_("assigned_dept"),
+	)
+	return g, query, dimensions
+
+
+def _has_desk(g):
+	"""A case sits with a real desk when it is not on the Unrouted catch-all and has a
+	department, a routing rule or an officer. routing.ranked_assignments treats an empty
+	department scope as a wildcard, so a desk with none is a real desk and the
+	department alone cannot say."""
+	dept = Coalesce(g.assigned_dept, "")
+	held = (dept != "") | (Coalesce(g.routing_rule, "") != "") | (Coalesce(g.assigned_to, "") != "")
+	return Case().when((dept != C.UNROUTED_DEPARTMENT) & held, 1).else_(0)
+
+
+def _public_officer_entry(t):
+	"""A public entry an officer put on the timeline: a message, a question, or the
+	reason for an action. The submission entry an officer files on someone's behalf
+	does not count."""
+	return (t.is_internal == 0) & (t.author_type == "officer") & (t.entry_type != "submission")
+
+
+def _informed(g):
+	t = frappe.qb.DocType("Grievance Timeline", alias="t")
+	return ExistsCriterion(
+		frappe.qb.from_(t).select(t.name).where((t.grievance == g.name) & _public_officer_entry(t))
+	)
+
+
+def _daily_query(start, end, day_column, measures, where=None):
+	g, query, dimensions = _grievances()
+	day = getattr(g, day_column)
+	query = (
+		query.select(Date(day).as_("stat_date"), *dimensions, *measures(g))
+		.where((day >= start) & (day < end))
+		.groupby(*_positions(4))
+	)
+	return query.where(where(g)) if where else query
+
+
+def _daily_queries(start, end):
+	resolved = list(C.RESOLVED_STATES)
+	return [
+		_daily_query(start, end, "creation", lambda g: [Count("*").as_("submitted_count")]),
+		_daily_query(
+			start,
+			end,
+			"resolved_at",
+			lambda g: [
+				Count("*").as_("resolved_count"),
+				_count_if(g.sla_due_date.isnotnull() & (g.resolved_at <= g.sla_due_date)).as_(
+					"resolved_on_time_count"
+				),
+				_count_if(g.sla_due_date.isnotnull() & (g.resolved_at > g.sla_due_date)).as_(
+					"resolved_breached_count"
+				),
+				(Sum(UnixTimestamp(g.resolved_at) - UnixTimestamp(g.creation)) / 3600.0).as_(
+					"resolution_hours_sum"
+				),
+			],
+			lambda g: g.status.isin(resolved),
+		),
+		# Rejected is terminal and a rejected case is never saved again, so its last
+		# modification is when it was rejected.
+		_daily_query(
+			start,
+			end,
+			"modified",
+			lambda g: [Count("*").as_("rejected_count")],
+			lambda g: g.status == "Rejected",
+		),
+		# Dated by filing, not by escalation: this counts the cases filed that day that have
+		# been escalated since. The escalation rate divides it by submitted_count, so both
+		# must describe the same cases; a case filed in March and escalated in April is
+		# part of March's rate, never of April's.
+		_daily_query(
+			start,
+			end,
+			"creation",
+			lambda g: [Count("*").as_("escalated_count")],
+			lambda g: g.escalated_at.isnotnull(),
+		),
+		# A case is informed once an officer has put a public entry on its timeline. Dated
+		# by filing, like escalated_count.
+		_daily_query(start, end, "creation", lambda g: [Count("*").as_("informed_count")], _informed),
+		# The submitter rates the case (1-5) only when confirming the resolution, the same
+		# transition that stamps resolved_at, so that is the day the feedback was given.
+		_daily_query(
+			start,
+			end,
+			"resolved_at",
+			lambda g: [
+				Count("*").as_("feedback_count"),
+				_count_if(g.satisfaction_rating >= SATISFIED_RATING).as_("feedback_satisfied_count"),
+			],
+			lambda g: g.status.isin(resolved) & (g.satisfaction_rating > 0),
+		),
+	]
+
+
+def _snapshot_query(now):
+	g, query, dimensions = _grievances()
+	duplicate = frappe.qb.DocType("Grievance Duplicate")
+	pending = (
+		frappe.qb.from_(duplicate)
+		.select(duplicate.grievance)
+		.distinct()
+		.where(duplicate.is_confirmed == 0)
+		.as_("d")
+	)
+	open_states = list(sla.open_states())
+	# An empty IN () is a syntax error; no state is named "".
+	paused = list(sla.states_in_category(sla.PAUSED)) or [""]
+	sla_state = (
+		Case()
+		.when(g.status.notin(open_states), "")
+		.when(g.status.isin(paused), "paused")
+		.when(g.sla_due_date.isnull(), "no_sla")
+		.when(g.sla_due_date < now, "breached")
+		.when(g.sla_due_date < add_to_date(now, hours=AT_RISK_HOURS), "at_risk")
+		.else_("ok")
+	)
+	return (
+		query.left_join(pending)
+		.on(pending.grievance == g.name)
+		.select(
+			g.status,
+			*dimensions,
+			g.escalated,
+			_has_desk(g).as_("has_desk"),
+			sla_state.as_("sla_state"),
+			Count("*").as_("grievance_count"),
+			_count_if(pending.grievance.isnotnull() & g.status.isin(open_states)).as_("dup_pending_count"),
+			Min(Case().when(g.status.isin(open_states) & (g.escalated == 0), g.creation)).as_(
+				"oldest_open_creation"
+			),
+		)
+		.groupby(*_positions(7))
+	)
+
+
+def enqueue(full=False):
+	"""Queue a refresh. Every caller shares one job id, so a refresh never starts while
+	another is queued or running; that is what keeps two runs off the same rows."""
+	frappe.enqueue(
+		"oan_grievance_service.services.dashboard_rollup.refresh",
+		full=full,
+		queue="long",
+		job_id=JOB_ID,
+		deduplicate=True,
+		enqueue_after_commit=True,
+	)
 
 
 def refresh(full=False):
-	"""Bring both rollups up to date. Returns what it did, or None if a run was already going.
+	"""Bring both rollups up to date. Returns what it did.
 
 	`full` rebuilds every day of Grievance Stat Daily instead of the last few.
 	Snapshot history is never rebuilt: a past day's status counts cannot be
 	recovered from current data, which is why they are kept.
+
+	Run it through `enqueue`: a refresh deletes and rewrites its days, so two at once
+	would double-count.
 	"""
-	# A database named lock: held by this connection, so a worker that dies
-	# mid-run releases it with its connection instead of blocking later runs.
-	lock_name = f"{frappe.local.site}:{LOCK_KEY}"
-	if not frappe.db.sql("SELECT GET_LOCK(%s, 0)", lock_name)[0][0]:
-		frappe.logger().info("Grievance dashboard rollup skipped: another refresh is running")
-		return None
-	try:
-		now = now_datetime()
-		today = getdate(now)
-		if full:
-			start, days = getdate(_EPOCH), []
-		else:
-			start, days = _incremental_window(today)
-		daily_rows = _rebuild_daily(start, add_days(today, 1), days)
-		snapshot_rows = _rebuild_snapshot(today, now)
-		frappe.db.set_default(AS_OF_DEFAULT, str(now))
-		return {
-			"as_of": now,
-			"from": start,
-			"days": days,
-			"daily_rows": daily_rows,
-			"snapshot_rows": snapshot_rows,
-		}
-	finally:
-		frappe.db.sql("SELECT RELEASE_LOCK(%s)", lock_name)
+	now = now_datetime()
+	today = getdate(now)
+	if full:
+		start, days = getdate(_EPOCH), []
+	else:
+		start, days = _incremental_window(today)
+	daily_rows = _rebuild_daily(start, add_days(today, 1), days)
+	snapshot_rows = _rebuild_snapshot(today, now)
+	frappe.db.set_default(AS_OF_DEFAULT, str(now))
+	return {
+		"as_of": now,
+		"from": start,
+		"days": days,
+		"daily_rows": daily_rows,
+		"snapshot_rows": snapshot_rows,
+	}
 
 
 def _incremental_window(today):
@@ -221,24 +305,34 @@ def _incremental_window(today):
 	case whose first one falls in the window counts.
 	"""
 	start = add_days(today, -(INCREMENTAL_DAYS - 1))
-	rows = frappe.db.sql(
-		"""SELECT d FROM (
-			SELECT DATE(creation) AS d FROM `tabGrievance`
-			WHERE escalated_at >= %(start)s AND creation < %(start)s
-			UNION
-			SELECT DATE(g.creation) FROM `tabGrievance Timeline` t
-			JOIN `tabGrievance` g ON g.name = t.grievance
-			WHERE t.creation >= %(start)s AND g.creation < %(start)s
-				AND t.is_internal = 0 AND t.author_type = 'officer' AND t.entry_type != 'submission'
-				AND NOT EXISTS (
-					SELECT 1 FROM `tabGrievance Timeline` p
-					WHERE p.grievance = t.grievance AND p.creation < %(start)s AND p.is_internal = 0
-						AND p.author_type = 'officer' AND p.entry_type != 'submission'
-				)
-		) days ORDER BY d DESC LIMIT %(limit)s""",
-		{"start": start, "limit": BACKFILL_DAYS_MAX},
+	g = frappe.qb.DocType("Grievance", alias="g")
+	escalated = (
+		frappe.qb.from_(g)
+		.select(Date(g.creation))
+		.distinct()
+		.where((g.escalated_at >= start) & (g.creation < start))
 	)
-	return start, sorted(getdate(d) for (d,) in rows)
+	t = frappe.qb.DocType("Grievance Timeline", alias="t")
+	p = frappe.qb.DocType("Grievance Timeline", alias="p")
+	answered_before = ExistsCriterion(
+		frappe.qb.from_(p)
+		.select(p.name)
+		.where((p.grievance == t.grievance) & (p.creation < start) & _public_officer_entry(p))
+	)
+	first_answered = (
+		frappe.qb.from_(t)
+		.join(g)
+		.on(g.name == t.grievance)
+		.select(Date(g.creation))
+		.distinct()
+		.where((t.creation >= start) & (g.creation < start) & _public_officer_entry(t))
+		.where(answered_before.negate())
+	)
+	days = set()
+	for query in (escalated, first_answered):
+		query = query.orderby(LiteralValue("1"), order=Order.desc).limit(BACKFILL_DAYS_MAX)
+		days.update(getdate(d) for (d,) in query.run())
+	return start, sorted(sorted(days, reverse=True)[:BACKFILL_DAYS_MAX])
 
 
 def _day_ranges(days):
@@ -262,14 +356,7 @@ def ensure_built():
 	"""after_migrate: queue a first full build on a site that has none yet."""
 	if frappe.flags.in_test or frappe.db.exists(DAILY) or not frappe.db.exists("Grievance"):
 		return
-	frappe.enqueue(
-		"oan_grievance_service.services.dashboard_rollup.refresh",
-		full=True,
-		queue="long",
-		job_id=LOCK_KEY,
-		deduplicate=True,
-		enqueue_after_commit=True,
-	)
+	enqueue(full=True)
 
 
 def _rebuild_daily(start, end, days=()):
@@ -277,23 +364,8 @@ def _rebuild_daily(start, end, days=()):
 	windows = [(start, end), *_day_ranges(days)]
 	merged = {}
 	for window_start, window_end in windows:
-		params = {
-			"start": window_start,
-			"end": window_end,
-			"resolved": C.RESOLVED_STATES,
-			"satisfied": SATISFIED_RATING,
-		}
-		for sql in (
-			_SUBMITTED_SQL,
-			_RESOLVED_SQL,
-			_REJECTED_SQL,
-			_ESCALATED_SQL,
-			_INFORMED_SQL,
-			_FEEDBACK_SQL,
-		):
-			for row in frappe.db.sql(
-				sql, params, as_dict=True
-			):  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
+		for query in _daily_queries(window_start, window_end):
+			for row in query.run(as_dict=True):
 				key = (row.stat_date, row.region, row.service_category, row.assigned_dept)
 				target = merged.setdefault(key, dict.fromkeys(DAILY_METRICS, 0))
 				for metric in DAILY_METRICS:
@@ -312,17 +384,7 @@ def _rebuild_daily(start, end, days=()):
 
 
 def _rebuild_snapshot(today, now):
-	params = {
-		"open": tuple(sla.open_states()),
-		# An empty IN () is a syntax error; no state is named "".
-		"paused": tuple(sla.states_in_category(sla.PAUSED)) or ("",),
-		"now": now,
-		"at_risk": add_to_date(now, hours=AT_RISK_HOURS),
-		"unrouted": C.UNROUTED_DEPARTMENT,
-	}
-	rows = frappe.db.sql(
-		_SNAPSHOT_SQL, params, as_dict=True
-	)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-sql-format-injection
+	rows = _snapshot_query(now).run(as_dict=True)
 	frappe.db.delete(SNAPSHOT, {"snapshot_date": today})
 	_insert(
 		SNAPSHOT,

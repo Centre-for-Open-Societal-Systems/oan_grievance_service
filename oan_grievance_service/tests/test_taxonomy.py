@@ -159,14 +159,15 @@ class TestTaxonomy(FrappeTestCase):
 				)
 				self.assertEqual(res["code"], "VALIDATION_ERROR", msg=res)
 
-	def test_create_service_category_without_sla_days_leaves_sla_unconfigured(self):
+	def test_create_service_category_without_sla_days_defaults_to_standard_sla(self):
 		name = "STG406 No SLA Category"
 		code = "Q90"
 		res = create_service_category(category_name=name, code=code)
 		self.assertEqual(res["status"], "success", msg=res)
-		self.assertFalse(
-			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
+		sla_days = frappe.db.get_value(
+			"Grievance SLA Configuration", {"service_category": name, "active": 1}, "sla_days"
 		)
+		self.assertEqual(sla_days, C.DEFAULT_SLA_DAYS)
 
 	def test_missing_category_is_not_found(self):
 		for result in (
@@ -568,8 +569,20 @@ class TestTaxonomy(FrappeTestCase):
 	# Consistency with the readers of the reference data
 	# --------------------------------------------------
 
+	def _staff_category(self, category):
+		"""A desk with an active officer: the dropdowns only offer categories that have one."""
+		l1 = _user("stg406-l1@example.com", "Hana Bekele")
+		_role_level("nodal_officer", 10)
+		_role_level("senior_nodal_officer", 20)
+		create_assignment(
+			service_category=category,
+			department=_department("STG406 Agency", "S406"),
+			l1_officer=l1,
+			sla_days=5,
+		)
+
 	def test_dropdowns_offer_only_active_categories_and_types(self):
-		self._category()
+		self._staff_category(self._category()["category_name"])
 		kind = self._type()
 		self._type(name="STG406 Retired", is_active=False)
 
@@ -590,8 +603,10 @@ class TestTaxonomy(FrappeTestCase):
 		self.assertNotIn(CATEGORY, offered()[0])
 
 	def test_renamed_and_reordered_categories_reach_the_dropdown(self):
-		self._category(sort_order=9100)
-		self._category(name="STG406 Second", code="Q54", sort_order=9099)
+		self._staff_category(self._category(sort_order=9100)["category_name"])
+		self._staff_category(
+			self._category(name="STG406 Second", code="Q54", sort_order=9099)["category_name"]
+		)
 		names = [row["category_name"] for row in get_service_categories() if "STG406" in row["category_name"]]
 		self.assertEqual(names, ["STG406 Second", CATEGORY])
 		update_service_category(CATEGORY, category_name="STG406 Renamed", sort_order=9098)

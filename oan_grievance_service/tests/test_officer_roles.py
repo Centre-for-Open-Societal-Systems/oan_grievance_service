@@ -75,10 +75,10 @@ class RoleCase(FrappeTestCase):
 		self.l1_seed = _user("seed443-l1@example.com", "Seed Nodal")
 		self.l2_seed = _user("seed443-l2@example.com", "Seed Senior")
 		for category, department in (
-			(self.inputs, "S443"),
-			(self.credit, "S443"),
-			(a_service_category(), "S443"),
-			(a_service_category(), "S444"),
+			(self.inputs, self.department),
+			(self.credit, self.department),
+			(a_service_category(), self.department),
+			(a_service_category(), self.other_department),
 		):
 			for name in frappe.get_all(
 				DESK, filters={"category_scope": category, "department_scope": department}, pluck="name"
@@ -333,12 +333,13 @@ class TestReviewerOnTheDesk(RoleCase):
 		)
 		self.assertEqual(get_officer(reviewer["name"])["data"]["officer"], reviewer)
 
-	def test_a_reviewer_needs_a_department_and_categories_and_takes_no_level(self):
+	def test_a_reviewer_needs_categories_and_takes_no_level(self):
 		base = {"role": "Reviewer", "full_name": "X", "temporary_password": PASSWORD}
 		email = f"{PREFIX}rv@example.com"
 		with _keep_transaction():
 			missing = create_officer(**base, email=email)
-			self.assertLessEqual({"department", "service_categories"}, set(missing["details"]))
+			self.assertIn("service_categories", missing["details"])
+			self.assertNotIn("department", missing["details"])
 			for field, value in (("level", "L1"), ("reports_to", self.l2_seed)):
 				result = create_officer(
 					**base,

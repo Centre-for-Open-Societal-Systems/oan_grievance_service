@@ -386,13 +386,12 @@ numbers, booleans, lists and objects.
 
 **Optional, `oan_grievance_service`**
 
-| Key                                  | Default | Effect                                                      |
-| ------------------------------------ | ------- | ----------------------------------------------------------- |
-| `grievance_clamav_host`              | unset   | ClamAV daemon host. **Unset disables scanning.**            |
-| `grievance_clamav_port`              | `3310`  | ClamAV daemon port                                          |
-| `grievance_confirmation_window_days` | `7`     | Days a submitter has to confirm a resolution                |
-| `grievance_auto_escalation_enabled`  | `true`  | Set `false` to stop automatic escalation site-wide          |
-| `grievance_change_request_hours`     | `24`    | Hours before an unanswered change request moves one rung up |
+| Key                                 | Default | Effect                                                      |
+| ----------------------------------- | ------- | ----------------------------------------------------------- |
+| `grievance_clamav_host`             | unset   | ClamAV daemon host. **Unset disables scanning.**            |
+| `grievance_clamav_port`             | `3310`  | ClamAV daemon port                                          |
+| `grievance_auto_escalation_enabled` | `true`  | Set `false` to stop automatic escalation site-wide          |
+| `grievance_change_request_hours`    | `24`    | Hours before an unanswered change request moves one rung up |
 
 The maximum deferral is no longer a site config key. Set it on the **Grievance Deferral
 Policy** doctype. `grievance_max_deferral_days` is ignored.

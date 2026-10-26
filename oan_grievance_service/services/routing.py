@@ -125,7 +125,7 @@ def find_matching_assignment(grievance):
 			"effective_from": ["<=", today],
 		},
 		or_filters=[
-			["effective_to", "is", "not set"],
+			["effective_to", "=", None],
 			["effective_to", ">=", today],
 		],
 		fields=[
@@ -183,7 +183,7 @@ def _active_assignments():
 	return frappe.get_all(
 		"Grievance RBAC Assignment",
 		filters={"active": 1, "effective_from": ["<=", today]},
-		or_filters=[["effective_to", "is", "not set"], ["effective_to", ">=", today]],
+		or_filters=[["effective_to", "=", None], ["effective_to", ">=", today]],
 		fields=[
 			"name",
 			"department_scope",
@@ -239,15 +239,15 @@ def officer_desks(grievance, department, officer):
 	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
 	rows = query_active_officer_assignments(
 		user=officer,
-		fields=[
-			"p.name AS name",
-			"p.department_scope",
-			"p.category_scope",
-			"p.grievance_type_scope",
-			"p.service_provider_scope",
-			"c.administrative_area AS administrative_area_scope",
-			"p.routing_strategy",
-			"p.reassignment_requires_approval",
+		fields=lambda c, p, u: [
+			p.name,
+			p.department_scope,
+			p.category_scope,
+			p.grievance_type_scope,
+			p.service_provider_scope,
+			c.administrative_area.as_("administrative_area_scope"),
+			p.routing_strategy,
+			p.reassignment_requires_approval,
 		],
 		order_by=None,
 	)
@@ -260,7 +260,7 @@ def officer_desks(grievance, department, officer):
 		if not desk_name or desk_name in seen:
 			continue
 
-		if desk.get("department_scope") and desk.get("department_scope") != department:
+		if department and desk.get("department_scope") and desk.get("department_scope") != department:
 			continue
 
 		matched, area_span, specificity = _score_desk(desk, case_area, case_lft, case_rgt)
@@ -277,11 +277,14 @@ def officer_desks(grievance, department, officer):
 def department_desks(grievance, department):
 	case_area, case_lft, case_rgt = _extract_case_area_bounds(grievance)
 	today = frappe.utils.today()
+	filters = {"active": 1, "effective_from": ["<=", today]}
+	if department:
+		filters["department_scope"] = department
 	assignments = frappe.get_all(
 		"Grievance RBAC Assignment",
-		filters={"active": 1, "department_scope": department, "effective_from": ["<=", today]},
+		filters=filters,
 		or_filters=[
-			["effective_to", "is", "not set"],
+			["effective_to", "=", None],
 			["effective_to", ">=", today],
 		],
 		fields=[
@@ -294,6 +297,8 @@ def department_desks(grievance, department):
 			"reassignment_requires_approval",
 		],
 	)
+	if not department:
+		assignments = [a for a in assignments if a.department_scope != C.UNROUTED_DEPARTMENT]
 
 	fits = _desk_area_fits([a.name for a in assignments], case_area, case_lft, case_rgt)
 	candidates = []
@@ -380,16 +385,14 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
-			rows = frappe.db.sql(
-				"""
-				SELECT assigned_to, COUNT(name) AS open_count
-				FROM `tabGrievance`
-				WHERE assigned_to IN %(users)s
-				  AND status NOT IN %(concluded)s
-				GROUP BY assigned_to
-				""",
-				{"users": tuple(users), "concluded": tuple(sla.states_in_category(sla.STOPPED)) or ("",)},
-				as_dict=True,
+			rows = frappe.get_all(
+				"Grievance",
+				filters={
+					"assigned_to": ["in", users],
+					"status": ["not in", sla.states_in_category(sla.STOPPED) or [""]],
+				},
+				fields=["assigned_to", {"COUNT": "name", "as": "open_count"}],
+				group_by="assigned_to",
 			)
 			counts = {r.assigned_to: r.open_count for r in rows}
 
@@ -417,7 +420,9 @@ def apply_routing(grievance, commit_status=True):
 	doc = officer_user = None
 	for assignment in ranked_assignments(grievance):
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
-		if not candidate.department_scope:
+		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
+		# the Unrouted triage desk.
+		if not (candidate.department_scope or candidate.category_scope):
 			continue
 		# No officer covers the case's region: any officer on the desk beats none.
 		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)

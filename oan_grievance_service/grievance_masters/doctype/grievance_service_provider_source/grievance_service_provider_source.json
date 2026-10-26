@@ -165,20 +165,23 @@
    "fieldname": "last_synced_at",
    "fieldtype": "Datetime",
    "label": "Last Synced At",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "last_sync_status",
    "fieldtype": "Select",
    "label": "Last Sync Status",
    "options": "\nSuccess\nPartial\nFailed",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "last_sync_message",
    "fieldtype": "Small Text",
    "label": "Last Sync Message",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   }
  ],
  "index_web_pages_for_search": 1,
@@ -201,6 +204,20 @@
    "read": 1,
    "role": "System Manager",
    "write": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Admin",
+   "read": 1,
+   "report": 1,
+   "export": 0
+  },
+  {
+   "permlevel": 1,
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 0
   }
  ],
  "row_format": "Dynamic",

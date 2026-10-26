@@ -9,7 +9,11 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	active_scopes,
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import ORG_STATUS_ACTIVE, ORG_TYPES
+
+# Submitter Profile fields the identity provider supplies (the "Identity provider details" section).
+IDENTITY_PROFILE_FIELDS = ("id_source", "street_address", "locality", "region", "postal_code", "country")
 
 
 def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
@@ -45,6 +49,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		"administrative_area",
 		"administrative_unit",
 		"organization",
+		*IDENTITY_PROFILE_FIELDS,
 	]
 	profile = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, fields, as_dict=True)
 	if profile:
@@ -90,6 +95,16 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			"identities": identities,
 			"administrative_area": profile.get("administrative_area"),
 			"administrative_unit": profile.get("administrative_unit"),
+			"id_source": profile.get("id_source"),
+			"address": {
+				"street_address": profile.get("street_address"),
+				"locality": profile.get("locality"),
+				"region": profile.get("region"),
+				"postal_code": profile.get("postal_code"),
+				"country": profile.get("country"),
+			}
+			if profile.get("id_source")
+			else None,
 		}
 
 	return "grievance", None
@@ -244,3 +259,128 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		# webhook intake, a desk entry) must not be filed under Web Portal by accident.
 		submission_channel="Web Portal",
 	)
+
+
+def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bool:
+	"""Hook subscriber for oan_auth_service's `oan_auth_on_delegated_login`.
+
+	An IAM sign-in (eSignet for farmers) never goes through `register_user`, so
+	`on_user_registered` never runs for it. This gives a Grievance Submitter who
+	signs in that way the Submitter Profile that registration would have created,
+	and keeps its national-ID details (national ID, address) current from the
+	identity provider's claims. Names, mobile number, birth date and gender are
+	already on the `User` (oan_auth_service copies them first).
+
+	A development agent (Keycloak, `Grievance Assisted Submitter`) gets a Development
+	Agent profile from their `User`; the identity provider supplies no national-ID
+	details for them, so none are written and `id_source` stays empty.
+
+	Never refuses the login. A profile that cannot be built from the claims (no phone
+	number, a taken Fayda ID) is logged and skipped; the user signs in with what they had.
+	"""
+	roles = set(frappe.get_all("Has Role", filters={"parent": user, "parenttype": "User"}, pluck="role"))
+	if roles & {C.ROLE_OFFICER, C.ROLE_REVIEW_OFFICER}:
+		return False
+	is_agent = C.ROLE_ASSISTED_SUBMITTER in roles
+	if not is_agent and C.ROLE_SUBMITTER not in roles:
+		return False
+
+	profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
+	if is_agent:
+		return False if profile_name else _create_agent_profile(user, principal, login_option)
+
+	identity = _identity_fields(principal, login_option)
+	frappe.db.savepoint("delegated_login_profile")
+	try:
+		if profile_name:
+			return _refresh_identity(profile_name, identity)
+
+		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
+		from oan_grievance_service.services.identity import FAYDA_PATTERN
+
+		# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
+		# anything else (a VID, a pairwise `sub`) is left out.
+		individual_id = str(principal.get("individual_id") or "").strip()
+		fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
+		mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
+
+		profile = _create_or_update_submitter_profile(
+			user=user,
+			submitter_type="Individual Farmer",
+			submitter_name=principal.get("name"),
+			contact_mobile=str(mobile or "").strip() or None,
+			contact_email=principal.get("email"),
+			administrative_area=identity.pop("administrative_area", None),
+			administrative_unit=identity.get("locality"),
+			fayda_id=fayda_id,
+			submission_channel="Web Portal",
+		)
+		_refresh_identity(profile.name, identity)
+		return True
+	except Exception:
+		frappe.db.rollback(save_point="delegated_login_profile")
+		frappe.clear_messages()
+		frappe.log_error(
+			title="oan_grievance_service: no submitter profile from delegated login",
+			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			defer_insert=True,
+		)
+		return False
+
+
+def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool:
+	"""A Development Agent profile for `user`, from their `User`. Logged and skipped when it cannot be built."""
+	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
+
+	frappe.db.savepoint("delegated_login_profile")
+	try:
+		_create_or_update_submitter_profile(
+			user=user,
+			submitter_type="Development Agent",
+			contact_email=principal.get("email"),
+			submission_channel="Web Portal",
+		)
+	except Exception:
+		frappe.db.rollback(save_point="delegated_login_profile")
+		frappe.clear_messages()
+		frappe.log_error(
+			title="oan_grievance_service: no submitter profile from delegated login",
+			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			defer_insert=True,
+		)
+		return False
+	return True
+
+
+def _identity_fields(principal: dict, login_option: str) -> dict:
+	"""The national-ID details of `principal` as Submitter Profile fields, plus its `administrative_area` when one matches."""
+	address = principal.get("address")
+	address = address if isinstance(address, dict) else {}
+	text = lambda value: str(value or "").strip() or None  # noqa: E731
+	region = text(address.get("region"))
+	fields = {
+		"id_source": login_option,
+		"street_address": text(address.get("street_address")),
+		"locality": text(address.get("locality")),
+		"region": region,
+		"postal_code": text(address.get("postal_code")),
+		"country": text(address.get("country")),
+	}
+	# The provider's region name is matched to ours; no match leaves the area unset.
+	area = region and frappe.db.get_value(
+		"Grievance Administrative Area", {"area_name": region, "level_name": "Region"}, "name"
+	)
+	if area:
+		fields["administrative_area"] = area
+	return fields
+
+
+def _refresh_identity(profile_name: str, identity: dict) -> bool:
+	"""Write the identity provider's details onto the profile. True if any value changed."""
+	fields = {k: v for k, v in identity.items() if k in IDENTITY_PROFILE_FIELDS or k == "administrative_area"}
+	current = frappe.db.get_value("Grievance Submitter Profile", profile_name, list(fields), as_dict=True)
+	changes = {k: v for k, v in fields.items() if (current.get(k) or None) != v}
+	if not changes:
+		return False
+	frappe.db.set_value("Grievance Submitter Profile", profile_name, changes, update_modified=False)
+	return True

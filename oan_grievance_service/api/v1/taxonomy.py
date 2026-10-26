@@ -25,6 +25,7 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	require_role,
 	success_response,
 	validate_request,
@@ -42,13 +43,13 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 )
 from oan_grievance_service.permissions import assert_heads_category
 from oan_grievance_service.services import category_assignment
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_DESK_HEAD
 from oan_grievance_service.services.resolvers import new_or_resolved_department, resolve_service_category
 
 route = prefixed("/api/v1")
 
 CATEGORY = "Grievance Service Category"
-DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 DESK_HEAD_READ_ROLES = [*ADMIN_READ_ROLES, ROLE_DESK_HEAD]
 TYPE = "Grievance Type"
 
@@ -271,7 +272,7 @@ def get_service_category(category: str, **kwargs):
 
 @route("/service-categories", methods=("POST",), summary="Create a service category", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "create")
 @validate_request(CreateServiceCategory)
 @api_doc(
 	summary="Create a service category",
@@ -280,7 +281,7 @@ def get_service_category(category: str, **kwargs):
 	+ "the flag on the previous default. "
 	+ "The code uses the ticket alphabet, which excludes I, L, O and U. It cannot change once "
 	+ "tickets have been issued under the category. "
-	+ "Optional sla_days, auto_escalate, and notify_on_breach establish the category's SLA configuration atomically. "
+	+ "Optional sla_days (default 7), auto_escalate, and notify_on_breach establish the category's SLA configuration atomically. "
 	+ "Optional department also creates the category assignment for that department, with no officers yet; "
 	+ "with create_department the department is created too, refused when it already exists.",
 	tags=["Administration"],
@@ -301,7 +302,7 @@ def create_service_category(
 ):
 	"""Create a service category."""
 	if sort_order is None:
-		top = frappe.get_all(CATEGORY, fields=[{"MAX": "sort_order", "as": "top"}])
+		top = frappe.get_all(CATEGORY, fields=[{"MAX": "sort_order", "as": "top"}], order_by=None)
 		sort_order = (top[0].top or 0) + 1
 	doc = frappe.get_doc(
 		{
@@ -313,8 +314,7 @@ def create_service_category(
 			"is_default": 1 if is_default else 0,
 		}
 	).insert()
-	if sla_days is not None:
-		save_sla_configuration(doc.name, sla_days, auto_escalate, notify_on_breach)
+	save_sla_configuration(doc.name, sla_days or C.DEFAULT_SLA_DAYS, auto_escalate, notify_on_breach)
 	if department:
 		category_assignment.create(
 			service_category=doc.name, department=new_or_resolved_department(department, create_department)
@@ -331,7 +331,7 @@ def create_service_category(
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "write")
 @validate_request(UpdateServiceCategory, exclude_unset=True)
 @api_doc(
 	summary="Update a service category",
@@ -374,7 +374,7 @@ def update_service_category(category: str, **kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(CATEGORY, "write")
 @validate_request(CategoryRef)
 @api_doc(
 	summary="Deactivate a service category",
@@ -518,7 +518,7 @@ def get_grievance_type(grievance_type: str, **kwargs):
 
 @route("/grievance-types", methods=("POST",), summary="Create a grievance type", tier="officer-core")
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "create")
 @validate_request(CreateGrievanceType)
 @api_doc(
 	summary="Create a grievance type",
@@ -556,7 +556,7 @@ def create_grievance_type(
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "write")
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
@@ -587,7 +587,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 	tier="officer-core",
 )
 @handle_api_errors
-@require_role(DESK_HEAD_ROLES)
+@require_permission(TYPE, "write")
 @validate_request(TypeRef)
 @api_doc(
 	summary="Deactivate a grievance type",
@@ -631,7 +631,11 @@ def _search(doctype: str, text: str | None, fieldnames: tuple[str, ...]) -> list
 
 def _count(doctype: str, filters: dict, or_filters: list | None) -> int:
 	rows = frappe.get_all(
-		doctype, filters=filters, or_filters=or_filters, fields=[{"COUNT": "*", "as": "total"}]
+		doctype,
+		filters=filters,
+		or_filters=or_filters,
+		fields=[{"COUNT": "*", "as": "total"}],
+		order_by=None,
 	)
 	return int(rows[0].total) if rows else 0
 
