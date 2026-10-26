@@ -16,7 +16,12 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing, ticket_number
-from oan_grievance_service.tests.fixtures import a_grievance_type, a_leaf_area, discard_grievance
+from oan_grievance_service.tests.fixtures import (
+	a_grievance_type,
+	a_leaf_area,
+	a_staffed_desk,
+	discard_grievance,
+)
 
 
 class TestGrievance(FrappeTestCase):
@@ -821,6 +826,10 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 					"dept_name": "Test Agri Dept",
 				}
 			).insert(ignore_permissions=True)
+
+		# This class commits (below), so the desk's removal has to be committed too.
+		self.addCleanup(frappe.db.commit)
+		a_staffed_desk(self, "Inputs", "Test Agri Dept")
 
 		# Setup officer user
 		if frappe.db.exists("User", "officer.options@example.com"):

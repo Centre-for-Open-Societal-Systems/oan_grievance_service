@@ -42,7 +42,9 @@ request                        services/dashboard.get_chart()
   snapshot (not the daily table) also keeps the Woreda-level ancestor in `woreda`: its code, or
   its name when the registry gave it none. Past snapshot days predate the column and hold an
   empty `woreda`; only `grvByAdminLevel` reads it, and only for today.
-- Refreshes never overlap: each takes a database lock and a second run skips.
+- Refreshes never overlap: the 15-minute refresh, the nightly rebuild and the first build after
+  migrate all queue one background job under a shared job id, and a run is not queued while
+  another is queued or running. A nightly rebuild skipped that way is picked up the next night.
 
 Staleness: at most 15 minutes here, plus whatever the consumer caches (the OAN dashboards
 cache another 15 minutes).
@@ -109,11 +111,11 @@ level for `grvByAdminLevel`, and errs towards showing less:
 `grvByAdminLevel` counts grievances at three levels, over the same cases every other chart
 counts (today's snapshot, after the caller's scope and filters):
 
-| `level`   | Rows                         | `code`, `name`                            |
-| --------- | ---------------------------- | ----------------------------------------- |
-| `federal` | one: every case              | the Country area (null when none exists)  |
-| `region`  | one per region holding cases | region P-code and name                    |
-| `woreda`  | one per woreda holding cases | woreda code (or name) and name            |
+| `level`   | Rows                         | `code`, `name`                           |
+| --------- | ---------------------------- | ---------------------------------------- |
+| `federal` | one: every case              | the Country area (null when none exists) |
+| `region`  | one per region holding cases | region P-code and name                   |
+| `woreda`  | one per woreda holding cases | woreda code (or name) and name           |
 
 Each row is `{level, code, name, region_code, count}`, widest level first, then by count. A
 woreda row names its region in `region_code`; a federal row has none. `level=region,woreda`
@@ -125,12 +127,12 @@ Dashboard Reader (public route, counts only) read all three levels. An officer r
 level and the ones below it, because a wider row would count cases outside their desks as one
 number:
 
-| Officer's widest desk area             | Levels returned               |
-| -------------------------------------- | ----------------------------- |
-| none, or the Country                   | federal, region, woreda       |
-| a Region                               | region, woreda                |
-| a Zone or a Woreda                     | woreda                        |
-| a Kebele, or no usable desk            | none (empty list)             |
+| Officer's widest desk area  | Levels returned         |
+| --------------------------- | ----------------------- |
+| none, or the Country        | federal, region, woreda |
+| a Region                    | region, woreda          |
+| a Zone or a Woreda          | woreda                  |
+| a Kebele, or no usable desk | none (empty list)       |
 
 Within the levels shown, counts cover only the cases of the officer's desks (area, department
 and category), so a Woreda desk sees that Woreda's row alone. Asking for a level the officer may

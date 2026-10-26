@@ -296,3 +296,24 @@ def a_service_provider_source(source_name, **overrides):
 	}
 	values.update(overrides)
 	return frappe.get_doc(values).insert(ignore_permissions=True).name
+
+
+def a_staffed_desk(case, category, department=None):
+	"""An active desk for `category` (and `department`) with an active L1 officer, removed after `case`.
+
+	The options lists only offer departments and categories that have such a desk.
+	"""
+	from oan_grievance_service.api.v1.category_assignment import create_assignment
+	from oan_grievance_service.tests.test_category_assignment import _role_level, _user
+
+	_role_level("nodal_officer", 10)
+	_role_level("senior_nodal_officer", 20)
+	officer = _user(f"staffed-{frappe.generate_hash(length=6)}@example.com", "Staffed Officer")
+	desk = create_assignment(service_category=category, department=department, l1_officer=officer, sla_days=5)
+	name = desk["data"]["assignment"]["name"]
+
+	def remove():
+		frappe.delete_doc("Grievance RBAC Assignment", name, force=True, ignore_permissions=True)
+		frappe.delete_doc("User", officer, force=True, ignore_permissions=True)
+
+	case.addCleanup(remove)

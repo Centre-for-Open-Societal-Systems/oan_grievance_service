@@ -7,12 +7,11 @@ or @rest(...), and ensuring all rules are registered into Frappe's API_URL_MAP.
 import threading
 
 import frappe
-from oan_auth_service.api.middleware import register_namespace
 from oan_auth_service.api.router import (
 	NAMESPACE,
-	_exempt_paths,
 	_rules,
 	prefixed,
+	register_declared_paths,
 	rest,
 )
 from oan_auth_service.api.router import (
@@ -115,4 +114,5 @@ def _register() -> None:
 		if rule not in frappe.api.API_URL_MAP._rules:
 			frappe.api.API_URL_MAP.add(rule.empty())
 
-	register_namespace(prefix=NAMESPACE, exempt_paths=sorted(_exempt_paths))
+	# Public, API-key and JWT paths, from each route's `auth`.
+	register_declared_paths(NAMESPACE)

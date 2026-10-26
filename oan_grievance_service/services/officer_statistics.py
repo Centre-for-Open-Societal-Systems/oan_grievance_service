@@ -16,9 +16,8 @@ Grievance per page of officers:
 """
 
 import frappe
-from frappe.query_builder import Case, CustomFunction
-from frappe.query_builder.functions import Avg, Count, Max, Sum
-from pypika.terms import LiteralValue
+from frappe.query_builder import Case
+from frappe.query_builder.functions import Avg, Count, Max, Sum, UnixTimestamp
 
 from oan_grievance_service.services import constants as C
 
@@ -76,9 +75,7 @@ def statistics_for(users: list[str], department: str | None = None) -> dict[str,
 		return {}
 	G = frappe.qb.DocType("Grievance")
 	is_resolved = G.workflow_state.isin(list(C.RESOLVED_STATES))
-	seconds = CustomFunction("TIMESTAMPDIFF", ["unit", "start", "end"])(
-		LiteralValue("SECOND"), G.creation, G.resolved_at
-	)
+	seconds = UnixTimestamp(G.resolved_at) - UnixTimestamp(G.creation)
 	query = (
 		frappe.qb.from_(G)
 		.select(

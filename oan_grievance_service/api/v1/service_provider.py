@@ -16,12 +16,12 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	success_response,
 	validate_request,
 )
 from pydantic import BaseModel, Field, field_validator
 
-from oan_grievance_service.api.v1._guards import require_permission
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.grievance_service_provider import (
 	MAX_PAGE_SIZE,

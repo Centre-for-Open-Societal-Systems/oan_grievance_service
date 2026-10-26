@@ -125,7 +125,8 @@
    "fieldname": "checksum_sha256",
    "fieldtype": "Data",
    "label": "SHA-256",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "sec_scan",
@@ -148,7 +149,8 @@
    "fieldname": "scanned_at",
    "fieldtype": "Datetime",
    "label": "Scanned At",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "fieldname": "col_scan",
@@ -159,7 +161,8 @@
    "fieldname": "scan_detail",
    "fieldtype": "Small Text",
    "label": "Scan Detail",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   },
   {
    "default": "0",
@@ -167,7 +170,8 @@
    "fieldname": "scan_attempts",
    "fieldtype": "Int",
    "label": "Scan Attempts",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1
   }
  ],
  "grid_page_length": 50,
@@ -238,6 +242,48 @@
    "create": 1,
    "read": 1,
    "role": "Grievance Assisted Submitter"
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Admin",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Officer",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 0
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "report": 1,
+   "export": 0
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Assisted Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 0
   }
  ],
  "row_format": "Dynamic",

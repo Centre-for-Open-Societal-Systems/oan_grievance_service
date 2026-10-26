@@ -24,6 +24,7 @@ from oan_auth_service.api.utils import (
 	api_doc,
 	handle_api_errors,
 	page_meta,
+	require_permission,
 	require_role,
 	success_response,
 	validate_request,
@@ -308,7 +309,7 @@ def get_response_template(template: str, **kwargs):
 
 @route("", methods=("POST",), summary="Create a response template", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(TEMPLATE_DOCTYPE, "create")
 @validate_request(CreateResponseTemplateRequest)
 @api_doc(
 	summary="Create a response template",
@@ -355,7 +356,7 @@ def create_response_template(
 
 @route("/<template>", methods=("PATCH",), summary="Update a response template", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(TEMPLATE_DOCTYPE, "write")
 @validate_request(UpdateResponseTemplateRequest, exclude_unset=True)
 @api_doc(
 	summary="Update a response template",
@@ -385,7 +386,7 @@ def update_response_template(template: str, **kwargs):
 
 @route("/<template>", methods=("DELETE",), summary="Deactivate a response template", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_permission(TEMPLATE_DOCTYPE, "write")
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Deactivate a response template",

@@ -64,9 +64,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-admin-bearer-get
     match:
 {{- if .Values.hosts }}
@@ -122,9 +127,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-admin-bearer-patch
     match:
 {{- if .Values.hosts }}
@@ -176,9 +186,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-admin-bearer-post
     match:
 {{- if .Values.hosts }}
@@ -233,9 +248,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-admin-bearer-put
     match:
 {{- if .Values.hosts }}
@@ -287,9 +307,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-credentials-public-post
     match:
 {{- if .Values.hosts }}
@@ -349,9 +374,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: false
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-public-read-public-get
     match:
 {{- if .Values.hosts }}
@@ -406,9 +436,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-session-bearer-delete
     match:
 {{- if .Values.hosts }}
@@ -461,9 +496,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-session-bearer-get
     match:
 {{- if .Values.hosts }}
@@ -517,9 +557,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-session-bearer-patch
     match:
 {{- if .Values.hosts }}
@@ -572,9 +617,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-auth-session-public-post
     match:
 {{- if .Values.hosts }}
@@ -626,9 +676,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-citizen-intake-bearer-delete
     match:
 {{- if .Values.hosts }}
@@ -680,9 +735,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-citizen-intake-bearer-get
     match:
 {{- if .Values.hosts }}
@@ -738,9 +798,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-citizen-intake-bearer-patch
     match:
 {{- if .Values.hosts }}
@@ -792,9 +857,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-citizen-intake-bearer-post
     match:
 {{- if .Values.hosts }}
@@ -855,9 +925,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-officer-core-bearer-delete
     match:
 {{- if .Values.hosts }}
@@ -912,9 +987,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-officer-core-bearer-get
     match:
 {{- if .Values.hosts }}
@@ -996,9 +1076,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-officer-core-bearer-patch
     match:
 {{- if .Values.hosts }}
@@ -1058,9 +1143,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-officer-core-bearer-post
     match:
 {{- if .Values.hosts }}
@@ -1125,9 +1215,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-public-dashboards-frappe-token-get
     match:
 {{- if .Values.hosts }}
@@ -1138,6 +1233,7 @@ spec:
 {{- end }}
       paths:
       - /v1/charts/grvAvgResolutionByCategory
+      - /v1/charts/grvByAdminLevel
       - /v1/charts/grvByCategory
       - /v1/charts/grvCategoryResolution
       - /v1/charts/grvFilterCategories
@@ -1194,9 +1290,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-public-reference-public-get
     match:
 {{- if .Values.hosts }}
@@ -1252,9 +1353,14 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: oan-grievance-cors-preflight
     match:
 {{- if .Values.hosts }}
@@ -1329,9 +1435,14 @@ spec:
         regex_uri:
         - ^/(v[0-9]+)/(.*)
         - /api/$1/$2
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
+{{- end }}
 ---
 apiVersion: apisix.apache.org/v2
 kind: ApisixRoute
@@ -1387,9 +1498,14 @@ spec:
             X-Frappe-Site-Name: {{ required "siteName is required" .Values.siteName | quote }}
           remove:
           - Cookie
+{{- if .Values.socket.externalHosts }}
+    upstreams:
+    - name: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
+{{- end }}
   - name: oan-grievance-realtime-socket-io-cookie-local
     priority: 0
     websocket: true
@@ -1449,9 +1565,14 @@ spec:
             Authorization: Bearer $cookie_auth_token
           remove:
           - Cookie
+{{- if .Values.socket.externalHosts }}
+    upstreams:
+    - name: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
+{{- end }}
   - name: oan-grievance-realtime-socket-io-cookie-iam
     priority: 0
     websocket: true
@@ -1511,6 +1632,11 @@ spec:
             Authorization: Bearer ${cookie_X-Access-Token}
           remove:
           - Cookie
+{{- if .Values.socket.externalHosts }}
+    upstreams:
+    - name: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
+{{- else }}
     backends:
     - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
+{{- end }}

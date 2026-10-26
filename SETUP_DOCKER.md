@@ -288,7 +288,6 @@ Give each environment its own `jwt_issuer`, so a staging token fails closed agai
 ```bash
 bench --site "$SITE" set-config grievance_clamav_host clamav
 bench --site "$SITE" set-config grievance_clamav_port 3310 --parse
-bench --site "$SITE" set-config grievance_confirmation_window_days 7 --parse
 bench --site "$SITE" set-config grievance_change_request_hours 24 --parse
 bench --site "$SITE" set-config grievance_auto_escalation_enabled true --parse
 bench set-config -g workers '{"grievance_routing": {"timeout": 300}, "grievance_sla": {"timeout": 1800}, "grievance_scan": {"timeout": 300}, "grievance_notifications": {"timeout": 600}}' --parse

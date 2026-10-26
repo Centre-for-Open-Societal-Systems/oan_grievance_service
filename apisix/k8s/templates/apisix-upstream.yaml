@@ -9,6 +9,18 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+{{- if .Values.web.externalHosts }}
+  externalNodes:
+{{- range .Values.web.externalHosts }}
+  - type: Domain
+    name: {{ . | quote }}
+    port: {{ $.Values.web.port }}
+{{- end }}
+{{- with .Values.web.healthCheck }}
+  healthCheck:
+{{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}
   scheme: http
   passHost: rewrite
   upstreamHost: {{ required "siteName is required" .Values.siteName | quote }}
@@ -25,6 +37,18 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+{{- if .Values.socket.externalHosts }}
+  externalNodes:
+{{- range .Values.socket.externalHosts }}
+  - type: Domain
+    name: {{ . | quote }}
+    port: {{ $.Values.socket.port }}
+{{- end }}
+{{- with .Values.socket.healthCheck }}
+  healthCheck:
+{{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}
   scheme: http
   passHost: pass
   retries: 0

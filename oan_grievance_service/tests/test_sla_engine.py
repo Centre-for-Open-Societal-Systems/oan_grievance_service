@@ -180,13 +180,9 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		g.reload()
 		self.assertEqual(g.sla_days, 5)
 
-		# Change category to Category B via Change Request
-		raise_change_request(
-			g,
-			subject="Recategorize",
-			changes={"service_category": self.cat_b, "grievance_type": self.gtype_b.name},
-			reason="Misclassified at intake",
-		)
+		# Change category to Category B
+		g.db_set({"service_category": self.cat_b, "grievance_type": self.gtype_b.name}, update_modified=False)
+		sla.recalculate_sla_on_category_change(g, new_category=self.cat_b)
 		g.reload()
 
 		self.assertEqual(g.service_category, self.cat_b)

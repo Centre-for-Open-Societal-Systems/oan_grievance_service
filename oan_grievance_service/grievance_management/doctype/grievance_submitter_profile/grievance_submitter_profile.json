@@ -21,7 +21,14 @@
   "blocked_reason",
   "sec_area",
   "administrative_area",
-  "administrative_unit"
+  "administrative_unit",
+  "sec_identity",
+  "id_source",
+  "street_address",
+  "locality",
+  "region",
+  "postal_code",
+  "country"
  ],
  "fields": [
   {
@@ -127,6 +134,49 @@
    "in_standard_filter": 1,
    "label": "Submission Channel",
    "options": "Grievance Submission Type"
+  },
+  {
+   "fieldname": "sec_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity provider details",
+   "description": "Filled at sign-in from the national ID provider (eSignet). Names, mobile number, birth date and gender are on the User."
+  },
+  {
+   "fieldname": "id_source",
+   "fieldtype": "Data",
+   "label": "ID Source",
+   "read_only": 1,
+   "description": "The login option that supplied these details, e.g. beneficiary."
+  },
+  {
+   "fieldname": "street_address",
+   "fieldtype": "Data",
+   "label": "Street Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "locality",
+   "fieldtype": "Data",
+   "label": "Locality",
+   "read_only": 1
+  },
+  {
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "label": "Region",
+   "read_only": 1
+  },
+  {
+   "fieldname": "postal_code",
+   "fieldtype": "Data",
+   "label": "Postal Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "label": "Country",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

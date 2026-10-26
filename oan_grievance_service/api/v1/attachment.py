@@ -25,6 +25,7 @@ from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	handle_api_errors,
+	require_permission,
 	success_response,
 	validate_request,
 )
@@ -149,8 +150,6 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_PENDING,
 )
 from oan_grievance_service.services import audit, scanning, sla
-
-from ._guards import require_permission
 
 route = prefixed("/api/v1/attachments")
 

@@ -464,3 +464,77 @@ class TestReassignmentResolution(FrappeTestCase):
 			self.grievance, self.dept2, actor="Administrator", grievance_type=type_m2
 		)
 		self.assertEqual(changes.get("grievance_type"), type_m2)
+
+	def test_r12_target_dept_prefers_exact_category_desk_over_generic_desk(self):
+		"""R12: Target dept has generic desk (cat=None) and exact desk (cat=Cat C); exact desk is chosen."""
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept2,
+				"category_scope": None,
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{"user": self.officer2, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept2,
+				"category_scope": self.cat_c,
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{"user": self.officer3, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		changes = reassignment.resolve(self.grievance, self.dept2, actor="Administrator")
+		self.assertEqual(changes.get("assigned_to"), self.officer3)
+
+	def test_r13_category_only_reassignment_resets_sla_clock_and_deescalates(self):
+		"""R13: Category-only change resets SLA clock from now and de-escalates (escalated=0, not rejected)."""
+		self.grievance.db_set(
+			{
+				"escalated": 1,
+				"total_hold_time": 3600,
+			},
+			update_modified=False,
+		)
+		self.grievance.reload()
+
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept1,
+				"category_scope": self.cat_b,
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{"user": self.officer2, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		changes = reassignment.resolve(self.grievance, actor="Administrator", category=self.cat_b)
+		self.assertEqual(changes.get("service_category"), self.cat_b)
+
+		cr = raise_change_request(self.grievance, "Change category", changes)
+		self.assertEqual(cr.status, "Approved")
+		self.grievance.reload()
+
+		self.assertEqual(self.grievance.service_category, self.cat_b)
+		self.assertEqual(self.grievance.escalated, 0)
+		self.assertEqual(self.grievance.total_hold_time, 0)
+		self.assertNotEqual(self.grievance.status, "Rejected")
+		self.assertIsNotNone(self.grievance.sla_due_date)
+
+	def test_r14_naming_officer_without_dept_or_category_throws_error(self):
+		"""R14: Naming an officer with neither target department nor category throws ValidationError."""
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			reassignment.resolve(self.grievance, officer=self.officer2, actor="Administrator")
+		self.assertIn("Specify target department or category", str(ctx.exception))

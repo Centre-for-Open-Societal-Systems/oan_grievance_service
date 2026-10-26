@@ -383,6 +383,7 @@ class TestSlaSettings(FrappeTestCase):
 
 		self._assign(sla_days=14)
 		config_name = self._config()["name"]
+		frappe.db.delete("Grievance State Timer", {"parent": config_name})
 
 		# Insert a legacy Pending Submitter timer on config
 		frappe.get_doc(
@@ -400,6 +401,7 @@ class TestSlaSettings(FrappeTestCase):
 		# Second category that already has a Resolved timer
 		self._assign(category=self.other_category, department=self.other_department, sla_days=10)
 		other_config_name = self._config(category=self.other_category)["name"]
+		frappe.db.delete("Grievance State Timer", {"parent": other_config_name})
 		frappe.get_doc(
 			{
 				"doctype": "Grievance State Timer",
