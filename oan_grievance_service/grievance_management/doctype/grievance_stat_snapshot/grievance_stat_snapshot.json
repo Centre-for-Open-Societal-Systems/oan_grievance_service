@@ -9,6 +9,7 @@
   "snapshot_date",
   "status",
   "region",
+  "woreda",
   "service_category",
   "assigned_dept",
   "escalated",
@@ -40,6 +41,13 @@
    "fieldtype": "Data",
    "in_standard_filter": 1,
    "label": "Region"
+  },
+  {
+   "description": "Code of the Woreda the case was filed under (its name when the Woreda has no code); empty when the area sits under no Woreda.",
+   "fieldname": "woreda",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Woreda"
   },
   {
    "fieldname": "service_category",
@@ -98,7 +106,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-23 16:00:00.000000",
+ "modified": "2026-10-26 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Stat Snapshot",

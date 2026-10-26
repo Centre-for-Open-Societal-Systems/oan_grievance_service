@@ -10,7 +10,8 @@ Grievance. Three views share the builders:
 - admin: `GET /api/v1/charts`, Grievance Admin; every chart, and live
   case detail where a chart has it.
 - officer: `GET /api/v1/charts`, Grievance Officer; the public charts, narrowed to the
-  caller's RBAC desks (see `caller_scope`).
+  caller's RBAC desks (see `caller_scope`). `grvByAdminLevel` also narrows the levels shown
+  to the caller's own level and those below it.
 - public: `GET /api/v1/charts/<chart_id>`, Grievance Dashboard Reader; only charts marked public,
   which are counts from the rollups and never name a case, a person or a text.
 
@@ -40,6 +41,10 @@ LIVE_TTL = 60
 # Why a chart has no rows besides "there are no cases": see Context.unavailable.
 NO_SNAPSHOT = "no_snapshot"
 TITLE_LENGTH = 80
+# The administrative levels grvByAdminLevel counts at, widest first. Federal is the whole
+# country; Region and Woreda are the levels of the same name in the area tree.
+LEVEL_FEDERAL, LEVEL_REGION, LEVEL_WOREDA = "federal", "region", "woreda"
+LEVELS = (LEVEL_FEDERAL, LEVEL_REGION, LEVEL_WOREDA)
 
 
 def status_order():
@@ -63,6 +68,8 @@ class Params:
 	as_of_month: str | None = None
 	granularity: str = "month"
 	limit: int = 10
+	# Only grvByAdminLevel reads this: which of LEVELS to return. Empty means all it may show.
+	level: tuple = ()
 
 	def used_by(self, chart):
 		"""Only the parameters a chart reads, so the others do not split its cache."""
@@ -81,6 +88,9 @@ class Chart:
 	public: bool = True
 	# "live" charts read Grievance directly (admin view only) and cache briefly.
 	live_for_admin: bool = False
+	# Only the snapshot has a Woreda column, so only a chart that reads nothing else can
+	# honour a desk scoped to Woreda level; see get_chart.
+	by_woreda: bool = False
 
 
 class Context:
@@ -102,21 +112,56 @@ class Context:
 
 @dataclass(frozen=True)
 class Clause:
-	"""One RBAC desk as rollup filters. `regions` None means any region."""
+	"""One RBAC desk as rollup filters. `regions` / `woredas` None means no limit on that.
+
+	`level` is the widest administrative level the desk's area reaches: federal for a desk
+	with no area (or the Country), region for a Region, woreda for a Zone or a Woreda.
+	"""
 
 	regions: tuple | None = None
 	service_category: str | None = None
 	assigned_dept: str | None = None
+	woredas: tuple | None = None
+	level: str = LEVEL_FEDERAL
+
+
+def _area_info(scopes):
+	"""Nested Set bounds and level for every area named by `scopes`, in one query."""
+	names = {s.get("administrative_area_scope") for s in scopes} - {None, ""}
+	if not names:
+		return {}
+	return {
+		a.name: a
+		for a in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"name": ["in", list(names)]},
+			fields=["name", "lft", "rgt", "level_name"],
+		)
+		if a.lft is not None and a.rgt is not None
+	}
+
+
+def _area_codes(level_name, area):
+	"""The rollup keys of the `level_name` areas inside `area` (itself included)."""
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": level_name, "lft": ["between", [area.lft, area.rgt]]},
+		fields=["name", "code"],
+	)
+	keys = ((r.code or r.name) if level_name == "Woreda" else r.code for r in rows)
+	return tuple(sorted(key for key in keys if key))
 
 
 def caller_scope(user=None):
 	"""The rollup filters for what `user` may see: None for no restriction, else desk clauses.
 
 	Mirrors permissions.grievance_query_conditions, as far as the rollups can. They are
-	grouped by region, category and department only, so:
+	grouped by region, category and department only (the snapshot also by woreda), so:
 
-	- A desk's area counts as the Regions inside it. A desk below Region level cannot be
-	  narrowed to part of a region, so it contributes nothing rather than its whole region.
+	- A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no
+	  Region inside it and counts as the Woredas inside it instead, which only the snapshot
+	  knows (see `Chart.by_woreda`). A desk below Woreda level contributes nothing rather
+	  than its whole Woreda.
 	- A desk narrowed by grievance type or service provider contributes nothing.
 	- Cases an officer holds only through the reporting chain are not counted.
 
@@ -128,30 +173,29 @@ def caller_scope(user=None):
 		return None
 
 	scopes = perms.active_scopes(user)
-	bounds = perms.area_bounds(scopes)
+	info = _area_info(scopes)
 	clauses = []
 	for scope in scopes:
 		if scope.grievance_type_scope or scope.service_provider_scope:
 			continue
 		if not (scope.administrative_area_scope or scope.department_scope or scope.category_scope):
 			continue
-		regions = None
+		regions = woredas = None
+		level = LEVEL_FEDERAL
 		if scope.administrative_area_scope:
-			lft_rgt = bounds.get(scope.administrative_area_scope)
-			if not lft_rgt:
+			area = info.get(scope.administrative_area_scope)
+			if not area:
 				continue
-			regions = tuple(
-				sorted(
-					frappe.get_all(
-						"Grievance Administrative Area",
-						filters={"level_name": "Region", "lft": ["between", list(lft_rgt)]},
-						pluck="code",
-					)
-				)
-			)
-			if not regions:
-				continue
-		clauses.append(Clause(regions, scope.category_scope or None, scope.department_scope or None))
+			regions = _area_codes("Region", area)
+			if regions:
+				level = LEVEL_FEDERAL if area.level_name == "Country" else LEVEL_REGION
+			else:
+				regions, woredas, level = None, _area_codes("Woreda", area), LEVEL_WOREDA
+				if not woredas:
+					continue
+		clauses.append(
+			Clause(regions, scope.category_scope or None, scope.department_scope or None, woredas, level)
+		)
 	return tuple(dict.fromkeys(clauses))
 
 
@@ -166,6 +210,8 @@ def _apply_scope(query, table, scope):
 		parts = []
 		if clause.regions is not None:
 			parts.append(table.region.isin(clause.regions))
+		if clause.woredas is not None:
+			parts.append(table.woreda.isin(clause.woredas))
 		if clause.service_category:
 			parts.append(table.service_category == clause.service_category)
 		if clause.assigned_dept:
@@ -690,6 +736,104 @@ def build_recent(ctx):
 	]
 
 
+def _woreda_names():
+	return {
+		(a.code or a.name): a.area_name
+		for a in frappe.get_all(
+			"Grievance Administrative Area",
+			filters={"level_name": "Woreda"},
+			fields=["name", "code", "area_name"],
+		)
+	}
+
+
+def _country():
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"level_name": "Country"},
+		fields=["code", "area_name"],
+		order_by="lft asc",
+		limit=1,
+	)
+	return rows[0] if rows else {"code": None, "area_name": None}
+
+
+def _visible_levels(ctx):
+	"""The levels the caller may read: their own and the ones below it, never a wider one.
+
+	A wider level would count cases outside the caller's desks as the same row, so a
+	Region desk reads Region and Woreda counts, a Woreda desk only Woreda counts, and an
+	officer on no usable desk none. The unscoped views read all three.
+	"""
+	if ctx.scope is None:
+		return LEVELS
+	if not ctx.scope:
+		return ()
+	widest = min(LEVELS.index(clause.level) for clause in ctx.scope)
+	return LEVELS[widest:]
+
+
+def build_by_admin_level(ctx):
+	"""Grievance counts at each administrative level: federal, per region and per woreda.
+
+	Every count is over the same cases the caller's scope and filters leave, so the federal
+	row is the sum the region rows split, plus any case filed under no region. Regions and
+	woredas holding no case are left out, as an empty category is. A case filed above
+	Woreda level (on a Region or Zone) counts at federal and region level only.
+	"""
+	rows = _snapshot(ctx, ("region", "woreda"))
+	visible = [lvl for lvl in _visible_levels(ctx) if not ctx.params.level or lvl in ctx.params.level]
+
+	by_region, by_woreda, woreda_region = {}, {}, {}
+	for r in rows:
+		n = int(r.grievances or 0)
+		if r.region:
+			by_region[r.region] = by_region.get(r.region, 0) + n
+		if r.woreda:
+			by_woreda[r.woreda] = by_woreda.get(r.woreda, 0) + n
+			woreda_region[r.woreda] = r.region or None
+
+	result = []
+	if LEVEL_FEDERAL in visible:
+		country = _country()
+		result.append(
+			{
+				"level": LEVEL_FEDERAL,
+				"code": country["code"],
+				"name": country["area_name"],
+				"region_code": None,
+				"count": sum(int(r.grievances or 0) for r in rows),
+			}
+		)
+	if LEVEL_REGION in visible:
+		names = _region_names()
+		result += [
+			{
+				"level": LEVEL_REGION,
+				"code": code,
+				"name": names.get(code, code),
+				"region_code": code,
+				"count": n,
+			}
+			for code, n in sorted(by_region.items(), key=lambda kv: (-kv[1], kv[0]))
+			if n
+		]
+	if LEVEL_WOREDA in visible:
+		names = _woreda_names()
+		result += [
+			{
+				"level": LEVEL_WOREDA,
+				"code": code,
+				"name": names.get(code, code),
+				"region_code": woreda_region[code],
+				"count": n,
+			}
+			for code, n in sorted(by_woreda.items(), key=lambda kv: (-kv[1], kv[0]))
+			if n
+		]
+	return result
+
+
 def _filter_options(ctx, dimension, key, names=None):
 	# Options list every value, so they ignore the filters the caller has set.
 	rows = _snapshot(ctx, (dimension,), params=Params())
@@ -776,6 +920,7 @@ CHARTS = {
 	"grvNetBacklogTrend": Chart(build_net_backlog_trend, params=FILTERS | {"from_date", "granularity"}),
 	"grvStatusDistribution": Chart(build_status_distribution),
 	"grvByCategory": Chart(build_by_category),
+	"grvByAdminLevel": Chart(build_by_admin_level, params=FILTERS | {"level"}, by_woreda=True),
 	"grvCategoryResolution": Chart(build_category_resolution, params=PERIOD),
 	"grvAvgResolutionByCategory": Chart(build_avg_resolution_by_category, params=PERIOD),
 	"grvPerformanceScore": Chart(build_performance_score, params=FILTERS | {"month"}),
@@ -800,6 +945,10 @@ def get_chart(chart_id, params, admin, scope=None):
 	if admin and scope is not None:
 		raise ValueError("The admin view cannot be scoped")
 	chart = CHARTS[chart_id]
+	if scope and not chart.by_woreda:
+		# The daily rollup has no Woreda column, so a Woreda desk cannot be applied to this
+		# chart and contributes nothing, as every desk below Region level did before.
+		scope = tuple(clause for clause in scope if clause.woredas is None)
 	live = admin and chart.live_for_admin
 	refreshed = rollup.as_of()
 	used = params.used_by(chart)

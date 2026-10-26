@@ -1389,6 +1389,13 @@ QP["DashboardChart"] = [
 		"description": "Comma-separated service category names; `category` is accepted as an alias",
 	},
 	{
+		"name": "level",
+		"in": "query",
+		"required": False,
+		"schema": S(),
+		"description": "Comma-separated administrative levels: federal, region, woreda (grvByAdminLevel). An officer is limited to their own level and the ones below it",
+	},
+	{
 		"name": "from",
 		"in": "query",
 		"required": False,

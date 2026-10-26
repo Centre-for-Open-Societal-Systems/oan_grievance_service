@@ -155,6 +155,7 @@ TIER_OVERRIDES = {
 			"grvNetBacklogTrend",
 			"grvStatusDistribution",
 			"grvByCategory",
+			"grvByAdminLevel",
 			"grvCategoryResolution",
 			"grvResolutionRateByRegion",
 			"grvSlaRisk",

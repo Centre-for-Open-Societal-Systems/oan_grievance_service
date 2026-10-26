@@ -63,6 +63,7 @@ DAILY_METRICS = (
 SNAPSHOT_FIELDS = (
 	"status",
 	"region",
+	"woreda",
 	"service_category",
 	"assigned_dept",
 	"escalated",
@@ -89,6 +90,13 @@ _AREA_JOIN = """
 _DIMENSIONS = (
 	"COALESCE(r.code, '') AS region, g.service_category, COALESCE(g.assigned_dept, '') AS assigned_dept"
 )
+# The Woreda-level ancestor, kept on the snapshot only: it is what the administrative-level
+# chart counts by, and the daily rollup has no use for it. Keyed by code, as regions are,
+# or by the area's name for a Woreda the registry gave no code.
+_WOREDA_JOIN = """
+	LEFT JOIN `tabGrievance Administrative Area` w
+		ON w.level_name = 'Woreda' AND a.lft BETWEEN w.lft AND w.rgt"""
+_WOREDA = "COALESCE(NULLIF(w.code, ''), w.name, '') AS woreda"
 # A case sits with a real desk when it is not on the Unrouted catch-all and has a
 # department, a routing rule or an officer. routing.ranked_assignments treats an empty
 # department scope as a wildcard, so a desk with none is a real desk and the
@@ -149,6 +157,8 @@ _SNAPSHOT_SQL = (
 	"""
 	SELECT g.status, """
 	+ _DIMENSIONS
+	+ ", "
+	+ _WOREDA
 	+ """, g.escalated, """
 	+ _HAS_DESK
 	+ """,
@@ -165,11 +175,12 @@ _SNAPSHOT_SQL = (
 		MIN(CASE WHEN g.status IN %(open)s AND g.escalated = 0 THEN g.creation END) AS oldest_open_creation
 	FROM `tabGrievance` g"""
 	+ _AREA_JOIN
+	+ _WOREDA_JOIN
 	+ """
 	LEFT JOIN (
 		SELECT DISTINCT grievance FROM `tabGrievance Duplicate` WHERE is_confirmed = 0
 	) d ON d.grievance = g.name
-	GROUP BY 1, 2, 3, 4, 5, 6, 7"""
+	GROUP BY 1, 2, 3, 4, 5, 6, 7, 8"""
 )
 
 

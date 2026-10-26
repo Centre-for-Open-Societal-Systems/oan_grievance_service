@@ -11,6 +11,9 @@ each chart returns. The public form is the contract the OAN dashboards read
 (`GET <base>/api/v1/charts/<id>` returning `{data: [...]}`), and serves counts
 only.
 
+`grvByAdminLevel` counts grievances at Federal, Region and Woreda level (`level=` picks some).
+An officer reads their own level and the ones below it, over the cases their desks cover.
+
 The OAN dashboards call the public form as a Frappe user holding Grievance Dashboard
 Reader, with that user's API key and secret (`Authorization: token <key>:<secret>`).
 Frappe checks the key before the JWT middleware runs, so the middleware leaves the
@@ -76,6 +79,7 @@ class ChartsQuery(BaseModel):
 	month: str | None = None
 	as_of_month: str | None = None
 	granularity: Literal["month", "week"] = "month"
+	level: str | list[str] | None = None
 	limit: int = Field(10, ge=1, le=50)
 
 
@@ -111,6 +115,17 @@ def _known(doctype, fieldname, values, field, extra_filters=None):
 	if unknown:
 		raise InvalidParam(field, _("Unknown value(s): {0}").format(", ".join(unknown)))
 	return tuple(values)
+
+
+def _levels(values):
+	values = tuple(dict.fromkeys(v.strip().lower() for v in values))
+	unknown = [v for v in values if v not in dashboard.LEVELS]
+	if unknown:
+		raise InvalidParam(
+			"level",
+			_("Unknown value(s): {0}; expected {1}").format(", ".join(unknown), ", ".join(dashboard.LEVELS)),
+		)
+	return values
 
 
 def parse_params(raw, admin):
@@ -158,6 +173,7 @@ def parse_params(raw, admin):
 		as_of_month=as_of_month,
 		granularity=query.granularity,
 		limit=query.limit,
+		level=_levels(parse_multi_value(query.level)),
 	)
 
 
@@ -165,6 +181,7 @@ def _echo(params, admin):
 	echo = {
 		"region": list(params.region),
 		"service_category": list(params.service_category),
+		"level": list(params.level),
 		"from": params.from_date.isoformat() if params.from_date else None,
 		"to": (params.to_date or getdate(now_datetime())).isoformat(),
 	}
