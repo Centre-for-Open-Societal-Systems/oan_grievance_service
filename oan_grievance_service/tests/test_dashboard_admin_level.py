@@ -81,7 +81,10 @@ class AdminLevelFixture(FrappeTestCase):
 		cls.role_level = a_role_level()
 		cls.d1, cls.d2, cls.d3 = (a_unique_department(label) for label in ("One", "Two", "Three"))
 		cls.mine = (cls.d1, cls.d2)
-		cls.users = []
+		# Users are throttled (Frappe allows 60 a hour), so a few are shared by the class's tests.
+		cls.officers = [a_user_with_role(C.ROLE_OFFICER, f"officer{i}") for i in range(3)]
+		cls.reader = a_user_with_role(C.ROLE_DASHBOARD_READER, "reader")
+		cls.users = [*cls.officers, cls.reader]
 
 		cls.created = [
 			a_grievance(administrative_area=where, assigned_dept=dept).name
@@ -120,11 +123,6 @@ class AdminLevelFixture(FrappeTestCase):
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
-
-	def _user(self, role, label="user"):
-		user = a_user_with_role(role, label)
-		self.users.append(user)
-		return user
 
 	def _desk_of(self, department, *officers):
 		"""One desk for `department`, held by each (user, area) pair. A department and category
@@ -268,7 +266,7 @@ class TestAdminLevelAccess(AdminLevelFixture):
 	"""What the Dashboard Reader and an admin read."""
 
 	def test_the_dashboard_reader_reads_every_level_on_the_public_route(self):
-		frappe.set_user(self._user(C.ROLE_DASHBOARD_READER, "reader"))
+		frappe.set_user(self.reader)
 		res = charts_api._public_endpoint(CHART)()
 		self.assertEqual({r["level"] for r in res["data"]}, set(dashboard.LEVELS))
 		self.assertGreaterEqual(_federal(res["data"])["count"], 4)
@@ -276,7 +274,7 @@ class TestAdminLevelAccess(AdminLevelFixture):
 		self.assertTrue({self.w1_code, self.w2_code} <= woredas)
 
 	def test_the_public_route_ignores_the_admin_only_department_filter(self):
-		frappe.set_user(self._user(C.ROLE_DASHBOARD_READER, "reader"))
+		frappe.set_user(self.reader)
 		public = charts_api._public_endpoint(CHART)
 		self.assertEqual(public(assigned_dept=self.d1)["data"], public()["data"])
 		self.assertNotIn("assigned_dept", public()["meta"]["filters"])
@@ -346,11 +344,8 @@ class TestAdminLevelErrors(FrappeTestCase):
 class TestAdminLevelScope(AdminLevelFixture):
 	"""What an officer reads: their own level and below, over the cases of their desks."""
 
-	def _officer(self, label):
-		return self._user(C.ROLE_OFFICER, label)
-
 	def test_a_desk_without_an_area_reads_every_level_over_its_cases(self):
-		officer = self._officer("all")
+		officer = self.officers[0]
 		self._desk(officer, department=self.d1)
 		levels = _by_level(self._as_officer(officer))
 		self.assertEqual(set(levels), set(dashboard.LEVELS))
@@ -359,14 +354,14 @@ class TestAdminLevelScope(AdminLevelFixture):
 		self.assertEqual(levels["woreda"][self.w1_code]["count"], 2)
 
 	def test_a_country_desk_reads_the_federal_level(self):
-		officer = self._officer("country")
+		officer = self.officers[0]
 		self._desk(officer, area=self.country, department=self.d1)
 		levels = _by_level(self._as_officer(officer))
 		self.assertEqual(set(levels), set(dashboard.LEVELS))
 		self.assertEqual(next(iter(levels["federal"].values()))["count"], 3)
 
 	def test_a_region_desk_reads_its_region_and_woredas_but_not_federal(self):
-		officer = self._officer("region")
+		officer = self.officers[0]
 		self._desk(officer, area=self.region, department=self.d1)
 		levels = _by_level(self._as_officer(officer))
 		self.assertEqual(set(levels), {"region", "woreda"})
@@ -374,38 +369,38 @@ class TestAdminLevelScope(AdminLevelFixture):
 		self.assertEqual(set(levels["woreda"]), {self.w1_code, self.w2_code})
 
 	def test_a_region_desk_cannot_ask_for_the_federal_level(self):
-		officer = self._officer("region-fed")
+		officer = self.officers[0]
 		self._desk(officer, area=self.region, department=self.d1)
 		self.assertEqual(self._as_officer(officer, level="federal"), [])
 
 	def test_a_woreda_desk_reads_its_own_woreda_only(self):
-		officer = self._officer("woreda")
+		officer = self.officers[0]
 		self._desk(officer, area=self.w1, department=self.d1)
 		rows = self._as_officer(officer)
 		self.assertEqual([(r["level"], r["code"], r["count"]) for r in rows], [("woreda", self.w1_code, 2)])
 
 	def test_a_woreda_desk_does_not_reach_a_sibling_woreda(self):
-		officer = self._officer("sibling")
+		officer = self.officers[0]
 		self._desk(officer, area=self.w2, department=self.d1)
 		rows = self._as_officer(officer)
 		self.assertEqual([(r["code"], r["count"]) for r in rows], [(self.w2_code, 1)])
 
 	def test_a_woreda_desk_is_limited_to_its_department(self):
-		officer = self._officer("woreda-dept")
+		officer = self.officers[0]
 		self._desk(officer, area=self.w1, department=self.d2)
 		rows = self._as_officer(officer)
 		self.assertEqual([(r["code"], r["count"]) for r in rows], [(self.w1_code, 1)])
 
 	def test_a_desk_below_woreda_level_reads_nothing(self):
-		officer = self._officer("kebele")
+		officer = self.officers[0]
 		self._desk(officer, area=self.k1, department=self.d1)
 		self.assertEqual(self._as_officer(officer), [])
 
 	def test_an_officer_on_no_desk_reads_nothing(self):
-		self.assertEqual(self._as_officer(self._officer("none")), [])
+		self.assertEqual(self._as_officer(self.officers[0]), [])
 
 	def test_desks_are_alternatives_across_levels(self):
-		officer = self._officer("two")
+		officer = self.officers[0]
 		self._desk(officer, area=self.w1, department=self.d2)
 		self._desk(officer, area=self.w2, department=self.d1)
 		levels = _by_level(self._as_officer(officer))
@@ -416,21 +411,21 @@ class TestAdminLevelScope(AdminLevelFixture):
 		)
 
 	def test_officers_do_not_share_cached_levels(self):
-		a, b = self._officer("cache-a"), self._officer("cache-b")
+		a, b = self.officers[0], self.officers[1]
 		self._desk_of(self.d1, (a, self.w1), (b, self.w2))
 		self.assertEqual({r["code"] for r in self._as_officer(a)}, {self.w1_code})
 		self.assertEqual({r["code"] for r in self._as_officer(b)}, {self.w2_code})
 		self.assertEqual({r["code"] for r in self._as_officer(a)}, {self.w1_code})
 
 	def test_the_officer_view_carries_no_case_detail(self):
-		officer = self._officer("detail")
+		officer = self.officers[0]
 		self._desk(officer, department=self.d1)
 		for row in self._as_officer(officer):
 			self.assertEqual(set(row), ROW_KEYS)
 
 	def test_a_woreda_desk_does_not_widen_the_other_charts(self):
 		"""The daily rollup has no Woreda column: other charts keep reading such a desk as nothing."""
-		officer = self._officer("compat")
+		officer = self.officers[0]
 		self._desk(officer, area=self.w1, department=self.d1)
 		frappe.set_user(officer)
 		res = charts_api.get_charts(charts="grvKpis,grvMonthlyTrend")
@@ -441,9 +436,9 @@ class TestAdminLevelScope(AdminLevelFixture):
 
 	def test_caller_scope_names_the_level_of_each_desk(self):
 		desks = (
-			(self._officer("sc-none"), None, "federal"),
-			(self._officer("sc-region"), self.region, "region"),
-			(self._officer("sc-woreda"), self.w1, "woreda"),
+			(self.officers[0], None, "federal"),
+			(self.officers[1], self.region, "region"),
+			(self.officers[2], self.w1, "woreda"),
 		)
 		self._desk_of(self.d1, *((user, area) for user, area, _ in desks))
 		for user, _, level in desks:
