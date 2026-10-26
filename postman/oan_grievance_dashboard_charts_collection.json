@@ -135,6 +135,16 @@
       "response": []
     },
     {
+      "name": "9a. Cases by administrative level",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{base_url}}/v1/charts/grvByAdminLevel?level=federal,region,woreda",
+        "description": "Grievance counts at federal level (one row), per region and per woreda. `level` picks levels. Rows: level, code, name, region_code, count. Regions and woredas with no case are left out."
+      },
+      "response": []
+    },
+    {
       "name": "10. Category resolution: on time vs breached",
       "request": {
         "method": "GET",

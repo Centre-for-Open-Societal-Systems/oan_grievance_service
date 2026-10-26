@@ -4,7 +4,7 @@
 """Dashboard rollups: the only reader of Grievance for analytics.
 
 The dashboards never aggregate `tabGrievance` on a request. The scheduler folds it
-into two small tables every 15 minutes, and services.dashboard answers every chart
+into small tables every 15 minutes, and services.dashboard answers every chart
 from those:
 
 - Grievance Stat Daily: events per day (filed, resolved, rejected, feedback) by
@@ -18,6 +18,9 @@ from those:
   same dimensions plus the escalation flag, whether a desk holds the case, and SLA state. Today's rows are
   replaced on every refresh; earlier days stay as they were at midnight, which is
   the only record of past status counts.
+- Grievance Stat Area: how many cases stand in each Region and Woreda, by category and
+  department. Only today's: every refresh replaces the whole table. Woreda is a dimension of
+  its own rather than a column of the snapshot, which would multiply every retained day.
 
 Only counts, sums and minimums are stored. Rates and averages are worked out when
 a chart is read, so every filter combination stays exact.
@@ -34,6 +37,7 @@ from oan_grievance_service.services import sla
 
 DAILY = "Grievance Stat Daily"
 SNAPSHOT = "Grievance Stat Snapshot"
+AREA = "Grievance Stat Area"
 
 # Where the time of the last completed refresh is kept, as a system default: it is
 # what every chart reports as its as_of.
@@ -63,6 +67,9 @@ DAILY_METRICS = (
 	"feedback_count",
 	"feedback_satisfied_count",
 )
+# Cases per Region and Woreda, with the desk dimensions a scope filters on. Only the rows of
+# the moment: every refresh replaces the table, no history is kept.
+AREA_FIELDS = ("region", "woreda", "service_category", "assigned_dept", "grievance_count")
 SNAPSHOT_FIELDS = (
 	"status",
 	"region",
@@ -112,6 +119,25 @@ def _grievances():
 		Coalesce(g.assigned_dept, "").as_("assigned_dept"),
 	)
 	return g, query, dimensions
+
+
+def live_states():
+	"""Every state a chart counts, in lifecycle order. A case in a retired state is left out
+	of every chart, so they all add up to the same total."""
+	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED)
+
+
+def _woreda(query):
+	"""`query` joined to the Woreda-level ancestor of the filing area, and that Woreda's key.
+
+	Keyed by code, as regions are, or by the area's name for a Woreda the registry gave no
+	code: keep in step with grievance_administrative_area.rollup_key.
+	"""
+	a = frappe.qb.DocType("Grievance Administrative Area", alias="a")
+	w = frappe.qb.DocType("Grievance Administrative Area", alias="w")
+	query = query.left_join(w).on((w.level_name == C.AREA_LEVEL_WOREDA) & a.lft.between(w.lft, w.rgt))
+	key = Case().when(Coalesce(w.code, "") != "", w.code).else_(Coalesce(w.name, ""))
+	return query, key.as_("woreda")
 
 
 def _has_desk(g):
@@ -250,6 +276,16 @@ def _snapshot_query(now):
 	)
 
 
+def _area_query():
+	g, query, dimensions = _grievances()
+	query, woreda = _woreda(query)
+	return (
+		query.select(*dimensions, woreda, Count("*").as_("grievance_count"))
+		.where(g.status.isin(list(live_states())))
+		.groupby(*_positions(4))
+	)
+
+
 def enqueue(full=False):
 	"""Queue a refresh. Every caller shares one job id, so a refresh never starts while
 	another is queued or running; that is what keeps two runs off the same rows."""
@@ -281,6 +317,7 @@ def refresh(full=False):
 		start, days = _incremental_window(today)
 	daily_rows = _rebuild_daily(start, add_days(today, 1), days)
 	snapshot_rows = _rebuild_snapshot(today, now)
+	area_rows = _rebuild_area()
 	frappe.db.set_default(AS_OF_DEFAULT, str(now))
 	return {
 		"as_of": now,
@@ -288,6 +325,7 @@ def refresh(full=False):
 		"days": days,
 		"daily_rows": daily_rows,
 		"snapshot_rows": snapshot_rows,
+		"area_rows": area_rows,
 	}
 
 
@@ -391,6 +429,13 @@ def _rebuild_snapshot(today, now):
 		("snapshot_date", *SNAPSHOT_FIELDS),
 		[(today, *(row[f] for f in SNAPSHOT_FIELDS)) for row in rows],
 	)
+	return len(rows)
+
+
+def _rebuild_area():
+	rows = _area_query().run(as_dict=True)
+	frappe.db.delete(AREA)
+	_insert(AREA, AREA_FIELDS, [tuple(row[f] for f in AREA_FIELDS) for row in rows])
 	return len(rows)
 
 

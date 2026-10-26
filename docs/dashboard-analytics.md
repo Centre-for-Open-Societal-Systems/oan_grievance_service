@@ -1,7 +1,7 @@
 # Dashboard analytics
 
 The grievance dashboards (the officer/admin dashboard and the public OAN programme
-dashboards) are served from two rollup tables that the scheduler refreshes every 15
+dashboards) are served from rollup tables that the scheduler refreshes every 15
 minutes. No dashboard request ever aggregates `tabGrievance`.
 
 ## Data flow
@@ -11,6 +11,7 @@ every 15 min (cron */15)      services/dashboard_rollup.refresh()
   tabGrievance, Status History, Duplicate
       -> Grievance Stat Daily      events per day (last 3 days rebuilt; all nightly)
       -> Grievance Stat Snapshot   status counts per day (today replaced; history kept)
+      -> Grievance Stat Area       cases per region and woreda (whole table replaced; no history)
       -> as_of (system default)
 
 request                        services/dashboard.get_chart()
@@ -38,7 +39,14 @@ request                        services/dashboard.get_chart()
   cannot be rebuilt from current data.
 - Only counts, sums and minimums are stored. Rates and averages are worked out when a chart is
   read, so every filter combination is exact.
-- A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`).
+- **Grievance Stat Area** holds how many cases stand in each region and woreda, by service
+  category and department, and nothing else: no status, no history. Every refresh replaces the
+  whole table, so it stays as small as the woredas that hold cases, and a woreda is not a
+  dimension of the retained snapshot, which would multiply every kept day. Only
+  `grvByAdminLevel` reads it. It counts the same states as every other chart.
+- A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`). A
+  woreda is its Woreda-level ancestor, stored as its code, or its name when the registry gave it
+  none.
 - Refreshes never overlap: the 15-minute refresh, the nightly rebuild and the first build after
   migrate all queue one background job under a shared job id, and a run is not queued while
   another is queued or running. A nightly rebuild skipped that way is picked up the next night.
@@ -69,7 +77,7 @@ cache another 15 minutes).
 
 All return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
 `service_category` (alias `category`), `from` / `to`, `month`, `as_of_month` (only
-`grvResolutionRateByRegion`), `granularity`; the admin form
+`grvResolutionRateByRegion`), `granularity`, `level` (only `grvByAdminLevel`); the admin form
 also takes `assigned_dept` and `limit`. An unknown value is a 400 naming the field.
 
 Each public chart is its own literal route, so an admin-only or unknown chart id never reaches
@@ -91,17 +99,52 @@ refresh as everything above, but only over the cases inside their active RBAC de
 unscoped. A request without a valid bearer token is 401; a submitter or a Dashboard Reader is 403.
 
 A desk is an area, a department and a category, all optional. The desks are alternatives; within
-one desk every part must match. The rollups are grouped by region, category and department only,
-so the scope is exact down to region level and errs towards showing less:
+one desk every part must match. The rollups are grouped by region, category and department
+(Grievance Stat Area also by woreda), so the scope is exact down to region level, and down to woreda
+level for `grvByAdminLevel`, and errs towards showing less:
 
-- A desk's area counts as the Regions inside it. A desk below Region level contributes nothing,
-  rather than its whole region.
+- A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no Region
+  inside it and counts as the Woredas inside it, for `grvByAdminLevel` only: the other charts
+  read the daily table, which has no woreda, so there such a desk contributes nothing. A desk
+  below Woreda level (a Kebele) contributes nothing anywhere, rather than its whole woreda.
 - A desk narrowed by grievance type or service provider contributes nothing.
 - A case an officer holds only through their reporting chain is not counted.
 - An officer on no usable desk reads zeros.
 
+### Cases by administrative level (STG-471)
+
+`grvByAdminLevel` counts grievances at three levels, over the same cases every other chart
+counts (today's snapshot, after the caller's scope and filters):
+
+| `level`   | Rows                         | `code`, `name`                           |
+| --------- | ---------------------------- | ---------------------------------------- |
+| `federal` | one: every case              | the Country area (null when none exists) |
+| `region`  | one per region holding cases | region P-code and name                   |
+| `woreda`  | one per woreda holding cases | woreda code (or name) and name           |
+
+Each row is `{level, code, name, region_code, count}`, widest level first, then by count. A
+woreda row names its region in `region_code`; a federal row has none. `level=region,woreda`
+returns only those levels; an unknown level is a 400. The `region` filter narrows all three
+levels, so `federal` then totals that region.
+
+Access follows the role and the desks. Grievance Admin, System Manager, Administrator and the
+Dashboard Reader (public route, counts only) read all three levels. An officer reads their own
+level and the ones below it, because a wider row would count cases outside their desks as one
+number:
+
+| Officer's widest desk area  | Levels returned         |
+| --------------------------- | ----------------------- |
+| none, or the Country        | federal, region, woreda |
+| a Region                    | region, woreda          |
+| a Zone or a Woreda          | woreda                  |
+| a Kebele, or no usable desk | none (empty list)       |
+
+Within the levels shown, counts cover only the cases of the officer's desks (area, department
+and category), so a Woreda desk sees that Woreda's row alone. Asking for a level the officer may
+not read returns no rows for it rather than an error.
+
 Public charts: `grvKpis`, `grvPerformanceKpis`, `grvMonthlyTrend`, `grvWeeklyTrend`,
-`grvNetBacklogTrend`, `grvStatusDistribution`, `grvByCategory`, `grvCategoryResolution`,
+`grvNetBacklogTrend`, `grvStatusDistribution`, `grvByCategory`, `grvByAdminLevel`, `grvCategoryResolution`,
 `grvAvgResolutionByCategory`, `grvPerformanceScore`, `grvResolutionRateByRegion`, `grvSlaRisk`, `grvPendingDuplicates`, `grvOldestOpen` (age only),
 `grvFilterRegions`, `grvFilterCategories`. Admin only: `grvRecent`, `grvFilterDepartments`, and
 `grvOldestOpen` with the case named. Row shapes are in `openapi/openapi_v1.yaml` and

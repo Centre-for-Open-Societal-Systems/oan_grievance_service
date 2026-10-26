@@ -11,6 +11,9 @@ each chart returns. The public form is the contract the OAN dashboards read
 (`GET <base>/api/v1/charts/<id>` returning `{data: [...]}`), and serves counts
 only.
 
+`grvByAdminLevel` counts grievances at Federal, Region and Woreda level (`level=` picks some).
+An officer reads their own level and the ones below it, over the cases their desks cover.
+
 The OAN dashboards call the public form as a Frappe user holding Grievance Dashboard
 Reader, with that user's API key and secret (`Authorization: token <key>:<secret>`).
 Frappe checks the key before the middleware runs; the middleware then accepts it
@@ -24,7 +27,7 @@ unknown or admin-only id never reaches this code at all.
 
 import re
 from datetime import timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 import frappe
 from frappe import _
@@ -38,7 +41,7 @@ from oan_auth_service.api.utils import (
 	require_role,
 	success_response,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard
@@ -77,6 +80,15 @@ class ChartsQuery(BaseModel):
 	month: str | None = None
 	as_of_month: str | None = None
 	granularity: Literal["month", "week"] = "month"
+	# At most every level once, comma-separated ("federal,region,woreda" is 21 characters).
+	level: (
+		Annotated[str, StringConstraints(max_length=40)]
+		| Annotated[
+			list[Annotated[str, StringConstraints(max_length=16)]],
+			Field(max_length=len(dashboard.LEVELS)),
+		]
+		| None
+	) = None
 	limit: int = Field(10, ge=1, le=50)
 
 
@@ -112,6 +124,17 @@ def _known(doctype, fieldname, values, field, extra_filters=None):
 	if unknown:
 		raise InvalidParam(field, _("Unknown value(s): {0}").format(", ".join(unknown)))
 	return tuple(values)
+
+
+def _levels(values):
+	values = tuple(dict.fromkeys(v.strip().lower() for v in values))
+	unknown = [v for v in values if v not in dashboard.LEVELS]
+	if unknown:
+		raise InvalidParam(
+			"level",
+			_("Unknown value(s): {0}; expected {1}").format(", ".join(unknown), ", ".join(dashboard.LEVELS)),
+		)
+	return values
 
 
 def parse_params(raw, admin):
@@ -159,6 +182,7 @@ def parse_params(raw, admin):
 		as_of_month=as_of_month,
 		granularity=query.granularity,
 		limit=query.limit,
+		level=_levels(parse_multi_value(query.level)),
 	)
 
 
@@ -166,6 +190,7 @@ def _echo(params, admin):
 	echo = {
 		"region": list(params.region),
 		"service_category": list(params.service_category),
+		"level": list(params.level),
 		"from": params.from_date.isoformat() if params.from_date else None,
 		"to": (params.to_date or getdate(now_datetime())).isoformat(),
 	}
