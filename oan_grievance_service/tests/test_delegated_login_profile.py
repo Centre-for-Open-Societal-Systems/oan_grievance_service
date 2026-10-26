@@ -195,3 +195,42 @@ class TestDelegatedLoginProfile(FrappeTestCase):
 			)
 		)
 		self.assertIsNone(self._profile(second))
+
+	def test_db_deadlock_or_exception_skips_profile_without_refusing_login(self):
+		user = self._user("Grievance Submitter")
+		from unittest.mock import patch
+
+		with patch(
+			"oan_grievance_service.api.v1.submitter._create_or_update_submitter_profile",
+			side_effect=frappe.QueryDeadlockError("Deadlock found when trying to get lock"),
+		):
+			self.assertFalse(
+				on_delegated_login_hook(user=user, principal=_principal(), login_option=LOGIN_OPTION)
+			)
+		self.assertIsNone(self._profile(user))
+
+	def test_profile_with_region_area_submits_grievance_with_woreda_area(self):
+		from oan_grievance_service.tests.fixtures import a_grievance
+
+		user = self._user("Grievance Submitter")
+		principal = _principal(
+			address={
+				"street_address": "Kebele 01",
+				"locality": "Hawassa",
+				"region": "Sidama",
+				"postal_code": "1000",
+				"country": "Ethiopia",
+			}
+		)
+		on_delegated_login_hook(user=user, principal=principal, login_option=LOGIN_OPTION)
+		profile = self._profile(user)
+		self.assertTrue(profile.administrative_area)
+
+		g = a_grievance(
+			submitter=profile.name,
+			submitter_type=profile.submitter_type,
+			submitter_name=profile.submitter_name,
+			contact_mobile=profile.contact_mobile,
+		)
+		self.assertTrue(g.administrative_area)
+		self.assertNotEqual(g.administrative_area, profile.administrative_area)

@@ -290,20 +290,20 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 		return False if profile_name else _create_agent_profile(user, principal, login_option)
 
 	identity = _identity_fields(principal, login_option)
-	if profile_name:
-		return _refresh_identity(profile_name, identity)
-
-	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
-	from oan_grievance_service.services.identity import FAYDA_PATTERN
-
-	# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
-	# anything else (a VID, a pairwise `sub`) is left out.
-	individual_id = str(principal.get("individual_id") or "").strip()
-	fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
-	mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
-
 	frappe.db.savepoint("delegated_login_profile")
 	try:
+		if profile_name:
+			return _refresh_identity(profile_name, identity)
+
+		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
+		from oan_grievance_service.services.identity import FAYDA_PATTERN
+
+		# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
+		# anything else (a VID, a pairwise `sub`) is left out.
+		individual_id = str(principal.get("individual_id") or "").strip()
+		fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
+		mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
+
 		profile = _create_or_update_submitter_profile(
 			user=user,
 			submitter_type="Individual Farmer",
@@ -315,7 +315,9 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 			fayda_id=fayda_id,
 			submission_channel="Web Portal",
 		)
-	except (frappe.ValidationError, frappe.DuplicateEntryError):
+		_refresh_identity(profile.name, identity)
+		return True
+	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
 		frappe.log_error(
@@ -324,8 +326,6 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 			defer_insert=True,
 		)
 		return False
-	_refresh_identity(profile.name, identity)
-	return True
 
 
 def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool:
@@ -340,7 +340,7 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 			contact_email=principal.get("email"),
 			submission_channel="Web Portal",
 		)
-	except (frappe.ValidationError, frappe.DuplicateEntryError):
+	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
 		frappe.log_error(

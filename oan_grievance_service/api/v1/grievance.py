@@ -224,6 +224,8 @@ class ReassignGrievanceRequest(BaseModel):
 				"Name at least one of target_department, target_officer, target_category "
 				"or target_grievance_type."
 			)
+		if self.target_officer and not (self.target_department or self.target_category):
+			raise ValueError("Specify target_department or target_category when naming target_officer.")
 		return self
 
 

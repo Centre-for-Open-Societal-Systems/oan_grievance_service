@@ -150,11 +150,19 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 	When only one of department and category is named, the unnamed one is kept if some desk
 	still matches it (a case with no department matches desks with none). Only then are desks
 	outside it considered, and the case takes the chosen desk's department, cleared when that
-	desk has none. Returns a dict of fields that differ from current grievance values.
+	desk has none. When an officer is named, target department or category must be specified.
+	Returns a dict of fields that differ from current grievance values.
 	Throws ValidationError if the move is invalid or underspecified.
 	"""
 	actor = actor or frappe.session.user
 	admin = is_unrestricted(actor)
+
+	if officer and not department and not category:
+		frappe.throw(
+			_("Specify target department or category when naming an officer."),
+			frappe.ValidationError,
+			title=_("Department or Category Required"),
+		)
 
 	# 1. Candidate desks
 	if officer:
