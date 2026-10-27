@@ -553,11 +553,7 @@ def _assignment(s):
 		"service_category": _("Service Category"),
 	}
 	for request, changes in s.reassignments:
-		detail = "; ".join(
-			f"{field_labels.get(c.fieldname, c.fieldname)}: "
-			f"{_value_for(s, c.fieldname, c.old_value)} -> {_value_for(s, c.fieldname, c.new_value)}"
-			for c in changes
-		)
+		detail = "; ".join(_reassignment_change(s, field_labels, c) for c in changes)
 		events.append((request.decided_at, _("Reassignment approved"), detail, s.person(request.decided_by)))
 
 	return _section(
@@ -576,6 +572,14 @@ def _value_for(s, fieldname, value):
 	if fieldname == "assigned_to" and value:
 		return s.person(value)
 	return value or ""
+
+
+def _reassignment_change(s, field_labels, change):
+	"""One changed field of an approved reassignment, as `Label: old -> new`."""
+	label = field_labels.get(change.fieldname, change.fieldname)
+	old = _value_for(s, change.fieldname, change.old_value)
+	new = _value_for(s, change.fieldname, change.new_value)
+	return f"{label}: {old} -> {new}"
 
 
 def _history_detail(s, row):
@@ -793,16 +797,16 @@ def _appeal(s):
 	ratings = [[_when(f.submitted_at), f.feedback_type, f"{f.rating}/5", f.comments] for f in s.feedback]
 	latest = s.feedback[-1] if s.feedback else None
 
+	appeal_note = _(
+		"If the complainant is not satisfied with the decision, the complainant may submit an appeal "
+		"or request further review through the appropriate administrative channel."
+	)
+
 	return _section(
 		11,
 		_("Appeal / Further Review"),
 		[
-			_static(
-				_(
-					"If the complainant is not satisfied with the decision, the complainant may submit an appeal "
-					"or request further review through the appropriate administrative channel."
-				)
-			),
+			_static(appeal_note),
 			# A reopen is the complainant asking for further action. The 1 to 5 rating has no
 			# documented line between satisfied and not, so it is shown as given, not as a box.
 			_checks(
