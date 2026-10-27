@@ -235,6 +235,31 @@
     {
       "key": "farmer_refresh_token",
       "value": ""
+    },
+    {
+      "key": "keycloak_login_key",
+      "value": "agent",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_return_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_cookie_prefix",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_client_uuid",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -7288,6 +7313,247 @@
             "description": "Queue a one-off sync of the whole source. The directory gets new providers, updated names and areas, and providers the source no longer lists are deactivated. The result appears on the source (last_sync_status, last_sync_message). 409 when a sync of this source is already queued or running; 400 when it is disabled."
           },
           "response": []
+        }
+      ]
+    },
+    {
+      "name": "Development Agent (Keycloak login)",
+      "description": "Development Agent signs in through Keycloak (agent realm) via IAM and raises a grievance for a citizen. K1 returns a Keycloak URL. Open it in a browser, sign in, then copy the <cookie_prefix>X-Access-Token cookie into the keycloak_access_token variable. K2-K5 send it as Bearer. Needs an IAM row on the site whose issuer matches the token and a Keycloak role mapped to Grievance Assisted Submitter. administrative_area, administrative_unit, taxonomy_category and taxonomy_grievance_type must be set (run the E2E folder or fill them by hand).",
+      "item": [
+        {
+          "name": "K1. Start Keycloak login (agent realm)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/iam/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "iam",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{keycloak_login_key}}\",\n  \"return_url\": \"{{keycloak_return_url}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "var d = pm.response.json().data || {};",
+                  "pm.test(\"redirect_url returned\", function () { pm.expect(d.redirect_url).to.be.a(\"string\"); });",
+                  "if (d.cookie_prefix !== undefined) { pm.collectionVariables.set(\"keycloak_cookie_prefix\", d.cookie_prefix); }",
+                  "console.log(\"STEP 2 (manual): open this URL in a browser, sign in as the Development Agent, then copy the cookie \" + d.cookie_prefix + \"X-Access-Token into the keycloak_access_token variable:\\n\" + d.redirect_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K2. Who am I (verifies pasted Keycloak token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "var d = pm.response.json().data || {};",
+                  "pm.test(\"Has Grievance Assisted Submitter role\", function () { pm.expect(JSON.stringify(d)).to.include(\"Grievance Assisted Submitter\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K3. Raise grievance on behalf of a citizen (walk-in)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_submission_uuid\": \"{{keycloak_client_uuid}}\",\n  \"submission_channel\": \"Development Agent Assisted\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"Agent Walk-in Farmer\",\n  \"contact_mobile\": \"{{contact_mobile}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{taxonomy_category}}\",\n  \"grievance_type\": \"{{taxonomy_grievance_type}}\",\n  \"description\": \"Raised by a Development Agent on behalf of a farmer: fertilizer voucher never arrived.\",\n  \"desired_outcome\": \"Reissue the fertilizer voucher.\",\n  \"is_anonymous\": 0,\n  \"consent_given\": 1\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var uuid = (typeof crypto !== \"undefined\" && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36));",
+                  "pm.collectionVariables.set(\"keycloak_client_uuid\", uuid);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "var d = pm.response.json().data || {};",
+                  "pm.test(\"Ticket issued\", function () { pm.expect(d).to.have.property(\"ticket_number\"); });",
+                  "if (d.ticket_number) { pm.collectionVariables.set(\"ticket_number\", d.ticket_number); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K4. Get timeline of the raised grievance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "timeline"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K5. Logout (Keycloak session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_token\": \"{{keycloak_access_token}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
