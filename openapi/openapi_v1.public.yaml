@@ -845,6 +845,103 @@ paths:
         description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
       security:
       - BearerAuth: []
+  /v1/grievances/{ticket_number}/export:
+    get:
+      tags:
+      - Grievances Core
+      summary: Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)
+      description: 'Download one grievance, with its timeline, laid out as the SOW Annexure complaint
+        form.
+
+
+        `format` is `pdf` (default) or `csv`. `lang` is `en` (default) or `am`: the form''s own
+
+        wording, such as its headings and labels, in that language, while what people wrote on the
+
+        case stays as written. The role check (the Grievance `export` permission)
+
+        and the case check are made here, in that order, and the file holds only what the caller
+
+        may already read on the case: staff get internal notes and officer names, a submitter the
+
+        public record, and an anonymous submitter''s identity stays sealed. Every attempt, allowed,
+
+        refused or failed, is written to the access audit trail.
+
+
+        The body is the file itself, not the JSON envelope; errors use the envelope.'
+      operationId: get_api_v1_grievances_ticket_number_export
+      responses:
+        '200':
+          description: Success
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      - name: format
+        in: query
+        required: false
+        schema:
+          default: pdf
+          enum:
+          - csv
+          - pdf
+          type: string
+        description: File format of the exported form
+      - name: lang
+        in: query
+        required: false
+        schema:
+          default: en
+          enum:
+          - en
+          - am
+          type: string
+        description: 'Language of the form''s own wording: en (English) or am (Amharic)'
+      security:
+      - BearerAuth: []
   /v1/grievances/{ticket_number}/message:
     post:
       tags:

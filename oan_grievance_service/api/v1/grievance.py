@@ -5,6 +5,8 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
+from typing import Literal
+
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, validate_phone_number_with_country_code
@@ -23,6 +25,7 @@ from oan_auth_service.api.utils import (
 	validate_request,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from werkzeug.wrappers import Response
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import (
@@ -51,6 +54,7 @@ from oan_grievance_service.services import (
 	response_body,
 	routing,
 	sla,
+	ticket_export,
 )
 from oan_grievance_service.services import constants as C
 
@@ -174,6 +178,21 @@ class GrievanceFeedbackRequest(BaseModel):
 	comments: str | None = None
 	feedback_type: str | None = "Resolution"
 	feedback_channel: str | None = "Web Portal"
+
+
+class ExportGrievanceRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: NonBlank
+	format: Literal["csv", "pdf"] = Field("pdf", description="File format of the exported form")
+	lang: Literal["en", "am"] = Field(
+		"en", description="Language of the form's own wording: en (English) or am (Amharic)"
+	)
+
+	@field_validator("format", "lang", mode="before")
+	@classmethod
+	def _lower(cls, value):
+		return value.strip().lower() if isinstance(value, str) else value
 
 
 class PostMessageRequest(BaseModel):
@@ -1651,6 +1670,41 @@ def timeline(
 		},
 		message=_("Timeline retrieved successfully"),
 	)
+
+
+@route(
+	"/<ticket_number>/export",
+	methods=("GET",),
+	summary="Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)",
+	tier="citizen-intake",
+)
+@validate_request(ExportGrievanceRequest)
+@handle_api_errors
+def export_form(ticket_number: str, format: str = "pdf", lang: str = "en", **kwargs):
+	"""Download one grievance, with its timeline, laid out as the SOW Annexure complaint form.
+
+	`format` is `pdf` (default) or `csv`. `lang` is `en` (default) or `am`: the form's own
+	wording, such as its headings and labels, in that language, while what people wrote on the
+	case stays as written. The role check (the Grievance `export` permission)
+	and the case check are made here, in that order, and the file holds only what the caller
+	may already read on the case: staff get internal notes and officer names, a submitter the
+	public record, and an anonymous submitter's identity stays sealed. Every attempt, allowed,
+	refused or failed, is written to the access audit trail.
+
+	The body is the file itself, not the JSON envelope; errors use the envelope.
+	"""
+	exported = ticket_export.export_ticket(ticket_number, format, lang)
+
+	response = Response(exported.content, status=200, mimetype=exported.mimetype)
+	response.headers.add("Content-Disposition", "attachment", filename=exported.filename)
+	response.headers["Content-Length"] = str(len(exported.content))
+	response.headers["Cache-Control"] = "private, no-store"
+	response.headers["X-Content-Type-Options"] = "nosniff"
+
+	# Tells handle_api_errors to hand the Response back untouched instead of wrapping it in the
+	# JSON envelope (as the attachment view does).
+	frappe.response["type"] = "download"
+	return response
 
 
 @route(
