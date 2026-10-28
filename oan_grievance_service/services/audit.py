@@ -17,10 +17,21 @@ ACTION_VIEW_SUBMITTER_IDENTITY = "view_submitter_identity"
 # exactly what an auditor asking "what was this decided on" needs to see, and
 # recording it as a view -- which is what it was doing -- hides it among them.
 ACTION_DELETE_ATTACHMENT = "delete_attachment"
+# An export that was allowed but produced nothing. `export` rows mean the file left the
+# system; this one means someone was cleared to take it and it failed to render.
+ACTION_EXPORT_FAILED = "export_failed"
 
 
-def record_access(action, grievance=None, scope=None, decision="Allowed"):
-	"""Write an access audit row. Never raises: auditing must not break the request."""
+def record_access(action, grievance=None, scope=None, decision="Allowed", durable=False, strict=False):
+	"""Write an access audit row. Never raises unless `strict`: auditing must not break the request.
+
+	`durable` commits the row. The API error handler rolls the transaction back before it
+	answers, so a row written just before a refusal or a failure is lost with it; pass it
+	where the caller is about to raise and the attempt must still be on record.
+
+	`strict` re-raises a failed write after logging it. Use it where the action must not
+	happen unless it is on record, such as an export that hands personal data to the caller.
+	"""
 	from oan_grievance_service.permissions import GRIEVANCE_ROLES
 
 	try:
@@ -38,8 +49,12 @@ def record_access(action, grievance=None, scope=None, decision="Allowed"):
 				"source": frappe.local.request.path if getattr(frappe.local, "request", None) else "server",
 			}
 		).insert(ignore_permissions=True)
+		if durable:
+			frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	except Exception:
 		frappe.log_error(title="Access audit write failed", message=frappe.get_traceback())
+		if strict:
+			raise
 
 
 def on_grievance_view(doc, method=None):
@@ -49,9 +64,9 @@ def on_grievance_view(doc, method=None):
 	record_access(ACTION_VIEW_DETAIL, grievance=doc.name)
 
 
-def log_denied(action, grievance=None, scope=None):
+def log_denied(action, grievance=None, scope=None, durable=False):
 	"""An unauthorised attempt is denied and logged."""
-	record_access(action, grievance=grievance, scope=scope, decision="Denied")
+	record_access(action, grievance=grievance, scope=scope, decision="Denied", durable=durable)
 
 
 class ImmutableRecord:

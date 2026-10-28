@@ -6377,6 +6377,54 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/export",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "pdf",
+                  "description": "File format of the exported form",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Download one grievance, with its timeline, laid out as the SOW Annexure complaint form.\n\n`format` is `pdf` (default) or `csv`. The role check (the Grievance `export` permission)\nand the case check are made here, in that order, and the file holds only what the caller\nmay already read on the case: staff get internal notes and officer names, a submitter the\npublic record, and an anonymous submitter's identity stays sealed. Every attempt, allowed,\nrefused or failed, is written to the access audit trail.\n\nThe body is the file itself, not the JSON envelope; errors use the envelope."
+          },
+          "response": []
         }
       ]
     },

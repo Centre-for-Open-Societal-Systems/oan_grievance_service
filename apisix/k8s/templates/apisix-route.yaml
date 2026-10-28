@@ -755,6 +755,7 @@ spec:
       - /v1/attachments/:attachment_id/download
       - /v1/attachments/:attachment_id/view
       - /v1/grievances/:ticket_number/attachments
+      - /v1/grievances/:ticket_number/export
       - /v1/grievances/:ticket_number/timeline
       - /v1/orgs/me
       methods:

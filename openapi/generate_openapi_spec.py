@@ -1758,6 +1758,11 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 			response_schema_name = resolve_response_schema(endpoint_fn, func_name, openapi_path, method)
 			resp_content_type = "*/*" if func_name == "view" else "application/json"
+			# The SOW form is a file in either format, not the JSON envelope.
+			export_content = {
+				"application/pdf": {"schema": copy.deepcopy(BINARY)},
+				"text/csv": {"schema": copy.deepcopy(BINARY)},
+			}
 
 			# The status the route declares in @route(status=...), 200 unless it says otherwise
 			# (a route that only queues work answers 202).
@@ -1771,7 +1776,9 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				"responses": {
 					success_status: {
 						"description": "Success",
-						"content": {
+						"content": export_content
+						if func_name == "export_form"
+						else {
 							resp_content_type: {
 								"schema": REF(response_schema_name) if response_schema_name else BINARY
 							}
