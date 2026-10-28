@@ -116,7 +116,11 @@ table.grid tr { page-break-inside: avoid; }
 
 
 def render_pdf(form) -> bytes:
-	"""The form as a PDF, laid out like the paper original: letterhead, reference block, numbered sections."""
+	"""The form as a PDF, laid out like the paper original: letterhead, reference block, numbered sections.
+
+	The PDF is deliberately not digitally signed (decision recorded in docs/ticket-export.md):
+	the SHA-256 in the export's audit row is its only integrity control.
+	"""
 	from weasyprint import HTML
 
 	# Every value is escaped and the page has no links or images, so there is nothing to

@@ -858,19 +858,21 @@ paths:
 
         wording, such as its headings and labels, in that language, while what people wrote on the
 
-        case stays as written. The role check (the Grievance `export` permission) is made before
+        case stays as written. The Grievance `export` permission is checked first, by the route
 
-        the query is validated, then the case check, and the file holds only what the caller
+        guard and before the query is validated, as the timeline route checks `read`. Then the case
 
-        may already read on the case: staff get internal notes and officer names, a submitter the
+        check, and the file holds only what the caller may already read on the case: staff get
 
-        public record, and an anonymous submitter''s identity stays sealed. A case the caller may
+        internal notes and officer names, a submitter the public record, and an anonymous
 
-        not read is answered as 404, like one that does not exist. Every attempt, allowed,
+        submitter''s identity stays sealed. A case the caller may not read is answered as 404, like
 
-        refused or failed, is written to the access audit trail, and a file is returned only once
+        one that does not exist. Every attempt that passes the permission, allowed, refused or
 
-        its row (with the file''s size and SHA-256) is on record.
+        failed, is written to the access audit trail, and a file is returned only once its row
+
+        (with the file''s size and SHA-256) is on record.
 
 
         The body is the file itself, not the JSON envelope; errors use the envelope.'

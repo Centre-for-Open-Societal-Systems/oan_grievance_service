@@ -71,15 +71,18 @@ class ExportNotRecorded(Exception):
 
 
 def export_ticket(ticket_number: str, file_format: str, lang: str = LANGUAGE_EN) -> ExportedForm:
-	"""The form for one case, after the role check, the case check and the audit write.
+	"""The form for one case, after the case check and before the audit write.
+
+	The Grievance `export` permission is not checked here: the route's `require_permission`
+	guard does, once, before the query is validated (the same guard the timeline route uses).
 
 	`lang` is the language the form's own wording is printed in; what the complainant and the
 	officers wrote stays as they wrote it. The error messages below follow the request's language.
 
-	Every attempt leaves one Grievance Access Audit Event: `export` when the file was
-	produced, `export` marked Denied when the caller was refused (no export role, no access
-	to the case, no such case), `export_failed` when the caller was cleared and the file
-	could not be made. Each is committed before this returns or raises, because the API
+	Every attempt that gets this far leaves one Grievance Access Audit Event: `export` when the
+	file was produced, `export` marked Denied when the caller was refused (no access to the
+	case, no such case), `export_failed` when the caller was cleared and the file could not
+	be made. Each is committed before this returns or raises, because the API
 	error handler rolls the request back. The row names the format and the reason, never
 	anything from the complaint.
 
@@ -90,8 +93,7 @@ def export_ticket(ticket_number: str, file_format: str, lang: str = LANGUAGE_EN)
 	A case the caller may not read is refused exactly as one that does not exist, so holding the
 	export permission is not a way to find out which tickets exist. The audit row still says which.
 	"""
-	scope = _scope(file_format, lang)
-	require_export_role(ticket_number, file_format, lang)
+	scope = f"format={file_format}; lang={lang}"
 
 	name = _find_case(ticket_number)
 	doc = frappe.get_doc("Grievance", name) if name else None
@@ -133,33 +135,6 @@ def export_ticket(ticket_number: str, file_format: str, lang: str = LANGUAGE_EN)
 	slug = re.sub(r"[^A-Za-z0-9]", "", doc.ticket_number or doc.name)
 	suffix = "" if lang == LANGUAGE_EN else f"-{lang}"
 	return ExportedForm(content, f"grievance-{slug}{suffix}.{file_format}", _MIMETYPES[file_format])
-
-
-def require_export_role(ticket_number=None, file_format=None, lang=None):
-	"""Refuse a caller who does not hold the Grievance `export` permission, and record the refusal.
-
-	The route calls this before it validates the query, so a caller without the role learns
-	nothing about the request schema, and `export_ticket` calls it again so the check cannot
-	be skipped by calling the service directly. It answers the same whether or not the ticket
-	exists.
-	"""
-	if not frappe.has_permission("Grievance", "export"):
-		_refuse(
-			_find_case(ticket_number),
-			_scope(file_format, lang),
-			"role",
-			_("You do not have permission to export grievances."),
-		)
-
-
-def _scope(file_format, lang):
-	"""The request's format and language for an audit row; a value that is not one of ours is not echoed."""
-	file_format = str(file_format or FORMAT_PDF).lower()
-	lang = str(lang or LANGUAGE_EN).lower()
-	return (
-		f"format={file_format if file_format in FORMATS else 'invalid'}; "
-		f"lang={lang if lang in LANGUAGES else 'invalid'}"
-	)
 
 
 @contextmanager

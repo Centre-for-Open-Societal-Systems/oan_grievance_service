@@ -23,7 +23,7 @@ The CSV is UTF-8 with a byte-order mark, so a spreadsheet reads Amharic. It has 
 
 Two checks, in this order:
 
-1. **Role.** The caller holds the Grievance `export` permission, or the answer is `403 PERMISSION_DENIED`. That is Grievance Admin, System Manager, Grievance Officer, Grievance Submitter and Grievance Assisted Submitter. The Review Officer has none: it is read-only oversight and is left out. The check runs before the query is validated, so a caller without the role learns nothing about the request schema, and it answers the same whether or not the ticket exists.
+1. **Role.** The caller holds the Grievance `export` permission, or the answer is `403 PERMISSION_DENIED`. That is Grievance Admin, System Manager, Grievance Officer, Grievance Submitter and Grievance Assisted Submitter. The Review Officer has none: it is read-only oversight and is left out. The route checks it with `@require_permission("Grievance", "export")`, as the timeline route does for `read`, so the rule is the DocPerm flag and nowhere else. The guard runs before the query is validated, so a caller without the role learns nothing about the request schema, and it answers the same whether or not the ticket exists. It refuses before the export service runs, so a role refusal writes no audit row (§3).
 2. **Case.** The caller may read this case (`has_grievance_permission`): their own case or one they assisted, a case assigned to them or their reporting chain, or a case inside their desk scope. If not, the answer is `404 NOT_FOUND` with the same message as a ticket that does not exist. Every submitter holds the export permission, so a different answer here would tell any of them which tickets exist. The audit row says which of the two it was.
 
 The file holds what the caller could already read on the case, no more:
@@ -40,14 +40,13 @@ Attachments are listed with name, type, size, upload time and scan status, inclu
 
 ## 3. Audit
 
-Every attempt writes one `Grievance Access Audit Event`, committed before the response, because the API error handler rolls the request back and a refusal would otherwise leave nothing behind.
+Every attempt that passes the role check writes one `Grievance Access Audit Event`, committed before the response, because the API error handler rolls the request back and a refusal would otherwise leave nothing behind. A caller without the export permission is stopped by the route guard first and writes no row, as on every route that uses `require_permission`.
 
 A file is returned only after its row is written. The row is written last, once the file exists, and if it cannot be written or committed the export fails with `500` and no file leaves. Nothing is handed over without a record of it.
 
 | Outcome                                 | `action`        | `decision` | `scope_evaluated`                                                     |
 | :-------------------------------------- | :-------------- | :--------- | :-------------------------------------------------------------------- |
 | File produced                           | `export`        | `Allowed`  | `format=pdf; lang=en; outcome=success; bytes=31162; sha256=87dc96...` |
-| Caller lacks the export role            | `export`        | `Denied`   | `format=pdf; lang=en; reason=role`                                    |
 | Caller cannot read the case             | `export`        | `Denied`   | `format=pdf; lang=en; reason=case_access`                             |
 | No such ticket                          | `export`        | `Denied`   | `format=pdf; lang=en; ticket=<first 40 characters>; reason=not_found` |
 | Cleared, but the file could not be made | `export_failed` | `Allowed`  | `format=pdf; lang=en; reason=generation_error (RuntimeError)`         |
@@ -58,7 +57,7 @@ The row links the grievance when there is one, and carries the user, their role 
 
 **Matching a file to its export.** A successful row carries the file's size and SHA-256. Given a copy, `sha256sum` it and search `scope_evaluated` for the digest: a match names the user, the time and the case, and a copy that has been edited since matches nothing. The file itself carries no signature or seal (§6).
 
-**Refusal rows are rationed.** A refusal always happens, but one account's refusals write at most 10 rows a minute (`MAX_DENIAL_ROWS_PER_MINUTE`); the rest of that minute are refused without a row. Without this, one account could grow the audit table without limit, since the gateway limit is per address. A role refusal that carries a `format` or `lang` that is not one of ours records it as `invalid` rather than echoing it.
+**Refusal rows are rationed.** A refusal always happens, but one account's refusals write at most 10 rows a minute (`MAX_DENIAL_ROWS_PER_MINUTE`); the rest of that minute are refused without a row. Without this, one account could grow the audit table without limit, since the gateway limit is per address. The `format` and `lang` in a row are the validated values, so a row never carries unvalidated caller text beyond the ticket (cut to 40 characters).
 
 ## 4. Limits and time zone
 
@@ -101,7 +100,7 @@ Every table is ordered by time, oldest first. A stage that has not happened says
 - **The letterhead** is built from the case's region and filing office (its woreda, or zone) and reads "<name> Administration". The sample's "City" and "Sub-City" are part of its own names and are not added.
 - **Document checklist.** `Grievance Attachment.document_type` is free text with no list of values behind it, so an item is ticked only by an attachment whose document type names it (ignoring case, spacing and punctuation), and any other attachment ticks Other Supporting Documents. Until the upload form sends those six names, most files will land under Other.
 - **Boxes the system cannot answer.** Correct official record, additional site verification, written clarification, no action required, Written Letter, Telephone, In Person, Satisfied and Not Satisfied are left unticked: the system holds the department's own words as the action taken, and a 1 to 5 rating has no documented line between satisfied and not. They are for whoever completes the printed form by hand.
-- **No signature, seal or hash on the file.** The PDF ends at the footer's plain-text "Exported By" and "Exported On", which anyone can retype, and the Signature and Official Stamp fields are blank on purpose. What ties a file to the system is the SHA-256 in its audit row (§3), which proves a copy is unaltered, not who vouches for it. If the SOW expects this PDF to stand in for the signed paper form, a digital signature (a certificate and a signing step) is a requirement that is not met and is not specified in the documents.
+- **Decision: the PDF is not digitally signed.** The exported PDF carries no digital signature, seal or QR code, and it does not replace the signed paper form. The Signature and Official Stamp fields are blank on purpose, and the footer's plain-text "Exported By" and "Exported On" are not an integrity control, since anyone can retype them. **The only integrity control is the SHA-256 in the export's audit row (§3):** it shows that a copy is unaltered and which export produced it, not who vouches for it. Decision recorded 2026-10-28 in the review of STG-469. If this changes, signing is a new ticket: a certificate-based signature or a QR code carrying a signed payload, with legal advice on whether it is binding.
 - **Existing denials.** `audit.log_denied` calls made before this change (the attachment endpoints) are not durable and are lost to the same rollback. Pass `durable=True` there to keep them.
 - **Proposed closure date.** FSD Appendix D-1 requires one on every department response. The service does not store it, so it cannot appear in the form.
 - **Responder name for a submitter.** FSD D-4 lets a submitter see the responder's name. The timeline API shows a submitter only the officer's role, and the export follows the API, so a submitter sees "Officer". Say if the form should name them.

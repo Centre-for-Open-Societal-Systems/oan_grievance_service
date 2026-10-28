@@ -734,7 +734,7 @@ class TestExportEndpoint(TicketExportTestCase):
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
 		self.assertEqual(len(self._events(grievance=self.case.name)), before)
 
-	def test_a_role_without_export_is_refused_and_the_attempt_is_audited(self):
+	def test_a_role_without_export_is_refused_by_the_route_guard(self):
 		reviewer = _user(
 			f"export-review-{frappe.generate_hash(length=6)}@example.com",
 			"Rahel Review",
@@ -745,10 +745,9 @@ class TestExportEndpoint(TicketExportTestCase):
 		with _keep_transaction():
 			result = self._export(format="csv")
 		self.assertEqual(result["code"], "PERMISSION_DENIED")
-		event = self._events(grievance=self.case.name, action="export")[0]
-		self.assertEqual((event.user, event.decision), (reviewer, "Denied"))
-		self.assertEqual(event.scope_evaluated, "format=csv; lang=en; reason=role")
-		self.commit.assert_called()
+		# The guard is the same `require_permission` the timeline route uses, which refuses before
+		# the service runs; the service writes the audit rows, so there is none for this refusal.
+		self.assertFalse(self._events(user=reviewer, action="export"))
 
 	def test_a_role_without_export_learns_nothing_about_whether_the_case_exists(self):
 		reviewer = _user(
@@ -810,13 +809,11 @@ class TestExportEndpoint(TicketExportTestCase):
 		}
 		self.assertEqual(reasons, {"case_access", "not_found"})
 
-	def test_a_guest_is_refused_and_audited(self):
+	def test_a_guest_is_refused(self):
 		frappe.set_user("Guest")
 		with _keep_transaction():
 			result = self._export()
 		self.assertEqual(result["code"], "PERMISSION_DENIED")
-		event = self._events(grievance=self.case.name, action="export")[0]
-		self.assertEqual((event.user, event.decision), ("Guest", "Denied"))
 
 	def test_an_unknown_ticket_is_not_found_and_the_attempt_is_audited(self):
 		frappe.set_user(self.officer)
@@ -916,8 +913,6 @@ class TestExportGuards(TicketExportTestCase):
 			result = self._export(format="docx", lang="fr")
 		self.assertEqual(result["code"], "PERMISSION_DENIED")
 		self.assertFalse(result.get("details"))
-		event = self._events(grievance=self.case.name, action="export")[0]
-		self.assertEqual(event.scope_evaluated, "format=invalid; lang=invalid; reason=role")
 
 	def test_a_case_with_too_many_entries_is_refused_not_cut_short(self):
 		frappe.set_user(self.officer)
@@ -939,24 +934,22 @@ class TestExportGuards(TicketExportTestCase):
 		self.assertFalse(self._events(grievance=self.case.name, action="export"))
 
 	def test_refusals_stop_writing_audit_rows_past_the_minutes_allowance_but_still_refuse(self):
-		frappe.set_user("Guest")
-		before = len(self._events(user="Guest", action="export", decision="Denied"))
+		frappe.set_user(self.officer)
+		before = len(self._events(user=self.officer, action="export", decision="Denied"))
 		with _keep_transaction(), mock.patch.object(ticket_export, "MAX_DENIAL_ROWS_PER_MINUTE", 2):
-			results = [self._export() for _ in range(5)]
-		self.assertEqual([r["code"] for r in results], ["PERMISSION_DENIED"] * 5)
-		self.assertEqual(len(self._events(user="Guest", action="export", decision="Denied")), before + 2)
+			results = [self._export(ticket=f"3-999-999Z-{n}") for n in range(5)]
+		self.assertEqual([r["code"] for r in results], ["NOT_FOUND"] * 5)
+		self.assertEqual(len(self._events(user=self.officer, action="export", decision="Denied")), before + 2)
 
 	def test_the_allowance_belongs_to_one_account(self):
-		reviewer = self._reviewer()
-		before = len(self._events(user="Guest", action="export", decision="Denied"))
 		with _keep_transaction(), mock.patch.object(ticket_export, "MAX_DENIAL_ROWS_PER_MINUTE", 1):
-			frappe.set_user("Guest")
-			self._export()
-			self._export()
-			frappe.set_user(reviewer)
-			self._export()
-		self.assertEqual(len(self._events(user="Guest", action="export", decision="Denied")), before + 1)
-		self.assertEqual(len(self._events(user=reviewer, action="export", decision="Denied")), 1)
+			frappe.set_user(self.officer)
+			self._export(ticket="3-999-999Z-1")
+			self._export(ticket="3-999-999Z-2")
+			frappe.set_user(self.submitter)
+			self._export(ticket="3-999-999Z-3")
+		self.assertEqual(len(self._events(user=self.officer, action="export", decision="Denied")), 1)
+		self.assertEqual(len(self._events(user=self.submitter, action="export", decision="Denied")), 1)
 
 	def test_each_author_is_looked_up_for_staff_once(self):
 		frappe.set_user(self.officer)
