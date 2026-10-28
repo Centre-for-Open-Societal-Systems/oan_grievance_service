@@ -4863,7 +4863,7 @@ paths:
         is created too, refused when it already exists. reports_to is an L2 officer and is only for an
         L1. The login is created when the email is new. An existing login keeps its own roles and is given
         the officer or review role; a System Manager or Administrator is never managed here. temporary_password
-        is required: the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
+        is optional: when provided, the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
         It is applied to a new login only. An email that already has a login keeps its own password and
         the message says so.'
       operationId: post_api_v1_officers
@@ -10571,6 +10571,8 @@ components:
         temporary_password:
           maxLength: 128
           type: string
+          default: null
+          nullable: true
         role:
           default: Officer
           enum:
@@ -10628,7 +10630,6 @@ components:
       required:
       - full_name
       - email
-      - temporary_password
       type: object
     UpdateOfficer:
       additionalProperties: false

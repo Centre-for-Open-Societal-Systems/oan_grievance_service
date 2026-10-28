@@ -78,7 +78,7 @@ def create(
 	*,
 	full_name: str,
 	email: str,
-	temporary_password: str,
+	temporary_password: str | None = None,
 	role: str = DEFAULT_ROLE,
 	designation: str | None = None,
 	level: str | None = None,
@@ -138,7 +138,7 @@ def create(
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
 		category_assignment.open_desk(category, department, {"user": user.name, **placement})
-	if not has_login:
+	if not has_login and temporary_password:
 		account.issue_temporary_password(user.name, temporary_password)
 	if role == REVIEWER_ROLE and status == "Inactive":
 		account.set_enabled(user.name, False)

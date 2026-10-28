@@ -458,21 +458,23 @@ class TestOfficerManagement(FrappeTestCase):
 		self.assertEqual(check_password(officer["name"], "Temp5678"), officer["name"])
 		self.assertEqual(get_officer(officer["name"])["data"]["officer"]["must_change_password"], True)
 
-	def test_a_temporary_password_is_required(self):
+	def test_a_temporary_password_is_optional(self):
 		base = {
 			"full_name": "X",
 			"designation": "Y",
 			"level": "L1",
 			"department": "S430",
-			"email": "stg430-nopassword@example.com",
 			"service_categories": [self.inputs],
 		}
 		with _keep_transaction():
-			for extra in ({}, {"temporary_password": ""}, {"temporary_password": "   "}):
-				result = create_officer(**base, **extra)
-				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(extra, result))
-				self.assertIn("temporary_password", result["details"])
-		self.assertFalse(frappe.db.exists("User", base["email"]))
+			for i, extra in enumerate(
+				({}, {"temporary_password": ""}, {"temporary_password": "   "}, {"temporary_password": None})
+			):
+				email = f"stg430-nopassword-{i}@example.com"
+				result = create_officer(**base, email=email, **extra)
+				self.assertEqual(result["status"], "success", msg=(extra, result))
+				self.assertTrue(frappe.db.exists("User", email))
+				self.assertFalse(result["data"]["officer"]["must_change_password"])
 
 	def test_a_temporary_password_must_meet_the_rule(self):
 		base = {
