@@ -10,6 +10,7 @@ the audit trail records for each attempt.
 """
 
 import csv
+import hashlib
 import io
 import unittest
 from datetime import datetime, timedelta
@@ -27,7 +28,14 @@ from oan_grievance_service.api.v1 import grievance
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
-from oan_grievance_service.services import audit, response_body, ticket_export
+from oan_grievance_service.services import (
+	audit,
+	response_body,
+	ticket_export,
+	ticket_form,
+	ticket_form_blocks,
+	ticket_render,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_department, a_grievance, discard_grievance
@@ -79,6 +87,7 @@ class TicketExportTestCase(FrappeTestCase):
 
 	def setUp(self):
 		frappe.set_user("Administrator")
+		frappe.cache.delete_keys("grievance:export-denials:*")
 		suffix = frappe.generate_hash(length=6)
 		self.officer = _user(f"export-officer-{suffix}@example.com", "Dawit Officer")
 		self.submitter = _user(
@@ -257,13 +266,13 @@ class TestFormMapping(TicketExportTestCase):
 		self.assertEqual(header["Grievance Category"], self.case.service_category)
 		self.assertEqual(header["Grievance Status"], "Closed")
 		self.assertEqual(header["Receiving Office"], self.case.assigned_dept)
-		self.assertEqual(header["Date Submitted"], ticket_export._when(self.case.creation))
+		self.assertEqual(header["Date Submitted"], ticket_form_blocks._when(self.case.creation))
 		# The system has no priority; the field stays blank rather than take a stand-in.
 		self.assertEqual(header["Priority"], "")
 		self.assertEqual(header["Document Type"], "Grievance Record")
 
 	def test_letterhead_names_the_region_and_the_filing_office_from_the_case(self):
-		from oan_grievance_service.api.v1.administrative_area import get_administrative_hierarchy
+		from oan_grievance_service.services.administrative_area import get_administrative_hierarchy
 
 		hierarchy = get_administrative_hierarchy(self.case.administrative_area)
 		letterhead = self._form()["letterhead"]
@@ -599,13 +608,13 @@ class TestRendering(TicketExportTestCase):
 		self.assertIn("Almaz Bekele", text)
 		# Laid out as the paper form: its letterhead, and ticked and empty boxes in the checklists.
 		self.assertIn("FEDERAL DEMOCRATIC REPUBLIC OF ETHIOPIA", text.upper())
-		self.assertIn(ticket_export.BOX_TICKED, text)
-		self.assertIn(ticket_export.BOX_EMPTY, text)
+		self.assertIn(ticket_render.BOX_TICKED, text)
+		self.assertIn(ticket_render.BOX_EMPTY, text)
 
 	def test_pdf_prints_the_forms_own_wording_and_ruled_blanks(self):
 		fresh = a_grievance(description="Nothing has happened to this grievance yet, apart from filing.")
 		self.addCleanup(discard_grievance, fresh.name)
-		page = ticket_export._pdf_html(self._form(case=fresh))
+		page = ticket_render._pdf_html(self._form(case=fresh))
 		for wording in (
 			"Following review and verification, the responsible office determined that:",
 			"The complainant was informed of the decision and actions taken by the responsible office.",
@@ -614,7 +623,7 @@ class TestRendering(TicketExportTestCase):
 			self.assertIn(wording, page)
 		# Nothing was found or decided, so those spaces are ruled lines to write on.
 		self.assertGreaterEqual(page.count('<div class="rule"></div>'), 9)
-		self.assertNotIn(ticket_export.BOX_TICKED, page)
+		self.assertNotIn(ticket_render.BOX_TICKED, page)
 		# Nothing is shown for a field that is only in the CSV.
 		self.assertNotIn("Documents Attached", page)
 		self.assertNotIn("Decisions Recorded", page)
@@ -634,7 +643,7 @@ class TestRendering(TicketExportTestCase):
 			'<script>alert(1)</script><img src="http://evil.example/x.png">',
 			update_modified=False,
 		)
-		page = ticket_export._pdf_html(self._form())
+		page = ticket_render._pdf_html(self._form())
 		self.assertNotIn("<script>", page)
 		self.assertNotIn("<img", page)
 		self.assertIn("&lt;script&gt;", page)
@@ -669,7 +678,11 @@ class TestExportEndpoint(TicketExportTestCase):
 		self.assertEqual(
 			(event.user, event.decision, event.role), (self.officer, "Allowed", "Grievance Officer")
 		)
-		self.assertEqual(event.scope_evaluated, "format=pdf; lang=en; outcome=success")
+		self.assertEqual(
+			event.scope_evaluated,
+			f"format=pdf; lang=en; outcome=success; bytes={len(response.data)}; "
+			f"sha256={hashlib.sha256(response.data).hexdigest()}",
+		)
 		self.commit.assert_called()
 
 	def test_csv_format_and_ticket_as_typed(self):
@@ -693,7 +706,8 @@ class TestExportEndpoint(TicketExportTestCase):
 		self.assertTrue(response.data.startswith(b"%PDF"))
 		self.assertIn(f"grievance-{self.case.ticket_number}-am.pdf", response.headers["Content-Disposition"])
 		event = self._events(grievance=self.case.name, action="export")[0]
-		self.assertEqual(event.scope_evaluated, "format=pdf; lang=am; outcome=success")
+		self.assertTrue(event.scope_evaluated.startswith("format=pdf; lang=am; outcome=success; bytes="))
+		self.assertTrue(event.scope_evaluated.endswith(hashlib.sha256(response.data).hexdigest()))
 
 	def test_an_unsupported_language_is_a_validation_error_and_nothing_is_exported(self):
 		before = len(self._events(grievance=self.case.name))
@@ -754,7 +768,7 @@ class TestExportEndpoint(TicketExportTestCase):
 		frappe.set_user(stranger)
 		with _keep_transaction():
 			result = self._export()
-		self.assertEqual(result["code"], "PERMISSION_DENIED")
+		self.assertEqual(result["code"], "NOT_FOUND")
 		event = self._events(grievance=self.case.name, action="export")[0]
 		self.assertEqual((event.user, event.decision), (stranger, "Denied"))
 		self.assertEqual(event.scope_evaluated, "format=pdf; lang=en; reason=case_access")
@@ -769,8 +783,32 @@ class TestExportEndpoint(TicketExportTestCase):
 		frappe.set_user(other)
 		with _keep_transaction():
 			result = self._export()
-		self.assertEqual(result["code"], "PERMISSION_DENIED")
+		self.assertEqual(result["code"], "NOT_FOUND")
 		self.assertEqual(self._events(grievance=self.case.name, action="export")[0].decision, "Denied")
+
+	def test_a_ticket_the_caller_cannot_read_looks_exactly_like_one_that_does_not_exist(self):
+		# Every submitter holds the export permission, so the answer must not tell them which
+		# tickets exist: same code, same message, same status, whichever it is.
+		other = _user(
+			f"export-other-sub-{frappe.generate_hash(length=6)}@example.com",
+			"Other Person",
+			role=C.ROLE_SUBMITTER,
+		)
+		self.addCleanup(frappe.delete_doc, "User", other, force=True, ignore_permissions=True)
+		frappe.set_user(other)
+		with _keep_transaction():
+			unreadable = self._export()
+			missing = self._export(ticket="3-999-999Z-9")
+		for key in ("code", "status"):
+			self.assertEqual(unreadable[key], missing[key])
+		# Compared by their last sentence only: this test environment adds unrelated mail-setup notices.
+		self.assertTrue(unreadable["message"].endswith("No grievance found with that ticket number."))
+		self.assertTrue(missing["message"].endswith("No grievance found with that ticket number."))
+		# The audit trail, which the caller cannot read, still tells the two apart.
+		reasons = {
+			e.scope_evaluated.rsplit("reason=", 1)[1] for e in self._events(user=other, action="export")
+		}
+		self.assertEqual(reasons, {"case_access", "not_found"})
 
 	def test_a_guest_is_refused_and_audited(self):
 		frappe.set_user("Guest")
@@ -828,6 +866,114 @@ class TestExportEndpoint(TicketExportTestCase):
 		before = len(self._events(user=self.officer))
 		self._export(format="csv")
 		self.assertEqual(len(self._events(user=self.officer)), before + 1)
+
+
+class TestExportGuards(TicketExportTestCase):
+	"""What keeps the export from leaking, flooding or leaving without a trace."""
+
+	def setUp(self):
+		super().setUp()
+		patcher = mock.patch.object(frappe.db, "commit")
+		self.commit = patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def _reviewer(self):
+		reviewer = _user(
+			f"export-review-{frappe.generate_hash(length=6)}@example.com",
+			"Rahel Review",
+			role=C.ROLE_REVIEW_OFFICER,
+		)
+		self.addCleanup(frappe.delete_doc, "User", reviewer, force=True, ignore_permissions=True)
+		return reviewer
+
+	def test_a_file_is_not_returned_when_its_audit_row_cannot_be_written(self):
+		frappe.set_user(self.officer)
+		with (
+			_keep_transaction(),
+			mock.patch.object(frappe.db, "commit", side_effect=RuntimeError("database went away")),
+		):
+			result = self._export(format="csv")
+		self.assertEqual(result["code"], "INTERNAL_ERROR")
+		self.assertNotIn("went away", repr(result))
+		self.assertNotEqual(frappe.response.get("type"), "download")
+
+	def test_a_strict_audit_write_raises_and_an_ordinary_one_does_not(self):
+		with mock.patch.object(frappe.db, "commit", side_effect=RuntimeError("boom")):
+			audit.record_access(audit.ACTION_EXPORT, durable=True)
+			with self.assertRaises(RuntimeError):
+				audit.record_access(audit.ACTION_EXPORT, durable=True, strict=True)
+
+	def test_the_digest_in_the_audit_row_matches_the_file_that_left(self):
+		frappe.set_user(self.officer)
+		response = self._export(format="csv")
+		event = self._events(grievance=self.case.name, action="export")[0]
+		self.assertIn(f"bytes={len(response.data)};", event.scope_evaluated)
+		self.assertTrue(event.scope_evaluated.endswith(f"sha256={hashlib.sha256(response.data).hexdigest()}"))
+
+	def test_the_role_is_checked_before_the_query_is_validated(self):
+		frappe.set_user(self._reviewer())
+		with _keep_transaction():
+			result = self._export(format="docx", lang="fr")
+		self.assertEqual(result["code"], "PERMISSION_DENIED")
+		self.assertFalse(result.get("details"))
+		event = self._events(grievance=self.case.name, action="export")[0]
+		self.assertEqual(event.scope_evaluated, "format=invalid; lang=invalid; reason=role")
+
+	def test_a_case_with_too_many_entries_is_refused_not_cut_short(self):
+		frappe.set_user(self.officer)
+		with _keep_transaction(), mock.patch.object(ticket_form, "MAX_ROWS_PER_SOURCE", 1):
+			result = self._export(format="csv")
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("too many entries", result["message"])
+		events = self._events(grievance=self.case.name, user=self.officer)
+		self.assertEqual(events[0].action, audit.ACTION_EXPORT_FAILED)
+		self.assertIn("ExportTooLarge", events[0].scope_evaluated)
+		self.assertFalse([e for e in events if e.action == "export"])
+
+	def test_a_file_past_the_size_cap_is_not_returned(self):
+		frappe.set_user(self.officer)
+		with _keep_transaction(), mock.patch.object(ticket_export, "MAX_FILE_BYTES", 10):
+			result = self._export(format="csv")
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertIn("too large", result["message"])
+		self.assertFalse(self._events(grievance=self.case.name, action="export"))
+
+	def test_refusals_stop_writing_audit_rows_past_the_minutes_allowance_but_still_refuse(self):
+		frappe.set_user("Guest")
+		before = len(self._events(user="Guest", action="export", decision="Denied"))
+		with _keep_transaction(), mock.patch.object(ticket_export, "MAX_DENIAL_ROWS_PER_MINUTE", 2):
+			results = [self._export() for _ in range(5)]
+		self.assertEqual([r["code"] for r in results], ["PERMISSION_DENIED"] * 5)
+		self.assertEqual(len(self._events(user="Guest", action="export", decision="Denied")), before + 2)
+
+	def test_the_allowance_belongs_to_one_account(self):
+		reviewer = self._reviewer()
+		before = len(self._events(user="Guest", action="export", decision="Denied"))
+		with _keep_transaction(), mock.patch.object(ticket_export, "MAX_DENIAL_ROWS_PER_MINUTE", 1):
+			frappe.set_user("Guest")
+			self._export()
+			self._export()
+			frappe.set_user(reviewer)
+			self._export()
+		self.assertEqual(len(self._events(user="Guest", action="export", decision="Denied")), before + 1)
+		self.assertEqual(len(self._events(user=reviewer, action="export", decision="Denied")), 1)
+
+	def test_each_author_is_looked_up_for_staff_once(self):
+		frappe.set_user(self.officer)
+		doc = frappe.get_doc("Grievance", self.case.name)
+		real = ticket_export.permissions.is_staff
+		with mock.patch.object(ticket_export.permissions, "is_staff", side_effect=real) as is_staff:
+			ticket_export.build_form(doc)
+		users = [call.args[0] for call in is_staff.call_args_list if call.args]
+		self.assertEqual(len(users), len(set(users)), msg=f"looked up more than once: {users}")
+
+	def test_every_date_is_in_a_named_zone(self):
+		form = self._form()
+		zone = dict(form["footer"])["Time Zone"]
+		self.assertTrue(zone.startswith(frappe.utils.get_system_timezone()), msg=zone)
+		self.assertRegex(zone, r"\(UTC[+-]\d\d:\d\d\)$")
+		text = ticket_export.render_csv(form).decode("utf-8-sig")
+		self.assertIn(zone, text)
 
 
 class TestAuditHelper(FrappeTestCase):
@@ -903,7 +1049,7 @@ class TestExportThroughTheRouter(TicketExportTestCase):
 		with _keep_transaction():
 			request = make_test_request(f"/api/v1/grievances/{other.ticket_number}/export?format=csv")
 			response = frappe.api.handle(request)
-		self.assertEqual(response.status_code, 403)
+		self.assertEqual(response.status_code, 404)
 		self.assertEqual(response.mimetype, "application/json")
 
 	def test_an_unauthenticated_request_is_stopped_by_the_guard(self):
@@ -938,7 +1084,7 @@ class TestAmharic(TicketExportTestCase):
 		form = self._amharic()
 		self.assertEqual(form["letterhead"][0], "የኢትዮጵያ ፌዴራል ዴሞክራሲያዊ ሪፐብሊክ")
 		self.assertTrue(all(line.endswith("አስተዳደር") for line in form["letterhead"][1:]))
-		page = ticket_export._pdf_html(form)
+		page = ticket_render._pdf_html(form)
 		self.assertIn("ከተደረገው ምርመራና ማረጋገጫ በኋላ የተወሰነው፦", page)
 		self.assertIn("ይግባኝ ማቅረብ ይችላል።", page)
 		self.assertIn('<html lang="am">', page)

@@ -877,15 +877,19 @@ paths:
 
         wording, such as its headings and labels, in that language, while what people wrote on the
 
-        case stays as written. The role check (the Grievance `export` permission)
+        case stays as written. The role check (the Grievance `export` permission) is made before
 
-        and the case check are made here, in that order, and the file holds only what the caller
+        the query is validated, then the case check, and the file holds only what the caller
 
         may already read on the case: staff get internal notes and officer names, a submitter the
 
-        public record, and an anonymous submitter''s identity stays sealed. Every attempt, allowed,
+        public record, and an anonymous submitter''s identity stays sealed. A case the caller may
 
-        refused or failed, is written to the access audit trail.
+        not read is answered as 404, like one that does not exist. Every attempt, allowed,
+
+        refused or failed, is written to the access audit trail, and a file is returned only once
+
+        its row (with the file''s size and SHA-256) is on record.
 
 
         The body is the file itself, not the JSON envelope; errors use the envelope.'

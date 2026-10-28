@@ -8,23 +8,23 @@ One grievance, with its timeline, downloaded as the paper complaint form from th
 
 `GET /api/v1/grievances/{ticket_number}/export?format=pdf|csv&lang=en|am`
 
-| Part     | Value                                                                                                                                                                               |
-| :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Format   | `pdf` (default) or `csv`, any case. Anything else is a `400 VALIDATION_ERROR`                                                                                                       |
-| Language | `en` (default) or `am`, any case: the language of the form's own wording (§6). Anything else is a `400 VALIDATION_ERROR`. An Amharic file is named `grievance-<ticket>-am.<format>` |
-| Ticket   | As typed: `3-001-002A-0`, `3001002A0` or the lower-case form                                                                                                                        |
-| Success  | The file itself, `Content-Disposition: attachment; filename=grievance-<ticket>.<format>`, `Cache-Control: no-store`                                                                 |
-| Failure  | The usual JSON error envelope: `403 PERMISSION_DENIED`, `404 NOT_FOUND`, `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR`                                                               |
-| Gateway  | `citizen-intake` tier (60 a minute), which also bounds the cost of rendering a PDF                                                                                                  |
+| Part     | Value                                                                                                                                                                                                                                                 |
+| :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format   | `pdf` (default) or `csv`, any case. Anything else is a `400 VALIDATION_ERROR`                                                                                                                                                                         |
+| Language | `en` (default) or `am`, any case: the language of the form's own wording (§7). Anything else is a `400 VALIDATION_ERROR`. An Amharic file is named `grievance-<ticket>-am.<format>`                                                                   |
+| Ticket   | As typed: `3-001-002A-0`, `3001002A0` or the lower-case form                                                                                                                                                                                          |
+| Success  | The file itself, `Content-Disposition: attachment; filename=grievance-<ticket>.<format>`, `Cache-Control: no-store`                                                                                                                                   |
+| Failure  | The usual JSON error envelope: `403 PERMISSION_DENIED` (no export role), `404 NOT_FOUND` (no such ticket, or one the caller may not read), `400 VALIDATION_ERROR` (a bad `format` or `lang`, or a case too large to export, §4), `500 INTERNAL_ERROR` |
+| Gateway  | `citizen-intake` tier (60 a minute), which also bounds the cost of rendering a PDF                                                                                                                                                                    |
 
 The CSV is UTF-8 with a byte-order mark, so a spreadsheet reads Amharic. It has one fact per line, in four columns: `Section`, `Entry`, `Field`, `Value`. A key/value row has no `Entry`; a table row is named by its table and position (`Decisions 2`). A cell that a spreadsheet would run as a formula (`=`, `+`, `-`, `@` followed by anything but a number) is prefixed with `'`.
 
 ## 2. Who may export, and what the file holds
 
-Two checks, in this order, and both refuse with `403`:
+Two checks, in this order:
 
-1. **Role.** The caller holds the Grievance `export` permission. That is Grievance Admin, System Manager, Grievance Officer, Grievance Submitter and Grievance Assisted Submitter. The Review Officer has none: it is read-only oversight and is left out. The answer is the same whether or not the ticket exists.
-2. **Case.** The caller may read this case (`has_grievance_permission`): their own case or one they assisted, a case assigned to them or their reporting chain, or a case inside their desk scope.
+1. **Role.** The caller holds the Grievance `export` permission, or the answer is `403 PERMISSION_DENIED`. That is Grievance Admin, System Manager, Grievance Officer, Grievance Submitter and Grievance Assisted Submitter. The Review Officer has none: it is read-only oversight and is left out. The check runs before the query is validated, so a caller without the role learns nothing about the request schema, and it answers the same whether or not the ticket exists.
+2. **Case.** The caller may read this case (`has_grievance_permission`): their own case or one they assisted, a case assigned to them or their reporting chain, or a case inside their desk scope. If not, the answer is `404 NOT_FOUND` with the same message as a ticket that does not exist. Every submitter holds the export permission, so a different answer here would tell any of them which tickets exist. The audit row says which of the two it was.
 
 The file holds what the caller could already read on the case, no more:
 
@@ -42,9 +42,11 @@ Attachments are listed with name, type, size, upload time and scan status, inclu
 
 Every attempt writes one `Grievance Access Audit Event`, committed before the response, because the API error handler rolls the request back and a refusal would otherwise leave nothing behind.
 
+A file is returned only after its row is written. The row is written last, once the file exists, and if it cannot be written or committed the export fails with `500` and no file leaves. Nothing is handed over without a record of it.
+
 | Outcome                                 | `action`        | `decision` | `scope_evaluated`                                                     |
 | :-------------------------------------- | :-------------- | :--------- | :-------------------------------------------------------------------- |
-| File produced                           | `export`        | `Allowed`  | `format=pdf; lang=en; outcome=success`                                |
+| File produced                           | `export`        | `Allowed`  | `format=pdf; lang=en; outcome=success; bytes=31162; sha256=87dc96...` |
 | Caller lacks the export role            | `export`        | `Denied`   | `format=pdf; lang=en; reason=role`                                    |
 | Caller cannot read the case             | `export`        | `Denied`   | `format=pdf; lang=en; reason=case_access`                             |
 | No such ticket                          | `export`        | `Denied`   | `format=pdf; lang=en; ticket=<first 40 characters>; reason=not_found` |
@@ -54,7 +56,16 @@ The row links the grievance when there is one, and carries the user, their role 
 
 `export` rows mean a file left the system. To list who took one: `action = export` and `decision = Allowed`.
 
-## 4. How the form is filled
+**Matching a file to its export.** A successful row carries the file's size and SHA-256. Given a copy, `sha256sum` it and search `scope_evaluated` for the digest: a match names the user, the time and the case, and a copy that has been edited since matches nothing. The file itself carries no signature or seal (§6).
+
+**Refusal rows are rationed.** A refusal always happens, but one account's refusals write at most 10 rows a minute (`MAX_DENIAL_ROWS_PER_MINUTE`); the rest of that minute are refused without a row. Without this, one account could grow the audit table without limit, since the gateway limit is per address. A role refusal that carries a `format` or `lang` that is not one of ours records it as `invalid` rather than echoing it.
+
+## 4. Limits and time zone
+
+- **Size.** The export reads a whole case and renders it in the request worker, so each source (status history, timeline, attachments, feedback, notification log, reassignments) is capped at 1,000 rows and the file at 15 MB. A case past either is refused with `400 VALIDATION_ERROR` and an `export_failed` audit row (`ExportTooLarge`). It is not cut short: a form that looks complete and is not is worse than none. The gateway tier (60 a minute) bounds how often.
+- **Time zone.** Every date and time on the form is in the site's time zone, which is how Frappe stores them. The footer, and the `Export` rows of the CSV, name it with its offset (`Time Zone: Africa/Addis_Ababa (UTC+03:00)`).
+
+## 5. How the form is filled
 
 The PDF is laid out like the Annexure: the letterhead (the federation, then the region and the filing office, named from the case's administrative area), the title, a shaded four-column reference block, and twelve numbered sections of `Label: value` lines. An empty field is a ruled blank to write on, as on paper, and the form's own wording ("Following review and verification, the responsible office determined that:") is printed as it is. The history tables sit under the section they belong to, and the whole timeline follows on its own page. The data model has no record of its own for an investigation, a decision or an appeal, so those are read from what the workflow leaves behind. A field the system never captures is left blank, as it is on paper; nothing stands in for it.
 
@@ -71,7 +82,7 @@ The PDF is laid out like the Annexure: the letterhead (the federation, then the 
 | 2 Subject                           | The grievance type's name                                                                                                                                                                                                                                                             |
 | 3 Description                       | `description`                                                                                                                                                                                                                                                                         |
 | 4 Key details                       | Service category, service provider, submission channel, anonymous                                                                                                                                                                                                                     |
-| 5 Supporting documents              | The six-item checklist, ticked from `Grievance Attachment.document_type` (see §5), and the attached files listed under it, oldest first                                                                                                                                               |
+| 5 Supporting documents              | The six-item checklist, ticked from `Grievance Attachment.document_type` (see §6), and the attached files listed under it, oldest first                                                                                                                                               |
 | 6 Requested action                  | `desired_outcome`                                                                                                                                                                                                                                                                     |
 | 7 Initial action / assignment       | First move into Assigned, `assigned_dept`, `assigned_to` (staff), `sla_due_date` as the target response date; every Assign and Refer Onward, and every approved reassignment (staff)                                                                                                  |
 | 8 Investigation                     | First move to In Progress as the investigation date; work started, information requested, complainant replied, and internal notes (staff). Findings: the resolution summary of the latest response, which FSD Appendix D-1 defines as holding the findings                            |
@@ -83,20 +94,21 @@ The PDF is laid out like the Annexure: the letterhead (the federation, then the 
 
 Every table is ordered by time, oldest first. A stage that has not happened says so in a note ("No decision has been recorded.") and its table is left out.
 
-## 5. Not covered
+## 6. Not covered
 
-- **Wording without Amharic yet** stays in English (§6).
+- **Wording without Amharic yet** stays in English (§7). That includes the footer's Time Zone label.
 - **Dates are Gregorian** in both languages. The Amharic form uses the Ethiopian calendar, which needs a conversion that is not built.
 - **The letterhead** is built from the case's region and filing office (its woreda, or zone) and reads "<name> Administration". The sample's "City" and "Sub-City" are part of its own names and are not added.
 - **Document checklist.** `Grievance Attachment.document_type` is free text with no list of values behind it, so an item is ticked only by an attachment whose document type names it (ignoring case, spacing and punctuation), and any other attachment ticks Other Supporting Documents. Until the upload form sends those six names, most files will land under Other.
 - **Boxes the system cannot answer.** Correct official record, additional site verification, written clarification, no action required, Written Letter, Telephone, In Person, Satisfied and Not Satisfied are left unticked: the system holds the department's own words as the action taken, and a 1 to 5 rating has no documented line between satisfied and not. They are for whoever completes the printed form by hand.
+- **No signature, seal or hash on the file.** The PDF ends at the footer's plain-text "Exported By" and "Exported On", which anyone can retype, and the Signature and Official Stamp fields are blank on purpose. What ties a file to the system is the SHA-256 in its audit row (§3), which proves a copy is unaltered, not who vouches for it. If the SOW expects this PDF to stand in for the signed paper form, a digital signature (a certificate and a signing step) is a requirement that is not met and is not specified in the documents.
 - **Existing denials.** `audit.log_denied` calls made before this change (the attachment endpoints) are not durable and are lost to the same rollback. Pass `durable=True` there to keep them.
 - **Proposed closure date.** FSD Appendix D-1 requires one on every department response. The service does not store it, so it cannot appear in the form.
 - **Responder name for a submitter.** FSD D-4 lets a submitter see the responder's name. The timeline API shows a submitter only the officer's role, and the export follows the API, so a submitter sees "Officer". Say if the form should name them.
 - **Per-response audit fields.** FSD D-3 lists the response's IP address, prior and new status and the notification sent. The status change is in the Decisions table; the IP address is not recorded per response, so it is not exported.
 - **Bulk export.** The System Design lists `POST /api/v1/reports/exports` (a queued CSV or PDF of a filtered selection, staff only). That is the reports export and is not part of this ticket.
 
-## 6. Language
+## 7. Language
 
 `lang=am` prints the form's own wording in Amharic: the letterhead, the title, the reference block, the twelve section titles, the field labels, the checklists and the wording printed on the paper form. What people wrote on the case (the description, the responses, the notes) is never translated.
 

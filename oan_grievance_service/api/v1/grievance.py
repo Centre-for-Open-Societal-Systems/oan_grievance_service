@@ -5,6 +5,7 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
+from functools import wraps
 from typing import Literal
 
 import frappe
@@ -690,7 +691,7 @@ def list_grievances(
 	)
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0
 
-	from oan_grievance_service.api.v1.administrative_area import (
+	from oan_grievance_service.services.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
@@ -1605,7 +1606,7 @@ def timeline(
 		req_doc = frappe.get_doc("Grievance Change Request", reassign_req_name)
 		active_reassignment_request = serialize_cr(req_doc)
 
-	from oan_grievance_service.api.v1.administrative_area import (
+	from oan_grievance_service.services.administrative_area import (
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
@@ -1672,24 +1673,44 @@ def timeline(
 	)
 
 
+def _require_export_role(fn):
+	"""Answer a caller without the export permission before the query is validated.
+
+	Validation errors describe the request schema, which is not for a caller who may not use the
+	endpoint. The refusal is made, and audited, by the service, which is where the rule lives.
+	"""
+
+	@wraps(fn)
+	def wrapper(*args, **kwargs):
+		ticket_export.require_export_role(
+			kwargs.get("ticket_number", args[0] if args else None), kwargs.get("format"), kwargs.get("lang")
+		)
+		return fn(*args, **kwargs)
+
+	return wrapper
+
+
 @route(
 	"/<ticket_number>/export",
 	methods=("GET",),
 	summary="Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)",
 	tier="citizen-intake",
 )
-@validate_request(ExportGrievanceRequest)
 @handle_api_errors
+@_require_export_role
+@validate_request(ExportGrievanceRequest)
 def export_form(ticket_number: str, format: str = "pdf", lang: str = "en", **kwargs):
 	"""Download one grievance, with its timeline, laid out as the SOW Annexure complaint form.
 
 	`format` is `pdf` (default) or `csv`. `lang` is `en` (default) or `am`: the form's own
 	wording, such as its headings and labels, in that language, while what people wrote on the
-	case stays as written. The role check (the Grievance `export` permission)
-	and the case check are made here, in that order, and the file holds only what the caller
+	case stays as written. The role check (the Grievance `export` permission) is made before
+	the query is validated, then the case check, and the file holds only what the caller
 	may already read on the case: staff get internal notes and officer names, a submitter the
-	public record, and an anonymous submitter's identity stays sealed. Every attempt, allowed,
-	refused or failed, is written to the access audit trail.
+	public record, and an anonymous submitter's identity stays sealed. A case the caller may
+	not read is answered as 404, like one that does not exist. Every attempt, allowed,
+	refused or failed, is written to the access audit trail, and a file is returned only once
+	its row (with the file's size and SHA-256) is on record.
 
 	The body is the file itself, not the JSON envelope; errors use the envelope.
 	"""

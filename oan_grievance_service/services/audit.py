@@ -22,12 +22,15 @@ ACTION_DELETE_ATTACHMENT = "delete_attachment"
 ACTION_EXPORT_FAILED = "export_failed"
 
 
-def record_access(action, grievance=None, scope=None, decision="Allowed", durable=False):
-	"""Write an access audit row. Never raises: auditing must not break the request.
+def record_access(action, grievance=None, scope=None, decision="Allowed", durable=False, strict=False):
+	"""Write an access audit row. Never raises unless `strict`: auditing must not break the request.
 
 	`durable` commits the row. The API error handler rolls the transaction back before it
 	answers, so a row written just before a refusal or a failure is lost with it; pass it
 	where the caller is about to raise and the attempt must still be on record.
+
+	`strict` re-raises a failed write after logging it. Use it where the action must not
+	happen unless it is on record, such as an export that hands personal data to the caller.
 	"""
 	from oan_grievance_service.permissions import GRIEVANCE_ROLES
 
@@ -50,6 +53,8 @@ def record_access(action, grievance=None, scope=None, decision="Allowed", durabl
 			frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	except Exception:
 		frappe.log_error(title="Access audit write failed", message=frappe.get_traceback())
+		if strict:
+			raise
 
 
 def on_grievance_view(doc, method=None):
