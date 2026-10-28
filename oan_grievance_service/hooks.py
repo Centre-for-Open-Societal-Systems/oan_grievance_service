@@ -19,7 +19,11 @@ add_to_apps_screen = [
 ]
 
 # Register Werkzeug REST routes for Frappe API Map
-before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
+before_request = [
+	"oan_grievance_service.api.router.ensure_routes_registered",
+	# Starts loading WeasyPrint in the background so the first PDF export is not the one to pay.
+	"oan_grievance_service.services.pdf_engine.start_warm_up",
+]
 
 # Installation
 # ------------------

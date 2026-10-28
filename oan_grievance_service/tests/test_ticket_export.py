@@ -12,12 +12,16 @@ the audit trail records for each attempt.
 import csv
 import hashlib
 import io
+import subprocess
+import sys
+import threading
 import unittest
 from datetime import datetime, timedelta
 from unittest import mock
 
 import frappe
 import frappe.api
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import print_language
 from oan_auth_service.api.middleware import validate_jwt_request
@@ -30,6 +34,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 )
 from oan_grievance_service.services import (
 	audit,
+	pdf_engine,
 	response_body,
 	ticket_export,
 	ticket_form,
@@ -60,8 +65,6 @@ def _has_ethiopic(text):
 
 
 def _has_ethiopic_font():
-	import subprocess
-
 	try:
 		return bool(
 			subprocess.run(["fc-list", ":lang=am", "family"], capture_output=True, text=True).stdout.strip()
@@ -267,8 +270,8 @@ class TestFormMapping(TicketExportTestCase):
 		self.assertEqual(header["Grievance Status"], "Closed")
 		self.assertEqual(header["Receiving Office"], self.case.assigned_dept)
 		self.assertEqual(header["Date Submitted"], ticket_form_blocks._when(self.case.creation))
-		# The system has no priority; the field stays blank rather than take a stand-in.
-		self.assertEqual(header["Priority"], "")
+		# Priority is not captured, so the row is not on the form at all.
+		self.assertNotIn("Priority", header)
 		self.assertEqual(header["Document Type"], "Grievance Record")
 
 	def test_letterhead_names_the_region_and_the_filing_office_from_the_case(self):
@@ -286,6 +289,7 @@ class TestFormMapping(TicketExportTestCase):
 		self.assertEqual(complainant["Full Name"], "Almaz Bekele")
 		self.assertEqual(complainant["Telephone"], "+251911234567")
 		self.assertEqual(complainant["Email"], "almaz@example.com")
+		# On the Annexure, captured nowhere: empty, never filled in from other data.
 		self.assertEqual(complainant["Occupation"], "")
 		self.assertEqual(
 			rows_of(sections[2])["Subject"],
@@ -611,22 +615,136 @@ class TestRendering(TicketExportTestCase):
 		self.assertIn(ticket_render.BOX_TICKED, text)
 		self.assertIn(ticket_render.BOX_EMPTY, text)
 
-	def test_pdf_prints_the_forms_own_wording_and_ruled_blanks(self):
+	def _fresh_page(self):
 		fresh = a_grievance(description="Nothing has happened to this grievance yet, apart from filing.")
 		self.addCleanup(discard_grievance, fresh.name)
-		page = ticket_render._pdf_html(self._form(case=fresh))
+		return ticket_render._pdf_html(self._form(case=fresh))
+
+	def test_pdf_prints_the_forms_own_wording_and_blank_lines_only_to_sign(self):
+		page = self._fresh_page()
 		for wording in (
 			"Following review and verification, the responsible office determined that:",
 			"The complainant was informed of the decision and actions taken by the responsible office.",
 			"If the complainant is not satisfied with the decision",
 		):
 			self.assertIn(wording, page)
-		# Nothing was found or decided, so those spaces are ruled lines to write on.
-		self.assertGreaterEqual(page.count('<div class="rule"></div>'), 9)
 		self.assertNotIn(ticket_render.BOX_TICKED, page)
 		# Nothing is shown for a field that is only in the CSV.
 		self.assertNotIn("Documents Attached", page)
 		self.assertNotIn("Decisions Recorded", page)
+		# The lines left to write on are the two "Other" boxes and the signature and stamp.
+		self.assertIn('Signature: <span class="blank"></span>', page)
+		self.assertIn('Official Stamp: <span class="blank"></span>', page)
+		self.assertEqual(page.count('class="blank"'), 2 + 2)
+		self.assertNotIn('class="rule"', page)
+
+	def test_an_empty_field_prints_a_dash_in_the_pdf_and_stays_empty_in_the_data_and_csv(self):
+		fresh = a_grievance(description="Nothing has happened to this grievance yet, apart from filing.")
+		self.addCleanup(discard_grievance, fresh.name)
+		form = self._form(case=fresh)
+		page = ticket_render._pdf_html(form)
+		dash = ticket_render.EMPTY_VALUE
+		for label in ("Administrative Unit", "Email", "Service Provider", "Occupation", "Closure Date"):
+			self.assertIn(f"{label}: {dash}</p>", page, msg=label)
+		# Requested Action is a block of text on a line of its own.
+		self.assertIn(f'<h2>6. Requested Action</h2><p class="text">{dash}</p>', page)
+		# The header cell for the office the case has not reached.
+		self.assertIn(f'<td class="hl">Receiving Office</td><td>{dash}</td>', page)
+		# The form data is untouched, and so is the CSV: no dash is stored or exported.
+		self.assertEqual(rows_of(sections_of(form)[1])["Email"], "")
+		self.assertNotIn(dash, ticket_export.render_csv(form).decode("utf-8-sig"))
+
+	def test_the_pdf_never_prints_none_or_null_for_a_missing_value(self):
+		page = self._fresh_page()
+		body = page.split("</style>", 1)[1]
+		for word in ("None", "null"):
+			self.assertNotIn(word, body)
+
+	def test_a_zero_and_a_no_are_values_not_gaps(self):
+		page = self._fresh_page()
+		self.assertIn("Reopen Count: 0</p>", page)
+		self.assertIn("Escalated: No</p>", page)
+		self.assertIn("Submitted Anonymously: No</p>", page)
+		display = ticket_render.display_value
+		self.assertEqual((display(0), display(False), display(True), display("0")), ("0", "No", "Yes", "0"))
+		for empty in (None, "", " ", "\t\n "):
+			self.assertEqual(display(empty), ticket_render.EMPTY_VALUE, msg=repr(empty))
+		self.assertEqual(display("  kept  "), "  kept  ")
+
+	def test_a_filled_case_prints_its_values_and_no_dash_where_there_is_one(self):
+		page = ticket_render._pdf_html(self._form())
+		self.assertIn("Email: almaz@example.com</p>", page)
+		self.assertIn("Closure Remarks: Accepted the outcome.</p>", page)
+		self.assertIn("Responsible Officer: Dawit Officer</p>", page)
+
+	def test_priority_is_not_on_the_pdf_or_in_the_csv(self):
+		form = self._form()
+		self.assertNotIn("Priority", ticket_render._pdf_html(form))
+		self.assertNotIn("Priority", ticket_export.render_csv(form).decode("utf-8-sig"))
+		text = "\n".join(
+			page.extract_text() for page in PdfReader(io.BytesIO(ticket_export.render_pdf(form))).pages
+		)
+		self.assertNotIn("Priority", text)
+		self.assertNotIn("Priority", self._fresh_page())
+
+	def test_the_header_table_stays_aligned_without_priority(self):
+		for page in (ticket_render._pdf_html(self._form()), self._fresh_page()):
+			meta = page.split('<table class="meta">', 1)[1].split("</table>", 1)[0]
+			rows = [row for row in meta.split("<tr>") if row]
+			# Seven entries: three full rows of two pairs, then one pair that spans the rest.
+			self.assertEqual(len(rows), 4)
+			for row in rows[:3]:
+				self.assertEqual(row.count("<td"), 4)
+				self.assertNotIn("colspan", row)
+			self.assertEqual(rows[3].count("<td"), 2)
+			self.assertIn('<td colspan="3">', rows[3])
+			self.assertIn("Document Type", rows[3])
+
+	def test_the_documents_checklist_and_table_are_unchanged_by_the_dash(self):
+		page = ticket_render._pdf_html(self._form())
+		# The fixture file is "Land title": not one of the form's items, so Other is ticked.
+		self.assertIn(f'<p class="opt">{ticket_render.BOX_TICKED} Other Supporting Documents</p>', page)
+		self.assertIn(f'<p class="opt">{ticket_render.BOX_EMPTY} Land Registration Document</p>', page)
+		self.assertIn("land-certificate.pdf", page)
+		self.assertIn("<th>Document Type</th>", page)
+
+		# A file with no document type is Other Supporting Documents, and its blank table cell
+		# stays blank: a dash there would change what the table says, not just how it looks.
+		frappe.db.set_value("Grievance Attachment", {"grievance": self.case.name}, "document_type", None)
+		form = self._form()
+		options = {
+			o["text"]: o["checked"]
+			for o in next(i for i in sections_of(form)[5]["items"] if i["kind"] == "checks")["options"]
+		}
+		self.assertTrue(options["Other Supporting Documents"])
+		self.assertFalse(
+			any(
+				checked
+				for text, checked in options.items()
+				if text.startswith(("Copy", "Previous", "Land", "Site"))
+			)
+		)
+		row = table_of(sections_of(form)[5], "Attached Files")["rows"][0]
+		self.assertEqual(row[2], "")
+		page = ticket_render._pdf_html(form)
+		self.assertIn("<td>land-certificate.pdf</td><td></td><td>application/pdf</td>", page)
+		self.assertEqual(rows_of(sections_of(form)[5])["Documents Attached"], "1")
+
+	def test_a_case_with_no_documents_keeps_the_checklist_and_says_so(self):
+		page = self._fresh_page()
+		self.assertIn("No supporting documents were attached.", page)
+		# Every box is still its own unticked line, in the documents list (6) and in section 9's
+		# corrective actions (6): no dash stands in for a box.
+		self.assertEqual(page.count(f'<p class="opt">{ticket_render.BOX_EMPTY} '), 6 + 6)
+		self.assertIn(f'<p class="opt">{ticket_render.BOX_EMPTY} Other Supporting Documents</p>', page)
+		self.assertNotIn('<table class="grid"><thead><tr><th>No.</th><th>File Name', page)
+
+	def test_the_dash_text_survives_into_the_pdf(self):
+		fresh = a_grievance(description="Nothing has happened to this grievance yet, apart from filing.")
+		self.addCleanup(discard_grievance, fresh.name)
+		pdf = ticket_export.render_pdf(self._form(case=fresh))
+		text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+		self.assertIn(f"Email: {ticket_render.EMPTY_VALUE}", text)
 
 	def test_csv_has_the_boxes_ticked_as_one_line(self):
 		rows = self._csv_rows(self._form())
@@ -907,6 +1025,69 @@ class TestExportGuards(TicketExportTestCase):
 		self.assertIn(f"bytes={len(response.data)};", event.scope_evaluated)
 		self.assertTrue(event.scope_evaluated.endswith(f"sha256={hashlib.sha256(response.data).hexdigest()}"))
 
+	def test_consecutive_pdf_exports_each_leave_one_row_with_their_own_digest(self):
+		frappe.set_user(self.officer)
+		before = len(self._events(grievance=self.case.name, action="export"))
+		responses = [self._export(format="pdf") for _ in range(3)]
+		for response in responses:
+			self.assertEqual(response.mimetype, "application/pdf")
+			self.assertTrue(response.data.startswith(b"%PDF"))
+		events = self._events(grievance=self.case.name, action="export")
+		self.assertEqual(len(events) - before, 3, msg="one row per export, none doubled")
+		# Two renders of the same case can come out byte for byte alike, so the rows are matched to
+		# the files as a whole: every file has its own row, and no row is left over.
+		recorded = sorted(e.scope_evaluated.rsplit("sha256=", 1)[1] for e in events)
+		returned = sorted(hashlib.sha256(response.data).hexdigest() for response in responses)
+		self.assertEqual(recorded, returned)
+
+	def test_an_export_that_loses_the_audit_counter_race_once_still_returns_its_file_and_one_row(self):
+		frappe.set_user(self.officer)
+		real_insert = Document.insert
+		failures = [
+			frappe.QueryDeadlockError("(1020, \"Record has changed since last read in table 'tabSeries'\")")
+		]
+
+		def insert(doc, *args, **kwargs):
+			if doc.doctype == "Grievance Access Audit Event" and failures:
+				raise failures.pop()
+			return real_insert(doc, *args, **kwargs)
+
+		before = len(self._events(grievance=self.case.name, action="export"))
+		with (
+			mock.patch.object(Document, "insert", insert),
+			mock.patch.object(frappe.db, "rollback"),
+			mock.patch.object(audit.time, "sleep"),
+		):
+			response = self._export(format="pdf")
+		self.assertEqual(response.mimetype, "application/pdf")
+		self.assertFalse(failures, msg="the failure was used up")
+		events = self._events(grievance=self.case.name, action="export")
+		self.assertEqual(len(events) - before, 1)
+		self.assertTrue(events[0].scope_evaluated.endswith(hashlib.sha256(response.data).hexdigest()))
+
+	def test_an_export_whose_audit_keeps_failing_returns_no_file_and_leaves_no_success_row(self):
+		frappe.set_user(self.officer)
+		real_insert = Document.insert
+
+		def insert(doc, *args, **kwargs):
+			if doc.doctype == "Grievance Access Audit Event":
+				raise frappe.QueryDeadlockError(
+					"(1020, \"Record has changed since last read in table 'tabSeries'\")"
+				)
+			return real_insert(doc, *args, **kwargs)
+
+		before = len(self._events(grievance=self.case.name, action="export"))
+		with (
+			_keep_transaction(),
+			mock.patch.object(Document, "insert", insert),
+			mock.patch.object(frappe.db, "rollback"),
+			mock.patch.object(audit.time, "sleep"),
+		):
+			result = self._export(format="pdf")
+		self.assertEqual(result["code"], "INTERNAL_ERROR")
+		self.assertNotEqual(frappe.response.get("type"), "download")
+		self.assertEqual(len(self._events(grievance=self.case.name, action="export")), before)
+
 	def test_the_role_is_checked_before_the_query_is_validated(self):
 		frappe.set_user(self._reviewer())
 		with _keep_transaction():
@@ -979,7 +1160,111 @@ class TestAuditHelper(FrappeTestCase):
 	def test_a_durable_audit_write_commits(self):
 		with mock.patch.object(frappe.db, "commit") as commit:
 			audit.record_access(audit.ACTION_EXPORT, durable=True)
-		commit.assert_called_once()
+		# Once to end the caller's read snapshot, once to make the row durable.
+		self.assertEqual(commit.call_count, 2)
+
+
+class TestAuditUnderConcurrency(FrappeTestCase):
+	"""An export reads, renders for seconds, then audits. Another request can audit in between.
+
+	MariaDB 11.6+ (snapshot isolation) then refuses the later insert with "Record has changed
+	since last read in table 'tabSeries'", the naming counter of the audit rows. That is what
+	made a PDF export (long) fail where a CSV export (short) did not.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.scope = f"concurrency-test-{frappe.generate_hash(length=10)}"
+		self.events = []
+		real_insert = Document.insert
+		self.attempts = 0
+		self.failures_left = 0
+
+		def insert(doc, *args, **kwargs):
+			if doc.doctype == "Grievance Access Audit Event":
+				self.attempts += 1
+				self.events.append("insert")
+				if self.failures_left:
+					self.failures_left -= 1
+					raise frappe.QueryDeadlockError(
+						"(1020, \"Record has changed since last read in table 'tabSeries'\")"
+					)
+			return real_insert(doc, *args, **kwargs)
+
+		for patcher in (
+			mock.patch.object(Document, "insert", insert),
+			mock.patch.object(frappe.db, "commit", side_effect=lambda: self.events.append("commit")),
+			mock.patch.object(frappe.db, "rollback", side_effect=lambda: self.events.append("rollback")),
+			mock.patch.object(audit.time, "sleep"),
+		):
+			patcher.start()
+			self.addCleanup(patcher.stop)
+
+	def _rows(self):
+		return frappe.get_all(
+			"Grievance Access Audit Event", filters={"scope_evaluated": self.scope}, pluck="name"
+		)
+
+	def test_the_read_snapshot_is_ended_before_the_row_is_inserted(self):
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
+		self.assertEqual(self.events, ["commit", "insert", "commit"])
+		self.assertEqual(len(self._rows()), 1)
+
+	def test_an_insert_that_loses_the_race_is_retried_and_leaves_one_row(self):
+		self.failures_left = 1
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
+		self.assertEqual(self.attempts, 2)
+		self.assertEqual(self.events, ["commit", "insert", "rollback", "insert", "commit"])
+		self.assertEqual(len(self._rows()), 1)
+
+	def test_a_write_that_keeps_losing_is_given_up_after_the_attempts_and_raises_if_strict(self):
+		self.failures_left = 99
+		with self.assertRaises(frappe.QueryDeadlockError):
+			audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
+		self.assertEqual(self.attempts, audit.AUDIT_WRITE_ATTEMPTS)
+		self.assertEqual(self._rows(), [])
+		self.assertEqual(self.events.count("commit"), 1, msg="the row was never committed")
+
+		# Not strict: still logged, still no row, and the caller carries on.
+		self.attempts = 0
+		self.failures_left = 99
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True)
+		self.assertEqual(self.attempts, audit.AUDIT_WRITE_ATTEMPTS)
+		self.assertEqual(self._rows(), [])
+
+	def test_an_ordinary_write_is_not_retried_or_committed(self):
+		# It shares the request's transaction, so a rollback to retry would discard the request's work.
+		self.failures_left = 1
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope)
+		self.assertEqual(self.attempts, 1)
+		self.assertEqual(self.events, ["insert"])
+
+	def test_a_failure_of_the_commit_itself_is_not_retried(self):
+		# One attempt must never leave two rows: after a failed commit nothing is inserted again.
+		def commit():
+			self.events.append("commit")
+			if self.events.count("commit") == 2:
+				raise RuntimeError("connection lost at commit")
+
+		with mock.patch.object(frappe.db, "commit", side_effect=commit):
+			with self.assertRaises(RuntimeError):
+				audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
+		self.assertEqual(self.attempts, 1)
+
+	def test_the_failure_is_logged_without_the_complaint(self):
+		self.failures_left = 99
+		before = frappe.db.count("Error Log", {"method": "Access audit write failed"})
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True)
+		self.assertEqual(frappe.db.count("Error Log", {"method": "Access audit write failed"}), before + 1)
+		logged = frappe.get_all(
+			"Error Log",
+			filters={"method": "Access audit write failed"},
+			pluck="error",
+			limit=1,
+			order_by="creation desc",
+		)[0]
+		self.assertIn("action=export", logged)
+		self.assertIn("tabSeries", logged)
 
 
 class TestExistingApisUnchanged(TicketExportTestCase):
@@ -1123,3 +1408,108 @@ class TestAmharic(TicketExportTestCase):
 			set(ticket_export.LANGUAGES),
 			set(grievance.ExportGrievanceRequest.model_fields["lang"].annotation.__args__),
 		)
+
+
+def _pdf_text(pdf):
+	return "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
+
+
+class TestPdfEngine(FrappeTestCase):
+	"""WeasyPrint is loaded once per worker, ahead of the first export, and keeps nothing of a ticket."""
+
+	def setUp(self):
+		# Every test starts as a worker that has not begun its warm-up.
+		patcher = mock.patch.object(pdf_engine, "_warm_up_started", False)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def test_the_warm_up_is_a_before_request_hook(self):
+		self.assertIn(
+			"oan_grievance_service.services.pdf_engine.start_warm_up",
+			frappe.get_hooks("before_request", app_name="oan_grievance_service"),
+		)
+
+	def test_the_first_request_starts_one_background_warm_up_and_later_ones_start_none(self):
+		with mock.patch.object(pdf_engine.threading, "Thread") as thread:
+			for _ in range(3):
+				pdf_engine.start_warm_up()
+		thread.assert_called_once()
+		self.assertIs(thread.call_args.kwargs["target"], pdf_engine.warm_up)
+		self.assertTrue(thread.call_args.kwargs["daemon"], "the request must never wait for it")
+		thread.return_value.start.assert_called_once()
+
+	def test_a_site_can_switch_the_warm_up_off(self):
+		with (
+			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 0}),
+			mock.patch.object(pdf_engine.threading, "Thread") as thread,
+		):
+			pdf_engine.start_warm_up()
+		thread.assert_not_called()
+
+	def test_the_hook_never_fails_a_request(self):
+		with mock.patch.object(pdf_engine.threading, "Thread", side_effect=RuntimeError("no threads")):
+			pdf_engine.start_warm_up()
+
+	def test_importing_the_module_does_not_load_weasyprint(self):
+		code = (
+			"import sys; import oan_grievance_service.services.pdf_engine; "
+			"print('weasyprint' in sys.modules)"
+		)
+		result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+		self.assertEqual(result.stdout.strip().splitlines()[-1:], ["False"], msg=result.stderr[-500:])
+
+	def test_warm_up_renders_a_page_and_reports_ready(self):
+		self.assertTrue(pdf_engine.warm_up())
+
+	def test_a_server_without_the_libraries_gets_a_log_line_not_a_crash(self):
+		error = OSError("cannot load library 'libpango-1.0-0'")
+		with mock.patch.object(pdf_engine, "_load", side_effect=error):
+			self.assertFalse(pdf_engine.warm_up())
+			# The export itself still fails the way it always did, through its audit row.
+			with self.assertRaises(OSError):
+				pdf_engine.render("<p>x</p>")
+
+	def test_the_font_configuration_is_reused_by_a_thread_and_never_shared_between_threads(self):
+		first = pdf_engine._font_config()
+		pdf_engine.render("<p>one</p>")
+		pdf_engine.render("<p>two</p>")
+		self.assertIs(pdf_engine._font_config(), first)
+		seen = []
+		worker = threading.Thread(target=lambda: seen.append(pdf_engine._font_config()))
+		worker.start()
+		worker.join()
+		self.assertIsNot(seen[0], first)
+
+	def test_nothing_of_one_export_reaches_the_next(self):
+		first = pdf_engine.render("<html><body><p>Alpha ticket 111</p></body></html>")
+		second = pdf_engine.render("<html><body><p>Bravo ticket 222</p></body></html>")
+		self.assertIn("Alpha ticket 111", _pdf_text(first))
+		self.assertNotIn("Alpha", _pdf_text(second))
+		self.assertNotIn("111", _pdf_text(second))
+		# What a thread keeps between exports is a font configuration and nothing else.
+		self.assertEqual(set(vars(pdf_engine._thread_state)), {"font_config"})
+
+	def test_exports_in_parallel_threads_do_not_mix(self):
+		names = ["Alpha", "Bravo", "Charlie", "Delta"]
+		texts, errors = {}, []
+
+		def work(name):
+			try:
+				for round_ in range(2):
+					texts[name] = _pdf_text(
+						pdf_engine.render(f"<html><body><p>Only {name} {round_}</p></body></html>")
+					)
+			except Exception as exc:  # reported below, on the test's own thread
+				errors.append(repr(exc))
+
+		workers = [threading.Thread(target=work, args=(name,)) for name in names]
+		for worker in workers:
+			worker.start()
+		for worker in workers:
+			worker.join()
+		self.assertEqual(errors, [])
+		for name in names:
+			self.assertIn(f"Only {name} 1", texts[name])
+			for other in names:
+				if other != name:
+					self.assertNotIn(other, texts[name])
