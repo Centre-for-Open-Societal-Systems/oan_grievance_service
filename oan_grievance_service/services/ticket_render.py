@@ -10,7 +10,8 @@ import re
 
 from frappe import _
 
-from oan_grievance_service.services.ticket_form_blocks import _ticked
+from oan_grievance_service.services import pdf_engine
+from oan_grievance_service.services.ticket_form_blocks import _text, _ticked
 
 # ---------------------------------------------------------------------------
 # CSV
@@ -80,6 +81,21 @@ def _put_table(put, heading, table):
 BOX_EMPTY = "☐"
 BOX_TICKED = "☒"
 
+# What an ordinary field prints when the case has nothing for it. The CSV and the form data keep
+# the value empty; only the PDF shows the dash, so a reader can tell "none" from a cell the
+# renderer lost.
+EMPTY_VALUE = "—"
+
+
+def display_value(value):
+	"""The text an ordinary PDF field shows: its value, or a dash when there is none.
+
+	None, "" and whitespace are empty. 0 and False are values ("0", "No"), so they stay.
+	"""
+	text = _text(value)
+	return text if text.strip() else EMPTY_VALUE
+
+
 # Latin first, as the paper form is set; the Ethiopic faces follow so Amharic complaint text
 # renders where one is installed (the server image has to carry Noto Sans Ethiopic for that).
 _PDF_STYLE = """
@@ -103,7 +119,6 @@ p.opt { margin-bottom: 3.5pt; }
 span.opt { margin-right: 12pt; white-space: nowrap; }
 .blank { display: inline-block; min-width: 150pt; height: 10pt; border-bottom: 1px solid #000;
 	vertical-align: bottom; }
-.rule { height: 15pt; border-bottom: 1px solid #000; margin: 0 0 3pt; }
 table.grid { width: 100%; border-collapse: collapse; }
 table.grid td, table.grid th { padding: 3pt 5pt; vertical-align: top; border: 1px solid #888; }
 table.grid th { background: #eee; text-align: left; font-size: 8.5pt; }
@@ -120,15 +135,10 @@ def render_pdf(form) -> bytes:
 
 	The PDF is deliberately not digitally signed (decision recorded in docs/ticket-export.md):
 	the SHA-256 in the export's audit row is its only integrity control.
+
+	WeasyPrint is loaded and warmed by `pdf_engine`, once per worker, not per export.
 	"""
-	from weasyprint import HTML
-
-	# Every value is escaped and the page has no links or images, so there is nothing to
-	# fetch; refusing fetches outright keeps it that way.
-	def refuse_fetch(url, *args, **kwargs):
-		raise ValueError("External resources are not loaded in exports.")
-
-	return HTML(string=_pdf_html(form), url_fetcher=refuse_fetch).write_pdf()
+	return pdf_engine.render(_pdf_html(form))
 
 
 def _pdf_html(form):
@@ -137,8 +147,12 @@ def _pdf_html(form):
 
 	blank = '<span class="blank"></span>'
 
-	def ruled(count=3):
-		return '<div class="rule"></div>' * count
+	def shown(item):
+		"""A field's value as the PDF prints it: a dash if empty, a line to fill in by hand if the
+		paper form leaves one (signature, stamp)."""
+		if item["blank_line"] and not item["value"].strip():
+			return blank
+		return esc(display_value(item["value"]))
 
 	def grid(table):
 		head = "".join(f"<th>{esc(column)}</th>" for column in table["columns"])
@@ -170,12 +184,11 @@ def _pdf_html(form):
 			return f'<p class="line">{label} {boxes}</p>'
 		if not item["pdf"]:
 			return ""
-		value = item["value"]
 		if item["block"]:
 			head = f'<p class="line">{esc(item["label"])}:</p>' if item["show_label"] else ""
-			return head + (f'<p class="text">{esc(value)}</p>' if value else ruled())
+			return head + f'<p class="text">{shown(item)}</p>'
 		prefix = f"{counter}. " if item["numbered"] else ""
-		return f'<p class="line">{prefix}{esc(item["label"])}: {esc(value) if value else blank}</p>'
+		return f'<p class="line">{prefix}{esc(item["label"])}: {shown(item)}</p>'
 
 	lines = form["letterhead"]
 	letterhead = "".join(
@@ -183,14 +196,18 @@ def _pdf_html(form):
 		for index, line in enumerate(lines)
 	)
 
+	# Two label/value pairs to a row. An odd last pair takes the whole row, so the table keeps
+	# its right-hand border and the columns above stay aligned.
 	header = form["header"]
 	meta = ""
 	for index in range(0, len(header), 2):
+		pairs = header[index : index + 2]
+		span = ' colspan="3"' if len(pairs) == 1 else ""
 		meta += (
 			"<tr>"
 			+ "".join(
-				f'<td class="hl">{esc(label)}</td><td>{esc(value)}</td>'
-				for label, value in header[index : index + 2]
+				f'<td class="hl">{esc(label)}</td><td{span}>{esc(display_value(value))}</td>'
+				for label, value in pairs
 			)
 			+ "</tr>"
 		)
