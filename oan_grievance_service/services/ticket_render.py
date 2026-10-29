@@ -98,7 +98,7 @@ def display_value(value):
 
 # Latin first, as the paper form is set; the Ethiopic faces follow so Amharic complaint text
 # renders where one is installed (the server image has to carry Noto Sans Ethiopic for that).
-PDF_STYLE = """
+_PDF_STYLE = """
 @page { size: A4; margin: 15mm 16mm 18mm;
 	@bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #555; } }
 body { font-family: "Liberation Sans", Arial, "Noto Sans Ethiopic", "Abyssinica SIL", "Nyala",
@@ -234,7 +234,7 @@ def _pdf_html(form):
 	return (
 		f'<!doctype html><html lang="{esc(form.get("lang") or "en")}"><head><meta charset="utf-8">'
 		f'<title>{esc(form["title"])}</title>'
-		f"<style>{PDF_STYLE}</style></head><body>"
+		f"<style>{_PDF_STYLE}</style></head><body>"
 		f"{letterhead}<h1>{esc(form['title'])}</h1><table class=\"meta\">{meta}</table>{sections}{appendix}"
 		f'<p class="footer">{footer}</p></body></html>'
 	)

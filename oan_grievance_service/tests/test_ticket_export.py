@@ -1465,66 +1465,19 @@ def _pdf_text(pdf):
 
 
 class TestPdfEngine(FrappeTestCase):
-	"""WeasyPrint is loaded on a worker's first export (or ahead of it, if a site opts in), and
-	keeps nothing of a ticket."""
+	"""WeasyPrint is loaded on a worker's first export, and keeps nothing of a ticket."""
 
-	def setUp(self):
-		# Every test starts as a worker that has not begun its warm-up.
-		patcher = mock.patch.object(pdf_engine, "_warm_up_started", False)
-		patcher.start()
-		self.addCleanup(patcher.stop)
-		frappe.conf.pop(pdf_engine.CONF_PREWARM, None)
-		self.addCleanup(frappe.conf.pop, pdf_engine.CONF_PREWARM, None)
-
-	def test_the_warm_up_hook_is_registered(self):
-		self.assertIn(
-			"oan_grievance_service.services.pdf_engine.start_warm_up",
-			frappe.get_hooks("before_request", app_name="oan_grievance_service"),
-		)
-
-	def test_by_default_no_request_starts_a_warm_up_or_loads_the_library(self):
-		# A pod's first request is usually a health probe: it must cost nothing, and a worker that
-		# serves intake and login must never carry WeasyPrint.
-		with (
-			mock.patch.object(pdf_engine.threading, "Thread") as thread,
-			mock.patch.object(pdf_engine, "_load") as load,
-		):
-			for _ in range(3):
-				pdf_engine.start_warm_up()
-		thread.assert_not_called()
-		load.assert_not_called()
+	def test_there_is_no_warm_up_at_worker_start(self):
+		# A pod's first request is usually a health probe, and a worker that serves intake and login
+		# must never carry WeasyPrint: nothing is hooked into the request cycle to load it.
+		hooks = frappe.get_hooks("before_request", app_name="oan_grievance_service")
+		self.assertEqual([hook for hook in hooks if "pdf_engine" in hook], [])
+		self.assertFalse(hasattr(pdf_engine, "start_warm_up"))
 
 	def test_the_first_export_is_what_loads_the_library(self):
 		with mock.patch.object(pdf_engine, "_load", wraps=pdf_engine._load) as load:
 			self.assertTrue(pdf_engine.render("<p>x</p>").startswith(b"%PDF"))
 		load.assert_called()
-
-	def test_a_site_can_opt_in_and_then_the_first_request_starts_one_background_warm_up(self):
-		with (
-			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 1}),
-			mock.patch.object(pdf_engine.threading, "Thread") as thread,
-		):
-			for _ in range(3):
-				pdf_engine.start_warm_up()
-		thread.assert_called_once()
-		self.assertIs(thread.call_args.kwargs["target"], pdf_engine.warm_up)
-		self.assertTrue(thread.call_args.kwargs["daemon"], "the request must never wait for it")
-		thread.return_value.start.assert_called_once()
-
-	def test_an_explicit_zero_keeps_it_off(self):
-		with (
-			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 0}),
-			mock.patch.object(pdf_engine.threading, "Thread") as thread,
-		):
-			pdf_engine.start_warm_up()
-		thread.assert_not_called()
-
-	def test_the_hook_never_fails_a_request(self):
-		with (
-			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 1}),
-			mock.patch.object(pdf_engine.threading, "Thread", side_effect=RuntimeError("no threads")),
-		):
-			pdf_engine.start_warm_up()
 
 	def test_importing_the_module_does_not_load_weasyprint(self):
 		code = (
@@ -1534,14 +1487,10 @@ class TestPdfEngine(FrappeTestCase):
 		result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
 		self.assertEqual(result.stdout.strip().splitlines()[-1:], ["False"], msg=result.stderr[-500:])
 
-	def test_warm_up_renders_a_page_and_reports_ready(self):
-		self.assertTrue(pdf_engine.warm_up())
-
-	def test_a_server_without_the_libraries_gets_a_log_line_not_a_crash(self):
+	def test_a_server_without_the_libraries_fails_the_export_not_the_worker(self):
 		error = OSError("cannot load library 'libpango-1.0-0'")
 		with mock.patch.object(pdf_engine, "_load", side_effect=error):
-			self.assertFalse(pdf_engine.warm_up())
-			# The export itself still fails the way it always did, through its audit row.
+			# The export fails the way it always did, and is audited as `export_failed`.
 			with self.assertRaises(OSError):
 				pdf_engine.render("<p>x</p>")
 
