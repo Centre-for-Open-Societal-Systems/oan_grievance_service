@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "60d71415-f11a-4dbe-b2a2-8a545d4320ee",
     "name": "OAN Grievance - Farmer (eSignet) + Officer endpoints",
-    "description": "Farmer logs in with eSignet (OTP) through IAM bene portal and oan_auth_service, then calls every endpoint a beneficiary can call. Folder 6 holds OFFICER/ADMIN endpoints, which are NOT part of the beneficiary API. Layout follows consent-manager-beneficiary.postman_collection.json. Run with the local environment: newman run <collection> -e local.postman_environment.json --bail",
+    "description": "Farmer logs in with eSignet (OTP) through IAM bene portal and oan_auth_service, then calls every endpoint a beneficiary can call. Folder 6 holds OFFICER/ADMIN endpoints, which are NOT part of the beneficiary API. Layout follows consent-manager-beneficiary.postman_collection.json. Run with the environment: newman run <collection> -e postman/oan_grievance_environment.json --bail",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [

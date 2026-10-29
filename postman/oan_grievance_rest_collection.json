@@ -168,12 +168,12 @@
     },
     {
       "key": "taxonomy_category",
-      "value": "E2E Category 670163410",
+      "value": "Infrastructure",
       "type": "string"
     },
     {
       "key": "taxonomy_grievance_type",
-      "value": "GTYPE-06289",
+      "value": "",
       "type": "string"
     },
     {
@@ -206,7 +206,7 @@
     },
     {
       "key": "officer_email",
-      "value": "e2e.officer.670412827@example.com"
+      "value": ""
     },
     {
       "key": "officer",

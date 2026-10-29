@@ -181,6 +181,78 @@
       "value": "",
       "type": "default",
       "enabled": true
+    },
+    {
+      "key": "esignet_url",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "iam_url",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "esignet_otp",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "esignet_individual_id",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "iam_client_id",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "iam_redirect_uri",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "iam_scope",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "iam_login_key",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "officer_usr",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "officer_pwd",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "farmer_phone",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "farmer_name",
+      "value": "",
+      "type": "default",
+      "enabled": true
     }
   ],
   "_postman_variable_scope": "environment"

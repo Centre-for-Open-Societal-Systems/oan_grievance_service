@@ -4,6 +4,7 @@
 """STG-430: officers are Users placed on category desks, so edits reach routing directly."""
 
 import frappe
+from frappe.exceptions import AuthenticationError
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.password import check_password
 
@@ -473,8 +474,17 @@ class TestOfficerManagement(FrappeTestCase):
 				email = f"stg430-nopassword-{i}@example.com"
 				result = create_officer(**base, email=email, **extra)
 				self.assertEqual(result["status"], "success", msg=(extra, result))
+				self.assertEqual(result["message"], "Officer created. They can log in with Keycloak.")
 				self.assertTrue(frappe.db.exists("User", email))
 				self.assertFalse(result["data"]["officer"]["must_change_password"])
+				self.assertFalse(
+					frappe.db.sql(
+						"SELECT 1 FROM `__Auth` WHERE `doctype`='User' AND `name`=%s AND `fieldname`='password'",
+						(email,),
+					)
+				)
+				with self.assertRaises(AuthenticationError):
+					check_password(email, "Temp1234")
 
 	def test_a_temporary_password_must_meet_the_rule(self):
 		base = {

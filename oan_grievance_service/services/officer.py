@@ -102,11 +102,12 @@ def create(
 	already has an account. A login that is already an officer or reviewer is rejected, and so
 	is a System Manager or Administrator, who are never managed here.
 
-	`temporary_password` is required, so a new account always has a way in: they can use it
-	just long enough to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). It is applied
-	to a new login only. An existing login keeps the password its owner already knows, because
-	replacing it with one the admin typed would let the admin take the account over. The caller
-	tells the admin when that happened.
+	`temporary_password` is optional. When provided, a new account can use it just long enough
+	to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). When omitted, no temporary
+	password is set and the user logs in with Keycloak. It is applied to a new login only. An
+	existing login keeps the password its owner already knows, because replacing it with one
+	the admin typed would let the admin take the account over. The caller tells the admin
+	when that happened.
 	"""
 	_assert_status(role, status)
 	existing = role_of(email)
@@ -143,7 +144,13 @@ def create(
 	if role == REVIEWER_ROLE and status == "Inactive":
 		account.set_enabled(user.name, False)
 	_sync_desk_head_role(user.name)
-	return user.name, not has_login
+	if has_login:
+		password_status = False
+	elif temporary_password:
+		password_status = True
+	else:
+		password_status = None
+	return user.name, password_status
 
 
 def reset_temporary_password(user_id: str, password: str) -> str:
