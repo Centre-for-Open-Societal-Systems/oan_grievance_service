@@ -45,7 +45,9 @@ class RegisterSubmitterRequest(BaseModel):
 		default="Individual Farmer",
 		description="Submitter type (e.g. Individual Farmer, Cooperative, Development Agent, etc.)",
 	)
-	submitter_name: str | None = Field(default=None, description="Submitter name or organization name")
+	submitter_name: str | None = Field(
+		default=None, max_length=140, description="Submitter name or organization name"
+	)
 	contact_mobile: str | None = Field(default=None, description="Contact mobile number")
 	country_code: str | None = Field(default=None, description="Country phone code prefix (e.g. +251)")
 	phone_number: str | None = Field(default=None, description="National phone number")

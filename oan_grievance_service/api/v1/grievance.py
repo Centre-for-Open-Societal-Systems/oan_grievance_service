@@ -39,7 +39,22 @@ from oan_grievance_service.api.v1._options import (
 	get_status_summary,
 	public_status,
 )
-from oan_grievance_service.api.v1._schemas import Body, Decision, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import (
+	INTERNAL_NOTE_MAX,
+	ActionTaken,
+	Body,
+	Decision,
+	DeferralReason,
+	DesiredOutcome,
+	InternalNote,
+	Justification,
+	NonBlank,
+	ResolutionSummary,
+	blank_to_none,
+	check_max_chars,
+	check_rejection_comment,
+	check_response_text,
+)
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
@@ -76,7 +91,7 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	model_config = ConfigDict(extra="allow")
 
 	submitter_type: str | None = None
-	submitter_name: str | None = None
+	submitter_name: str | None = Field(default=None, max_length=140)
 	submitter: str | None = None
 	fayda_id: str | None = None
 	contact_mobile: str | None = None
@@ -90,7 +105,7 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	associated_service_provider: str | None = None
-	desired_outcome: str | None = None
+	desired_outcome: DesiredOutcome | None = None
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
 	client_submission_uuid: str | None = None
@@ -136,12 +151,12 @@ class GrievanceActionRequest(Body):
 	reason: str | None = Field(
 		None, description="Shown to the submitter. For a department response, the response itself."
 	)
-	action_taken: str | None = Field(
+	action_taken: ActionTaken | None = Field(
 		None,
 		description="Department response, first part: what was done. Sent with `resolution_summary` "
 		"instead of `reason`; the two are stored together as the reason.",
 	)
-	resolution_summary: str | None = Field(
+	resolution_summary: ResolutionSummary | None = Field(
 		None,
 		description="Department response, second part: the outcome for the submitter. "
 		"Sent with `action_taken` instead of `reason`.",
@@ -149,7 +164,7 @@ class GrievanceActionRequest(Body):
 	note: str | None = Field(
 		None, description="Optional detail recorded directly on the Grievance Status History audit row."
 	)
-	internal_notes: str | None = Field(
+	internal_notes: InternalNote | None = Field(
 		None, description="Staff only. Posted as a separate internal timeline entry."
 	)
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
@@ -158,6 +173,7 @@ class GrievanceActionRequest(Body):
 	_blank = field_validator(
 		"reason", "action_taken", "resolution_summary", "note", "internal_notes", "template", mode="before"
 	)(blank_to_none)
+	_reason_parts = field_validator("reason")(check_response_text)
 
 	@model_validator(mode="after")
 	def check_response_parts(self):
@@ -199,15 +215,30 @@ class PostMessageRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
-	body: str = Field(..., min_length=1)
+	# Declared before `body` so the body's limit can depend on whether it is an internal note.
 	is_internal: bool | str | None = Field(
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
+	type: str | None = Field(
+		None, description="Legacy alias: note, internal or internal_note posts an internal note."
+	)
+	body: str = Field(..., min_length=1)
 	client_message_id: str | None = Field(
 		None,
 		max_length=64,
 		description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.",
 	)
+
+	@field_validator("body")
+	@classmethod
+	def _internal_note_length(cls, value, info):
+		"""An internal note is capped at the frontend's limit; a public message is not."""
+		internal = _parse_flag(info.data.get("is_internal"))
+		if internal is None:
+			internal = info.data.get("type") in ("note", "internal", "internal_note")
+		if internal:
+			check_max_chars(value, INTERNAL_NOTE_MAX, "Internal note")
+		return value
 
 
 class ResponseTemplatesRequest(BaseModel):
@@ -228,7 +259,7 @@ class ReassignGrievanceRequest(BaseModel):
 	target_officer: str | None = None
 	target_category: str | None = None
 	target_grievance_type: str | None = None
-	reason: str | None = None
+	reason: Justification | None = None
 
 	@model_validator(mode="after")
 	def _require_a_target(self):
@@ -253,7 +284,7 @@ class DeferSLARequest(BaseModel):
 
 	ticket_number: str | None = None
 	additional_days: int = Field(..., ge=1)
-	reason: str = Field(..., min_length=20)
+	reason: DeferralReason = Field(..., min_length=20)
 
 
 STAFF_ROLES = C.STAFF_ROLES
@@ -1874,7 +1905,11 @@ class DecideReassignmentRequest(BaseModel):
 
 	ticket_number: str | None = None
 	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = None
+	note: str | None = Field(
+		None, validate_default=True, description="Required when rejecting: 20 to 1000 characters"
+	)
+
+	_rejection_comment = field_validator("note")(check_rejection_comment)
 
 
 @route(
@@ -1946,7 +1981,11 @@ class DecideDeferralRequest(BaseModel):
 
 	ticket_number: str | None = None
 	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = None
+	note: str | None = Field(
+		None, validate_default=True, description="Required when rejecting: 20 to 1000 characters"
+	)
+
+	_rejection_comment = field_validator("note")(check_rejection_comment)
 
 
 @route(

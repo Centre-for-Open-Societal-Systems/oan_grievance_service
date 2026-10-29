@@ -15,9 +15,9 @@ from oan_auth_service.api.utils import (
 	to_tz_aware_iso,
 	validate_request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from oan_grievance_service.api.v1._schemas import Decision
+from oan_grievance_service.api.v1._schemas import Decision, check_rejection_comment
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 
@@ -44,7 +44,11 @@ class DecideChangeRequest(BaseModel):
 
 	name: str | None = None
 	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = None
+	note: str | None = Field(
+		None, validate_default=True, description="Required when rejecting: 20 to 1000 characters"
+	)
+
+	_rejection_comment = field_validator("note")(check_rejection_comment)
 
 
 def raise_change_request(grievance, subject, changes, reason=None):

@@ -759,7 +759,9 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		for email in getattr(self, "emails", []):
-			user = _user_for(email)
+			# A user made with `_user` is named by its email and has no login-email field, so
+			# only the registered ones are found by `_user_for`.
+			user = _user_for(email) or (email if frappe.db.exists("User", email) else None)
 			if not user:
 				continue
 			for profile in frappe.get_all(PROFILE, filters={"user": user}, pluck="name"):

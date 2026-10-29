@@ -40,7 +40,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, PersonName, blank_to_none
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import officer as service
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
@@ -143,7 +143,7 @@ class CreateOfficer(Body):
 	they depend on `role`.
 	"""
 
-	full_name: NonBlank
+	full_name: PersonName
 	email: NonBlank
 	temporary_password: str = Field(max_length=128)
 	role: Role = "Officer"
@@ -200,7 +200,7 @@ class UpdateOfficer(Body):
 
 	officer: NonBlank
 	level: Level = None
-	full_name: NonBlank = None
+	full_name: PersonName = None
 	designation: NonBlank = None
 	department: NonBlank | None = None
 	phone: str | None = None

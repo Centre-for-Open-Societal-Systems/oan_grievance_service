@@ -10102,6 +10102,7 @@ components:
           default: null
           nullable: true
         description:
+          maxLength: 5000
           minLength: 20
           type: string
           default: null
@@ -10128,6 +10129,7 @@ components:
           default: null
           nullable: true
         submitter_name:
+          maxLength: 140
           type: string
           default: null
           nullable: true
@@ -10276,9 +10278,6 @@ components:
     PostMessageRequest:
       additionalProperties: true
       properties:
-        body:
-          minLength: 1
-          type: string
         is_internal:
           anyOf:
           - type: boolean
@@ -10286,6 +10285,14 @@ components:
           default: null
           description: Hide from the submitter (staff only). Defaults to a public message.
           nullable: true
+        type:
+          type: string
+          default: null
+          description: 'Legacy alias: note, internal or internal_note posts an internal note.'
+          nullable: true
+        body:
+          minLength: 1
+          type: string
         client_message_id:
           maxLength: 64
           type: string
@@ -10339,6 +10346,7 @@ components:
         note:
           type: string
           default: null
+          description: 'Required when rejecting: 20 to 1000 characters'
           nullable: true
       required:
       - decision
@@ -10368,6 +10376,7 @@ components:
         note:
           type: string
           default: null
+          description: 'Required when rejecting: 20 to 1000 characters'
           nullable: true
       required:
       - decision
@@ -10506,6 +10515,7 @@ components:
         note:
           type: string
           default: null
+          description: 'Required when rejecting: 20 to 1000 characters'
           nullable: true
       required:
       - decision
@@ -11030,6 +11040,7 @@ components:
           description: Submitter type (e.g. Individual Farmer, Cooperative, Development Agent, etc.)
           type: string
         submitter_name:
+          maxLength: 140
           type: string
           default: null
           description: Submitter name or organization name
