@@ -1,17 +1,22 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""WeasyPrint, loaded once per worker and ready before the first export asks for it.
+"""WeasyPrint, loaded once per worker, on the worker's first export.
 
-Importing WeasyPrint loads Pango, Cairo-free text shaping and fontTools, which takes several
-seconds, and the first PDF after that primes the font machinery. Left to the first export, that
-whole cost lands on one user's click. `start_warm_up` is a `before_request` hook: the first
-request a worker serves, whatever it is, starts one background thread that pays it, and the
-export finds the engine ready.
+Importing WeasyPrint loads Pango, text shaping and fontTools, which takes about four seconds,
+and the first PDF after that primes the font machinery. By default that cost lands on the first
+export a worker serves, and every export after it on that worker is fast. A worker that never
+exports never loads WeasyPrint, so a pod boots lean and the workers serving intake, login and
+status checks carry none of it (the library is some tens of MB of resident memory).
 
-Nothing here runs at import time, so a process that never exports (a migrate, a console, a
-test run, a worker serving other routes) never loads WeasyPrint. A site can opt out with
-`grievance_pdf_prewarm: 0` in site_config.json; the first export then pays as before.
+A site that would rather pay the cost ahead of time can opt in with `grievance_pdf_prewarm: 1`
+in site_config.json. `start_warm_up` is then a `before_request` hook: the first request a
+worker serves, whatever it is, starts one background thread that loads the library and renders
+a one-line page, and the export finds the engine ready. It is off by default because that first
+request is often a health probe and every worker would do the work at once, at pod start, on
+CPU a container may be throttling, and because it loads the library in workers that never export.
+
+Nothing here runs at import time either way.
 
 What is kept between requests is the library and one `FontConfiguration` per thread (font
 discovery is the repeated setup). Pango's font map is not safe to share between threads, so each
@@ -31,7 +36,7 @@ _state_lock = threading.Lock()
 _warm_up_started = False
 _thread_state = threading.local()
 
-# Prewarm is on unless a site switches it off.
+# Prewarming is off unless a site switches it on.
 CONF_PREWARM = "grievance_pdf_prewarm"
 
 
@@ -67,7 +72,8 @@ def render(html: str) -> bytes:
 
 
 def start_warm_up():
-	"""`before_request` hook: start the warm-up once per process, without holding the request.
+	"""`before_request` hook: if the site opted in, start the warm-up once per process, without
+	holding the request.
 
 	It must never fail a request, so every problem is swallowed here.
 	"""
@@ -75,7 +81,7 @@ def start_warm_up():
 	if _warm_up_started:
 		return
 	try:
-		if not frappe.conf.get(CONF_PREWARM, 1):
+		if not frappe.conf.get(CONF_PREWARM, 0):
 			return
 		with _state_lock:
 			if _warm_up_started:

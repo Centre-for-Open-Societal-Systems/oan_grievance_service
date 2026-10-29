@@ -1465,22 +1465,45 @@ def _pdf_text(pdf):
 
 
 class TestPdfEngine(FrappeTestCase):
-	"""WeasyPrint is loaded once per worker, ahead of the first export, and keeps nothing of a ticket."""
+	"""WeasyPrint is loaded on a worker's first export (or ahead of it, if a site opts in), and
+	keeps nothing of a ticket."""
 
 	def setUp(self):
 		# Every test starts as a worker that has not begun its warm-up.
 		patcher = mock.patch.object(pdf_engine, "_warm_up_started", False)
 		patcher.start()
 		self.addCleanup(patcher.stop)
+		frappe.conf.pop(pdf_engine.CONF_PREWARM, None)
+		self.addCleanup(frappe.conf.pop, pdf_engine.CONF_PREWARM, None)
 
-	def test_the_warm_up_is_a_before_request_hook(self):
+	def test_the_warm_up_hook_is_registered(self):
 		self.assertIn(
 			"oan_grievance_service.services.pdf_engine.start_warm_up",
 			frappe.get_hooks("before_request", app_name="oan_grievance_service"),
 		)
 
-	def test_the_first_request_starts_one_background_warm_up_and_later_ones_start_none(self):
-		with mock.patch.object(pdf_engine.threading, "Thread") as thread:
+	def test_by_default_no_request_starts_a_warm_up_or_loads_the_library(self):
+		# A pod's first request is usually a health probe: it must cost nothing, and a worker that
+		# serves intake and login must never carry WeasyPrint.
+		with (
+			mock.patch.object(pdf_engine.threading, "Thread") as thread,
+			mock.patch.object(pdf_engine, "_load") as load,
+		):
+			for _ in range(3):
+				pdf_engine.start_warm_up()
+		thread.assert_not_called()
+		load.assert_not_called()
+
+	def test_the_first_export_is_what_loads_the_library(self):
+		with mock.patch.object(pdf_engine, "_load", wraps=pdf_engine._load) as load:
+			self.assertTrue(pdf_engine.render("<p>x</p>").startswith(b"%PDF"))
+		load.assert_called()
+
+	def test_a_site_can_opt_in_and_then_the_first_request_starts_one_background_warm_up(self):
+		with (
+			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 1}),
+			mock.patch.object(pdf_engine.threading, "Thread") as thread,
+		):
 			for _ in range(3):
 				pdf_engine.start_warm_up()
 		thread.assert_called_once()
@@ -1488,7 +1511,7 @@ class TestPdfEngine(FrappeTestCase):
 		self.assertTrue(thread.call_args.kwargs["daemon"], "the request must never wait for it")
 		thread.return_value.start.assert_called_once()
 
-	def test_a_site_can_switch_the_warm_up_off(self):
+	def test_an_explicit_zero_keeps_it_off(self):
 		with (
 			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 0}),
 			mock.patch.object(pdf_engine.threading, "Thread") as thread,
@@ -1497,7 +1520,10 @@ class TestPdfEngine(FrappeTestCase):
 		thread.assert_not_called()
 
 	def test_the_hook_never_fails_a_request(self):
-		with mock.patch.object(pdf_engine.threading, "Thread", side_effect=RuntimeError("no threads")):
+		with (
+			mock.patch.dict(frappe.conf, {pdf_engine.CONF_PREWARM: 1}),
+			mock.patch.object(pdf_engine.threading, "Thread", side_effect=RuntimeError("no threads")),
+		):
 			pdf_engine.start_warm_up()
 
 	def test_importing_the_module_does_not_load_weasyprint(self):
