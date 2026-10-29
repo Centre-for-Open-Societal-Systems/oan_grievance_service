@@ -23,7 +23,8 @@ ACTION_DELETE_ATTACHMENT = "delete_attachment"
 # system; this one means someone was cleared to take it and it failed to render.
 ACTION_EXPORT_FAILED = "export_failed"
 
-# A durable write that loses a race on the naming counter is tried again this many times in all.
+# A durable write that loses an insert race (a lock conflict, or a random name that is already
+# taken) is tried again this many times in all.
 AUDIT_WRITE_ATTEMPTS = 3
 AUDIT_RETRY_PAUSE_SECONDS = 0.05
 
@@ -38,14 +39,16 @@ def record_access(action, grievance=None, scope=None, decision="Allowed", durabl
 	`strict` re-raises a failed write after logging it. Use it where the action must not
 	happen unless it is on record, such as an export that hands personal data to the caller.
 
-	A durable write commits first. A request that reads for a while before it audits (an
-	export renders a PDF in between) holds one database snapshot all that time, and the row
-	is named from a counter that every other audit write moves. Under snapshot isolation
-	(MariaDB 11.6+ default) the insert then fails with "Record has changed since last read in
-	table 'tabSeries'" whenever anyone else audited meanwhile. Committing ends that snapshot,
-	which loses nothing: the write commits straight after anyway. If the insert still loses a
-	race it is rolled back, which can only discard the failed insert, and tried again. A
-	failure of the commit itself is not retried, so one attempt never leaves two rows.
+	Rows are named at random (the doctype's `autoname` is "hash"). They used to be numbered
+	from one counter row in `tabSeries` that every audit write moved, so under snapshot
+	isolation (MariaDB 11.6+ default) a request that read for a while before auditing, as an
+	export does while it renders a PDF, failed with "Record has changed since last read in
+	table 'tabSeries'" whenever anyone else audited meanwhile. With no shared counter that
+	cannot happen. The rest is defence in depth for a durable write: it commits first, which
+	ends the request's read snapshot and loses nothing (it commits straight after anyway); an
+	insert that still loses a race is rolled back, which can only discard the failed insert,
+	and tried again; a failure of the commit itself is not retried, so one attempt never
+	leaves two rows.
 	"""
 	try:
 		if durable:
@@ -82,7 +85,7 @@ def _insert_event(action, grievance, scope, decision, retry):
 		try:
 			frappe.get_doc(event).insert(ignore_permissions=True)
 			return
-		except frappe.QueryDeadlockError:
+		except (frappe.QueryDeadlockError, frappe.DuplicateEntryError):
 			if attempt == attempts:
 				raise
 			frappe.db.rollback()

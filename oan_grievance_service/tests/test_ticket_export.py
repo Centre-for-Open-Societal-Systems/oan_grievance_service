@@ -12,6 +12,7 @@ the audit trail records for each attempt.
 import csv
 import hashlib
 import io
+import json
 import subprocess
 import sys
 import threading
@@ -1163,13 +1164,56 @@ class TestAuditHelper(FrappeTestCase):
 		# Once to end the caller's read snapshot, once to make the row durable.
 		self.assertEqual(commit.call_count, 2)
 
+	def test_audit_rows_are_named_at_random_and_never_touch_the_shared_counter(self):
+		# The root cause of the PDF export failures: every audit row bumped one `tabSeries` row,
+		# which MariaDB 11.6+ (snapshot isolation) refuses to a request that read first and wrote
+		# later. With random names there is nothing shared to lose.
+		self.assertEqual(frappe.get_meta("Grievance Access Audit Event").autoname, "hash")
+
+		def counters():
+			return frappe.db.sql(
+				"select name, current from `tabSeries` where name like 'GR-AUDIT%' order by name"
+			)
+
+		before = counters()
+		names = []
+		for _ in range(3):
+			event = frappe.get_doc(
+				{
+					"doctype": "Grievance Access Audit Event",
+					"timestamp": frappe.utils.now_datetime(),
+					"user": "Administrator",
+					"action": audit.ACTION_VIEW_LIST,
+					"decision": "Allowed",
+					"source": "test",
+				}
+			).insert(ignore_permissions=True)
+			names.append(event.name)
+		self.assertEqual(len(set(names)), 3)
+		self.assertFalse([name for name in names if name.startswith("GR-AUDIT-")], msg=names)
+		self.assertEqual(counters(), before, msg="an audit write moved the shared counter")
+
+	def test_the_doctype_file_asks_for_random_names(self):
+		path = frappe.get_app_path(
+			"oan_grievance_service",
+			"grievance_access_control",
+			"doctype",
+			"grievance_access_audit_event",
+			"grievance_access_audit_event.json",
+		)
+		with open(path, encoding="utf-8") as handle:
+			definition = json.load(handle)
+		self.assertEqual((definition["autoname"], definition["naming_rule"]), ("hash", "Random"))
+
 
 class TestAuditUnderConcurrency(FrappeTestCase):
 	"""An export reads, renders for seconds, then audits. Another request can audit in between.
 
-	MariaDB 11.6+ (snapshot isolation) then refuses the later insert with "Record has changed
-	since last read in table 'tabSeries'", the naming counter of the audit rows. That is what
-	made a PDF export (long) fail where a CSV export (short) did not.
+	The rows used to be numbered from one shared counter, so MariaDB 11.6+ (snapshot isolation)
+	refused the later insert with "Record has changed since last read in table 'tabSeries'".
+	That is what made a PDF export (long) fail where a CSV export (short) did not. The rows are
+	now named at random (see the test above), and what is checked here is the defence in depth:
+	commit first, and try a lost insert again.
 	"""
 
 	def setUp(self):
@@ -1179,6 +1223,7 @@ class TestAuditUnderConcurrency(FrappeTestCase):
 		real_insert = Document.insert
 		self.attempts = 0
 		self.failures_left = 0
+		self.error = frappe.QueryDeadlockError
 
 		def insert(doc, *args, **kwargs):
 			if doc.doctype == "Grievance Access Audit Event":
@@ -1186,9 +1231,7 @@ class TestAuditUnderConcurrency(FrappeTestCase):
 				self.events.append("insert")
 				if self.failures_left:
 					self.failures_left -= 1
-					raise frappe.QueryDeadlockError(
-						"(1020, \"Record has changed since last read in table 'tabSeries'\")"
-					)
+					raise self.error("(1020, \"Record has changed since last read in table 'tabSeries'\")")
 			return real_insert(doc, *args, **kwargs)
 
 		for patcher in (
@@ -1215,6 +1258,13 @@ class TestAuditUnderConcurrency(FrappeTestCase):
 		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
 		self.assertEqual(self.attempts, 2)
 		self.assertEqual(self.events, ["commit", "insert", "rollback", "insert", "commit"])
+		self.assertEqual(len(self._rows()), 1)
+
+	def test_a_random_name_that_is_already_taken_is_retried_with_a_new_one(self):
+		self.error = frappe.DuplicateEntryError
+		self.failures_left = 1
+		audit.record_access(audit.ACTION_EXPORT, scope=self.scope, durable=True, strict=True)
+		self.assertEqual(self.attempts, 2)
 		self.assertEqual(len(self._rows()), 1)
 
 	def test_a_write_that_keeps_losing_is_given_up_after_the_attempts_and_raises_if_strict(self):
