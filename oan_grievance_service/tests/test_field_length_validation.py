@@ -24,7 +24,7 @@ from types import MappingProxyType
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from oan_auth_service.api.field_errors import friendly_message
+from oan_auth_service.api.field_errors import friendly_code, friendly_message
 from pydantic import ValidationError
 
 from oan_grievance_service.api.v1 import grievance, officer, response_config
@@ -76,10 +76,15 @@ class TestResponseLimits(FrappeTestCase):
 		errors = _errors(GrievanceActionRequest, action="Resolve", internal_notes="n" * 2001)
 		self.assertEqual(list(errors), ["internal_notes"])
 
-	def test_surrounding_whitespace_is_not_counted_and_not_trimmed(self):
+	def test_surrounding_whitespace_is_not_counted_and_is_dropped(self):
 		padded = "  " + "a" * 500 + "  "
 		request = GrievanceActionRequest(action="Resolve", action_taken=padded, resolution_summary="x")
-		self.assertEqual(request.action_taken, padded)
+		self.assertEqual(request.action_taken, "a" * 500)
+		over = "  " + "a" * 501 + "  "
+		self.assertEqual(
+			_errors(GrievanceActionRequest, action="Resolve", action_taken=over, resolution_summary="x"),
+			{"action_taken": "Action taken must not exceed 500 characters."},
+		)
 
 	def test_blank_parts_are_still_treated_as_missing(self):
 		request = GrievanceActionRequest(action="Resolve", action_taken="   ", resolution_summary="  ")
@@ -102,7 +107,7 @@ class TestResponseLimits(FrappeTestCase):
 		self.assertEqual(_errors(PostMessageRequest, body="n" * 2000, is_internal=True), {})
 		errors = _errors(PostMessageRequest, body="n" * 2001, is_internal=True)
 		self.assertEqual(list(errors), ["body"])
-		self.assertIn("Internal note", errors["body"])
+		self.assertEqual(errors["body"], "An internal note must not exceed 2000 characters.")
 
 	def test_internal_flag_forms(self):
 		for flag in ("true", "1", "yes", True):
@@ -167,8 +172,27 @@ class TestRejectionComment(FrappeTestCase):
 		)
 		self.assertEqual(
 			_errors(DecideDeferralRequest, decision="Rejected", note="x" * 1001),
-			{"note": "The rejection comment must not exceed 1000 characters."},
+			{"note": "A rejection comment must not exceed 1000 characters."},
 		)
+
+	def test_rejection_errors_carry_their_own_codes(self):
+		def codes(**payload):
+			try:
+				DecideDeferralRequest(**payload)
+			except ValidationError as error:
+				return {e["loc"][0]: friendly_code(e) for e in error.errors()}
+
+		self.assertEqual(
+			codes(decision="Rejected", note="short"),
+			{"note": {"code": "rejection_comment_too_short", "min_length": 20}},
+		)
+		self.assertEqual(
+			codes(decision="Rejected", note="x" * 1001),
+			{"note": {"code": "rejection_comment_too_long", "max_length": 1000}},
+		)
+
+	def test_a_bad_decision_is_not_also_reported_on_the_note(self):
+		self.assertEqual(list(_errors(DecideDeferralRequest, decision="Maybe", note="short")), ["decision"])
 
 	def test_rejection_needs_a_comment(self):
 		for model in self.models:
@@ -344,6 +368,14 @@ class TestDeferralAndOfficerLimits(FrappeTestCase):
 		for text in ("r" * 19, "r" * 1001):
 			errors = _errors(DeferSLARequest, additional_days=1, reason=text)
 			self.assertEqual(list(errors), ["reason"], msg=len(text))
+
+	def test_deferral_reason_is_measured_without_surrounding_spaces(self):
+		self.assertEqual(
+			_errors(DeferSLARequest, additional_days=1, reason="   short   " + " " * 20),
+			{"reason": "Reason must contain at least 20 characters."},
+		)
+		request = DeferSLARequest(additional_days=1, reason="  " + "r" * 20 + "  ")
+		self.assertEqual(request.reason, "r" * 20)
 
 	def test_deferral_endpoint_refuses_with_400_and_creates_no_request(self):
 		before = frappe.db.count("Grievance Change Request")

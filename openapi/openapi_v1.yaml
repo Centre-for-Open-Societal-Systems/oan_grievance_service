@@ -10367,6 +10367,7 @@ components:
           default: null
           nullable: true
         desired_outcome:
+          maxLength: 1000
           type: string
           default: null
           nullable: true
@@ -10406,12 +10407,14 @@ components:
           description: Shown to the submitter. For a department response, the response itself.
           nullable: true
         action_taken:
+          maxLength: 500
           type: string
           default: null
           description: 'Department response, first part: what was done. Sent with `resolution_summary`
             instead of `reason`; the two are stored together as the reason.'
           nullable: true
         resolution_summary:
+          maxLength: 2000
           type: string
           default: null
           description: 'Department response, second part: the outcome for the submitter. Sent with `action_taken`
@@ -10423,6 +10426,7 @@ components:
           description: Optional detail recorded directly on the Grievance Status History audit row.
           nullable: true
         internal_notes:
+          maxLength: 2000
           type: string
           default: null
           description: Staff only. Posted as a separate internal timeline entry.
@@ -10521,6 +10525,7 @@ components:
           default: null
           nullable: true
         reason:
+          maxLength: 1000
           type: string
           default: null
           nullable: true
@@ -10549,6 +10554,7 @@ components:
           minimum: 1
           type: integer
         reason:
+          maxLength: 1000
           minLength: 20
           type: string
       required:
@@ -10760,6 +10766,7 @@ components:
         they depend on `role`.'
       properties:
         full_name:
+          maxLength: 140
           minLength: 1
           type: string
         email:
@@ -10838,6 +10845,7 @@ components:
           - L3
           type: string
         full_name:
+          maxLength: 140
           minLength: 1
           type: string
         designation:
@@ -11086,6 +11094,7 @@ components:
       additionalProperties: false
       properties:
         title:
+          maxLength: 140
           minLength: 1
           type: string
         action:
@@ -11125,12 +11134,14 @@ components:
           description: Jinja template for the response's reason
           nullable: true
         action_taken:
+          maxLength: 500
           minLength: 1
           type: string
           default: null
           description: Jinja template for the reason's first part; sent with resolution_summary
           nullable: true
         resolution_summary:
+          maxLength: 2000
           minLength: 1
           type: string
           default: null
@@ -11152,6 +11163,7 @@ components:
       description: Partial update. The code is the identifier and cannot change; null clears a scope.
       properties:
         title:
+          maxLength: 140
           minLength: 1
           type: string
         action:
@@ -11177,9 +11189,11 @@ components:
           minLength: 1
           type: string
         action_taken:
+          maxLength: 500
           minLength: 1
           type: string
         resolution_summary:
+          maxLength: 2000
           minLength: 1
           type: string
         note:

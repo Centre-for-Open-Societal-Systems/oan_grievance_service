@@ -5,7 +5,7 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 import frappe
 from frappe import _
@@ -24,7 +24,7 @@ from oan_auth_service.api.utils import (
 	to_tz_aware_iso,
 	validate_request,
 )
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 from werkzeug.wrappers import Response
 
 from oan_grievance_service import permissions
@@ -40,20 +40,18 @@ from oan_grievance_service.api.v1._options import (
 	public_status,
 )
 from oan_grievance_service.api.v1._schemas import (
+	ACTION_TAKEN_MAX,
+	DEFERRAL_REASON_MAX,
+	DESIRED_OUTCOME_MAX,
 	INTERNAL_NOTE_MAX,
-	ActionTaken,
+	JUSTIFICATION_MAX,
+	RESOLUTION_SUMMARY_MAX,
 	Body,
-	Decision,
-	DeferralReason,
-	DesiredOutcome,
-	InternalNote,
-	Justification,
+	DecisionRequest,
 	NonBlank,
-	ResolutionSummary,
 	blank_to_none,
-	check_max_chars,
-	check_rejection_comment,
 	check_response_text,
+	refuse,
 )
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
@@ -105,7 +103,9 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	associated_service_provider: str | None = None
-	desired_outcome: DesiredOutcome | None = None
+	desired_outcome: (
+		Annotated[str, StringConstraints(strip_whitespace=True, max_length=DESIRED_OUTCOME_MAX)] | None
+	) = None
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
 	client_submission_uuid: str | None = None
@@ -151,12 +151,16 @@ class GrievanceActionRequest(Body):
 	reason: str | None = Field(
 		None, description="Shown to the submitter. For a department response, the response itself."
 	)
-	action_taken: ActionTaken | None = Field(
+	action_taken: (
+		Annotated[str, StringConstraints(strip_whitespace=True, max_length=ACTION_TAKEN_MAX)] | None
+	) = Field(
 		None,
 		description="Department response, first part: what was done. Sent with `resolution_summary` "
 		"instead of `reason`; the two are stored together as the reason.",
 	)
-	resolution_summary: ResolutionSummary | None = Field(
+	resolution_summary: (
+		Annotated[str, StringConstraints(strip_whitespace=True, max_length=RESOLUTION_SUMMARY_MAX)] | None
+	) = Field(
 		None,
 		description="Department response, second part: the outcome for the submitter. "
 		"Sent with `action_taken` instead of `reason`.",
@@ -164,9 +168,9 @@ class GrievanceActionRequest(Body):
 	note: str | None = Field(
 		None, description="Optional detail recorded directly on the Grievance Status History audit row."
 	)
-	internal_notes: InternalNote | None = Field(
-		None, description="Staff only. Posted as a separate internal timeline entry."
-	)
+	internal_notes: (
+		Annotated[str, StringConstraints(strip_whitespace=True, max_length=INTERNAL_NOTE_MAX)] | None
+	) = Field(None, description="Staff only. Posted as a separate internal timeline entry.")
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
 	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
 
@@ -215,7 +219,6 @@ class PostMessageRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
-	# Declared before `body` so the body's limit can depend on whether it is an internal note.
 	is_internal: bool | str | None = Field(
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
@@ -229,16 +232,21 @@ class PostMessageRequest(BaseModel):
 		description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.",
 	)
 
-	@field_validator("body")
-	@classmethod
-	def _internal_note_length(cls, value, info):
+	@model_validator(mode="after")
+	def _internal_note_length(self):
 		"""An internal note is capped at the frontend's limit; a public message is not."""
-		internal = _parse_flag(info.data.get("is_internal"))
+		internal = _parse_flag(self.is_internal)
 		if internal is None:
-			internal = info.data.get("type") in ("note", "internal", "internal_note")
-		if internal:
-			check_max_chars(value, INTERNAL_NOTE_MAX, "Internal note")
-		return value
+			internal = self.type in ("note", "internal", "internal_note")
+		if internal and len(self.body.strip()) > INTERNAL_NOTE_MAX:
+			refuse(
+				"body",
+				"internal_note_too_long",
+				"An internal note must not exceed {max_length} characters.",
+				self.body,
+				max_length=INTERNAL_NOTE_MAX,
+			)
+		return self
 
 
 class ResponseTemplatesRequest(BaseModel):
@@ -259,7 +267,9 @@ class ReassignGrievanceRequest(BaseModel):
 	target_officer: str | None = None
 	target_category: str | None = None
 	target_grievance_type: str | None = None
-	reason: Justification | None = None
+	reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=JUSTIFICATION_MAX)] | None = (
+		None
+	)
 
 	@model_validator(mode="after")
 	def _require_a_target(self):
@@ -284,7 +294,9 @@ class DeferSLARequest(BaseModel):
 
 	ticket_number: str | None = None
 	additional_days: int = Field(..., ge=1)
-	reason: DeferralReason = Field(..., min_length=20)
+	reason: Annotated[
+		str, StringConstraints(strip_whitespace=True, min_length=20, max_length=DEFERRAL_REASON_MAX)
+	]
 
 
 STAFF_ROLES = C.STAFF_ROLES
@@ -796,6 +808,10 @@ def _grievance_page(items, page, page_size, total_count):
 	)
 
 
+# Enforced in `action`, not in the request schema: whether the action applies is decided
+# against the loaded case (`lifecycle.actions_available`), and clients read its message. The
+# comment a rejection needs on the decide endpoints depends on the request alone, so
+# `DecisionRequest` checks it and reports it per field.
 ACTIONS_REQUIRING_REASON = {
 	"Close Case",
 	"In Progress",
@@ -1900,16 +1916,10 @@ def reassign(
 	)
 
 
-class DecideReassignmentRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class DecideReassignmentRequest(DecisionRequest):
+	model_config = ConfigDict(extra="allow")
 
 	ticket_number: str | None = None
-	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = Field(
-		None, validate_default=True, description="Required when rejecting: 20 to 1000 characters"
-	)
-
-	_rejection_comment = field_validator("note")(check_rejection_comment)
 
 
 @route(
@@ -1976,16 +1986,10 @@ def defer_sla(
 	)
 
 
-class DecideDeferralRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class DecideDeferralRequest(DecisionRequest):
+	model_config = ConfigDict(extra="allow")
 
 	ticket_number: str | None = None
-	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = Field(
-		None, validate_default=True, description="Required when rejecting: 20 to 1000 characters"
-	)
-
-	_rejection_comment = field_validator("note")(check_rejection_comment)
 
 
 @route(

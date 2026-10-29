@@ -29,17 +29,16 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
 
 from oan_grievance_service.api.v1._schemas import (
 	ACTION_TAKEN_MAX,
 	RESOLUTION_SUMMARY_MAX,
+	TEMPLATE_TITLE_MAX,
 	Body,
 	NonBlank,
-	TemplateTitle,
 	blank_to_none,
 	check_response_text,
-	max_chars,
 )
 from oan_grievance_service.services import response_body
 
@@ -49,8 +48,10 @@ ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
 TEMPLATE_DOCTYPE = "Grievance Response Template"
 
-TemplateActionTaken = Annotated[NonBlank, max_chars(ACTION_TAKEN_MAX, "Action taken")]
-TemplateResolutionSummary = Annotated[NonBlank, max_chars(RESOLUTION_SUMMARY_MAX, "Resolution summary")]
+# Used by both the create and the update request.
+TemplateTitle = Annotated[NonBlank, StringConstraints(max_length=TEMPLATE_TITLE_MAX)]
+TemplateActionTaken = Annotated[NonBlank, StringConstraints(max_length=ACTION_TAKEN_MAX)]
+TemplateResolutionSummary = Annotated[NonBlank, StringConstraints(max_length=RESOLUTION_SUMMARY_MAX)]
 TEMPLATE_FIELDS = [
 	"name",
 	"title",
