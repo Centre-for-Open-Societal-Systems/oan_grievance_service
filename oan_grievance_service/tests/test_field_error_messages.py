@@ -14,13 +14,19 @@ M3. Grievance submission: description, desired outcome, submitter name.
 M4. Deferral reason, officer name, submitter registration name.
 M5. The message rewriter itself: required, minimum, maximum, pattern, number, literal.
 M6. Endpoints answer 400 with the same text and write nothing.
+M7. A field's label is its `title`; no request schema can surface a raw pydantic message.
 """
+
+import importlib
+import pkgutil
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from oan_auth_service.api.field_errors import field_label, friendly_message
+from oan_auth_service.api.field_errors import field_label, friendly_message, has_wording
+from oan_auth_service.tests.utils import raw_message_leaks, request_schemas
 from pydantic import ValidationError
 
+import oan_grievance_service.api.v1 as api_v1
 from oan_grievance_service.api.v1 import grievance, officer, organization, sla_settings, taxonomy
 from oan_grievance_service.api.v1.grievance import DeferSLARequest, SubmitGrievanceRequest
 from oan_grievance_service.api.v1.submitter import RegisterSubmitterRequest
@@ -32,7 +38,7 @@ def _errors(model, **payload):
 	try:
 		model(**payload)
 	except ValidationError as error:
-		return {".".join(str(part) for part in e["loc"]): friendly_message(e) for e in error.errors()}
+		return {".".join(str(part) for part in e["loc"]): friendly_message(e, model) for e in error.errors()}
 	return {}
 
 
@@ -246,6 +252,42 @@ class TestSubmissionMessages(FrappeTestCase):
 			_errors(officer.UpdateOfficer, officer="o@example.com", full_name="   "),
 			{"full_name": "Full name is required."},
 		)
+
+
+class TestLabels(FrappeTestCase):
+	"""M7: the label comes from the field's `title`, so an acronym is set where it is used."""
+
+	def test_acronym_fields_carry_their_title(self):
+		for schema, field, label in (
+			(sla_settings.UpdateSlaConfiguration, "sla_days", "SLA days"),
+			(taxonomy.CreateServiceCategory, "sla_days", "SLA days"),
+			(organization.OrganizationRef, "org_id", "Organization ID"),
+			(SubmitGrievanceRequest, "fayda_id", "Fayda ID"),
+		):
+			with self.subTest(schema=schema.__name__, field=field):
+				self.assertEqual(field_label((field,), schema), label)
+
+	def test_a_title_does_not_leak_to_another_schema(self):
+		self.assertEqual(field_label(("sla_days",), organization.OrganizationRef), "Sla days")
+
+	def test_the_title_is_in_the_message(self):
+		self.assertEqual(
+			_errors(sla_settings.UpdateSlaConfiguration, config="C", sla_days=0),
+			{"sla_days": "SLA days must be at least 1."},
+		)
+
+
+class TestCoverage(FrappeTestCase):
+	"""M7: every built-in error a request schema can raise has wording."""
+
+	def test_no_request_schema_can_surface_a_raw_pydantic_message(self):
+		modules = [
+			importlib.import_module(f"{api_v1.__name__}.{module.name}")
+			for module in pkgutil.iter_modules(api_v1.__path__)
+		]
+		schemas = request_schemas(*modules)
+		self.assertGreater(len(schemas), 50)
+		self.assertEqual(raw_message_leaks(schemas, has_wording), [])
 
 
 class TestRewriter(FrappeTestCase):

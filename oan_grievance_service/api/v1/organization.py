@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -152,11 +152,11 @@ class UpdateOrganization(OptionalFields):
 
 
 class OrganizationRef(Body):
-	org_id: NonBlank
+	org_id: NonBlank = Field(title=N_("Organization ID"))
 
 
 class SetOrganizationStatus(Body):
-	org_id: NonBlank
+	org_id: NonBlank = Field(title=N_("Organization ID"))
 	status: OrgStatus
 	reason: Reason | None = Field(default=None, validate_default=True)
 

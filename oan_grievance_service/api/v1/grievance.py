@@ -5,10 +5,10 @@ Every entry point is whitelisted, validates its own input, and routes through th
 service layer so the audit trail and notifications cannot be bypassed.
 """
 
-from typing import Annotated, Literal
+from typing import Literal
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from frappe.utils import now_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
@@ -24,7 +24,8 @@ from oan_auth_service.api.utils import (
 	to_tz_aware_iso,
 	validate_request,
 )
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 from werkzeug.wrappers import Response
 
 from oan_grievance_service import permissions
@@ -40,18 +41,16 @@ from oan_grievance_service.api.v1._options import (
 	public_status,
 )
 from oan_grievance_service.api.v1._schemas import (
-	ACTION_TAKEN_MAX,
-	DEFERRAL_REASON_MAX,
-	DESIRED_OUTCOME_MAX,
 	INTERNAL_NOTE_MAX,
-	JUSTIFICATION_MAX,
-	RESOLUTION_SUMMARY_MAX,
+	ActionTaken,
 	Body,
 	DecisionRequest,
 	NonBlank,
+	PersonName,
+	ResolutionSummary,
+	ResponseText,
+	Text,
 	blank_to_none,
-	check_response_text,
-	refuse,
 )
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
@@ -89,9 +88,9 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	model_config = ConfigDict(extra="allow")
 
 	submitter_type: str | None = None
-	submitter_name: str | None = Field(default=None, max_length=140)
+	submitter_name: PersonName | None = None
 	submitter: str | None = None
-	fayda_id: str | None = None
+	fayda_id: str | None = Field(None, title=N_("Fayda ID"))
 	contact_mobile: str | None = None
 	country_code: str | None = None
 	phone_number: str | None = None
@@ -103,9 +102,7 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	service_category: str | None = None
 	grievance_type: str | None = None
 	associated_service_provider: str | None = None
-	desired_outcome: (
-		Annotated[str, StringConstraints(strip_whitespace=True, max_length=DESIRED_OUTCOME_MAX)] | None
-	) = None
+	desired_outcome: Text | None = Field(None, max_length=1000)
 	is_anonymous: int | bool = 0
 	consent_given: int | bool = 1
 	client_submission_uuid: str | None = None
@@ -148,19 +145,15 @@ class ListGrievancesRequest(PageParams):
 class GrievanceActionRequest(Body):
 	ticket_number: str | None = None
 	action: NonBlank = Field(..., description="Workflow action, one of the case's available_actions")
-	reason: str | None = Field(
+	reason: ResponseText | None = Field(
 		None, description="Shown to the submitter. For a department response, the response itself."
 	)
-	action_taken: (
-		Annotated[str, StringConstraints(strip_whitespace=True, max_length=ACTION_TAKEN_MAX)] | None
-	) = Field(
+	action_taken: ActionTaken | None = Field(
 		None,
 		description="Department response, first part: what was done. Sent with `resolution_summary` "
 		"instead of `reason`; the two are stored together as the reason.",
 	)
-	resolution_summary: (
-		Annotated[str, StringConstraints(strip_whitespace=True, max_length=RESOLUTION_SUMMARY_MAX)] | None
-	) = Field(
+	resolution_summary: ResolutionSummary | None = Field(
 		None,
 		description="Department response, second part: the outcome for the submitter. "
 		"Sent with `action_taken` instead of `reason`.",
@@ -168,16 +161,17 @@ class GrievanceActionRequest(Body):
 	note: str | None = Field(
 		None, description="Optional detail recorded directly on the Grievance Status History audit row."
 	)
-	internal_notes: (
-		Annotated[str, StringConstraints(strip_whitespace=True, max_length=INTERNAL_NOTE_MAX)] | None
-	) = Field(None, description="Staff only. Posted as a separate internal timeline entry.")
+	internal_notes: Text | None = Field(
+		None,
+		max_length=INTERNAL_NOTE_MAX,
+		description="Staff only. Posted as a separate internal timeline entry.",
+	)
 	template: str | None = Field(None, description="Staff only. Response template the reason started from.")
 	rating: int | None = Field(None, ge=1, le=5, description="Close Case by the submitter only")
 
 	_blank = field_validator(
 		"reason", "action_taken", "resolution_summary", "note", "internal_notes", "template", mode="before"
 	)(blank_to_none)
-	_reason_parts = field_validator("reason")(check_response_text)
 
 	@model_validator(mode="after")
 	def check_response_parts(self):
@@ -219,6 +213,7 @@ class PostMessageRequest(BaseModel):
 	model_config = {"extra": "allow"}
 
 	ticket_number: str | None = None
+	# Declared before `body`: its limit depends on whether this is an internal note.
 	is_internal: bool | str | None = Field(
 		None, description="Hide from the submitter (staff only). Defaults to a public message."
 	)
@@ -229,24 +224,24 @@ class PostMessageRequest(BaseModel):
 	client_message_id: str | None = Field(
 		None,
 		max_length=64,
+		title=N_("Client message ID"),
 		description="Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.",
 	)
 
-	@model_validator(mode="after")
-	def _internal_note_length(self):
+	@field_validator("body")
+	@classmethod
+	def _internal_note_length(cls, value, info):
 		"""An internal note is capped at the frontend's limit; a public message is not."""
-		internal = _parse_flag(self.is_internal)
+		internal = _parse_flag(info.data.get("is_internal"))
 		if internal is None:
-			internal = self.type in ("note", "internal", "internal_note")
-		if internal and len(self.body.strip()) > INTERNAL_NOTE_MAX:
-			refuse(
-				"body",
+			internal = info.data.get("type") in ("note", "internal", "internal_note")
+		if internal and len(value.strip()) > INTERNAL_NOTE_MAX:
+			raise PydanticCustomError(
 				"internal_note_too_long",
 				"An internal note must not exceed {max_length} characters.",
-				self.body,
-				max_length=INTERNAL_NOTE_MAX,
+				{"max_length": INTERNAL_NOTE_MAX},
 			)
-		return self
+		return value
 
 
 class ResponseTemplatesRequest(BaseModel):
@@ -267,9 +262,7 @@ class ReassignGrievanceRequest(BaseModel):
 	target_officer: str | None = None
 	target_category: str | None = None
 	target_grievance_type: str | None = None
-	reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=JUSTIFICATION_MAX)] | None = (
-		None
-	)
+	reason: Text | None = Field(None, max_length=1000)
 
 	@model_validator(mode="after")
 	def _require_a_target(self):
@@ -294,9 +287,7 @@ class DeferSLARequest(BaseModel):
 
 	ticket_number: str | None = None
 	additional_days: int = Field(..., ge=1)
-	reason: Annotated[
-		str, StringConstraints(strip_whitespace=True, min_length=20, max_length=DEFERRAL_REASON_MAX)
-	]
+	reason: Text = Field(..., min_length=20, max_length=1000)
 
 
 STAFF_ROLES = C.STAFF_ROLES

@@ -46,7 +46,7 @@ def _errors(model, **payload):
 	try:
 		model(**payload)
 	except ValidationError as error:
-		return {".".join(str(part) for part in e["loc"]): friendly_message(e) for e in error.errors()}
+		return {".".join(str(part) for part in e["loc"]): friendly_message(e, model) for e in error.errors()}
 	return {}
 
 

@@ -18,7 +18,7 @@ queries and the usage counts each record carries.
 """
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -117,7 +117,9 @@ class CreateServiceCategory(Body):
 	sort_order: int | None = Field(None, ge=0, description="Omit to place the category last")
 	is_active: bool = True
 	is_default: bool = Field(False, description="Make this the category unclassified cases fall to")
-	sla_days: int | None = Field(None, ge=1, description="Resolution deadline in working days")
+	sla_days: int | None = Field(
+		None, ge=1, title=N_("SLA days"), description="Resolution deadline in working days"
+	)
 	auto_escalate: bool = True
 	notify_on_breach: bool = True
 	department: NonBlank | None = Field(

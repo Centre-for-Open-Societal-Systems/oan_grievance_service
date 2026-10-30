@@ -6,6 +6,7 @@
 from typing import Annotated, Literal, NoReturn
 
 from pydantic import (
+	AfterValidator,
 	BaseModel,
 	BeforeValidator,
 	ConfigDict,
@@ -18,6 +19,9 @@ from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from oan_grievance_service.services import response_body
 
+# Surrounding whitespace is dropped before a length is checked. Add the limit with `Field`:
+# `Text | None = Field(None, max_length=500)`.
+Text = Annotated[str, StringConstraints(strip_whitespace=True)]
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 Decision = Annotated[
@@ -34,20 +38,18 @@ def blank_to_none(value):
 
 
 # Free-text limits from the Form Validation Summary ("Backend gaps"). The frontend stops
-# input at the same numbers; these make a direct API call hit them too. A plain limit is
-# `Annotated[str, StringConstraints(strip_whitespace=True, max_length=N)]` on the field:
-# the surrounding whitespace is dropped before the length is checked, and a longer value
-# is refused, never cut to fit.
-ACTION_TAKEN_MAX = 500
-RESOLUTION_SUMMARY_MAX = 2000
-INTERNAL_NOTE_MAX = 2000
+# input at the same numbers; these make a direct API call hit them too. A longer value is
+# refused, never cut to fit. A limit used by one field sits on that field; a limit used by
+# several is a type below. The numbers kept here are the ones a validator checks as well.
+ACTION_TAKEN_MAX = 500  # also the first part of a response sent as one text
+RESOLUTION_SUMMARY_MAX = 2000  # also the second part of a response sent as one text
+INTERNAL_NOTE_MAX = 2000  # an internal note on /action and on /message
 REJECTION_COMMENT_MIN = 20
 REJECTION_COMMENT_MAX = 1000
-JUSTIFICATION_MAX = 1000
-DESIRED_OUTCOME_MAX = 1000
-DEFERRAL_REASON_MAX = 1000
-PERSON_NAME_MAX = 140
-TEMPLATE_TITLE_MAX = 140
+
+ActionTaken = Annotated[Text, Field(max_length=ACTION_TAKEN_MAX)]
+ResolutionSummary = Annotated[Text, Field(max_length=RESOLUTION_SUMMARY_MAX)]
+PersonName = Annotated[Text, Field(max_length=140)]
 
 
 def refuse(field: str, kind: str, message: str, value, **ctx) -> NoReturn:
@@ -87,6 +89,11 @@ def check_response_text(value: str | None) -> str | None:
 	return value
 
 
+# A department response as one text: when it is written in the two-part form, each part
+# keeps its limit. Reused by every field that takes a response.
+ResponseText = Annotated[NonBlank, AfterValidator(check_response_text)]
+
+
 class DecisionRequest(BaseModel):
 	"""A decide request: approve, or reject with a reasoned comment.
 
@@ -95,7 +102,7 @@ class DecisionRequest(BaseModel):
 	"""
 
 	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = Field(None, description="Required when rejecting: 20 to 1000 characters")
+	note: str | None = Field(None, description="Required when rejecting")
 
 	@model_validator(mode="after")
 	def _rejection_needs_comment(self):

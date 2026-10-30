@@ -9,7 +9,7 @@ nothing on old grievances. Access follows the DocType's own permission: whoever 
 Grievance Service Provider may search and look one up.
 """
 
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -108,7 +108,7 @@ class ListServiceProviders(PageParams, Body):
 
 
 class ServiceProviderRef(Body):
-	provider_id: NonBlank = Field(max_length=140)
+	provider_id: NonBlank = Field(max_length=140, title=N_("Provider ID"))
 
 
 @route("", methods=("GET",), summary="Search service providers", tier="officer-core")

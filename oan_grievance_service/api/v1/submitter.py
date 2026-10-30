@@ -1,7 +1,7 @@
 """Submitter profile registration, options and management endpoints."""
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	SafeEmail,
@@ -21,6 +21,7 @@ from oan_grievance_service.api.v1._options import (
 	get_submission_types,
 	get_submitter_types,
 )
+from oan_grievance_service.api.v1._schemas import PersonName
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	MIN_DESCRIPTION_LENGTH,
 )
@@ -45,9 +46,7 @@ class RegisterSubmitterRequest(BaseModel):
 		default="Individual Farmer",
 		description="Submitter type (e.g. Individual Farmer, Cooperative, Development Agent, etc.)",
 	)
-	submitter_name: str | None = Field(
-		default=None, max_length=140, description="Submitter name or organization name"
-	)
+	submitter_name: PersonName | None = Field(default=None, description="Submitter name or organization name")
 	contact_mobile: str | None = Field(default=None, description="Contact mobile number")
 	country_code: str | None = Field(default=None, description="Country phone code prefix (e.g. +251)")
 	phone_number: str | None = Field(default=None, description="National phone number")
@@ -56,13 +55,15 @@ class RegisterSubmitterRequest(BaseModel):
 	administrative_area: str | None = Field(default=None, description="Administrative area Link")
 	administrative_unit: str | None = Field(default=None, description="Administrative unit / woreda / branch")
 	preferred_language: str | None = Field(default=None, description="Preferred notification language")
-	fayda_id: str | None = Field(default=None, description="Fayda National ID (16 digits)")
-	national_id: str | None = Field(default=None, description="National ID alias")
+	fayda_id: str | None = Field(
+		default=None, title=N_("Fayda ID"), description="Fayda National ID (16 digits)"
+	)
+	national_id: str | None = Field(default=None, title=N_("National ID"), description="National ID alias")
 	registration_number: str | None = Field(
 		default=None, description="Official organization registration/certificate number"
 	)
 	org_number: str | None = Field(default=None, description="Organization number alias")
-	farmer_id: str | None = Field(default=None, description="Farmer ID alias")
+	farmer_id: str | None = Field(default=None, title=N_("Farmer ID"), description="Farmer ID alias")
 	dedupe_key: str | None = Field(default=None, description="Explicit dedupe key")
 	submission_channel: str | None = Field(
 		default=None,

@@ -10402,6 +10402,7 @@ components:
           minLength: 1
           type: string
         reason:
+          minLength: 1
           type: string
           default: null
           description: Shown to the submitter. For a department response, the response itself.
@@ -10542,7 +10543,7 @@ components:
         note:
           type: string
           default: null
-          description: 'Required when rejecting: 20 to 1000 characters'
+          description: Required when rejecting
           nullable: true
       required:
       - decision
@@ -10573,7 +10574,7 @@ components:
         note:
           type: string
           default: null
-          description: 'Required when rejecting: 20 to 1000 characters'
+          description: Required when rejecting
           nullable: true
       required:
       - decision
@@ -10708,7 +10709,7 @@ components:
         note:
           type: string
           default: null
-          description: 'Required when rejecting: 20 to 1000 characters'
+          description: Required when rejecting
           nullable: true
       required:
       - decision

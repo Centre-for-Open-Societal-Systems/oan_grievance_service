@@ -21,7 +21,7 @@ until they replace it through `POST /api/v1/auth/password/initial`. The mechanis
 oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
-from typing import Annotated, Literal
+from typing import Literal
 
 import frappe
 from frappe import _
@@ -37,17 +37,10 @@ from oan_auth_service.api.utils import (
 	validate_email_string,
 	validate_request,
 )
-from pydantic import (
-	BaseModel,
-	Field,
-	StringConstraints,
-	ValidationError,
-	field_validator,
-	model_validator,
-)
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from oan_grievance_service.api.v1._schemas import PERSON_NAME_MAX, Body, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, PersonName, blank_to_none
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import officer as service
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
@@ -59,8 +52,6 @@ route = prefixed("/api/v1/officers")
 Level = Literal["L1", "L2", "L3"]
 Status = Literal["Active", "On Leave", "Inactive"]
 Role = Literal["Officer", "Reviewer"]
-# Used by both the create and the update request.
-PersonName = Annotated[NonBlank, StringConstraints(max_length=PERSON_NAME_MAX)]
 
 
 def normalize_email(value: str) -> str:
@@ -152,7 +143,7 @@ class CreateOfficer(Body):
 	they depend on `role`.
 	"""
 
-	full_name: PersonName
+	full_name: PersonName = Field(min_length=1)
 	email: NonBlank
 	temporary_password: str = Field(max_length=128)
 	role: Role = "Officer"
@@ -208,8 +199,11 @@ class UpdateOfficer(Body):
 	"""Partial update. Omitted fields stay as they are. `email` is fixed once created."""
 
 	officer: NonBlank
+	# An explicit null is refused for level, full_name, designation, status and
+	# service_categories: they are changed or left, not cleared. department, phone, region
+	# and reports_to accept null and clear the value.
 	level: Level = None
-	full_name: PersonName = None
+	full_name: PersonName = Field(None, min_length=1)
 	designation: NonBlank = None
 	department: NonBlank | None = None
 	phone: str | None = None
