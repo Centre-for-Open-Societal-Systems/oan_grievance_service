@@ -90,10 +90,11 @@ def create(
 	reports_to: str | None = None,
 	create_department: bool = False,
 	desk_names: list[str] | None = None,
-) -> tuple[str, bool]:
+) -> tuple[str, bool | None]:
 	"""Make `email` an officer, or a reviewer, on the category desks of `department`.
 
-	Returns the user id and whether `temporary_password` was applied.
+	Returns the user id and whether `temporary_password` was applied (True), kept from an
+	existing login (False), or omitted (None).
 
 	A department head is how a department is staffed first: with `create_department` the
 	department is created for them, and any of their categories without a desk there gets one.

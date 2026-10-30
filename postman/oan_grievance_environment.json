@@ -231,6 +231,18 @@
       "enabled": true
     },
     {
+      "key": "iam_return_url",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "attachment_file",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
       "key": "officer_usr",
       "value": "",
       "type": "default",
