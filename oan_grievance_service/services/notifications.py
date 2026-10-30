@@ -638,6 +638,14 @@ def queue(grievance, event_code, recipient_override=None):
 		if not recipient:
 			continue
 
+		if notification.channel == CHANNEL_SYSTEM:
+			if not frappe.db.exists("User", recipient):
+				user = frappe.db.get_value("User", {"email": recipient}, "name")
+				if user:
+					recipient = user
+				else:
+					continue
+
 		if _already_queued(grievance.name, event_code, recipient, notification.channel):
 			continue
 
@@ -821,8 +829,13 @@ def _send_system_row(row, grievance):
 	if not frappe.db.exists("User", row.recipient):
 		raise ValueError(f"{row.recipient} is not a User and cannot receive an in-app notification")
 
+	user_email = frappe.db.get_value("User", row.recipient, "email") or row.recipient
+	from_user = grievance.modified_by or grievance.owner
+	if from_user == row.recipient:
+		from_user = None
+
 	enqueue_create_notification(
-		[row.recipient],
+		[u for u in {user_email, row.recipient} if u],
 		{
 			"type": "Alert",
 			"document_type": "Grievance",
@@ -830,7 +843,7 @@ def _send_system_row(row, grievance):
 			"subject": row.subject or grievance.ticket_number or grievance.name,
 			"title": row.subject or grievance.ticket_number or grievance.name,
 			"description": row.message,
-			"from_user": grievance.modified_by or grievance.owner,
+			"from_user": from_user,
 		},
 		# Our own log dedupes on (grievance, event, recipient, channel); this stops a
 		# retry of a partially-failed dispatch from stacking rows in the bell feed too.

@@ -260,6 +260,41 @@
       "key": "keycloak_client_uuid",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "iam_provider",
+      "value": "agent",
+      "type": "string"
+    },
+    {
+      "key": "iam_user",
+      "value": "da-agent@services.com",
+      "type": "string"
+    },
+    {
+      "key": "keycloak_officer_password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "iam_password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "authorization_url",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "kc_login_action",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "iam_callback_url",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
@@ -790,17 +825,7 @@
                   "pm.test(\"Status code is 200\", function () {",
                   "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
                   "    pm.response.to.have.status(200);",
-                  "});",
-                  "var jsonData = pm.response.json();",
-                  "var data = jsonData.data || jsonData;",
-                  "if (data && data.access_token) {",
-                  "    pm.collectionVariables.set(\"access_token\", data.access_token);",
-                  "    pm.collectionVariables.set(\"farmer_access_token\", data.access_token);",
-                  "}",
-                  "if (data && data.refresh_token) {",
-                  "    pm.collectionVariables.set(\"refresh_token\", data.refresh_token);",
-                  "    pm.collectionVariables.set(\"farmer_refresh_token\", data.refresh_token);",
-                  "}"
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -829,6 +854,69 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"full_name\": \"E2E Test Farmer\",\n  \"email\": \"{{e2e_farmer_email}}\",\n  \"phone_number\": \"{{e2e_farmer_mobile}}\",\n  \"password\": \"{{user_password}}\",\n  \"role\": \"Grievance Submitter\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"fayda_id\": \"{{e2e_farmer_fayda}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"preferred_language\": \"{{preferred_language}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "E8b. Farmer Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "if (data && data.access_token) {",
+                  "    pm.collectionVariables.set(\"farmer_access_token\", data.access_token);",
+                  "    pm.collectionVariables.set(\"access_token\", data.access_token);",
+                  "}",
+                  "if (data && data.refresh_token) {",
+                  "    pm.collectionVariables.set(\"farmer_refresh_token\", data.refresh_token);",
+                  "    pm.collectionVariables.set(\"refresh_token\", data.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "E2E: register issues no tokens, so log the new farmer in explicitly.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{e2e_farmer_email}}\",\n  \"pwd\": \"{{user_password}}\"\n}"
             },
             "auth": {
               "type": "bearer",
@@ -924,7 +1012,7 @@
                   "function getState() {",
                   "    return new Promise((resolve) => {",
                   "        pm.sendRequest({",
-                  "            url: pm.collectionVariables.get(\"base_url\") + \"/v1/grievances/\" + pm.collectionVariables.get(\"ticket_number\"),",
+                  "            url: pm.variables.get(\"base_url\") + \"/v1/grievances/\" + pm.collectionVariables.get(\"ticket_number\"),",
                   "            method: \"GET\",",
                   "            header: { Authorization: \"Bearer \" + pm.collectionVariables.get(\"officer_access_token\") },",
                   "        }, (err, res) => {",
@@ -7366,10 +7454,10 @@
     },
     {
       "name": "Development Agent (Keycloak login)",
-      "description": "Development Agent signs in through Keycloak (agent realm) via IAM and raises a grievance for a citizen. K1 returns a Keycloak URL. Open it in a browser, sign in, then copy the <cookie_prefix>X-Access-Token cookie into the keycloak_access_token variable. K2-K5 send it as Bearer. Needs an IAM row on the site whose issuer matches the token and a Keycloak role mapped to Grievance Assisted Submitter. administrative_area, administrative_unit, taxonomy_category and taxonomy_grievance_type must be set (run the E2E folder or fill them by hand).",
+      "description": "Development Agent signs in through Keycloak (agent realm) via IAM and raises a grievance on behalf of a citizen. The flow covers: DA authentication, raising a walk-in grievance, posting timeline messages/updates, officer login and resolution, DA reopening the case on behalf of citizen, officer resolving again, DA closing the case with satisfaction rating, timeline verification, and cleanup logouts for both officer and agent sessions. Runs end-to-end after the E2E runner (or standalone with pre-configured officer/categories).",
       "item": [
         {
-          "name": "K1. Start Keycloak login (agent realm)",
+          "name": "K1. Start Keycloak login (agent realm via IAM)",
           "request": {
             "method": "POST",
             "header": [
@@ -7392,30 +7480,235 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"key\": \"{{keycloak_login_key}}\",\n  \"return_url\": \"{{keycloak_return_url}}\"\n}"
+              "raw": "{\n  \"key\": \"{{keycloak_login_key}}\",\n  \"provider\": \"{{keycloak_login_key}}\",\n  \"return_url\": \"{{base_url}}\"\n}"
             },
-            "auth": {
-              "type": "noauth"
-            }
+            "description": "Initiates OAuth2 login transaction via OpenG2P IAM for Development Agent."
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"keycloak_login_key\")) { pm.collectionVariables.set(\"keycloak_login_key\", pm.environment.get(\"keycloak_login_key\") || \"agent\"); }",
+                  "if (!pm.collectionVariables.get(\"iam_provider\")) {",
+                  "    pm.collectionVariables.set(\"iam_provider\", pm.environment.get(\"iam_provider\") || \"agent\");",
+                  "}",
+                  "if (!pm.collectionVariables.get(\"iam_user\")) {",
+                  "    pm.collectionVariables.set(\"iam_user\", pm.environment.get(\"iam_user\") || \"da-agent@services.com\");",
+                  "}",
+                  "if (!pm.collectionVariables.get(\"iam_password\")) {",
+                  "    pm.collectionVariables.set(\"iam_password\", pm.environment.get(\"iam_password\"));",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
-                  "var d = pm.response.json().data || {};",
-                  "pm.test(\"redirect_url returned\", function () { pm.expect(d.redirect_url).to.be.a(\"string\"); });",
-                  "if (d.cookie_prefix !== undefined) { pm.collectionVariables.set(\"keycloak_cookie_prefix\", d.cookie_prefix); }",
-                  "console.log(\"STEP 2 (manual): open this URL in a browser, sign in as the Development Agent, then copy the cookie \" + d.cookie_prefix + \"X-Access-Token into the keycloak_access_token variable:\\n\" + d.redirect_url);"
+                  "pm.test(\"Status 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"redirect_url returned\", function () {",
+                  "    pm.expect(data).to.have.property(\"redirect_url\");",
+                  "});",
+                  "if (data && data.redirect_url) {",
+                  "    pm.collectionVariables.set(\"authorization_url\", data.redirect_url);",
+                  "    console.log(\"[K1] Authorization URL:\", data.redirect_url);",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "K2. Who am I (verifies pasted Keycloak token)",
+          "name": "K2. Open Keycloak login form",
+          "protocolProfileBehavior": {
+            "followRedirects": true
+          },
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{authorization_url}}",
+              "host": [
+                "{{authorization_url}}"
+              ]
+            },
+            "description": "Fetches Keycloak login HTML page and extracts form action URL (mimics browser step)."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var token = pm.collectionVariables.get(\"keycloak_access_token\") || pm.environment.get(\"keycloak_access_token\");",
+                  "var authUrl = pm.collectionVariables.get(\"authorization_url\");",
+                  "if (token || !authUrl) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var html = pm.response.text();",
+                  "var formMatch = html.match(/<form\\b[^>]*\\bid=[\"']kc-form-login[\"'][^>]*action=[\"']([^\"']+)[\"']/i);",
+                  "if (!formMatch) { formMatch = html.match(/action=[\"']([^\"']+)[\"']/i); }",
+                  "pm.test(\"Keycloak login form present\", function () {",
+                  "    pm.expect(formMatch).to.not.be.null;",
+                  "});",
+                  "if (formMatch) {",
+                  "    var actionUrl = formMatch[1].replace(/&amp;/g, \"&\");",
+                  "    pm.collectionVariables.set(\"kc_login_action\", actionUrl);",
+                  "    console.log(\"[K2] Keycloak login action:\", actionUrl);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K3. Sign in Development Agent (Keycloak)",
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": {
+              "raw": "{{kc_login_action}}",
+              "host": [
+                "{{kc_login_action}}"
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "{{iam_user}}",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{iam_password}}",
+                  "type": "text"
+                },
+                {
+                  "key": "credentialId",
+                  "value": "",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "Posts credentials to Keycloak login form and captures 302 redirect location to IAM callback."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var token = pm.collectionVariables.get(\"keycloak_access_token\") || pm.environment.get(\"keycloak_access_token\");",
+                  "var actionUrl = pm.collectionVariables.get(\"kc_login_action\");",
+                  "if (token || !actionUrl) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Keycloak redirects with authorization code (302/303)\", function () {",
+                  "    pm.expect([302, 303]).to.include(pm.response.code);",
+                  "});",
+                  "var location = pm.response.headers.get(\"Location\") || \"\";",
+                  "pm.test(\"Callback location present\", function () {",
+                  "    pm.expect(location).to.not.be.empty;",
+                  "});",
+                  "if (location) {",
+                  "    pm.collectionVariables.set(\"iam_callback_url\", location);",
+                  "    console.log(\"[K3] IAM callback URL:\", location);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K4. Complete IAM callback and retain access token",
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{iam_callback_url}}",
+              "host": [
+                "{{iam_callback_url}}"
+              ]
+            },
+            "description": "Calls IAM callback to complete code exchange and extracts X-Access-Token cookie."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var token = pm.collectionVariables.get(\"keycloak_access_token\") || pm.environment.get(\"keycloak_access_token\");",
+                  "var cbUrl = pm.collectionVariables.get(\"iam_callback_url\");",
+                  "if (token || !cbUrl) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"IAM callback redirects after exchange (302/303/307)\", function () {",
+                  "    pm.expect([302, 303, 307]).to.include(pm.response.code);",
+                  "});",
+                  "var cookieHeaders = pm.response.headers.all().filter(function (h) {",
+                  "    return h.key.toLowerCase() === \"set-cookie\";",
+                  "});",
+                  "var tokens = cookieHeaders.map(function (h) {",
+                  "    var match = h.value.match(/^X-Access-Token=([^;]*)/i);",
+                  "    return match ? match[1].replace(/^\"|\"$/g, \"\") : null;",
+                  "}).filter(Boolean);",
+                  "var token = tokens[tokens.length - 1];",
+                  "pm.test(\"IAM issued access token\", function () {",
+                  "    pm.expect(token).to.be.a(\"string\").and.not.empty;",
+                  "});",
+                  "if (token) {",
+                  "    pm.collectionVariables.set(\"keycloak_access_token\", token);",
+                  "    console.log(\"[K4] Acquired keycloak_access_token from IAM cookie\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K5. Who am I (verifies Development Agent token)",
           "request": {
             "method": "GET",
             "header": [],
@@ -7456,7 +7749,7 @@
           ]
         },
         {
-          "name": "K3. Raise grievance on behalf of a citizen (walk-in)",
+          "name": "K6. Raise grievance on behalf of a citizen (walk-in)",
           "request": {
             "method": "POST",
             "header": [
@@ -7497,7 +7790,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "var uuid = (typeof crypto !== \"undefined\" && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36));",
-                  "pm.collectionVariables.set(\"keycloak_client_uuid\", uuid);"
+                  "pm.collectionVariables.set(\"keycloak_client_uuid\", uuid);",
+                  "var cat = pm.collectionVariables.get(\"taxonomy_category\");",
+                  "var type = pm.collectionVariables.get(\"taxonomy_grievance_type\");",
+                  "pm.collectionVariables.set(\"taxonomy_category\", \"Market & Price\");",
+                  "pm.collectionVariables.set(\"taxonomy_grievance_type\", \"Market Access Obstruction\");"
                 ]
               }
             },
@@ -7506,17 +7803,25 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
-                  "var d = pm.response.json().data || {};",
+                  "pm.test(\"Status 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var d = jsonData.data || jsonData;",
                   "pm.test(\"Ticket issued\", function () { pm.expect(d).to.have.property(\"ticket_number\"); });",
-                  "if (d.ticket_number) { pm.collectionVariables.set(\"ticket_number\", d.ticket_number); }"
+                  "if (d.ticket_number) {",
+                  "    pm.collectionVariables.set(\"ticket_number\", d.ticket_number);",
+                  "    pm.environment.set(\"ticket_number\", d.ticket_number);",
+                  "    console.log(\"[K3] Ticket issued:\", d.ticket_number);",
+                  "}"
                 ]
               }
             }
           ]
         },
         {
-          "name": "K4. Get timeline of the raised grievance",
+          "name": "K7. Get timeline of the raised grievance",
           "request": {
             "method": "GET",
             "header": [],
@@ -7549,6 +7854,57 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "var d = pm.response.json().data || {};",
+                  "pm.test(\"Timeline retrieved\", function () { pm.expect(d.timeline).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K8. Post timeline message on behalf of citizen (Development Agent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/message",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "message"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Farmer visited desk to follow up with physical voucher receipt.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
                   "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });"
                 ]
               }
@@ -7556,7 +7912,431 @@
           ]
         },
         {
-          "name": "K5. Logout (Keycloak session)",
+          "name": "K9. Officer Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"pwd\": \"{{keycloak_officer_password}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"officer_email\", \"officer@mrkt.co\");",
+                  "if (!pm.collectionVariables.get(\"officer_new_password\")) {",
+                  "    pm.collectionVariables.set(\"officer_new_password\", pm.environment.get(\"officer_new_password\") || \"OfficerPass#2026\");",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var body = pm.response.json();",
+                  "var data = body.data || body;",
+                  "if (data && data.access_token) {",
+                  "    pm.collectionVariables.set(\"officer_access_token\", data.access_token);",
+                  "}",
+                  "if (data && data.refresh_token) {",
+                  "    pm.collectionVariables.set(\"officer_refresh_token\", data.refresh_token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K10. Resolve Grievance (Officer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Replacement fertilizer voucher issued at the Woreda desk.\",\n  \"resolution_summary\": \"Voucher reissued; case resolved pending citizen confirmation.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"officer_access_token\"));",
+                  "function getState() {",
+                  "    return new Promise((resolve) => {",
+                  "        var ticket = pm.collectionVariables.get(\"ticket_number\") || pm.environment.get(\"ticket_number\");",
+                  "        var token = pm.collectionVariables.get(\"officer_access_token\") || pm.environment.get(\"officer_access_token\");",
+                  "        if (!ticket || !token) return resolve(null);",
+                  "        pm.sendRequest({",
+                  "            url: pm.variables.get(\"base_url\") + \"/v1/grievances/\" + ticket + \"/timeline\",",
+                  "            method: \"GET\",",
+                  "            header: { Authorization: \"Bearer \" + token },",
+                  "        }, (err, res) => {",
+                  "            if (err) return resolve(null);",
+                  "            try {",
+                  "                var json = res.json();",
+                  "                var data = json.data || json;",
+                  "                var state = (data.current_state && data.current_state.status) || data.status;",
+                  "                resolve(state);",
+                  "            } catch (e) { resolve(null); }",
+                  "        });",
+                  "    });",
+                  "}",
+                  "(async () => {",
+                  "    var tries = 0, state = null;",
+                  "    while (tries < 15) {",
+                  "        state = await getState();",
+                  "        if (state === \"Assigned\" || state === \"In Progress\") break;",
+                  "        await new Promise((r) => setTimeout(r, 1000));",
+                  "        tries++;",
+                  "    }",
+                  "    console.log(\"[K10] grievance state before resolve:\", state);",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Resolved\", function () { pm.expect(data.status).to.eql(\"Resolved\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K11. Reopen Grievance (Development Agent on behalf of Citizen)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Reopen\",\n  \"reason\": \"The replacement voucher could not be redeemed locally.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance reopened\", function () { pm.expect(data.status).to.eql(\"In Progress\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K12. Resolve Grievance Again (Officer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Verified the voucher was fixed at the distribution center.\",\n  \"resolution_summary\": \"Confirmed redeemable; case resolved again.\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Resolved again\", function () { pm.expect(data.status).to.eql(\"Resolved\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K13. Close Case (Development Agent on behalf of Citizen)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Close Case\",\n  \"rating\": 5,\n  \"reason\": \"Citizen confirmed issue is resolved. Thank you!\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Grievance marked Closed\", function () { pm.expect(data.status).to.eql(\"Closed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K14. Get final timeline of closed case (Development Agent)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "timeline"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{keycloak_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });",
+                  "var jsonData = pm.response.json();",
+                  "var data = jsonData.data || jsonData;",
+                  "pm.test(\"Case is Closed in timeline\", function () { pm.expect(data.status).to.eql(\"Closed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K15. Officer Logout (Cleanup)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{officer_refresh_token}}\"\n}"
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{officer_access_token}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var token = pm.collectionVariables.get(\"officer_access_token\") || pm.environment.get(\"officer_access_token\");",
+                  "if (!token) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status 200\", function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "K16. Development Agent Logout (Keycloak session)",
           "request": {
             "method": "POST",
             "header": [
@@ -7592,6 +8372,16 @@
             }
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var token = pm.collectionVariables.get(\"keycloak_access_token\") || pm.environment.get(\"keycloak_access_token\");",
+                  "if (!token) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {

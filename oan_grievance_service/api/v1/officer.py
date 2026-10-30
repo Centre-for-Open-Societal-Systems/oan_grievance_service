@@ -75,11 +75,13 @@ def role_or_default(value):
 	return "Officer" if value is None or (isinstance(value, str) and not value.strip()) else value
 
 
-def validate_temporary_password(value: str) -> str:
+def validate_temporary_password(value: str | None) -> str | None:
 	"""The temporary-password rule, which oan_auth_service owns.
 
 	Imported on use so this module still loads against an auth service that predates it.
 	"""
+	if value is None:
+		return None
 	from oan_auth_service.api.utils import validate_temporary_password as rule
 
 	return rule(value)
@@ -145,7 +147,7 @@ class CreateOfficer(Body):
 
 	full_name: NonBlank
 	email: NonBlank
-	temporary_password: str = Field(max_length=128)
+	temporary_password: str | None = Field(default=None, max_length=128)
 	role: Role = "Officer"
 	designation: NonBlank | None = None
 	level: Level | None = None
@@ -162,7 +164,14 @@ class CreateOfficer(Body):
 
 	_email = field_validator("email")(normalize_email)
 	_blank = field_validator(
-		"phone", "region", "reports_to", "designation", "level", "department", mode="before"
+		"temporary_password",
+		"phone",
+		"region",
+		"reports_to",
+		"designation",
+		"level",
+		"department",
+		mode="before",
 	)(blank_to_none)
 	_temporary_password = field_validator("temporary_password")(validate_temporary_password)
 
@@ -386,8 +395,8 @@ def get_officer(officer: str, **kwargs):
 	+ "false) the department is created too, refused when it already exists. reports_to is an L2 officer and is only for "
 	+ "an L1. The login is created when the email is new. An existing login keeps its own "
 	+ "roles and is given the officer or review role; a System Manager or Administrator is "
-	+ "never managed here. temporary_password is required: the account holder signs in with it "
-	+ "only to replace it through /api/v1/auth/password/initial. It is applied to a new login "
+	+ "never managed here. temporary_password is optional: when provided, the account holder signs in with it "
+	+ "only to replace it through /api/v1/auth/password/initial. When omitted, they log in with Keycloak. It is applied to a new login "
 	+ "only. An email that already has a login keeps its own password and the message says so.",
 	tags=["Administration"],
 	response_model=OfficerData,
@@ -395,7 +404,7 @@ def get_officer(officer: str, **kwargs):
 def create_officer(
 	full_name: str,
 	email: str,
-	temporary_password: str,
+	temporary_password: str | None = None,
 	role: str = "Officer",
 	designation: str | None = None,
 	level: str | None = None,
@@ -431,12 +440,15 @@ def create_officer(
 	if is_unrestricted(caller) and role == "Officer" and level != "L3":
 		if not service_categories:
 			field_errors(CreateOfficer, {"service_categories": "Required for an L1 or L2 officer"})
-	user_id, password_applied = service.create(**fields)
-	message = _("{0} created").format(role)
-	if not password_applied:
+	user_id, password_status = service.create(**fields)
+	if password_status is False:
 		message = _("{0} created. {1} already had a login, so their existing password is unchanged.").format(
 			role, user_id
 		)
+	elif password_status is None:
+		message = _("{0} created. They can log in with Keycloak.").format(role)
+	else:
+		message = _("{0} created").format(role)
 	return success_response(data={"officer": service.record(user_id)}, message=message)
 
 
