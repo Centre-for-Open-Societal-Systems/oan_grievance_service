@@ -351,7 +351,7 @@ def status_counts(
 
 
 def _officer_query(*, role, level, department, service_category, region, q):
-	"""Rows of `role` on category desks narrowed by every list filter except status."""
+	"""Rows of `role` with an enabled login on category desks narrowed by every list filter except status."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	codes = [LEVEL_CODES[level]] if level else list(ROLE_CODES[role])
 	query = (
@@ -363,6 +363,8 @@ def _officer_query(*, role, level, department, service_category, region, q):
 		.where(row.parenttype == DESK)
 		.where(row.role_level.isin(codes))
 	)
+	if role != REVIEWER_ROLE:
+		query = query.where(user.enabled == 1)
 	if department:
 		query = query.where(desk.department_scope == resolve_department(department))
 	if service_category:

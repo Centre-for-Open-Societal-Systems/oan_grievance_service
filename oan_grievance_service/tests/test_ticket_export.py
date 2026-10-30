@@ -1234,14 +1234,21 @@ class TestAuditUnderConcurrency(FrappeTestCase):
 					raise self.error("(1020, \"Record has changed since last read in table 'tabSeries'\")")
 			return real_insert(doc, *args, **kwargs)
 
-		for patcher in (
+		patchers = [
 			mock.patch.object(Document, "insert", insert),
 			mock.patch.object(frappe.db, "commit", side_effect=lambda: self.events.append("commit")),
 			mock.patch.object(frappe.db, "rollback", side_effect=lambda: self.events.append("rollback")),
 			mock.patch.object(audit.time, "sleep"),
-		):
+		]
+		for patcher in patchers:
 			patcher.start()
-			self.addCleanup(patcher.stop)
+
+		def cleanup():
+			for p in patchers:
+				p.stop()
+			frappe.db.rollback()
+
+		self.addCleanup(cleanup)
 
 	def _rows(self):
 		return frappe.get_all(
@@ -1467,6 +1474,19 @@ def _pdf_text(pdf):
 class TestPdfEngine(FrappeTestCase):
 	"""WeasyPrint is loaded on a worker's first export, and keeps nothing of a ticket."""
 
+	@classmethod
+	def setUpClass(cls):
+		import gc
+
+		gc.collect()
+		super().setUpClass()
+
+	def setUp(self):
+		import gc
+
+		gc.collect()
+		super().setUp()
+
 	def test_there_is_no_warm_up_at_worker_start(self):
 		# A pod's first request is usually a health probe, and a worker that serves intake and login
 		# must never carry WeasyPrint: nothing is hooked into the request cycle to load it.
@@ -1495,14 +1515,21 @@ class TestPdfEngine(FrappeTestCase):
 				pdf_engine.render("<p>x</p>")
 
 	def test_the_font_configuration_is_reused_by_a_thread_and_never_shared_between_threads(self):
+		import gc
+
 		first = pdf_engine._font_config()
 		pdf_engine.render("<p>one</p>")
 		pdf_engine.render("<p>two</p>")
 		self.assertIs(pdf_engine._font_config(), first)
 		seen = []
-		worker = threading.Thread(target=lambda: seen.append(pdf_engine._font_config()))
-		worker.start()
-		worker.join()
+		gc.collect()
+		gc.disable()
+		try:
+			worker = threading.Thread(target=lambda: seen.append(pdf_engine._font_config()))
+			worker.start()
+			worker.join()
+		finally:
+			gc.enable()
 		self.assertIsNot(seen[0], first)
 
 	def test_nothing_of_one_export_reaches_the_next(self):
@@ -1515,26 +1542,33 @@ class TestPdfEngine(FrappeTestCase):
 		self.assertEqual(set(vars(pdf_engine._thread_state)), {"font_config"})
 
 	def test_exports_in_parallel_threads_do_not_mix(self):
-		names = ["Alpha", "Bravo", "Charlie", "Delta"]
-		texts, errors = {}, []
+		import gc
 
-		def work(name):
-			try:
-				for round_ in range(2):
-					texts[name] = _pdf_text(
-						pdf_engine.render(f"<html><body><p>Only {name} {round_}</p></body></html>")
-					)
-			except Exception as exc:  # reported below, on the test's own thread
-				errors.append(repr(exc))
+		gc.collect()
+		gc.disable()
+		try:
+			names = ["Alpha", "Bravo", "Charlie", "Delta"]
+			texts, errors = {}, []
 
-		workers = [threading.Thread(target=work, args=(name,)) for name in names]
-		for worker in workers:
-			worker.start()
-		for worker in workers:
-			worker.join()
-		self.assertEqual(errors, [])
-		for name in names:
-			self.assertIn(f"Only {name} 1", texts[name])
-			for other in names:
-				if other != name:
-					self.assertNotIn(other, texts[name])
+			def work(name):
+				try:
+					for round_ in range(2):
+						texts[name] = _pdf_text(
+							pdf_engine.render(f"<html><body><p>Only {name} {round_}</p></body></html>")
+						)
+				except Exception as exc:  # reported below, on the test's own thread
+					errors.append(repr(exc))
+
+			workers = [threading.Thread(target=work, args=(name,)) for name in names]
+			for worker in workers:
+				worker.start()
+			for worker in workers:
+				worker.join()
+			self.assertEqual(errors, [])
+			for name in names:
+				self.assertIn(f"Only {name} 1", texts[name])
+				for other in names:
+					if other != name:
+						self.assertNotIn(other, texts[name])
+		finally:
+			gc.enable()

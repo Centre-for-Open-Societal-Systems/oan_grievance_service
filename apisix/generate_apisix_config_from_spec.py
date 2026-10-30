@@ -29,34 +29,59 @@ SITE_NAME = "${FRAPPE_SITE_NAME}"
 # False: the gateway does not verify tokens. Frappe's auth_hooks middleware does, and it
 # also accepts OpenG2P IAM tokens, which a gateway jwt-auth check would refuse.
 GATEWAY_JWT = False
+
+
 # Frappe upstreams. Ports come from the environment when the file is generated; hosts are
 # placeholders, see above.
-API_UPSTREAM = gw.upstream(
-	host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
-	host_default="oan-grievance.internal.svc",
-	port_env="OAN_GRIEVANCE_UPSTREAM_PORT",
-	port_default=8000,
-	# Frappe picks the site from the Host header, so send the site name, not the gateway's.
-	pass_host="rewrite",
-	upstream_host=SITE_NAME,
-	timeout={"connect": 5, "send": 20, "read": 20},
-	retries=2,
-)
-API_UPSTREAM["nodes"][0]["host"] = "${OAN_GRIEVANCE_UPSTREAM_HOST}"
-# Frappe's Node socket.io server (`bench socketio`). Its events are described in
-# openapi/asyncapi_v1.yaml, not the OpenAPI spec, so its service is declared here.
-SOCKET_UPSTREAM = gw.upstream(
-	host_env="OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST",
-	host_default="oan-grievance-websocket.internal.svc",
-	port_env="OAN_GRIEVANCE_SOCKET_UPSTREAM_PORT",
-	port_default=9000,
-	pass_host="pass",
-	# A socket sits idle between events; socket.io pings every 25 seconds, so a live
-	# connection never reaches these and a dead one is reaped after an hour.
-	timeout={"connect": 5, "send": 3600, "read": 3600},
-	retries=0,
-)
-SOCKET_UPSTREAM["nodes"][0]["host"] = "${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}"
+def _api_upstream():
+	try:
+		upstream = gw.upstream(
+			host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
+			port_env="OAN_GRIEVANCE_UPSTREAM_PORT",
+			# Frappe picks the site from the Host header, so send the site name, not the gateway's.
+			pass_host="rewrite",
+			upstream_host=SITE_NAME,
+			timeout={"connect": 5, "send": 20, "read": 20},
+			retries=2,
+		)
+		upstream["nodes"][0]["host"] = "${OAN_GRIEVANCE_UPSTREAM_HOST}"
+		return upstream
+	except gw.GatewayConfigError:
+		return {
+			"scheme": "http",
+			"nodes": [{"host": "${OAN_GRIEVANCE_UPSTREAM_HOST}", "port": 8000, "weight": 1}],
+			"pass_host": "rewrite",
+			"upstream_host": SITE_NAME,
+			"timeout": {"connect": 5, "send": 20, "read": 20},
+			"retries": 2,
+		}
+
+
+def _socket_upstream():
+	try:
+		upstream = gw.upstream(
+			host_env="OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST",
+			port_env="OAN_GRIEVANCE_SOCKET_UPSTREAM_PORT",
+			pass_host="pass",
+			# A socket sits idle between events; socket.io pings every 25 seconds, so a live
+			# connection never reaches these and a dead one is reaped after an hour.
+			timeout={"connect": 5, "send": 3600, "read": 3600},
+			retries=0,
+		)
+		upstream["nodes"][0]["host"] = "${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}"
+		return upstream
+	except gw.GatewayConfigError:
+		return {
+			"scheme": "http",
+			"nodes": [{"host": "${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}", "port": 9000, "weight": 1}],
+			"pass_host": "pass",
+			"timeout": {"connect": 5, "send": 3600, "read": 3600},
+			"retries": 0,
+		}
+
+
+API_UPSTREAM = _api_upstream()
+SOCKET_UPSTREAM = _socket_upstream()
 
 # ---------------------------------------------------------------------------
 # Throttling tiers
@@ -81,7 +106,7 @@ TIERS = {
 		"minute": 120,
 		"hour": 3000,
 		"policy": "redis",
-		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; Kong has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
+		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
 	},
 	"officer-core": {
 		"limit_by": "consumer",
@@ -127,13 +152,9 @@ def socket_service():
 			{"name": "local", "cookie": "auth_token", "require": ["last_activity"]},
 			{"name": "iam", "cookie": f"{iam_prefix}X-Access-Token"},
 		],
-		browser_origins=[
-			o.strip()
-			for o in gw.env("REALTIME_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
-			if o.strip()
-		],
+		browser_origins=[o.strip() for o in gw.env("REALTIME_ALLOWED_ORIGINS").split(",") if o.strip()],
 		# Node calls get_user_info at this address, and Frappe picks the site from its host.
-		frappe_web_origin=gw.env("FRAPPE_WEB_ORIGIN", f"http://{SITE_NAME}:8000"),
+		frappe_web_origin=gw.env("FRAPPE_WEB_ORIGIN"),
 		site_name=SITE_NAME,
 		limit={
 			"rules": [
@@ -143,7 +164,7 @@ def socket_service():
 			"rejected_code": 429,
 			"policy": "redis",
 			"redis_host": "${APISIX_REDIS_HOST}",
-			"redis_port": int(gw.env("APISIX_REDIS_PORT", "6379")),
+			"redis_port": int(gw.env("APISIX_REDIS_PORT")),
 			"allow_degradation": True,
 		},
 	)
@@ -221,4 +242,4 @@ def main():
 
 
 if __name__ == "__main__":
-	main()
+	gw.cli(main)

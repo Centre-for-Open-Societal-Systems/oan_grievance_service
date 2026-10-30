@@ -13,7 +13,7 @@
 | **Database**                  | MariaDB 11.x                    | Relational storage, nested set area hierarchy          |
 | **Caching & Queues**          | Redis                           | Cache and background worker queue                      |
 | **Auth & Routing Dependency** | `oan_auth_service`              | Mandatory dependency for auth, JWT, RBAC, REST routing |
-| **API Gateway**               | Kong                            | Gateway routes generated from OpenAPI specifications   |
+| **API Gateway**               | Apache APISIX                   | Declarative routes in `apisix/`                        |
 | **API Contract**              | OpenAPI 3.1                     | Specification generators and schemas                   |
 | **Linting & Quality**         | Ruff, Pre-commit & Semgrep      | Code formatting, Frappe hygiene, and security rules    |
 
@@ -34,7 +34,7 @@ oan_grievance_service/
 │   ├── hooks.py                        # Frappe application hooks & cron schedules
 │   └── patches.txt                     # Migration patches (APPEND-ONLY)
 ├── openapi/                            # OpenAPI 3.1 specifications & generator scripts
-├── kong/                               # Kong gateway declarative configuration & generator
+├── apisix/                             # APISIX gateway declarative configuration & generator
 ├── postman/                            # API integration test collection
 ├── docs/                               # Architectural documentation & specifications
 └── tests/                              # Global & cross-cutting integration test suites
@@ -96,7 +96,7 @@ Tests are organized into two distinct tiers based on scope:
 | **Cross-cutting / API integration test**  | `oan_grievance_service/tests/`                               |
 | **A background scheduled job**            | `oan_grievance_service/tasks.py` (registered in `hooks.py`)  |
 | **A database migration patch**            | `oan_grievance_service/patches/` (appended to `patches.txt`) |
-| **API contract & gateway updates**        | `openapi/` and `kong/`                                       |
+| **API contract & gateway updates**        | `openapi/` and `apisix/`                                     |
 
 ---
 
@@ -116,7 +116,7 @@ ruff format oan_grievance_service/
 # Semgrep architectural & security scan
 semgrep scan --metrics=off --config /tmp/frappe-semgrep-rules/rules --config r/python.lang.correctness --config /tmp/oan_auth_service/.semgrep/rules.yml --error .
 
-# Regenerate API contracts & Kong config
+# Regenerate API contracts & APISIX config
 python openapi/generate_openapi_spec.py
-python kong/generate_kong_config_from_spec.py
+python apisix/generate_apisix_config_from_spec.py
 ```

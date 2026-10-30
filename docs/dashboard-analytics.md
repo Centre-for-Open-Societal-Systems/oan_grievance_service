@@ -87,7 +87,7 @@ the chart code.
 (no desk access). Generate an API key and secret on that user in the desk, store them in the
 dashboards' secret store, and send them as `Authorization: token <api_key>:<api_secret>`. Frappe
 checks the key itself (`FrappeTokenAuth` in the spec), so a call without it gets 401 whether it
-came through Kong or reached the backend directly; Kong passes the header through. Rotate or
+came through the API gateway or reached the backend directly; the gateway passes the header through. Rotate or
 revoke by regenerating the key on the user.
 
 ### Officer view (STG-330)
