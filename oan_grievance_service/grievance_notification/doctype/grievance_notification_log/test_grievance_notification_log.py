@@ -245,6 +245,38 @@ class TestGrievanceNotificationLog(NotificationCase):
 		notifications.queue(self.grievance, EVENT)
 		self.assertEqual(len(self._rows()), 2)
 
+	def test_system_notification_queues_and_delivers_to_notification_log(self):
+		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD, channel="System Notification")
+		notifications.queue(self.grievance, EVENT)
+
+		rows = self._rows()
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].channel, "System Notification")
+		self.assertEqual(rows[0].recipient, self.head)
+
+		notifications.dispatch_queued(grievance=self.grievance.name)
+
+		rows = self._rows()
+		self.assertEqual(rows[0].status, "Sent")
+
+		notif_log = frappe.db.get_value(
+			"Notification Log",
+			{"document_type": "Grievance", "document_name": self.grievance.name, "for_user": self.head},
+			["name", "subject", "for_user"],
+			as_dict=True,
+		)
+		self.assertIsNotNone(notif_log)
+		self.assertEqual(notif_log.for_user, self.head)
+
+	def test_system_notification_skips_non_user_recipient(self):
+		self._make_notification(notifications.RECIPIENT_SUBMITTER, channel="System Notification")
+		self.grievance.submitter = None
+		self.grievance.contact_mobile = "+251911999888"
+		self.grievance.contact_email = None
+
+		notifications.queue(self.grievance, EVENT)
+		self.assertEqual(self._rows(), [])
+
 	def test_log_row_cannot_be_deleted(self):
 		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD)
 		notifications.queue(self.grievance, EVENT)

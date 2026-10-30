@@ -296,6 +296,7 @@ class TestAdminLevelErrors(FrappeTestCase):
 		frappe.set_user("Administrator")
 
 	def _user(self, role, label):
+		frappe.set_user("Administrator")
 		user = a_user_with_role(role, label)
 		self.addCleanup(frappe.delete_doc, "User", user, force=True, ignore_permissions=True)
 		return user

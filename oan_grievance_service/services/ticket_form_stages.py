@@ -394,8 +394,10 @@ def _closure(s):
 			_field(
 				_("Responsible Officer"), s.person(doc.assigned_to) if s.staff and doc.assigned_to else ""
 			),
-			_field(_("Signature"), ""),
-			_field(_("Official Stamp"), ""),
+			# Signing and stamping stay on paper (docs/ticket-export.md §6): nothing is captured
+			# for them, so the PDF leaves a line to be filled in by hand.
+			_field(_("Signature"), "", blank_line=True),
+			_field(_("Official Stamp"), "", blank_line=True),
 		],
 		tables=[
 			_table(

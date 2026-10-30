@@ -8,8 +8,9 @@ twelve numbered sections that follow the workflow, the whole timeline, and a foo
 sections from the assignment onward are in `ticket_form_stages`; `ticket_render` turns the
 result into a file, so the two formats cannot disagree about what the form says.
 
-A form field the system never captures (priority, occupation, signature, stamp) is left
-blank, as it is on paper, and never filled with a stand-in.
+A form field the system never captures is left empty and never filled with a stand-in: the
+Annexure's Occupation (no source field exists), and the signature and stamp lines, which stay
+on paper. The Annexure's Priority row is not on the form: priority is not captured either.
 """
 
 import re
@@ -275,7 +276,6 @@ def _header(s):
 		(_("Date Submitted"), _when(doc.creation)),
 		(_("Submission Office"), _location(doc)),
 		(_("Grievance Category"), doc.service_category),
-		(_("Priority"), ""),
 		(_("Grievance Status"), doc.status),
 		(_("Receiving Office"), doc.assigned_dept),
 		(_("Document Type"), _("Grievance Record")),
@@ -304,6 +304,7 @@ def _complainant(s):
 			_field(_("Administrative Unit"), doc.administrative_unit),
 			_field(_("Telephone"), contact["contact_mobile"]),
 			_field(_("Email"), contact["contact_email"]),
+			# On the Annexure but captured nowhere (docs/ticket-export.md §6): empty, never inferred.
 			_field(_("Occupation"), ""),
 		],
 	)

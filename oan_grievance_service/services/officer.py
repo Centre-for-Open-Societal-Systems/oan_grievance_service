@@ -78,7 +78,7 @@ def create(
 	*,
 	full_name: str,
 	email: str,
-	temporary_password: str,
+	temporary_password: str | None = None,
 	role: str = DEFAULT_ROLE,
 	designation: str | None = None,
 	level: str | None = None,
@@ -90,10 +90,11 @@ def create(
 	reports_to: str | None = None,
 	create_department: bool = False,
 	desk_names: list[str] | None = None,
-) -> tuple[str, bool]:
+) -> tuple[str, bool | None]:
 	"""Make `email` an officer, or a reviewer, on the category desks of `department`.
 
-	Returns the user id and whether `temporary_password` was applied.
+	Returns the user id and whether `temporary_password` was applied (True), kept from an
+	existing login (False), or omitted (None).
 
 	A department head is how a department is staffed first: with `create_department` the
 	department is created for them, and any of their categories without a desk there gets one.
@@ -102,11 +103,12 @@ def create(
 	already has an account. A login that is already an officer or reviewer is rejected, and so
 	is a System Manager or Administrator, who are never managed here.
 
-	`temporary_password` is required, so a new account always has a way in: they can use it
-	just long enough to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). It is applied
-	to a new login only. An existing login keeps the password its owner already knows, because
-	replacing it with one the admin typed would let the admin take the account over. The caller
-	tells the admin when that happened.
+	`temporary_password` is optional. When provided, a new account can use it just long enough
+	to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). When omitted, no temporary
+	password is set and the user logs in with Keycloak. It is applied to a new login only. An
+	existing login keeps the password its owner already knows, because replacing it with one
+	the admin typed would let the admin take the account over. The caller tells the admin
+	when that happened.
 	"""
 	_assert_status(role, status)
 	existing = role_of(email)
@@ -138,12 +140,18 @@ def create(
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
 		category_assignment.open_desk(category, department, {"user": user.name, **placement})
-	if not has_login:
+	if not has_login and temporary_password:
 		account.issue_temporary_password(user.name, temporary_password)
 	if role == REVIEWER_ROLE and status == "Inactive":
 		account.set_enabled(user.name, False)
 	_sync_desk_head_role(user.name)
-	return user.name, not has_login
+	if has_login:
+		password_status = False
+	elif temporary_password:
+		password_status = True
+	else:
+		password_status = None
+	return user.name, password_status
 
 
 def reset_temporary_password(user_id: str, password: str) -> str:

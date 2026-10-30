@@ -16,9 +16,10 @@ from frappe.utils import get_datetime, get_system_timezone
 # --- building blocks -------------------------------------------------------
 
 
-def _field(label, value, *, pdf=True, show_label=True, block=False, numbered=False):
-	"""A labelled value. `pdf=False` keeps it to the CSV; `block` puts the value on lines of its own
-	(ruled blanks when empty); `numbered` prints it in a numbered list."""
+def _field(label, value, *, pdf=True, show_label=True, block=False, numbered=False, blank_line=False):
+	"""A labelled value. `pdf=False` keeps it to the CSV; `block` puts the value on a line of its own;
+	`numbered` prints it in a numbered list. An empty value prints as a dash in the PDF, except
+	where `blank_line` marks a line the paper form leaves to be signed or stamped by hand."""
 	return {
 		"kind": "field",
 		"label": label,
@@ -27,6 +28,7 @@ def _field(label, value, *, pdf=True, show_label=True, block=False, numbered=Fal
 		"show_label": show_label,
 		"block": block,
 		"numbered": numbered,
+		"blank_line": blank_line,
 	}
 
 
