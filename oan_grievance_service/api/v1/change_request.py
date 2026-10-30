@@ -15,9 +15,9 @@ from oan_auth_service.api.utils import (
 	to_tz_aware_iso,
 	validate_request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from oan_grievance_service.api.v1._schemas import Decision
+from oan_grievance_service.api.v1._schemas import DecisionRequest
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import ticket_number as tn
 
@@ -39,12 +39,10 @@ class ListChangeRequestsRequest(BaseModel):
 	limit: int | None = Field(default=None, description="Legacy limit parameter")
 
 
-class DecideChangeRequest(BaseModel):
-	model_config = {"extra": "allow"}
+class DecideChangeRequest(DecisionRequest):
+	model_config = ConfigDict(extra="allow")
 
 	name: str | None = None
-	decision: Decision = Field(..., description="Approved or Rejected")
-	note: str | None = None
 
 
 def raise_change_request(grievance, subject, changes, reason=None):

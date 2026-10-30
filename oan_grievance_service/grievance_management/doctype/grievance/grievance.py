@@ -11,6 +11,7 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import hooks_handlers, identity, ticket_number
 
 MIN_DESCRIPTION_LENGTH = 20
+MAX_DESCRIPTION_LENGTH = 5000
 
 # Fields a submitted grievance only changes through an approved Grievance Change
 # Request. System paths (routing, escalation) write them with db_set and are not
@@ -91,7 +92,9 @@ class GrievanceSubmissionPayload(BaseModel):
 	model_config = {"extra": "allow"}
 
 	contact_mobile: str | None = None
-	description: str | None = Field(default=None, min_length=MIN_DESCRIPTION_LENGTH)
+	description: str | None = Field(
+		default=None, min_length=MIN_DESCRIPTION_LENGTH, max_length=MAX_DESCRIPTION_LENGTH
+	)
 	service_category: str | None = None
 	grievance_type: str | None = None
 	administrative_area: str | None = None

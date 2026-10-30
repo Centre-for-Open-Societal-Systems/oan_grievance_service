@@ -10299,6 +10299,7 @@ components:
           default: null
           nullable: true
         description:
+          maxLength: 5000
           minLength: 20
           type: string
           default: null
@@ -10325,6 +10326,7 @@ components:
           default: null
           nullable: true
         submitter_name:
+          maxLength: 140
           type: string
           default: null
           nullable: true
@@ -10365,6 +10367,7 @@ components:
           default: null
           nullable: true
         desired_outcome:
+          maxLength: 1000
           type: string
           default: null
           nullable: true
@@ -10399,17 +10402,20 @@ components:
           minLength: 1
           type: string
         reason:
+          minLength: 1
           type: string
           default: null
           description: Shown to the submitter. For a department response, the response itself.
           nullable: true
         action_taken:
+          maxLength: 500
           type: string
           default: null
           description: 'Department response, first part: what was done. Sent with `resolution_summary`
             instead of `reason`; the two are stored together as the reason.'
           nullable: true
         resolution_summary:
+          maxLength: 2000
           type: string
           default: null
           description: 'Department response, second part: the outcome for the submitter. Sent with `action_taken`
@@ -10421,6 +10427,7 @@ components:
           description: Optional detail recorded directly on the Grievance Status History audit row.
           nullable: true
         internal_notes:
+          maxLength: 2000
           type: string
           default: null
           description: Staff only. Posted as a separate internal timeline entry.
@@ -10469,9 +10476,6 @@ components:
     PostMessageRequest:
       additionalProperties: true
       properties:
-        body:
-          minLength: 1
-          type: string
         is_internal:
           anyOf:
           - type: boolean
@@ -10479,6 +10483,14 @@ components:
           default: null
           description: Hide from the submitter (staff only). Defaults to a public message.
           nullable: true
+        type:
+          type: string
+          default: null
+          description: 'Legacy alias: note, internal or internal_note posts an internal note.'
+          nullable: true
+        body:
+          minLength: 1
+          type: string
         client_message_id:
           maxLength: 64
           type: string
@@ -10514,6 +10526,7 @@ components:
           default: null
           nullable: true
         reason:
+          maxLength: 1000
           type: string
           default: null
           nullable: true
@@ -10530,6 +10543,7 @@ components:
         note:
           type: string
           default: null
+          description: Required when rejecting
           nullable: true
       required:
       - decision
@@ -10541,6 +10555,7 @@ components:
           minimum: 1
           type: integer
         reason:
+          maxLength: 1000
           minLength: 20
           type: string
       required:
@@ -10559,6 +10574,7 @@ components:
         note:
           type: string
           default: null
+          description: Required when rejecting
           nullable: true
       required:
       - decision
@@ -10693,6 +10709,7 @@ components:
         note:
           type: string
           default: null
+          description: Required when rejecting
           nullable: true
       required:
       - decision
@@ -10750,6 +10767,7 @@ components:
         they depend on `role`.'
       properties:
         full_name:
+          maxLength: 140
           minLength: 1
           type: string
         email:
@@ -10829,6 +10847,7 @@ components:
           - L3
           type: string
         full_name:
+          maxLength: 140
           minLength: 1
           type: string
         designation:
@@ -11077,6 +11096,7 @@ components:
       additionalProperties: false
       properties:
         title:
+          maxLength: 140
           minLength: 1
           type: string
         action:
@@ -11116,12 +11136,14 @@ components:
           description: Jinja template for the response's reason
           nullable: true
         action_taken:
+          maxLength: 500
           minLength: 1
           type: string
           default: null
           description: Jinja template for the reason's first part; sent with resolution_summary
           nullable: true
         resolution_summary:
+          maxLength: 2000
           minLength: 1
           type: string
           default: null
@@ -11143,6 +11165,7 @@ components:
       description: Partial update. The code is the identifier and cannot change; null clears a scope.
       properties:
         title:
+          maxLength: 140
           minLength: 1
           type: string
         action:
@@ -11168,9 +11191,11 @@ components:
           minLength: 1
           type: string
         action_taken:
+          maxLength: 500
           minLength: 1
           type: string
         resolution_summary:
+          maxLength: 2000
           minLength: 1
           type: string
         note:
@@ -11218,6 +11243,7 @@ components:
           description: Submitter type (e.g. Individual Farmer, Cooperative, Development Agent, etc.)
           type: string
         submitter_name:
+          maxLength: 140
           type: string
           default: null
           description: Submitter name or organization name

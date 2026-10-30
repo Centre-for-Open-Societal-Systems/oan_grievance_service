@@ -675,3 +675,6 @@ class TestSubmitterProfile(FrappeTestCase):
 					)
 				if frappe.db.exists("User", user_id):
 					frappe.delete_doc("User", user_id, force=True, ignore_permissions=True)
+				# `register_user` committed the account, so the delete must be committed too or the
+				# class-level rollback brings it back.
+				frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit

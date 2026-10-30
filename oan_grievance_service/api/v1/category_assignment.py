@@ -18,7 +18,7 @@ workflow (officer projection, SLA row) lives in `services/category_assignment.py
 from collections import defaultdict
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -75,7 +75,7 @@ class CreateCategoryAssignment(Body):
 	department: NonBlank | None = None
 	l1_officer: NonBlank | None = None
 	l2_officer: NonBlank | None = None
-	sla_days: int | None = Field(default=None, ge=1)
+	sla_days: int | None = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = True
 	active: bool = True
 
@@ -89,7 +89,7 @@ class UpdateCategoryAssignment(Body):
 	department: NonBlank | None = None
 	l1_officer: NonBlank | None = None
 	l2_officer: NonBlank | None = None
-	sla_days: int = Field(default=None, ge=1)
+	sla_days: int = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = None
 	active: bool = None
 

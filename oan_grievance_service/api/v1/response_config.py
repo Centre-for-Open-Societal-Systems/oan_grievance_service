@@ -14,7 +14,7 @@ A template's text may be sent and read as two parts, `action_taken` and
 Handlers stay thin. Field and link checks live in each doctype's `validate()`.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import frappe
 from frappe import _
@@ -31,7 +31,14 @@ from oan_auth_service.api.utils import (
 )
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import (
+	ActionTaken,
+	Body,
+	NonBlank,
+	ResolutionSummary,
+	ResponseText,
+	blank_to_none,
+)
 from oan_grievance_service.services import response_body
 
 route = prefixed("/api/v1/response-templates")
@@ -39,6 +46,9 @@ route = prefixed("/api/v1/response-templates")
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
 
 TEMPLATE_DOCTYPE = "Grievance Response Template"
+
+# Used by both the create and the update request.
+TemplateTitle = Annotated[NonBlank, Field(max_length=140)]
 TEMPLATE_FIELDS = [
 	"name",
 	"title",
@@ -99,20 +109,24 @@ def _check_body_parts(model, require_body: bool):
 
 
 class CreateResponseTemplateRequest(Body):
-	title: NonBlank
+	title: TemplateTitle
 	action: NonBlank | None = Field(None, description="Grievance workflow action the template is written for")
 	workflow_action: NonBlank | None = Field(
 		None, description="Grievance workflow action the template is written for"
 	)
 	department: NonBlank | None = Field(None, description="Omit for every department")
 	service_category: NonBlank | None = Field(None, description="Omit for every category")
-	reason: NonBlank | None = Field(None, description="Jinja template for the response's reason")
-	body: NonBlank | None = Field(None, description="Jinja template for the response's reason")
-	action_taken: NonBlank | None = Field(
-		None, description="Jinja template for the reason's first part; sent with resolution_summary"
+	reason: ResponseText | None = Field(None, description="Jinja template for the response's reason")
+	body: ResponseText | None = Field(None, description="Jinja template for the response's reason")
+	action_taken: ActionTaken | None = Field(
+		None,
+		min_length=1,
+		description="Jinja template for the reason's first part; sent with resolution_summary",
 	)
-	resolution_summary: NonBlank | None = Field(
-		None, description="Jinja template for the reason's second part; sent with action_taken"
+	resolution_summary: ResolutionSummary | None = Field(
+		None,
+		min_length=1,
+		description="Jinja template for the reason's second part; sent with action_taken",
 	)
 	note: str | None = Field(None, description="Optional Jinja template for internal notes")
 	is_active: bool = True
@@ -135,15 +149,17 @@ class UpdateResponseTemplateRequest(Body):
 	"""Partial update. The code is the identifier and cannot change; null clears a scope."""
 
 	template: NonBlank
-	title: NonBlank = None
+	# Only department, service_category and note accept null. The others cannot be cleared,
+	# so an explicit null is refused rather than stored; omit a field to leave it.
+	title: TemplateTitle = None
 	action: NonBlank = None
 	workflow_action: NonBlank = None
 	department: NonBlank | None = None
 	service_category: NonBlank | None = None
-	reason: NonBlank = None
-	body: NonBlank = None
-	action_taken: NonBlank = None
-	resolution_summary: NonBlank = None
+	reason: ResponseText = None
+	body: ResponseText = None
+	action_taken: ActionTaken = Field(None, min_length=1)
+	resolution_summary: ResolutionSummary = Field(None, min_length=1)
 	note: str | None = None
 	is_active: bool = None
 

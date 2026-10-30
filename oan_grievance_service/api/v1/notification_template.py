@@ -6,7 +6,7 @@
 from typing import Literal
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -17,7 +17,7 @@ from oan_auth_service.api.utils import (
 	success_response,
 	validate_request,
 )
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import constants, notifications
@@ -97,7 +97,7 @@ class UpdateNotificationTemplate(TemplateRef):
 	enabled: bool | None = None
 	recipient_type: str | None = None
 	role_level: str | None = None
-	recipient_id: str | None = None
+	recipient_id: str | None = Field(None, title=N_("Recipient ID"))
 	translations: dict[str, dict[str, str]] | None = None
 
 	_blank = field_validator(

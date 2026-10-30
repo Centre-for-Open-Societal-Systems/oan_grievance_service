@@ -40,7 +40,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.api.v1._schemas import Body, NonBlank, PersonName, blank_to_none
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import officer as service
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
@@ -145,7 +145,7 @@ class CreateOfficer(Body):
 	they depend on `role`.
 	"""
 
-	full_name: NonBlank
+	full_name: PersonName = Field(min_length=1)
 	email: NonBlank
 	temporary_password: str | None = Field(default=None, max_length=128)
 	role: Role = "Officer"
@@ -208,8 +208,11 @@ class UpdateOfficer(Body):
 	"""Partial update. Omitted fields stay as they are. `email` is fixed once created."""
 
 	officer: NonBlank
+	# An explicit null is refused for level, full_name, designation, status and
+	# service_categories: they are changed or left, not cleared. department, phone, region
+	# and reports_to accept null and clear the value.
 	level: Level = None
-	full_name: NonBlank = None
+	full_name: PersonName = Field(None, min_length=1)
 	designation: NonBlank = None
 	department: NonBlank | None = None
 	phone: str | None = None

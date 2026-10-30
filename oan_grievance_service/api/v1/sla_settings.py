@@ -19,7 +19,7 @@ change applies to cases that start, resume or re-arm after it, and leaves armed 
 """
 
 import frappe
-from frappe import _
+from frappe import N_, _
 from frappe.utils import get_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
@@ -123,7 +123,7 @@ class UpdateSlaConfiguration(Body):
 	"""Partial update. Omitted fields stay as they are."""
 
 	config: NonBlank
-	sla_days: int = Field(default=None, ge=1)
+	sla_days: int = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = None
 	notify_on_breach: bool = None
 
