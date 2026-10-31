@@ -951,14 +951,25 @@ class TestGatewayContract(FrappeTestCase):
 			for r in gw.reconcile(gw.spec_routes(spec), generator.tier_overrides())
 			if r["path"].startswith("/v1/charts/")
 		]
+		import os
+
 		self.assertEqual({r["auth"] for r in routes}, {"frappe-token"})
-		doc = gw.build_document(
-			routes,
-			app=generator.APP,
-			tiers=generator.TIERS,
-			api_upstream=generator.API_UPSTREAM,
-			service_plugins={},
-		)
+		with patch.dict(
+			os.environ,
+			{
+				"APISIX_REDIS_HOST": "redis",
+				"APISIX_REDIS_PORT": "6379",
+				"OAN_GRIEVANCE_UPSTREAM_HOST": "oan-grievance.internal.svc",
+				"OAN_GRIEVANCE_UPSTREAM_PORT": "8000",
+			},
+		):
+			doc = gw.build_document(
+				routes,
+				app=generator.APP,
+				tiers=generator.TIERS,
+				api_upstream=generator.API_UPSTREAM,
+				service_plugins={},
+			)
 		# Frappe checks the key; the gateway only limits by address and adds no auth.
 		for route in doc["services"][0]["routes"]:
 			if route["methods"] == ["OPTIONS"]:

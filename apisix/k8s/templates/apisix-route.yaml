@@ -29,10 +29,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -64,6 +64,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -92,10 +93,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -127,6 +128,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -151,10 +153,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -186,6 +188,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -213,10 +216,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -248,6 +251,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -272,10 +276,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -307,6 +311,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -327,7 +332,6 @@ spec:
       - /v1/auth/forgot-password
       - /v1/auth/iam/login
       - /v1/auth/login
-      - /v1/auth/logout
       - /v1/auth/password/forgot
       - /v1/auth/password/initial
       - /v1/auth/password/reset
@@ -339,10 +343,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -362,10 +366,10 @@ spec:
       enable: true
       config:
         rules:
-        - count: 5
+        - count: 30
           time_window: 60
           key: $remote_addr:min
-        - count: 30
+        - count: 300
           time_window: 3600
           key: $remote_addr:hour
         rejected_code: 429
@@ -374,6 +378,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: false
+        group: oan-grievance:auth-credentials:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -401,10 +406,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -436,6 +441,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-public-read:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -461,10 +467,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -496,6 +502,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -522,10 +529,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -557,6 +564,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -582,10 +590,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -617,6 +625,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -634,6 +643,7 @@ spec:
 {{- end }}
 {{- end }}
       paths:
+      - /v1/auth/logout
       - /v1/auth/refresh
       methods:
       - POST
@@ -641,10 +651,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -676,6 +686,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:auth-session:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -700,10 +711,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -735,6 +746,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -764,10 +776,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -799,6 +811,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -823,10 +836,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -858,6 +871,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -891,10 +905,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -926,6 +940,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -953,10 +968,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -988,6 +1003,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1042,10 +1058,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -1077,6 +1093,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1109,10 +1126,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -1144,6 +1161,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1181,10 +1199,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -1216,6 +1234,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1256,10 +1275,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -1291,6 +1310,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:public-dashboards:frappe-token
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1319,10 +1339,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
@@ -1354,6 +1374,7 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
+        group: oan-grievance:public-reference:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1417,10 +1438,10 @@ spec:
     - name: cors
       enable: true
       config:
-        allow_origins: 'null'
+        allow_origins: https://cors-by-regex-only.invalid
         allow_origins_by_regex:
 {{- range .Values.corsOriginRegexes }}
-        - {{ . | quote }}
+        - {{ printf "^(?:%s)$" . | quote }}
 {{- end }}
         allow_methods: GET,POST,PATCH,DELETE,OPTIONS
         allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token

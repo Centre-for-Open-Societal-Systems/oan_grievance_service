@@ -1056,28 +1056,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		self.assertLess(esc_idx, normal_idx, "Escalated grievance must appear before non-escalated grievance")
 
-	def test_kong_cors_methods_and_jwt_secret(self):
-		"""Kong CORS must allow DELETE and not expose dummy JWT secrets."""
-		from pathlib import Path
-
-		import yaml
-
-		kong_path = Path(__file__).resolve().parent.parent.parent / "kong" / "kong.yml"
-		self.assertTrue(kong_path.exists())
-		with open(kong_path) as f:
-			conf = yaml.safe_load(f)
-
-		cors_plugin = next(p for p in conf["services"][0]["plugins"] if p["name"] == "cors")
-		self.assertIn("DELETE", cors_plugin["config"]["methods"])
-		if "*" in cors_plugin["config"]["origins"]:
-			self.assertFalse(cors_plugin["config"].get("credentials", False))
-
-		for c in conf.get("consumers", []):
-			for sec in c.get("jwt_secrets", []):
-				self.assertNotEqual(sec.get("secret"), "REPLACE_WITH_OAN_AUTH_JWT_SECRET")
-
-	def test_attachment_routes_present_in_spec_and_kong(self):
-		"""Attachment endpoints must be present in OpenAPI and Kong."""
+	def test_attachment_routes_present_in_spec(self):
+		"""Attachment endpoints must be present in OpenAPI."""
 		from pathlib import Path
 
 		import yaml

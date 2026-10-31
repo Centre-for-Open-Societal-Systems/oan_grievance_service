@@ -1,7 +1,7 @@
 # OAN Grievance Service Realtime API -- AsyncAPI 3.0
 # Hand-written. OpenAPI cannot describe a persistent socket, so the realtime events
 # live here. Keep in step with the publish_realtime calls in the services and with
-# build_socket_service() in kong/generate_kong_config_from_spec.py.
+# build_socket_service() in apisix/generate_apisix_config_from_spec.py.
 asyncapi: 3.0.0
 info:
   title: OAN Grievance Service Realtime API
@@ -36,7 +36,7 @@ servers:
     host: grievance.openagrinet.org
     pathname: /socket.io/
     protocol: wss
-    description: Production gateway. Kong verifies the JWT before the handshake.
+    description: Production gateway. APISIX verifies the JWT before the handshake.
     security:
       - $ref: "#/components/securitySchemes/BearerAuth"
   local:

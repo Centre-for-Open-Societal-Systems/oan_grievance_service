@@ -15,7 +15,7 @@ This document provides essential instructions, architectural conventions, and de
 | **Database**             | MariaDB 11.x                    | Relational storage, nested set area hierarchy          |
 | **Caching & Queues**     | Redis                           | Two instances: cache and background worker queue       |
 | **Required App**         | `oan_auth_service`              | Mandatory dependency for auth, JWT, RBAC, REST routing |
-| **API Gateway**          | Kong                            | Route definitions in `kong/kong.yml`                   |
+| **API Gateway**          | Apache APISIX                   | Declarative routes in `apisix/`                        |
 | **API Contract**         | OpenAPI 3.1                     | Generated via `openapi/generate_openapi_spec.py`       |
 | **Linting & Formatting** | Ruff & Pre-commit               | `ruff check`, `ruff format`, prettier for markdown     |
 
@@ -47,7 +47,7 @@ oan_grievance_service/
 │   ├── hooks.py                    # Frappe app event hooks & scheduled jobs
 │   └── patches.txt                 # Migration patches (APPEND-ONLY)
 ├── openapi/                        # OpenAPI 3.1 specifications & generator
-├── kong/                           # Kong gateway configs & generator
+├── apisix/                         # APISIX gateway configs & generator
 ├── postman/                        # Postman integration test collection
 ├── docs/                           # Architecture guides & specifications
 └── tests/                          # Suite-wide integration tests
@@ -97,12 +97,11 @@ Whenever you add, modify, or deprecate an API endpoint:
    python openapi/generate_openapi_spec.py
    ```
    Ensures `openapi/openapi_v1.yaml` and `openapi/openapi_v1.public.yaml` stay synchronized.
-3. **Update Kong Generator**: Add the route in `kong/generate_kong_config_from_spec.py`.
-4. **Regenerate Kong Configuration**:
+3. **Regenerate APISIX Configuration**:
    ```bash
-   python kong/generate_kong_config_from_spec.py
+   python apisix/generate_apisix_config_from_spec.py
    ```
-5. **Sync Postman Collection**: Run the sync utility to scaffold any newly added routes and verify parity:
+4. **Sync Postman Collection**: Run the sync utility to scaffold any newly added routes and verify parity:
    ```bash
    python postman/sync_postman_from_spec.py
    # Or verify parity in CI mode:

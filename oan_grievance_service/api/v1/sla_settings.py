@@ -158,7 +158,9 @@ def _configuration_records(rows: list) -> list[dict]:
 	if departments:
 		for desk in frappe.get_all(
 			category_assignment.DOCTYPE,
-			filters=category_assignment.serving_filters(category_scope=["in", list(departments)]),
+			filters=category_assignment.serving_filters(
+				category_scope=["in", list(departments)], department_scope=["is", "set"]
+			),
 			fields=["category_scope", "department_scope"],
 			order_by="department_scope asc",
 		):

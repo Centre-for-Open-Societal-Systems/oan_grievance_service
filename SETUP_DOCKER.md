@@ -263,7 +263,7 @@ bench --site "$SITE" set-config jwt_current_kid "v1"
 
 The key is made with the bench virtualenv's `cryptography` package, so it works whether or not the image has an `openssl` binary.
 
-Kong and other verifiers need only the public half. The site publishes it as a JWKS at `/api/v1/auth/keys`. See `oan_auth_service/kong/README_kong_onboarding.md`.
+The API gateway and other verifiers need only the public half. The site publishes it as a JWKS at `/api/v1/auth/keys`.
 
 To rotate: add `v2` to `jwt_private_keys`, wait for verifiers to load the new JWKS, set `jwt_current_kid` to `v2`, then remove `v1` after the longest refresh window has passed.
 
