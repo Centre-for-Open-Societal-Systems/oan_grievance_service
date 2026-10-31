@@ -8166,6 +8166,14 @@ components:
         assigned_officer:
           type: string
           nullable: true
+        assigned_to:
+          type: string
+          nullable: true
+          description: Assigned officer email; staff only
+        assigned_to_name:
+          type: string
+          nullable: true
+          description: Assigned officer's full name; staff only
         sla_target_date:
           type: string
           format: date-time
@@ -8185,6 +8193,20 @@ components:
           type: string
           format: date-time
           nullable: true
+        is_paused:
+          type: boolean
+          nullable: true
+          description: Whether the SLA clock is held (waiting on the submitter)
+        paused_since:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the hold started
+        auto_close_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the case closes by itself if nobody acts, for a state whose timer closes it
         creation:
           type: string
           format: date-time
@@ -8425,28 +8447,38 @@ components:
           example: Under Investigation
         escalated:
           type: boolean
-        summary:
+        description:
+          type: string
+          nullable: true
+        desired_outcome:
+          type: string
+          nullable: true
+        service_category:
+          type: string
+          nullable: true
+        grievance_type:
+          type: string
+          nullable: true
+        grievance_type_name:
+          type: string
+          nullable: true
+        administrative_area:
+          type: string
+          nullable: true
+        administrative_hierarchy:
           type: object
-          properties:
-            description:
-              type: string
-              nullable: true
-            desired_outcome:
-              type: string
-              nullable: true
-            service_category:
-              type: string
-              nullable: true
-            grievance_type_id:
-              type: string
-              nullable: true
-            grievance_type_name:
-              type: string
-              nullable: true
-            administrative_area:
-              type: string
-              nullable: true
+          properties: {}
           additionalProperties: true
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        administrative_unit:
+          type: string
+          nullable: true
+        submission_channel:
+          type: string
+          nullable: true
         sla:
           type: object
           properties:
@@ -8454,6 +8486,23 @@ components:
               type: string
               format: date-time
               nullable: true
+              description: Due date. While the clock is held (is_paused) it is the latest date it can
+                reach, for staff
+            is_paused:
+              type: boolean
+              nullable: true
+              description: Whether the SLA clock is held (waiting on the submitter)
+            paused_since:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the hold started
+            auto_close_at:
+              type: string
+              format: date-time
+              nullable: true
+              description: When the case closes by itself if nobody acts, for a state whose timer closes
+                it
             active_deferral_request:
               oneOf:
               - $ref: '#/components/schemas/ChangeRequestData'
@@ -8466,6 +8515,9 @@ components:
               type: string
               nullable: true
             assigned_to:
+              type: string
+              nullable: true
+            assigned_to_name:
               type: string
               nullable: true
             routed_automatically:
@@ -9011,6 +9063,10 @@ components:
           type: string
           nullable: true
           description: Assigned officer email
+        assigned_to_name:
+          type: string
+          nullable: true
+          description: Assigned officer's full name; staff only
         department:
           type: string
           nullable: true

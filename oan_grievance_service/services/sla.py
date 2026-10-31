@@ -361,9 +361,12 @@ def on_status_change(grievance, to_state, from_state=None):
 		return
 
 	resume_clock(grievance)
-	if category == STOPPED and grievance.next_escalation_at:
-		grievance.db_set("next_escalation_at", None, update_modified=False)
-		grievance.next_escalation_at = None
+	if category == STOPPED:
+		# Also on the way from one Stopped state to the next (Resolved to Closed): the
+		# escalation was disarmed on entering the first and must stay so.
+		if grievance.next_escalation_at:
+			grievance.db_set("next_escalation_at", None, update_modified=False)
+			grievance.next_escalation_at = None
 	elif from_state and sla_category_of(from_state) == STOPPED:
 		rearm_after_reopen(grievance)
 
@@ -425,6 +428,39 @@ def arm_state_timer(grievance, state):
 	deadline = add_to_date(now_datetime(), hours=timer[0]) if timer else None
 	if deadline or grievance.get("state_deadline"):
 		grievance.db_set("state_deadline", deadline, update_modified=False)
+
+
+def pause_view(case, timer_cache=None):
+	"""What a response says about a held clock, from fields the case already stores.
+
+	`case` is a Grievance or a row of its fields (service_category, status, sla_due_date,
+	on_hold_since, state_deadline). Nothing here is stored: the hold is banked by
+	`resume_clock`, and this only reads ahead of it.
+
+	`auto_close_at` is the state's deadline, but only when that state's timer closes the
+	case; an Escalate timer is not a close date. While the clock is held the due date is
+	the latest it can reach: the farmer replying at the last moment adds the rest of the
+	wait to it, and a case that is never answered closes instead. `timer_cache` spares a
+	list the repeat lookups of one category and state.
+	"""
+	state = case.get("workflow_state") or case.get("status")
+	key = (case.get("service_category"), state)
+	cache = timer_cache if timer_cache is not None else {}
+	if key not in cache:
+		timer = state_timer(*key)
+		cache[key] = bool(timer and timer[1] == "Auto Close")
+	deadline = case.get("state_deadline") if cache[key] else None
+	due = case.get("sla_due_date")
+	held_since = case.get("on_hold_since")
+	if held_since and due and deadline:
+		held = max(0, (get_datetime(deadline) - get_datetime(held_since)).total_seconds())
+		due = add_to_date(get_datetime(due), seconds=held)
+	return {
+		"is_paused": bool(held_since),
+		"paused_since": held_since,
+		"auto_close_at": deadline,
+		"sla_due_date": due,
+	}
 
 
 def resume_clock(grievance):

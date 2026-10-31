@@ -554,11 +554,22 @@ data(
 			"contact_mobile": S(example="+251911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"assigned_officer": S(nullable=True),
+			"assigned_to": S(nullable=True, description="Assigned officer email; staff only"),
+			"assigned_to_name": S(nullable=True, description="Assigned officer's full name; staff only"),
 			"sla_target_date": S(format="date-time", nullable=True),
 			"is_escalated": I(enum=[0, 1]),
 			"escalated": B(nullable=True),
 			"is_anonymous": B(nullable=True),
 			"confirmation_deadline": S(format="date-time", nullable=True),
+			"is_paused": B(
+				nullable=True, description="Whether the SLA clock is held (waiting on the submitter)"
+			),
+			"paused_since": S(format="date-time", nullable=True, description="When the hold started"),
+			"auto_close_at": S(
+				format="date-time",
+				nullable=True,
+				description="When the case closes by itself if nobody acts, for a state whose timer closes it",
+			),
 			"creation": S(format="date-time"),
 			"modified": S(format="date-time"),
 		},
@@ -694,20 +705,32 @@ data(
 			"ticket_number": S(example="ET14IN000012026"),
 			"status": S(example="Under Investigation"),
 			"escalated": B(),
-			"summary": OBJ(
-				{
-					"description": S(nullable=True),
-					"desired_outcome": S(nullable=True),
-					"service_category": S(nullable=True),
-					"grievance_type_id": S(nullable=True),
-					"grievance_type_name": S(nullable=True),
-					"administrative_area": S(nullable=True),
-				},
-				additionalProperties=True,
-			),
+			"description": S(nullable=True),
+			"desired_outcome": S(nullable=True),
+			"service_category": S(nullable=True),
+			"grievance_type": S(nullable=True),
+			"grievance_type_name": S(nullable=True),
+			"administrative_area": S(nullable=True),
+			"administrative_hierarchy": OBJ({}, additionalProperties=True, nullable=True),
+			"location": S(nullable=True),
+			"administrative_unit": S(nullable=True),
+			"submission_channel": S(nullable=True),
 			"sla": OBJ(
 				{
-					"sla_due_date": S(format="date-time", nullable=True),
+					"sla_due_date": S(
+						format="date-time",
+						nullable=True,
+						description="Due date. While the clock is held (is_paused) it is the latest date it can reach, for staff",
+					),
+					"is_paused": B(
+						nullable=True, description="Whether the SLA clock is held (waiting on the submitter)"
+					),
+					"paused_since": S(format="date-time", nullable=True, description="When the hold started"),
+					"auto_close_at": S(
+						format="date-time",
+						nullable=True,
+						description="When the case closes by itself if nobody acts, for a state whose timer closes it",
+					),
 					"active_deferral_request": {
 						"oneOf": [REF("ChangeRequestData"), REF("PublicChangeRequestData")],
 						"nullable": True,
@@ -718,6 +741,7 @@ data(
 				{
 					"department": S(nullable=True),
 					"assigned_to": S(nullable=True),
+					"assigned_to_name": S(nullable=True),
 					"routed_automatically": B(),
 					"active_reassignment_request": {**REF("ChangeRequestData"), "nullable": True},
 				}
@@ -1041,6 +1065,7 @@ data(
 			"status": S(description="Public grievance status"),
 			"escalated": B(description="Whether case is currently escalated"),
 			"assigned_to": S(nullable=True, description="Assigned officer email"),
+			"assigned_to_name": S(nullable=True, description="Assigned officer's full name; staff only"),
 			"department": S(nullable=True, description="Assigned department ID"),
 			"updated_at": S(format="date-time", nullable=True),
 			"available_actions": ARR(REF("AvailableActionItem")),

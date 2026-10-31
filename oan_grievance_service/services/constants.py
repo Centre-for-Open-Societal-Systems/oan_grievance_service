@@ -68,11 +68,12 @@ EVENT_SLA_BREACH = "sla_breached"
 EVENT_MANUAL_ESCALATION = "manual_escalation"
 EVENT_REASSIGNMENT_REQUESTED = "reassignment_requested"
 EVENT_ANONYMITY_DISCLOSURE_REQUESTED = "anonymity_disclosure_requested"
+EVENT_DEADLINE_EXTENDED = "deadline_extended"
 
 # FSD Appendix C event ids (EC-001 to EC-019), keyed by event code. EC-017 (SLA breach,
 # L2) has no code of its own; the escalation ladder sends a single EVENT_SLA_BREACH for
 # every level, which is EC-016's. EVENT_CLOSED, EVENT_STATUS_REJECTED and
-# EVENT_ANONYMITY_DISCLOSURE_REQUESTED are not in Appendix C.
+# EVENT_ANONYMITY_DISCLOSURE_REQUESTED and EVENT_DEADLINE_EXTENDED are not in Appendix C.
 EVENT_EC_ID = {
 	EVENT_SUBMISSION_RECEIVED: "EC-001",
 	EVENT_DUPLICATE_DETECTED: "EC-002",

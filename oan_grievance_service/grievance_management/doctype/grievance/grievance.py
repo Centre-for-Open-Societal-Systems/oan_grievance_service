@@ -430,6 +430,12 @@ class Grievance(Document):
 				self.db_set(updates, update_modified=False)
 				if "next_escalation_at" not in updates:
 					sla.arm_escalation(self, sla.resolve_policy(self.service_category))
+				# A later deadline is news for the submitter; an earlier one is not.
+				if shift.total_seconds() > 0:
+					from oan_grievance_service.services import notifications
+					from oan_grievance_service.services.constants import EVENT_DEADLINE_EXTENDED
+
+					notifications.queue(self, EVENT_DEADLINE_EXTENDED)
 
 	def set_administrative_area_metadata(self):
 		"""Denormalise area_lft and capture immutable area_path_code snapshot."""
