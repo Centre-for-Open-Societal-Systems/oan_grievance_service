@@ -11,9 +11,18 @@ Usage:
     python3 apisix/generate_apisix_config_from_spec.py
 """
 
+import os
 from pathlib import Path
 
 from oan_auth_service import gateway_apisix as gw
+
+# Development and generator baseline defaults (see apisix/README.md).
+# Deployments override these by setting the environment variables directly.
+os.environ.setdefault("APISIX_REDIS_HOST", "redis")
+os.environ.setdefault("APISIX_REDIS_PORT", "6379")
+os.environ.setdefault("CORS_ORIGINS_REGEX", r"https?://localhost(:[0-9]+)?")
+os.environ.setdefault("REALTIME_ALLOWED_ORIGINS", "http://localhost:3000")
+os.environ.setdefault("FRAPPE_WEB_ORIGIN", "http://${FRAPPE_SITE_NAME}:8000")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
@@ -152,9 +161,13 @@ def socket_service():
 			{"name": "local", "cookie": "auth_token", "require": ["last_activity"]},
 			{"name": "iam", "cookie": f"{iam_prefix}X-Access-Token"},
 		],
-		browser_origins=[o.strip() for o in gw.env("REALTIME_ALLOWED_ORIGINS").split(",") if o.strip()],
+		browser_origins=[
+			o.strip()
+			for o in gw.env("REALTIME_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+			if o.strip()
+		],
 		# Node calls get_user_info at this address, and Frappe picks the site from its host.
-		frappe_web_origin=gw.env("FRAPPE_WEB_ORIGIN"),
+		frappe_web_origin=gw.env("FRAPPE_WEB_ORIGIN", f"http://{SITE_NAME}:8000"),
 		site_name=SITE_NAME,
 		limit={
 			"rules": [
@@ -164,7 +177,7 @@ def socket_service():
 			"rejected_code": 429,
 			"policy": "redis",
 			"redis_host": "${APISIX_REDIS_HOST}",
-			"redis_port": int(gw.env("APISIX_REDIS_PORT")),
+			"redis_port": int(gw.env("APISIX_REDIS_PORT", "6379")),
 			"allow_degradation": True,
 		},
 	)
@@ -214,7 +227,10 @@ def main():
 		tiers={**TIERS, **gw.AUTH_TIERS},
 		api_upstream=API_UPSTREAM,
 		service_plugins=gw.service_plugins(
-			methods="GET,POST,PATCH,DELETE,OPTIONS", credentials=False, max_body_mb=15
+			methods="GET,POST,PATCH,DELETE,OPTIONS",
+			credentials=False,
+			max_body_mb=15,
+			cors_origins=gw.env("CORS_ORIGINS_REGEX", r"https?://localhost(:[0-9]+)?"),
 		),
 		extra_services=[socket_service()],
 		consumers=[gw.jwt_issuer_consumer()] if GATEWAY_JWT else None,
