@@ -1,0 +1,3 @@
+node_modules/
+.git/
+oan_grievance_service/setup/demo_*.py

@@ -700,6 +700,7 @@ def list_grievances(
 		"assigned_to",
 		"sla_due_date",
 		"state_deadline",
+		"on_hold_since",
 		"creation as submitted_on",
 		"modified as updated_at",
 	]
@@ -749,8 +750,17 @@ def list_grievances(
 		)
 
 	is_staff = permissions.is_staff(frappe.session.user)
+	assignee_names = _officer_names(item.get("assigned_to") for item in items) if is_staff else {}
+	timer_cache = {}
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
+		held = sla.pause_view(item, timer_cache)
+		item.pop("on_hold_since", None)
+		item["auto_close_at"] = held["auto_close_at"]
+		item["is_paused"] = held["is_paused"]
+		item["paused_since"] = to_tz_aware_iso(held["paused_since"])
+		if is_staff:
+			item["sla_due_date"] = held["sla_due_date"]
 		state_deadline = item.pop("state_deadline", None)
 		item["confirmation_deadline"] = state_deadline if item.get("status") == C.STATE_RESOLVED else None
 
@@ -765,6 +775,7 @@ def list_grievances(
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
+		item["assigned_to_name"] = assignee_names.get(item.get("assigned_to"))
 		if not is_staff:
 			item["assigned_to"] = None
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
@@ -846,6 +857,24 @@ def _get_available_actions_for_user(doc):
 	return result
 
 
+def _officer_names(users):
+	"""{user id: full name} for the officers a response names; the id when a user has no name."""
+	users = {u for u in users if u}
+	if not users:
+		return {}
+	return {
+		row.name: row.full_name or row.name
+		for row in frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"])
+	}
+
+
+def _assignee_name(doc):
+	"""The assigned officer's name, for staff; None for anyone else or an unassigned case."""
+	if not (doc.assigned_to and permissions.is_staff(frappe.session.user)):
+		return None
+	return _officer_names([doc.assigned_to]).get(doc.assigned_to)
+
+
 def _current_state(doc, extra=None):
 	"""The `current_state` block every mutating endpoint echoes back.
 
@@ -859,6 +888,7 @@ def _current_state(doc, extra=None):
 		"status": doc.status,
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
+		"assigned_to_name": _assignee_name(doc),
 		"department": doc.assigned_dept,
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
@@ -1654,24 +1684,24 @@ def timeline(
 		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
 	)
 
+	held = sla.pause_view(doc)
+
 	return success_response(
 		data={
 			"name": doc.name,
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": doc.status,
 			"escalated": bool(doc.escalated),
-			"summary": {
-				"description": doc.description,
-				"desired_outcome": doc.desired_outcome,
-				"service_category": doc.service_category,
-				"grievance_type_id": doc.grievance_type,
-				"grievance_type_name": grievance_type_name or doc.grievance_type,
-				"administrative_area": doc.administrative_area,
-				"administrative_hierarchy": area_hierarchy,
-				"location": location_str,
-				"administrative_unit": doc.administrative_unit,
-				"submission_channel": doc.submission_channel,
-			},
+			"description": doc.description,
+			"desired_outcome": doc.desired_outcome,
+			"service_category": doc.service_category,
+			"grievance_type": doc.grievance_type,
+			"grievance_type_name": grievance_type_name or doc.grievance_type,
+			"administrative_area": doc.administrative_area,
+			"administrative_hierarchy": area_hierarchy,
+			"location": location_str,
+			"administrative_unit": doc.administrative_unit,
+			"submission_channel": doc.submission_channel,
 			"submitter": {
 				"name": masked_name,
 				"contact_mobile": contact["contact_mobile"],
@@ -1683,7 +1713,10 @@ def timeline(
 			"sla": {
 				"sla_days": doc.sla_days,
 				"sla_start_at": to_tz_aware_iso(doc.sla_start_at),
-				"sla_due_date": to_tz_aware_iso(doc.sla_due_date),
+				"sla_due_date": to_tz_aware_iso(held["sla_due_date"] if is_staff else doc.sla_due_date),
+				"is_paused": held["is_paused"],
+				"paused_since": to_tz_aware_iso(held["paused_since"]),
+				"auto_close_at": to_tz_aware_iso(held["auto_close_at"]),
 				"sla_consumed_percent": sla.consumed_percent(doc),
 				"next_escalation_at": to_tz_aware_iso(doc.next_escalation_at),
 				# Kept under its old name for existing clients: the confirmation window is
@@ -1696,6 +1729,7 @@ def timeline(
 			"assignment": {
 				"department": doc.assigned_dept,
 				"assigned_to": doc.assigned_to if is_staff else None,
+				"assigned_to_name": _assignee_name(doc),
 				"routed_automatically": bool(doc.routed_automatically),
 				"active_reassignment_request": active_reassignment_request if is_staff else None,
 			},

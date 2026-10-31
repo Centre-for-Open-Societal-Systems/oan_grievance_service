@@ -135,6 +135,12 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 		"description": "Confirmation window or state timer deadline",
 		"example": "2026-10-22 17:00:00",
 	},
+	"response_days": {
+		"name": "response_days",
+		"label": "Days to Respond",
+		"description": "Whole days left until the state timer runs out, for example the farmer's time to reply",
+		"example": "7",
+	},
 	"status": {
 		"name": "status",
 		"label": "Status",
@@ -160,6 +166,7 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 PLACEHOLDER_EXPRESSIONS = {
 	"department": "doc.assigned_dept",
 	"assigned_to": "frappe.db.get_value('User', doc.assigned_to, 'full_name')",
+	"response_days": "frappe.utils.date_diff(doc.state_deadline, frappe.utils.today())",
 }
 
 
@@ -577,6 +584,10 @@ def _recipient_language(recipient):
 	return frappe.db.get_single_value("System Settings", "language") or "en"
 
 
+# Events that can legitimately happen more than once on a case, so each occurrence is sent.
+REPEATABLE_EVENTS = frozenset({"deadline_extended"})
+
+
 def _already_queued(grievance_name, event_code, recipient, channel):
 	"""Guard against redundant messaging.
 
@@ -585,6 +596,8 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 	out - so deduplicating on (grievance, event, recipient) alone would silently drop
 	whichever of the pair was queued second.
 	"""
+	if event_code in REPEATABLE_EVENTS:
+		return False
 	return bool(
 		frappe.db.exists(
 			"Grievance Notification Log",

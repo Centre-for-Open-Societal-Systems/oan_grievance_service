@@ -15,6 +15,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	save_sla_configuration,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
@@ -402,8 +403,18 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		("SMS", "Email", "System Notification"),
 		"Officer sets More Info Needed",
-		"Additional information is needed for grievance {0}. Please respond via the portal.",
-		("doc.ticket_number",),
+		# Without a state timer on the category there is no deadline to name.
+		{
+			"text": "Additional information is needed for grievance {0}. Please respond via the portal.",
+			"args": ("doc.ticket_number",),
+			"if": "doc.state_deadline",
+			"then": (
+				"Please reply within {0} days, or the case will be closed.",
+				(PLACEHOLDER_EXPRESSIONS["response_days"],),
+			),
+			"else": ("", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_ANONYMITY_DISCLOSURE_REQUESTED,
@@ -413,6 +424,15 @@ NOTIFICATION_EVENTS = [
 		"Officer declines an anonymity request",
 		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
 		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_DEADLINE_EXTENDED,
+		"Deadline Extended",
+		"Submitter",
+		("SMS", "Email", "System Notification"),
+		"Approved SLA deferral",
+		"The expected response date for your grievance {0} has been moved to {1}.",
+		("doc.ticket_number", "doc.sla_due_date"),
 	),
 	(
 		C.EVENT_SUBMITTER_RESPONDED,
