@@ -1,0 +1,227 @@
+# Organization Registration and Verification API: frontend integration guide
+
+For the NGO and FPO registration screen (`/ngo`, `/fpo`) and the admin verification queue. An NGO, FPO or cooperative registers once, an administrator verifies it, and only then may its representative file grievances.
+
+The product flow is in [organization_onboarding_flow.md](organization_onboarding_flow.md). This page is the contract that is built.
+
+## 1. Concepts
+
+- An **organization** is a registered NGO, FPO or Cooperative. Its **id** is `name`, for example `ORG-00012`. Use it in admin URLs.
+- The **authorized representative** is the login that registered it (`representative_user`). There is one representative per organization and one organization per login. Only that login may file for the organization.
+- **org_type** is `NGO`, `FPO` or `Cooperative`, the same names as the submitter types. The FPO screen sends `FPO`. `Cooperative` is accepted for callers that want to register one separately.
+- **entity_type** is the legal form, entered as free text (up to 140 characters). The registration screen suggests Local NGO, International NGO, Community-Based Organisation and Civil Society Organisation for an NGO, and Farmer Producer Organisation, Primary Cooperative, Cooperative Union and Cooperative Federation for an FPO or cooperative, but the server accepts any non-blank value.
+- **registration_number** is the registration or licence number. It is unique across organizations, stored in upper case, and 3 to 60 letters and digits with single `-` or `/` between groups. It is sent and returned as `registration_number`.
+- **status** is the verification status. See section 3.
+- The representative's **Submitter Profile** is converted to the organization's type, name and contact details when the organization is registered, so `GET /auth/me` then reports the profile type as `NGO`, `FPO` or `Cooperative`. It stays blocked until the organization is Active.
+
+## 2. Conventions
+
+| Item         | Value                                                                      |
+| :----------- | :------------------------------------------------------------------------- |
+| Base URL     | `{base_url}/api/v1`                                                        |
+| Auth         | `Authorization: Bearer <access_token>` from `POST /api/v1/auth/login`      |
+| Content type | `Content-Type: application/json` for `POST` and `PATCH`                    |
+| Success body | `data` is the organization record itself, so `data.status` is the status   |
+| List body    | `data.organizations[]` plus `data.pagination` and a top-level `pagination` |
+
+Error envelope and codes are the same as the other APIs.
+
+| HTTP | `code`              | When                                                                                       |
+| :--- | :------------------ | :----------------------------------------------------------------------------------------- |
+| 400  | `VALIDATION_ERROR`  | A bad or unknown field, or a rule broken. `details` maps field name to message when it can |
+| 403  | `PERMISSION_DENIED` | The role may not do this, or the organization is Suspended                                 |
+| 404  | `NOT_FOUND`         | No organization for the caller (`/orgs/me`), or no organization with that id               |
+
+A second organization for the same account, or a registration number already in use, is a 400 whose `message` is `Representative Account must be unique` or `Registration Number must be unique`.
+
+Field errors for shape (missing, too long, bad email, bad postal code, bad website, bad registration number, unknown field) arrive in `details` keyed by the request field name. Rules that need the database or the organization type (phone number, entity type for the organization type) arrive as a `message` with empty `details`. Show those on the form.
+
+## 3. Verification status
+
+| Status      | Meaning                                                                        | Representative can file |
+| :---------- | :----------------------------------------------------------------------------- | :---------------------- |
+| `In Review` | Registered, waiting for an administrator                                       | No                      |
+| `Active`    | Verified                                                                       | Yes                     |
+| `Suspended` | Rejected or withdrawn. `status_reason` says why. The organization is read-only | No                      |
+
+Allowed moves:
+
+| From        | To          | Who                       | Notes                                                                        |
+| :---------- | :---------- | :------------------------ | :--------------------------------------------------------------------------- |
+| (new)       | `In Review` | Representative            | Registration. The status cannot be chosen                                    |
+| `In Review` | `Active`    | Administrator             | Verifies it                                                                  |
+| `In Review` | `Suspended` | Administrator             | Rejects it. Reason required                                                  |
+| `Active`    | `Suspended` | Administrator             | Withdraws it. Reason required                                                |
+| `Suspended` | `Active`    | Administrator             | Reinstates it                                                                |
+| `Suspended` | `In Review` | Administrator             | Reopens the review                                                           |
+| `Active`    | `In Review` | System, on a profile edit | The representative changed `legal_name`, `org_type` or `registration_number` |
+
+The status is the state of the Organization Workflow, so the engine decides which moves exist and who may take them. Any other move is a 400, and an administrator cannot send an `Active` organization back to `In Review`: that move is the system's. Setting the status it already has is a no-op. Each move is recorded as a Workflow comment on the organization, with who made it and when, and `status_reason` holds the reason. The document keeps a version history.
+
+Whether an organization may file is read from its status alone, never from the profile's block. A block an officer placed on the profile, or its deactivation, is left alone when the organization is edited or verified, and still stops filing. The block `/auth/register` puts on a sign-up is lifted when the organization is registered.
+
+## 4. Representative endpoints
+
+Role: Grievance Submitter. Officers, reviewers and admins get 403.
+
+### `POST /orgs`: register
+
+```json
+{
+  "legal_name": "Selam Farmers Cooperative Union",
+  "brand_name": "Selam",
+  "org_type": "FPO",
+  "entity_type": "Cooperative Union",
+  "registration_number": "REG-2024-0042",
+  "representative_name": "Almaz Bekele",
+  "members_affected": 120,
+  "contact_email": "office@selam-coop.example.com",
+  "contact_phone": "+251911234567",
+  "website": "https://selam-coop.example.com",
+  "street_address": "Bole Road 12",
+  "kebele": "03",
+  "woreda": "Bishoftu",
+  "zone": "East Shewa",
+  "region": "Oromia",
+  "country": "Ethiopia",
+  "postal_code": "1000",
+  "consent_given": true
+}
+```
+
+Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `members_affected` (Cooperative / FPO member count, a whole number from 0, default 0), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, and only `http` and `https` addresses are accepted. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy. The registration screen's checkbox sends it. The server does not store it separately, because the organization's creation time is when it was given, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
+
+Returns the organization with `status: "In Review"`.
+
+### `GET /orgs/me`
+
+The caller's organization, or 404 until one is registered. The screen shows the registration form on 404 and the status card otherwise.
+
+### `PATCH /orgs/me`
+
+Send only the fields to change. `brand_name`, `representative_name`, `members_affected` (resets it to 0), `website`, `kebele` and `woreda` accept `null` to clear. `status`, `representative_user` and the verification fields are not accepted.
+
+- A `Suspended` organization is read-only: 403.
+- Changing `legal_name`, `org_type` or `registration_number` on an `Active` organization sets it back to `In Review` with a `status_reason` naming what changed, and the profile is blocked again. Tell the user before they save. Contact and address edits do not change the status.
+- An empty body is a 400.
+
+## 5. Administrator endpoints
+
+Role: Grievance Admin, System Manager or Administrator. Grievance Review Officer may call the two `GET` endpoints only.
+
+### `GET /orgs`: the verification queue
+
+| Query       | Value                                                                       |
+| :---------- | :-------------------------------------------------------------------------- |
+| `status`    | `In Review`, `Active` or `Suspended`. Use `In Review` for the pending queue |
+| `org_type`  | `NGO`, `FPO` or `Cooperative`                                               |
+| `search`    | Matches legal name, brand name and registration number                      |
+| `sort`      | `newest` (default) or `oldest`. Use `oldest` to work the queue in order     |
+| `page`      | 1-indexed. Default 1                                                        |
+| `page_size` | 1 to 100. Default 20                                                        |
+
+Blank filters mean "no filter". An unknown filter or value is a 400.
+
+### `GET /orgs/{org_id}`
+
+One organization with the representative and contact details, for the review screen.
+
+### `PATCH /orgs/{org_id}/status`
+
+```json
+{ "status": "Active" }
+```
+
+```json
+{ "status": "Suspended", "reason": "Registration certificate could not be confirmed" }
+```
+
+`reason` is required for `Suspended` and optional otherwise. The response is the updated organization. Activating lets the representative file at once, and suspending stops them at once.
+
+## 6. Effect on filing grievances
+
+The representative files through the same endpoints as any submitter. The server decides:
+
+- A profile linked to an organization may file only while the organization is `Active`, and only for its representative. Otherwise the request is a 403 `PERMISSION_DENIED`, "This organization is not verified" or "You are not the authorized representative".
+- Assisted filers (Development Agents, call centre and walk-in intake, and administrators) filing on the organization's behalf are held to its status too. Officers do not file.
+- A suspended organization's representative can still open and answer the cases already filed.
+- Unblocking an organization's profile with `POST /submitters/{id}/unblock` does not let an unverified organization file: its status is checked as well.
+
+## 7. Record
+
+| Field                                                  | Notes                                                  |
+| :----------------------------------------------------- | :----------------------------------------------------- |
+| `name`                                                 | Organization id                                        |
+| `legal_name`, `brand_name`                             |                                                        |
+| `org_type`, `entity_type`                              | See section 1                                          |
+| `registration_number`                                  | Upper case                                             |
+| `members_affected`                                     | Members affected (Cooperative / FPO), 0 when not given |
+| `representative_user`, `representative_name`           | The authorized representative                          |
+| `contact_email`, `contact_phone`, `website`            | Phone in E.164                                         |
+| `street_address`, `kebele`, `woreda`, `zone`, `region` |                                                        |
+| `country`, `postal_code`                               |                                                        |
+| `status`                                               | `In Review`, `Active` or `Suspended`                   |
+| `status_reason`                                        | Why it is not Active, or the last decision's note      |
+| `creation`, `modified`                                 | ISO timestamps                                         |
+
+## 8. What `GET /auth/me` returns for a representative
+
+`data.profiles.grievance` is the representative's submitter profile. The profile only holds a filing-time copy of the organization's name and contact details, so for a profile linked to an organization it also carries the organization itself. The Submit Grievance identity step reads it to pre-fill the NGO, FPO and cooperative forms.
+
+| Key                                              | Value                                                   |
+| :----------------------------------------------- | :------------------------------------------------------ |
+| `type`                                           | `NGO`, `FPO` or `Cooperative`                           |
+| `submitter_name`                                 | The organization's legal name                           |
+| `registration_number`                            | The organization's registration number                  |
+| `representative_name`                            | The authorized representative's name                    |
+| `contact_mobile`, `country_code`, `phone_number` | The organization's contact phone                        |
+| `contact_email`                                  | The organization's contact email                        |
+| `identities`                                     | `[{"scheme": "org", "value": "<registration number>"}]` |
+| `organization.name`, `legal_name`, `brand_name`  | The organization                                        |
+| `organization.org_type`, `entity_type`           | As in section 1                                         |
+| `organization.registration_number`               | Same as above                                           |
+| `organization.representative_name`               | Same as above                                           |
+| `organization.status`, `status_reason`           | Verification status and the last decision's note        |
+| `organization.can_file`                          | `true` only while the status is `Active`                |
+
+`organization` is the same record as `GET /orgs/me`, plus `can_file`. The keys `registration_number`, `representative_name` and `organization` are absent for a profile with no organization, so farmers and development agents see the same response as before. For an NGO, FPO or cooperative, `fayda_id` is the representative's Fayda ID given at sign-up, and `identities` lists it (`fayda`) and the organization's registration number (`org`).
+
+## 9. Sign-up, first sign-in and completing the registration
+
+An NGO, FPO or cooperative representative signs up like anyone else, then completes the organization form at first sign-in.
+
+| Step | Call                      | What happens                                                                                                                                            |
+| :--- | :------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | `POST /auth/register`     | Creates the account and a **blocked, typed profile**. No organization exists yet                                                                        |
+| 2    | `POST /auth/login`        | Signs in. Nothing organization-specific                                                                                                                 |
+| 3    | `GET /auth/me`            | `profiles.grievance.type` is `NGO`, `FPO` or `Cooperative` and there is no `profiles.grievance.organization`. Send the user to the organization form    |
+| 4    | `GET /orgs/me`            | 404 until the form is submitted. Use it to choose between the form and the status card                                                                  |
+| 5    | `POST /orgs`              | Registers the organization `In Review` and converts the profile (section 1). From now on `GET /orgs/me` and `profiles.grievance.organization` return it |
+| 6    | `PATCH /orgs/{id}/status` | An administrator activates it. Only then can the representative file                                                                                    |
+
+Sign-up payload for an organization. The same fields as any sign-up, with `submitter_type` set to the organization type and `fayda_id` set to the representative's Fayda ID:
+
+```json
+{
+  "full_name": "Almaz Bekele",
+  "email": "almaz@example.com",
+  "password": "<password>",
+  "country_code": "+251",
+  "phone_number": "911641538",
+  "role": "Grievance Submitter",
+  "submitter_type": "NGO",
+  "fayda_id": "6557092147530500"
+}
+```
+
+- `submitter_type` is `NGO`, `FPO` or `Cooperative`. `fayda_id` is required, as for an Individual Farmer: 16 digits, and one account per Fayda ID.
+- The profile is keyed by that Fayda ID, and `GET /auth/me` returns it as `fayda_id` (and in `identities`) for `type` `NGO`, `FPO` or `Cooperative`, before and after the organization is registered.
+- `POST /orgs` keeps the Fayda key, so the organization's registration number lives on the organization, not on the profile. The account's name stays the representative's: `representative_name` defaults to it.
+- A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, with no Fayda ID, blocked until an administrator verifies it), but it creates no organization record. The registration screen does not send one. The user still completes `POST /orgs`, with the same registration number.
+- `GET /orgs/me` is the endpoint that returns the signed-in representative's organization. It identifies them from the bearer token, so it takes no id.
+
+## 10. Not available yet
+
+- Logo upload, KYC document upload and the separate contacts endpoint from the onboarding flow. The registration screen collects contact details inline and does not use them.
+- Notifying the representative when an administrator decides. They see the status when they next open the screen.
+- More than one representative per organization.

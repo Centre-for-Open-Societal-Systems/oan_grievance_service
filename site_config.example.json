@@ -1,0 +1,42 @@
+{
+  "_comment": "Reference site_config.json for oan_grievance_service and oan_auth_service",
+
+  "db_name": "_1a2b3c4d5e6f7890",
+  "db_user": "_1a2b3c4d5e6f7890",
+  "db_password": "generated_db_password_here",
+  "db_type": "mariadb",
+
+  "developer_mode": 0,
+  "allow_tests": false,
+
+  "encryption_key": "your_fernet_encryption_key_here=",
+  "secret_key": "your_secret_hmac_key_here",
+
+  "jwt_current_kid": "v1",
+  "jwt_private_keys": {
+    "v1": "keys/jwt_v1.pem"
+  },
+  "jwt_default_registration_role": "Grievance Submitter",
+  "jwt_self_registerable_roles": [
+    "Grievance Submitter"
+  ],
+  "jwt_access_token_ttl": 900,
+  "jwt_refresh_token_ttl": 604800,
+  "jwt_refresh_token_ttl_remember_me": 7776000,
+  "jwt_issuer": "oan-grievance",
+  "jwt_enforce_https": true,
+
+  "grievance_clamav_host": "clamav",
+  "grievance_clamav_port": 3310,
+  "grievance_change_request_hours": 24,
+  "grievance_auto_escalation_enabled": true,
+  "grievance_a2c_banks_url": "https://a2c.example.org/api",
+  "grievance_a2c_banks_username": "grievance-sync@example.org",
+  "grievance_a2c_banks_password": "a2c_service_account_password_here",
+
+  "installed_apps": [
+    "frappe",
+    "oan_auth_service",
+    "oan_grievance_service"
+  ]
+}

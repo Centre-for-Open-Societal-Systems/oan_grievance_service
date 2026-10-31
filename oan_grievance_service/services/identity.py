@@ -1,0 +1,296 @@
+import re
+from dataclasses import dataclass
+
+import frappe
+from frappe import _
+
+# Identity schemes, matching the dedupe_key prefixes.
+SCHEME_FAYDA = "fayda"
+SCHEME_ORG = "org"
+SCHEME_PHONE = "phone"
+
+# Fields every submitter needs regardless of type (profile registration, not grievance).
+COMMON_REQUIRED = ("submitter_name", "contact_mobile")
+
+# Format rules for profile/dedupe identity values — not Grievance DocType fields.
+FAYDA_PATTERN = re.compile(r"^\d{16}$")
+REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
+
+
+@dataclass(frozen=True)
+class IdentityRule:
+	"""Registration and identity requirements for one submitter type."""
+
+	schemes: tuple
+	"""Acceptable dedupe schemes."""
+
+	required: tuple
+	"""Fields that must be present before the profile can be saved."""
+
+
+SUBMITTER_TYPE_RULES = {
+	"Individual Farmer": IdentityRule(
+		schemes=(SCHEME_FAYDA, SCHEME_PHONE),
+		required=COMMON_REQUIRED,
+	),
+	"Development Agent": IdentityRule(
+		schemes=(SCHEME_FAYDA, SCHEME_PHONE),
+		required=COMMON_REQUIRED,
+	),
+	"Cooperative": IdentityRule(
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
+		required=COMMON_REQUIRED,
+	),
+	"FPO": IdentityRule(
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
+		required=COMMON_REQUIRED,
+	),
+	"NGO": IdentityRule(
+		schemes=(SCHEME_ORG, SCHEME_FAYDA),
+		required=COMMON_REQUIRED,
+	),
+	"Woreda/Kebele Body": IdentityRule(
+		schemes=(SCHEME_ORG,),
+		required=COMMON_REQUIRED,
+	),
+}
+
+
+def _validate_fayda_id(fayda_id: str):
+	if not FAYDA_PATTERN.match(fayda_id):
+		frappe.throw(
+			_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id),
+			title=_("Invalid Fayda ID"),
+		)
+
+
+def _validate_registration_number(registration_number: str):
+	if not REGISTRATION_PATTERN.match(registration_number):
+		frappe.throw(
+			_("Registration number '{0}' is not in a valid format.").format(registration_number),
+			title=_("Invalid Registration Number"),
+		)
+
+
+# Bare / national numbers (no +ISD) are parsed against Ethiopia, the primary
+# jurisdiction. International numbers carry their
+# own country code and are validated by that country's numbering plan.
+DEFAULT_PHONE_REGION = "ET"
+
+
+def validate_mobile(v: str | None, fieldname: str = "contact_mobile") -> str:
+	"""Return E.164 mobile validated by phonenumbers (libphonenumber), or raise.
+
+	Uses the same library Frappe ships. National forms default to Ethiopia.
+	The parsed region must also appear in jurisdiction phone extensions so a
+	valid neighbouring ISD cannot slip SMS onto another network.
+	"""
+	from phonenumbers import (
+		NumberParseException,
+		PhoneNumberFormat,
+		format_number,
+		is_valid_number,
+		parse,
+		region_code_for_number,
+	)
+
+	raw = str(v or "").strip()
+	if not raw:
+		frappe.throw(_("A contact mobile number is required."), title=_("Missing Mobile"))
+
+	# Keep a leading +; drop spaces, hyphens, and desk-style separators.
+	candidate = re.sub(r"[^\d+]", "", raw)
+	if candidate.count("+") > 1 or (candidate and "+" in candidate[1:]):
+		frappe.throw(
+			_("{0} is not a valid phone number.").format(raw),
+			title=_("Invalid Mobile Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	try:
+		parsed = parse(candidate, None if candidate.startswith("+") else DEFAULT_PHONE_REGION)
+	except NumberParseException as exc:
+		if exc.error_type == NumberParseException.INVALID_COUNTRY_CODE:
+			frappe.throw(
+				_("Please select a country code for field {0}.").format(frappe.bold(fieldname)),
+				title=_("Country Code Required"),
+				exc=frappe.InvalidPhoneNumberError,
+			)
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	if not is_valid_number(parsed):
+		frappe.throw(
+			_("Phone Number {0} set in field {1} is not valid.").format(
+				frappe.bold(raw), frappe.bold(fieldname)
+			),
+			title=_("Invalid Phone Number"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	number_region = region_code_for_number(parsed)
+	from oan_grievance_service.api.v1._options import get_phone_extensions
+
+	allowed = {ext["code"] for ext in get_phone_extensions() if ext.get("code")}
+	if allowed and number_region and number_region not in allowed:
+		frappe.throw(
+			_("{0} belongs to a country outside the active jurisdiction. Use a number from: {1}.").format(
+				raw, ", ".join(sorted(allowed))
+			),
+			title=_("Wrong Country Code"),
+			exc=frappe.InvalidPhoneNumberError,
+		)
+
+	return format_number(parsed, PhoneNumberFormat.E164)
+
+
+def derive_dedupe_key(
+	submitter_type: str,
+	mobile: str | None = None,
+	fayda_id: str | None = None,
+	national_id: str | None = None,
+	registration_number: str | None = None,
+	org_number: str | None = None,
+	farmer_id: str | None = None,
+	dedupe_key: str | None = None,
+) -> str | None:
+	"""Automatically derive the canonical scheme-prefixed dedupe key from user inputs.
+
+	Driven directly by the allowed schemes in SUBMITTER_TYPE_RULES:
+	- If raw dedupe_key is provided with scheme -> preserves it.
+	- If type accepts SCHEME_ORG -> uses registration_number (required if only SCHEME_ORG).
+	- If type accepts SCHEME_FAYDA -> uses fayda_id if provided.
+	- If type accepts SCHEME_PHONE -> falls back to mobile phone.
+
+	Fayda / registration format checks live here (profile identity), not on grievance submit.
+	"""
+	raw_key = (dedupe_key or "").strip()
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
+	allowed_schemes = rule.schemes if rule else (SCHEME_FAYDA, SCHEME_ORG, SCHEME_PHONE)
+
+	if raw_key:
+		if ":" in raw_key:
+			scheme, _sep, value = raw_key.partition(":")
+			if scheme == SCHEME_FAYDA and value:
+				_validate_fayda_id(value)
+			elif scheme == SCHEME_ORG and value:
+				_validate_registration_number(value)
+			return raw_key
+		default_scheme = allowed_schemes[0] if allowed_schemes else SCHEME_PHONE
+		return f"{default_scheme}:{raw_key}"
+
+	fayda = (fayda_id or national_id or "").strip()
+	org = (registration_number or org_number or "").strip()
+	phone = (mobile or "").strip()
+
+	# 1. If type accepts SCHEME_ORG:
+	if SCHEME_ORG in allowed_schemes:
+		if org:
+			_validate_registration_number(org)
+			return f"{SCHEME_ORG}:{org}"
+		# If this type has no other way to be identified
+		if SCHEME_PHONE not in allowed_schemes and not (fayda and SCHEME_FAYDA in allowed_schemes):
+			frappe.throw(
+				_("An official Organization Registration / Certificate Number is required for {0}.").format(
+					submitter_type
+				),
+				frappe.ValidationError,
+			)
+
+	# 2. If type accepts SCHEME_FAYDA and fayda ID was provided:
+	if SCHEME_FAYDA in allowed_schemes and fayda:
+		_validate_fayda_id(fayda)
+		return f"{SCHEME_FAYDA}:{fayda}"
+
+	# 3. If SCHEME_PHONE is acceptable, fallback to mobile phone
+	if SCHEME_PHONE in allowed_schemes and phone:
+		return f"{SCHEME_PHONE}:{phone}"
+
+	return None
+
+
+def find_or_create_submitter(payload: dict) -> str | None:
+	"""Resolve or create the Submitter Profile an assisted filer files a case for.
+
+	Only called for officers filing on behalf of a citizen who has no account. The
+	Fayda ID is the only identity used to link: a match on it reuses the profile,
+	anything else creates one. No Fayda ID means no profile.
+	"""
+	fayda = str(payload.get("fayda_id") or "").strip()
+	if not fayda:
+		return None
+	_validate_fayda_id(fayda)
+
+	submitter_type = payload.get("submitter_type") or "Individual Farmer"
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
+	if rule and SCHEME_FAYDA not in rule.schemes:
+		frappe.throw(
+			_("{0} cannot be identified by a Fayda ID.").format(submitter_type),
+			frappe.ValidationError,
+		)
+
+	dedupe_key = f"{SCHEME_FAYDA}:{fayda}"
+	existing = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": dedupe_key}, "name")
+	if existing:
+		return existing
+
+	profile = frappe.get_doc(
+		{
+			"doctype": "Grievance Submitter Profile",
+			"submitter_type": submitter_type,
+			"submitter_name": payload.get("submitter_name") or "Citizen",
+			"contact_mobile": payload.get("contact_mobile"),
+			"contact_email": payload.get("contact_email"),
+			"administrative_area": payload.get("administrative_area"),
+			"administrative_unit": payload.get("administrative_unit"),
+			"dedupe_key": dedupe_key,
+			"active": 1,
+		}
+	)
+	profile.insert(ignore_permissions=True)
+	return profile.name
+
+
+def is_reachable(doc: object) -> bool:
+	"""Whether the submitter has contact information on file (mobile or email)."""
+	if hasattr(doc, "get"):
+		return bool(doc.get("contact_mobile") or doc.get("contact_email"))
+	return bool(getattr(doc, "contact_mobile", None) or getattr(doc, "contact_email", None))
+
+
+def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
+	"""Extract and optionally mask contact mobile and split country/national phone numbers.
+
+	Returns dict with:
+	  'contact_mobile', 'contact_email', 'country_code', 'phone_number', 'can_request_more_info'
+	"""
+	from oan_auth_service.api.utils import split_phone_number
+
+	get_val = doc.get if hasattr(doc, "get") else lambda k, default=None: getattr(doc, k, default)
+
+	raw_mobile = get_val("contact_mobile")
+	raw_email = get_val("contact_email")
+
+	can_contact = bool(raw_mobile or raw_email)
+
+	if show_identity:
+		mobile = raw_mobile
+		email = raw_email
+		cc, nat = split_phone_number(mobile) if mobile else (None, None)
+	else:
+		mobile = None
+		email = None
+		cc, nat = (None, None)
+
+	return {
+		"contact_mobile": mobile,
+		"contact_email": email,
+		"country_code": cc,
+		"phone_number": nat,
+		"can_request_more_info": can_contact,
+	}

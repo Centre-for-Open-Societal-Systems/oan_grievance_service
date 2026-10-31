@@ -1,0 +1,619 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-09-03 18:15:03.596772",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "ticket_number",
+  "status",
+  "workflow_state",
+  "col_flags",
+  "escalated",
+  "submission_channel",
+  "client_submission_uuid",
+  "sec_submitter",
+  "submitter_type",
+  "submitter",
+  "submitter_name",
+  "col_submitter_contact",
+  "contact_mobile",
+  "contact_email",
+  "assisted_by_officer",
+  "consent_given",
+  "consent_recorded_at",
+  "sec_anonymity",
+  "is_anonymous",
+  "anonymity_status",
+  "col_anonymity",
+  "sec_area",
+  "administrative_area",
+  "col_area",
+  "administrative_unit",
+  "area_lft",
+  "area_path_code",
+  "sec_classification",
+  "service_category",
+  "grievance_type",
+  "col_classification",
+  "associated_service_provider",
+  "sec_detail",
+  "description",
+  "desired_outcome",
+  "sec_assignment",
+  "assigned_dept",
+  "assigned_to",
+  "col_assignment",
+  "routed_automatically",
+  "routing_rule",
+  "sec_sla",
+  "sla_days",
+  "sla_start_at",
+  "sla_due_date",
+  "on_hold_since",
+  "col_sla",
+  "total_hold_time",
+  "reminder_50_sent",
+  "reminder_80_sent",
+  "next_escalation_at",
+  "escalated_at",
+  "resolved_at",
+  "sec_closure",
+  "state_deadline",
+  "reopen_count",
+  "col_closure",
+  "satisfaction_rating",
+  "satisfaction_comments",
+  "closure_reason"
+ ],
+ "fields": [
+  {
+   "description": "Nine Base32 characters: region (1), category (3), sequence (4), year (1). Example 3001002A0, shown as 3-001-002A-0.",
+   "fieldname": "ticket_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ticket Number",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "default": "Submitted",
+   "description": "Mirrors workflow_state, which the Grievance Workflow drives. Not edited directly.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Lifecycle state, driven by the Grievance Workflow (setup/install.py).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_flags",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Overlay flag, does not replace the lifecycle status",
+   "fieldname": "escalated",
+   "fieldtype": "Check",
+   "label": "Escalated"
+  },
+  {
+   "fieldname": "submission_channel",
+   "fieldtype": "Link",
+   "label": "Submission Channel",
+   "options": "Grievance Submission Type",
+   "reqd": 1
+  },
+  {
+   "description": "Client-generated key for one submission attempt. A retry carrying the same value returns the original ticket instead of lodging a second grievance -- the offline-first app retries by design, and a farmer double-tapping on a slow connection must not file twice.",
+   "fieldname": "client_submission_uuid",
+   "fieldtype": "Data",
+   "label": "Client Submission UUID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "sec_submitter",
+   "fieldtype": "Section Break",
+   "label": "Submitter"
+  },
+  {
+   "fieldname": "submitter_type",
+   "fieldtype": "Link",
+   "label": "Grievance Submitter Type",
+   "options": "Grievance Submitter Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "submitter",
+   "fieldtype": "Link",
+   "label": "Grievance Submitter Profile",
+   "options": "Grievance Submitter Profile",
+   "search_index": 1
+  },
+  {
+   "fieldname": "submitter_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Submitter / Organization Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_submitter_contact",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_mobile",
+   "fieldtype": "Data",
+   "label": "Contact Mobile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "description": "Officer ID retained for audit; the farmer remains primary owner",
+   "fieldname": "assisted_by_officer",
+   "fieldtype": "Link",
+   "label": "Assisted By (Development Agent)",
+   "options": "User"
+  },
+  {
+   "description": "The submitter's agreement to the processing of their personal data. Required on every channel; for IVR and assisted submissions the officer records that it was read out and given.",
+   "fieldname": "consent_given",
+   "fieldtype": "Check",
+   "label": "Consent Given"
+  },
+  {
+   "fieldname": "consent_recorded_at",
+   "fieldtype": "Datetime",
+   "label": "Consent Recorded At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_anonymity",
+   "fieldtype": "Section Break",
+   "label": "Anonymity"
+  },
+  {
+   "default": "0",
+   "description": "Set through the anonymity approval workflow",
+   "fieldname": "is_anonymous",
+   "fieldtype": "Check",
+   "label": "Anonymous Submission"
+  },
+  {
+   "depends_on": "is_anonymous",
+   "fieldname": "anonymity_status",
+   "fieldtype": "Select",
+   "label": "Anonymity Status",
+   "options": "\nNot Requested\nPending Approval\nApproved\nDisclosure Requested\nRejected"
+  },
+  {
+   "fieldname": "col_anonymity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sec_area",
+   "fieldtype": "Section Break",
+   "label": "Administrative Scope & Area"
+  },
+  {
+   "description": "The operational administrative area (e.g. Woreda, Kebele, Ward) where the grievance occurred",
+   "fieldname": "administrative_area",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "in_standard_filter": 1,
+   "label": "Grievance Administrative Area",
+   "options": "Grievance Administrative Area",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_area",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Specific local facility, branch, or sub-station notes",
+   "fieldname": "administrative_unit",
+   "fieldtype": "Data",
+   "label": "Specific Location / Unit"
+  },
+  {
+   "description": "Denormalised nested set left index for fast range scoping",
+   "fieldname": "area_lft",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Area Left Index",
+   "no_copy": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Frozen snapshot of the dotted hierarchy path at submission time (e.g. ET.OROM.BISH.K01)",
+   "fieldname": "area_path_code",
+   "fieldtype": "Data",
+   "label": "Area Path Code Snapshot",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_classification",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Loaded per category.",
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "label": "Grievance Type",
+   "options": "Grievance Type",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_classification",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Pre-filled from the OAN registry when available",
+   "fieldname": "associated_service_provider",
+   "fieldtype": "Data",
+   "label": "Associated Service Provider"
+  },
+  {
+   "fieldname": "sec_detail",
+   "fieldtype": "Section Break",
+   "label": "Grievance Detail"
+  },
+  {
+   "description": "Minimum 20 characters",
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "desired_outcome",
+   "fieldtype": "Small Text",
+   "label": "Desired Outcome"
+  },
+  {
+   "fieldname": "sec_assignment",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "assigned_dept",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Assigned Department",
+   "options": "Grievance Department",
+   "search_index": 1
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Assigned Officer",
+   "options": "User",
+   "search_index": 1
+  },
+  {
+   "fieldname": "col_assignment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "False means the case entered the nodal officer manual queue",
+   "fieldname": "routed_automatically",
+   "fieldtype": "Check",
+   "label": "Routed Automatically",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "routing_rule",
+   "fieldtype": "Link",
+   "label": "Matched Routing Rule",
+   "options": "Grievance RBAC Assignment",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "sec_sla",
+   "fieldtype": "Section Break",
+   "label": "SLA Tracking"
+  },
+  {
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "label": "SLA Days",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "description": "Set when the case is assigned to a department; the SLA window counts from here",
+   "fieldname": "sla_start_at",
+   "fieldtype": "Datetime",
+   "label": "SLA Start",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "sla_due_date",
+   "fieldtype": "Datetime",
+   "label": "SLA Due Date",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Set while the clock is paused awaiting the submitter. Null means the clock is running.",
+   "fieldname": "on_hold_since",
+   "fieldtype": "Datetime",
+   "label": "On Hold Since",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "col_sla",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Banked hold time, excluded from SLA consumption. The due date is shifted by each hold on resume.",
+   "fieldname": "total_hold_time",
+   "fieldtype": "Duration",
+   "label": "Total Hold Time",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "default": "0",
+   "description": "Per-grievance flag so the 50% reminder is sent once",
+   "fieldname": "reminder_50_sent",
+   "fieldtype": "Check",
+   "label": "50% Reminder Sent",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "reminder_80_sent",
+   "fieldtype": "Check",
+   "label": "80% Reminder Sent",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "description": "When the next escalation is due. Set to the SLA deadline when the clock starts, then pushed out by the current level's escalation hours on every reassignment upward. Empty once the case reaches a terminal level.",
+   "fieldname": "next_escalation_at",
+   "fieldtype": "Datetime",
+   "label": "Next Escalation At",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "description": "When the case first escalated. Kept after a response clears the Escalated flag, so escalation rates count each case once.",
+   "fieldname": "escalated_at",
+   "fieldtype": "Datetime",
+   "label": "First Escalated At",
+   "no_copy": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "permlevel": 1
+  },
+  {
+   "description": "When the case reached Resolved or Closed. Cleared if the case is reopened, and set again when it is next resolved.",
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "no_copy": 1,
+   "read_only": 1,
+   "search_index": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "sec_closure",
+   "fieldtype": "Section Break",
+   "label": "Closure and Feedback"
+  },
+  {
+   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved this is the closure window.",
+   "fieldname": "state_deadline",
+   "fieldtype": "Datetime",
+   "label": "State Deadline",
+   "read_only": 1,
+   "search_index": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "reopen_count",
+   "fieldtype": "Int",
+   "label": "Reopen Count",
+   "read_only": 1,
+   "permlevel": 1
+  },
+  {
+   "fieldname": "col_closure",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Submitter's satisfaction rating on confirmation",
+   "fieldname": "satisfaction_rating",
+   "fieldtype": "Int",
+   "label": "Satisfaction Rating (1-5)"
+  },
+  {
+   "fieldname": "satisfaction_comments",
+   "fieldtype": "Small Text",
+   "label": "Satisfaction Comments"
+  },
+  {
+   "fieldname": "closure_reason",
+   "fieldtype": "Small Text",
+   "label": "Closure Reason",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 0,
+ "links": [],
+ "max_attachments": 5,
+ "modified": "2026-10-23 16:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Management",
+ "name": "Grievance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Submitter",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "write": 1,
+   "role": "Grievance Assisted Submitter"
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Admin",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Officer",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "report": 1,
+   "export": 0
+  },
+  {
+   "permlevel": 1,
+   "role": "Grievance Assisted Submitter",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "ticket_number",
+ "track_changes": 1
+}

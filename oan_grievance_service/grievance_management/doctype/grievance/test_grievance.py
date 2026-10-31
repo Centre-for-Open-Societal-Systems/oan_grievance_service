@@ -1,0 +1,1009 @@
+# Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
+# See license.txt
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from pydantic import ValidationError as PydanticValidationError
+
+from oan_grievance_service.api.v1 import grievance as grievance_api
+from oan_grievance_service.api.v1.grievance import (
+	CLIENT_IMMUTABLE_FIELDS,
+	_resolve_submitter_identity,
+)
+from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
+	validate_submission_payload,
+)
+from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import routing, ticket_number
+from oan_grievance_service.tests.fixtures import (
+	a_grievance_type,
+	a_leaf_area,
+	a_staffed_desk,
+	discard_grievance,
+)
+
+
+class TestGrievance(FrappeTestCase):
+	def setUp(self):
+		# Setup tree: Country -> Region -> Woreda (leaf)
+		root_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Tree Root Country"}, "name"
+		)
+		if not root_name:
+			self.root_area = frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Tree Root Country",
+					"level_name": "Country",
+					"code": "TRC",
+					"is_group": 1,
+				}
+			).insert(ignore_permissions=True)
+		else:
+			self.root_area = frappe.get_doc("Grievance Administrative Area", root_name)
+
+		region_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Tree Test Region"}, "name"
+		)
+		if not region_name:
+			self.region_area = frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Tree Test Region",
+					"level_name": "Region",
+					"code": "TTR",
+					"ticket_code": "T",
+					"parent_administrative_area": self.root_area.name,
+					"is_group": 1,
+				}
+			).insert(ignore_permissions=True)
+		else:
+			self.region_area = frappe.get_doc("Grievance Administrative Area", region_name)
+			# Existing region rows from older fixtures may lack ticket_code.
+			if not self.region_area.ticket_code:
+				self.region_area.db_set("ticket_code", "T", update_modified=False)
+				self.region_area.reload()
+
+		woreda_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Tree Test Woreda Leaf"}, "name"
+		)
+		if not woreda_name:
+			self.woreda_leaf = frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Tree Test Woreda Leaf",
+					"level_name": "Woreda",
+					"code": "TTW",
+					"parent_administrative_area": self.region_area.name,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
+		else:
+			self.woreda_leaf = frappe.get_doc("Grievance Administrative Area", woreda_name)
+
+		self.root_area.reload()
+		self.region_area.reload()
+		self.woreda_leaf.reload()
+
+		# Ensure masters
+		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
+			frappe.get_doc(
+				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+			).insert(ignore_permissions=True)
+
+		if not frappe.db.exists("Grievance Service Category", "Inputs"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Inputs",
+					"code": "001",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		existing_gtype = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
+		if not existing_gtype:
+			self.gtype_doc = frappe.get_doc(
+				{
+					"doctype": "Grievance Type",
+					"type_name": "Fertilizer Shortage",
+					"service_category": "Inputs",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+		else:
+			self.gtype_doc = frappe.get_doc("Grievance Type", existing_gtype)
+
+		if not frappe.db.exists("Grievance Department", "Agriculture Dept"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": "Agriculture Dept",
+				}
+			).insert(ignore_permissions=True)
+
+		if not frappe.db.exists("Grievance Department", "Regional Agronomy Dept"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": "Regional Agronomy Dept",
+				}
+			).insert(ignore_permissions=True)
+
+	def test_grievance_creation_sets_area_lft_and_path_code(self):
+		g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Tesfaye",
+				"contact_mobile": "+251911334455",
+				"submission_channel": "Mobile App",
+				"administrative_area": self.woreda_leaf.name,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_doc.name,
+				"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(g.area_lft, self.woreda_leaf.lft)
+		self.assertTrue(bool(g.area_path_code))
+
+	def _submit(self, **overrides):
+		payload = {
+			"doctype": "Grievance",
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+		payload.update(overrides)
+		return frappe.get_doc(payload).insert(ignore_permissions=True)
+
+	def test_ticket_number_has_the_agreed_shape(self):
+		"""Nine characters: region 1, category 3, sequence 4, year 1."""
+		g = self._submit()
+		ticket = g.ticket_number
+
+		self.assertEqual(len(ticket), ticket_number.TICKET_WIDTH)
+		self.assertEqual(ticket[0], "T", "region character")
+		self.assertEqual(ticket[1:4], "001", "category code")
+		self.assertEqual(ticket[8], ticket_number.year_segment(), "year character")
+
+		# Every character must come from the Base32 alphabet, so none of the
+		# excluded I, L, O or U can reach a submitter.
+		for char in ticket:
+			self.assertIn(char, ticket_number.ALPHABET, f"{char} is outside the alphabet")
+
+		# The name is the ticket number; reports and notifications read both.
+		self.assertEqual(g.name, ticket)
+
+	def test_ticket_number_takes_the_region_not_the_leaf(self):
+		"""The grievance attaches to a woreda; the ticket still names its region."""
+		self.assertIsNone(self.woreda_leaf.ticket_code, "leaf carries no ticket code")
+		g = self._submit()
+		self.assertEqual(g.ticket_number[0], self.region_area.ticket_code)
+
+	def test_ticket_numbers_are_unique_within_one_scope(self):
+		"""Same region, category and year: the sequence must still separate them."""
+		first = self._submit()
+		second = self._submit()
+
+		self.assertNotEqual(first.ticket_number, second.ticket_number)
+		# Region, category and year are shared; only the sequence differs.
+		self.assertEqual(first.ticket_number[:4], second.ticket_number[:4])
+		self.assertEqual(first.ticket_number[8], second.ticket_number[8])
+		self.assertEqual(
+			ticket_number.decode(second.ticket_number[4:8]),
+			ticket_number.decode(first.ticket_number[4:8]) + 1,
+			"the sequence should advance by one",
+		)
+
+	def test_missing_region_ticket_code_is_refused(self):
+		"""A guessed region would be wrong for the life of the case, so fail loudly."""
+		region = frappe.get_doc(
+			{
+				"doctype": "Grievance Administrative Area",
+				"area_name": "Uncoded Region",
+				"level_name": "Region",
+				"parent_administrative_area": self.root_area.name,
+				"is_group": 1,
+			}
+		).insert(ignore_permissions=True)
+		woreda = frappe.get_doc(
+			{
+				"doctype": "Grievance Administrative Area",
+				"area_name": "Uncoded Woreda",
+				"level_name": "Woreda",
+				"parent_administrative_area": region.name,
+				"is_group": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.ValidationError):
+			self._submit(administrative_area=woreda.name)
+
+	def test_base32_round_trips_and_pads(self):
+		self.assertEqual(ticket_number.encode(0, 4), "0000")
+		self.assertEqual(ticket_number.encode(1, 4), "0001")
+		self.assertEqual(ticket_number.encode(31, 4), "000Z")
+		self.assertEqual(ticket_number.encode(32, 4), "0010")
+		self.assertEqual(ticket_number.encode(42, 4), "001A")
+
+		for value in (0, 1, 31, 32, 42, 1000, 1048575):
+			self.assertEqual(ticket_number.decode(ticket_number.encode(value, 4)), value)
+
+	def test_base32_excludes_and_forgives_confusable_characters(self):
+		for char in "ILOU":
+			self.assertNotIn(char, ticket_number.ALPHABET)
+
+		# A submitter reading "0" as "O" and "1" as "I" or "L" still resolves,
+		# and the display hyphens and lower case are accepted.
+		self.assertEqual(ticket_number.decode("O1"), ticket_number.decode("01"))
+		self.assertEqual(ticket_number.decode("I0"), ticket_number.decode("10"))
+		self.assertEqual(ticket_number.decode("L0"), ticket_number.decode("10"))
+		self.assertEqual(ticket_number.decode("3-001-002a-0"), ticket_number.decode("3001002A0"))
+
+	def test_sequence_exhaustion_is_refused_not_widened(self):
+		"""Overflowing must fail rather than silently emit a tenth character."""
+		with self.assertRaises(frappe.ValidationError):
+			ticket_number.encode(ticket_number.BASE**ticket_number.SEQUENCE_WIDTH, 4)
+
+	def test_ethiopian_year_turns_in_september(self):
+		"""The manual form numbers its references by the Ethiopian year."""
+		import datetime
+
+		# The annexure's sample: filed 15 November 2025, reference LK/GR/2018/0147.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2025, 11, 15)), 2018)
+		# Still 2018 before the new year, 2019 on and after 11 September 2026.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 1, 1)), 2018)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 9, 10)), 2018)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2026, 9, 11)), 2019)
+		# 2028 is a Gregorian leap year, so the 2027 new year falls a day later.
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2027, 9, 11)), 2019)
+		self.assertEqual(ticket_number.ethiopian_year(datetime.date(2027, 9, 12)), 2020)
+
+	def test_segments_are_read_only(self):
+		"""Describing a ticket must not consume a sequence number."""
+		before = ticket_number.segments(self.woreda_leaf.name, "Inputs")
+		self.assertEqual((before.region, before.category, before.year), ("T", "001", before.year))
+
+		g = self._submit()
+		after = ticket_number.segments(self.woreda_leaf.name, "Inputs")
+		self.assertEqual(before, after)
+		self.assertTrue(g.ticket_number.startswith(before.region + before.category))
+
+	def test_display_grouping_is_presentation_only(self):
+		self.assertEqual(ticket_number.display("3001002A0"), "3-001-002A-0")
+		g = self._submit()
+		self.assertEqual(ticket_number.display(g.ticket_number).replace("-", ""), g.ticket_number)
+
+	def test_normalize_accepts_a_ticket_however_it_was_typed(self):
+		"""What we print grouped must come back in whatever form a person sends."""
+		stored = "3001002A0"
+		for typed in (
+			"3001002A0",
+			"3-001-002A-0",  # as displayed
+			"3 001 002A 0",  # read out with pauses
+			"3001002a0",  # lower case
+			"  3-001-002a-0  ",  # pasted with whitespace
+			"3OO1OO2AO",  # O read for 0
+			"300I002A0",  # I read for 1
+			"300L002A0",  # L read for 1
+		):
+			self.assertEqual(ticket_number.normalize(typed), stored, f"failed on {typed!r}")
+
+	def test_normalize_leaves_non_tickets_alone(self):
+		"""A search for something else must not be mangled into a false match."""
+		for other in ("", "not-a-ticket", "3001002A", "3001002A00"):
+			self.assertEqual(ticket_number.normalize(other), other.strip())
+
+	def test_a_ticket_can_be_looked_up_as_it_was_displayed(self):
+		"""The grouped form we send is the form a submitter will quote back."""
+		from oan_grievance_service.api.v1.grievance import _load
+
+		g = self._submit()
+		grouped = ticket_number.display(g.ticket_number)
+		self.assertNotEqual(grouped, g.ticket_number, "the display form should differ")
+
+		self.assertEqual(_load(grouped).name, g.name)
+		self.assertEqual(_load(grouped.lower()).name, g.name)
+		self.assertEqual(_load(g.ticket_number).name, g.name)
+
+	def test_cannot_attach_grievance_to_group_area(self):
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "Tesfaye",
+					"contact_mobile": "+251911334455",
+					"submission_channel": "Mobile App",
+					"administrative_area": self.region_area.name,  # is_group: 1
+					"service_category": "Inputs",
+					"grievance_type": self.gtype_doc.name,
+					"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+				}
+			).insert(ignore_permissions=True)
+
+	def test_submission_payload_validates_domain_rules(self):
+		"""Domain-only checks: country-aware mobile, description length, type↔category, filing area."""
+		base = {
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+
+		validate_submission_payload(base)
+
+		# Valid Kenyan / Tanzanian mobiles must still fail the jurisdiction gate
+		# (libphonenumber alone would accept them).
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_mobile": "+254712345678"})
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "contact_mobile": "+255712345678"})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "description": "too short"})
+
+		# Cross-field rule beyond Link: type must belong to the chosen category.
+		other_cat = "Credit"
+		if not frappe.db.exists("Grievance Service Category", other_cat):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": other_cat,
+					"code": "004",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "service_category": other_cat})
+
+		with self.assertRaises(PydanticValidationError):
+			validate_submission_payload({**base, "administrative_area": self.region_area.name})
+
+	def test_can_attach_grievance_to_woreda_group_area(self):
+		"""Woredas with child kebeles (is_group=1) must still be allowed for grievance filing."""
+		# Create a child kebele under woreda to ensure it is marked as a group
+		kebele_name = frappe.db.get_value(
+			"Grievance Administrative Area", {"area_name": "Test Child Kebele"}, "name"
+		)
+		if not kebele_name:
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Administrative Area",
+					"area_name": "Test Child Kebele",
+					"level_name": "Kebele",
+					"code": "TCK",
+					"parent_administrative_area": self.woreda_leaf.name,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
+
+		self.woreda_leaf.reload()
+		g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Tesfaye",
+				"contact_mobile": "+251911334455",
+				"submission_channel": "Mobile App",
+				"administrative_area": self.woreda_leaf.name,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_doc.name,
+				"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.area_lft, self.woreda_leaf.lft)
+		self.assertTrue(bool(g.area_path_code))
+		discard_grievance(g.name)
+
+	def test_can_file_grievance_at_woreda_level_via_api(self):
+		"""Submit accepts woreda area and optional kebele free text."""
+		import uuid
+
+		u = str(uuid.uuid4())
+		res = grievance_api.submit(
+			client_submission_uuid=u,
+			consent_given=1,
+			submitter_type="Individual Farmer",
+			submitter_name="Tesfaye",
+			contact_mobile="+251911334455",
+			submission_channel="Mobile App",
+			administrative_area=self.woreda_leaf.name,
+			administrative_unit="Village 2 West",
+			service_category="Inputs",
+			grievance_type=self.gtype_doc.name,
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		self.assertEqual(res["status"], "success")
+		ticket = res["data"]["ticket_number"]
+		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.administrative_unit, "Village 2 West")
+		discard_grievance(ticket_number.normalize(ticket))
+
+	def test_kebele_digit_name_does_not_silently_misroute(self):
+		"""Kebele passed as common numeric name (e.g. '1') must not match random other region."""
+		import uuid
+
+		u = str(uuid.uuid4())
+		res = grievance_api.submit(
+			client_submission_uuid=u,
+			consent_given=1,
+			submitter_type="Individual Farmer",
+			submitter_name="Tesfaye",
+			contact_mobile="+251911334455",
+			submission_channel="Mobile App",
+			administrative_area=self.woreda_leaf.name,
+			administrative_unit="1",
+			service_category="Inputs",
+			grievance_type=self.gtype_doc.name,
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		self.assertEqual(res["status"], "success")
+		ticket = res["data"]["ticket_number"]
+		g = frappe.get_doc("Grievance", ticket_number.normalize(ticket))
+		# Must remain attached to woreda, not random kebele '1' across the country
+		self.assertEqual(g.administrative_area, self.woreda_leaf.name)
+		self.assertEqual(g.administrative_unit, "1")
+		discard_grievance(ticket_number.normalize(ticket))
+
+	def _filing_kwargs(self, **overrides):
+		import uuid
+
+		kwargs = {
+			"client_submission_uuid": str(uuid.uuid4()),
+			"consent_given": 1,
+			"submitter_type": "Individual Farmer",
+			"submitter_name": "Tesfaye",
+			"contact_mobile": "+251911334455",
+			"submission_channel": "Mobile App",
+			"administrative_area": self.woreda_leaf.name,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype_doc.name,
+			"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+		}
+		kwargs.update(overrides)
+		return kwargs
+
+	def test_submit_without_consent_is_refused(self):
+		kwargs = self._filing_kwargs(consent_given=0)
+		res = grievance_api.submit(**kwargs)
+		self.assertEqual(res["status"], "error")
+		self.assertFalse(
+			frappe.db.exists("Grievance", {"client_submission_uuid": kwargs["client_submission_uuid"]})
+		)
+
+	def test_submit_with_a_used_client_submission_uuid_is_refused(self):
+		kwargs = self._filing_kwargs()
+		first = grievance_api.submit(**kwargs)
+		self.assertEqual(first["status"], "success")
+		self.addCleanup(discard_grievance, ticket_number.normalize(first["data"]["ticket_number"]))
+
+		second = grievance_api.submit(**kwargs)
+		self.assertEqual(second["status"], "error")
+		# The error envelope rolls the request back, which in a test also discards the
+		# first filing, so a row count cannot show the refusal; its reason can.
+		self.assertIn(
+			frappe._("This submission has already been filed as {0}.").format(first["data"]["ticket_number"]),
+			second["message"],
+		)
+
+	def test_submit_without_permission_to_contact_drops_the_contact_details(self):
+		res = grievance_api.submit(
+			**self._filing_kwargs(contact_email="tesfaye@example.com", can_request_more_info=False)
+		)
+		self.assertEqual(res["status"], "success")
+		name = ticket_number.normalize(res["data"]["ticket_number"])
+		self.addCleanup(discard_grievance, name)
+
+		self.assertFalse(res["data"]["can_request_more_info"])
+		g = frappe.get_doc("Grievance", name)
+		self.assertFalse(g.contact_mobile)
+		self.assertFalse(g.contact_email)
+
+	def _filed_grievance(self):
+		g = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": "Tesfaye",
+				"contact_mobile": "+251911334455",
+				"submission_channel": "Mobile App",
+				"administrative_area": self.woreda_leaf.name,
+				"service_category": "Inputs",
+				"grievance_type": self.gtype_doc.name,
+				"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, g.name)
+		return g
+
+	def test_filed_fields_cannot_be_changed_after_filing(self):
+		g = self._filed_grievance()
+		g.description = "Rewritten after the fact."
+		with self.assertRaises(frappe.ValidationError):
+			g.save(ignore_permissions=True)
+
+	def test_a_terminal_case_cannot_be_changed(self):
+		from oan_grievance_service.services.sla import terminal_states
+
+		g = self._filed_grievance()
+		g.db_set("workflow_state", sorted(terminal_states())[0], update_modified=False)
+		g.reload()
+		g.assigned_dept = frappe.db.get_value("Grievance Department", {}, "name")
+		with self.assertRaises(frappe.ValidationError):
+			g.save(ignore_permissions=True)
+
+	def test_nearest_ancestor_routing(self):
+		# Create a broad assignment on Region, and a specific assignment on Woreda Leaf
+		broad_rule = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": "Inputs",
+				"department_scope": "Regional Agronomy Dept",
+				"effective_from": frappe.utils.today(),
+				"active": 1,
+				"officers": [
+					{
+						"user": "Administrator",
+						"administrative_area": self.region_area.name,
+						"role_level": "nodal_officer",
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		specific_rule = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"category_scope": "Inputs",
+				"department_scope": "Agriculture Dept",
+				"effective_from": frappe.utils.today(),
+				"active": 1,
+				"officers": [
+					{
+						"user": "Administrator",
+						"administrative_area": self.woreda_leaf.name,
+						"role_level": "nodal_officer",
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		g = None
+		try:
+			g = frappe.get_doc(
+				{
+					"doctype": "Grievance",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": "Tesfaye",
+					"contact_mobile": "+251911334455",
+					"submission_channel": "Mobile App",
+					"administrative_area": self.woreda_leaf.name,
+					"service_category": "Inputs",
+					"grievance_type": self.gtype_doc.name,
+					"description": "Fertilizer subsidy has not been delivered for 3 weeks.",
+				}
+			).insert(ignore_permissions=True)
+
+			matched = routing.find_matching_assignment(g)
+			self.assertIsNotNone(matched)
+			# Specific woreda assignment must win over broader region assignment because it has narrower span
+			self.assertEqual(matched.name, specific_rule.name)
+			self.assertEqual(matched.department_scope, "Agriculture Dept")
+		finally:
+			if g and frappe.db.exists("Grievance", g.name):
+				discard_grievance(g.name)
+			if frappe.db.exists("Grievance RBAC Assignment", broad_rule.name):
+				frappe.delete_doc(
+					"Grievance RBAC Assignment", broad_rule.name, force=True, ignore_permissions=True
+				)
+			if frappe.db.exists("Grievance RBAC Assignment", specific_rule.name):
+				frappe.delete_doc(
+					"Grievance RBAC Assignment", specific_rule.name, force=True, ignore_permissions=True
+				)
+
+
+class TestGrievanceSubmitterOwnership(FrappeTestCase):
+	"""The submission endpoint owns identity: a caller cannot choose whose case it is.
+
+	`permissions.py` grants read and write on a grievance by matching `submitter`
+	against the profiles a user owns, so if the request could set that field a caller
+	could file cases attributed to other people.
+	"""
+
+	def setUp(self):
+		from oan_grievance_service.setup.install import seed_roles
+
+		seed_roles()
+		if not frappe.db.exists("Grievance Submitter Type", "Individual Farmer"):
+			frappe.get_doc(
+				{"doctype": "Grievance Submitter Type", "type_name": "Individual Farmer", "code": "IND"}
+			).insert(ignore_permissions=True)
+
+		self.owner_user = self._user("owner.ownership@example.com", ["Grievance Submitter"])
+		self.other_user = self._user("other.ownership@example.com", ["Grievance Submitter"])
+		self.officer_user = self._user("officer.ownership@example.com", ["Grievance Officer"])
+		self.da_user = self._user("da.ownership@example.com", [C.ROLE_ASSISTED_SUBMITTER])
+		self.admin_user = self._user("admin.ownership@example.com", [C.ROLE_ADMIN])
+
+		self.owner_profile = self._profile(self.owner_user, "Alemayehu Bekele", "+251911000111")
+		self.other_profile = self._profile(self.other_user, "Hirut Tadesse", "+251911000222")
+
+		self.addCleanup(frappe.set_user, "Administrator")
+
+	def _user(self, email, roles):
+		if frappe.db.exists("User", email):
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": email.split(".")[0].title(),
+				"send_welcome_email": 0,
+				"roles": [{"role": role} for role in roles],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(frappe.delete_doc, "User", email, force=True, ignore_permissions=True)
+		return user.name
+
+	def _profile(self, user, name, mobile):
+		existing = frappe.db.get_value("Grievance Submitter Profile", {"contact_mobile": mobile}, "name")
+		if existing:
+			frappe.delete_doc("Grievance Submitter Profile", existing, force=True, ignore_permissions=True)
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_type": "Individual Farmer",
+				"submitter_name": name,
+				"contact_mobile": mobile,
+				"user": user,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Submitter Profile",
+			profile.name,
+			force=True,
+			ignore_permissions=True,
+		)
+		return profile
+
+	def test_submitter_identity_comes_from_session_not_request(self):
+		"""A submitter naming someone else's profile still files as themselves."""
+		frappe.set_user(self.owner_user)
+
+		identity = _resolve_submitter_identity(
+			{
+				"submitter": self.other_profile.name,
+				"submitter_name": "Forged Name",
+				"contact_mobile": "+251900000000",
+			}
+		)
+
+		self.assertEqual(identity["submitter"], self.owner_profile.name)
+		self.assertEqual(identity["submitter_name"], "Alemayehu Bekele")
+		self.assertEqual(identity["contact_mobile"], "+251911000111")
+
+	def test_submitter_cannot_set_assisting_officer(self):
+		frappe.set_user(self.owner_user)
+
+		identity = _resolve_submitter_identity({"assisted_by_officer": self.officer_user})
+
+		self.assertIsNone(identity["assisted_by_officer"])
+
+	def test_submitter_without_profile_is_rejected(self):
+		orphan = self._user("orphan.ownership@example.com", ["Grievance Submitter"])
+		frappe.set_user(orphan)
+
+		with self.assertRaises(frappe.ValidationError):
+			_resolve_submitter_identity({})
+
+	def test_blocked_profile_cannot_file(self):
+		frappe.db.set_value("Grievance Submitter Profile", self.owner_profile.name, "is_blocked", 1)
+		frappe.set_user(self.owner_user)
+
+		with self.assertRaises(frappe.ValidationError):
+			_resolve_submitter_identity({})
+
+	def test_development_agent_files_on_behalf_and_is_recorded_as_assisting(self):
+		"""The named submitter stays the owner; the agent is the audit trail."""
+		frappe.set_user(self.da_user)
+
+		identity = _resolve_submitter_identity(
+			{"submitter": self.other_profile.name, "submitter_name": "Ignored"}
+		)
+
+		self.assertEqual(identity["submitter"], self.other_profile.name)
+		self.assertEqual(identity["submitter_name"], "Hirut Tadesse")
+		self.assertEqual(identity["assisted_by_officer"], self.da_user)
+
+	def test_development_agent_may_supply_details_for_a_walk_in_without_a_profile(self):
+		frappe.set_user(self.da_user)
+
+		identity = _resolve_submitter_identity(
+			{"submitter_name": "Walk In Caller", "contact_mobile": "+251911000333"}
+		)
+
+		self.assertIsNone(identity["submitter"])
+		self.assertEqual(identity["submitter_name"], "Walk In Caller")
+		self.assertEqual(identity["assisted_by_officer"], self.da_user)
+
+	def test_admin_files_on_behalf_and_is_recorded_as_assisting(self):
+		"""Grievance Admin may also file on behalf of a submitter."""
+		frappe.set_user(self.admin_user)
+
+		identity = _resolve_submitter_identity(
+			{"submitter": self.other_profile.name, "submitter_name": "Ignored"}
+		)
+
+		self.assertEqual(identity["submitter"], self.other_profile.name)
+		self.assertEqual(identity["submitter_name"], "Hirut Tadesse")
+		self.assertEqual(identity["assisted_by_officer"], self.admin_user)
+
+	def test_officer_cannot_create_or_submit_grievance(self):
+		"""Grievance Officers work cases and cannot file them."""
+		self.assertFalse(frappe.has_permission("Grievance", "create", user=self.officer_user))
+		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.owner_user))
+		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.da_user))
+
+	def test_server_owned_fields_are_stripped_from_the_request(self):
+		"""The area snapshot and ownership columns are not settable by the caller."""
+		for field in ("submitter", "assisted_by_officer", "area_lft", "area_path_code", "status"):
+			self.assertIn(field, CLIENT_IMMUTABLE_FIELDS)
+
+	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
+		"""Profile-backed submitters send case fields only; pydantic must not require identity."""
+		from oan_grievance_service.api.v1.grievance import SubmitGrievanceRequest
+		from oan_grievance_service.services.identity import validate_mobile
+
+		# HTTP edge: no submitter_type / name / mobile — would have failed RequiredPhone.
+		req = SubmitGrievanceRequest(
+			client_submission_uuid="test-submission-uuid",
+			submission_channel="Mobile App",
+			administrative_area="placeholder-area",
+			service_category="Inputs",
+			grievance_type="placeholder-type",
+			description="Fertilizer subsidy has not been delivered for 3 weeks.",
+		)
+		self.assertIsNone(req.submitter_type)
+		self.assertIsNone(req.submitter_name)
+		self.assertIsNone(req.contact_mobile)
+
+		frappe.set_user(self.owner_user)
+		resolved = {**req.model_dump(), **_resolve_submitter_identity({})}
+
+		self.assertEqual(resolved["submitter"], self.owner_profile.name)
+		self.assertEqual(resolved["submitter_name"], "Alemayehu Bekele")
+		self.assertEqual(resolved["contact_mobile"], "+251911000111")
+		self.assertEqual(resolved["submitter_type"], "Individual Farmer")
+
+		# Domain phonenumbers normalisation (national digits → ET E.164).
+		self.assertEqual(
+			validate_mobile(resolved["contact_mobile"]),
+			"+251911000111",
+		)
+		self.assertEqual(validate_mobile("911000111"), "+251911000111")
+		self.assertEqual(validate_mobile("0911000111"), "+251911000111")
+		self.assertEqual(
+			validate_mobile("+251911000111"),
+			"+251911000111",
+		)
+
+
+class TestGrievanceStaffOptions(FrappeTestCase):
+	def setUp(self):
+		if not frappe.db.exists("Grievance Service Category", "Inputs"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": "Inputs",
+					"code": "001",
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		if not frappe.db.exists("Grievance Department", "Test Agri Dept"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Department",
+					"dept_name": "Test Agri Dept",
+				}
+			).insert(ignore_permissions=True)
+
+		# This class commits (below), so the desk's removal has to be committed too.
+		self.addCleanup(frappe.db.commit)
+		a_staffed_desk(self, "Inputs", "Test Agri Dept")
+
+		# Setup officer user
+		if frappe.db.exists("User", "officer.options@example.com"):
+			frappe.delete_doc("User", "officer.options@example.com", force=True, ignore_permissions=True)
+		self.officer_user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": "officer.options@example.com",
+				"first_name": "Officer",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "User", "officer.options@example.com", force=True, ignore_permissions=True
+		)
+
+		# Setup submitter user
+		if frappe.db.exists("User", "submitter.options@example.com"):
+			frappe.delete_doc("User", "submitter.options@example.com", force=True, ignore_permissions=True)
+		self.submitter_user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": "submitter.options@example.com",
+				"first_name": "Submitter",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Grievance Submitter"}],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "User", "submitter.options@example.com", force=True, ignore_permissions=True
+		)
+
+		self.addCleanup(frappe.set_user, "Administrator")
+
+	def test_officer_can_fetch_staff_options(self):
+		from oan_grievance_service.api.v1.grievance import options
+
+		frappe.set_user(self.officer_user.name)
+		res = options()
+
+		self.assertIn("data", res)
+		data = res["data"]
+
+		# Validate departments
+		self.assertIn("departments", data)
+		dept_names = [d["department_name"] for d in data["departments"]]
+		self.assertIn("Test Agri Dept", dept_names)
+
+		# Queue statuses only. Workflow stages that are not cards are not options.
+		# Officers get an Assigned card; submitters do not.
+		self.assertIn("statuses", data)
+		status_names = [s["status"] for s in data["statuses"]]
+		self.assertEqual(
+			status_names,
+			["All", "Assigned", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+		)
+		self.assertNotIn("Submitted", status_names)
+
+		# Validate categories and channels
+		self.assertIn("service_categories", data)
+		self.assertIn("grievance_types", data)
+		self.assertIn("submission_channels", data)
+
+	def test_submitter_can_access_options(self):
+		from oan_grievance_service.api.v1.grievance import options
+
+		frappe.set_user(self.submitter_user.name)
+		res = options()
+		self.assertEqual(res.get("status"), "success")
+		self.assertIn("data", res)
+		self.assertIn("service_categories", res["data"])
+		status_names = [s["status"] for s in res["data"]["statuses"]]
+		self.assertNotIn("Assigned", status_names)
+		self.assertEqual(
+			status_names,
+			["All", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+		)
+
+	def test_unauthorized_user_cannot_access_options(self):
+		from oan_grievance_service.api.v1.grievance import options
+
+		frappe.set_user("Guest")
+		res = options()
+		self.assertEqual(res.get("status"), "error")
+		self.assertEqual(res.get("code"), "PERMISSION_DENIED")
+		self.assertEqual(frappe.response.get("http_status_code"), 403)
+
+	def test_actions_and_notes_require_assigned_officer_or_admin(self):
+		"""Officers cannot act on or add notes to cases assigned to other officers."""
+		from oan_grievance_service.api.v1 import grievance
+
+		area = a_leaf_area()
+		gtype = a_grievance_type()
+
+		h1 = frappe.generate_hash(length=6)
+		h2 = frappe.generate_hash(length=6)
+		officer_a_email = f"officer.a.{h1}@example.com"
+		officer_b_email = f"officer.b.{h2}@example.com"
+
+		for email, name in ((officer_a_email, f"OfficerA_{h1}"), (officer_b_email, f"OfficerB_{h2}")):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": email,
+					"first_name": name,
+					"send_welcome_email": 0,
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+			self.addCleanup(frappe.delete_doc, "User", email, force=True, ignore_permissions=True)
+
+		case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": area,
+				"service_category": "Inputs",
+				"grievance_type": gtype,
+				"description": "Officer permission test",
+				"assigned_to": officer_a_email,
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+			}
+		)
+		case.flags.ignore_mandatory = True
+		case.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, case.name)
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+
+		# Officer B attempts to add note on Officer A's case
+		frappe.set_user(officer_b_email)
+		res_note = grievance.add_note(case.ticket_number or case.name, body="Unauthorized officer note")
+		self.assertEqual(res_note["status"], "error")
+		self.assertEqual(res_note["code"], "PERMISSION_DENIED")
+
+		# Assigned Officer A can add note
+		frappe.set_user(officer_a_email)
+		note_res = grievance.add_note(case.ticket_number or case.name, body="Assigned officer note")
+		self.assertEqual(note_res["status"], "success")
+
+	def test_anonymity_masked_in_list_and_timeline_for_officers(self):
+		"""List and timeline mask submitter details for anonymous grievances when viewed by officers."""
+		from oan_grievance_service.api.v1 import grievance
+
+		area = a_leaf_area()
+		gtype = a_grievance_type()
+
+		anon_case = frappe.get_doc(
+			{
+				"doctype": "Grievance",
+				"submission_channel": "Web Portal",
+				"submitter_type": "Individual Farmer",
+				"administrative_area": area,
+				"service_category": "Inputs",
+				"grievance_type": gtype,
+				"description": "Anonymous grievance case description",
+				"is_anonymous": 1,
+				"submitter_name": "Secret Citizen",
+				"contact_mobile": "+251911998877",
+				"contact_email": "secret@example.com",
+				"assigned_to": self.officer_user.name,
+				"workflow_state": "In Progress",
+				"status": "In Progress",
+			}
+		)
+		anon_case.flags.ignore_mandatory = True
+		anon_case.insert(ignore_permissions=True)
+		self.addCleanup(discard_grievance, anon_case.name)
+
+		frappe.set_user(self.officer_user.name)
+		tl_res = grievance.timeline(anon_case.ticket_number or anon_case.name)
+		self.assertEqual(tl_res["status"], "success")
+		self.assertEqual(tl_res["data"]["submitter"]["name"], "Anonymous Submitter")
+		self.assertIsNone(tl_res["data"]["submitter"]["contact_mobile"])
+		self.assertIsNone(tl_res["data"]["submitter"]["contact_email"])

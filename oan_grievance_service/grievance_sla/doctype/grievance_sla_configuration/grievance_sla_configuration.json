@@ -1,0 +1,202 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GR-SLA-{####}",
+ "creation": "2026-09-03 18:15:05.854115",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "service_category",
+  "sla_days",
+  "holiday_list",
+  "active",
+  "col_sla_esc",
+  "auto_escalate",
+  "auto_escalation_threshold",
+  "notify_on_breach",
+  "sec_milestones",
+  "first_response_hours",
+  "update_cadence_hours",
+  "col_milestones",
+  "remand_execution_hours",
+  "sec_state_timers",
+  "state_timers"
+ ],
+ "fields": [
+  {
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance Service Category",
+   "options": "Grievance Service Category",
+   "reqd": 1
+  },
+  {
+   "description": "Expected response time in days",
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "SLA Days",
+   "reqd": 1
+  },
+  {
+   "description": "Holiday list used for working day calculations. If blank, default holiday list is used.",
+   "fieldname": "holiday_list",
+   "fieldtype": "Link",
+   "label": "Holiday List",
+   "options": "Grievance Holiday List"
+  },
+  {
+   "default": "1",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "col_sla_esc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Hand a breached case up the chain without anyone asking. Untick to keep the clock, the reminders and the compliance reporting exactly as they are while nobody is reassigned automatically - the submitter can still escalate by hand.",
+   "fieldname": "auto_escalate",
+   "fieldtype": "Check",
+   "label": "Auto-escalate on Breach"
+  },
+  {
+   "depends_on": "auto_escalate",
+   "description": "Share of the SLA window that must be consumed before the first escalation. 100 means at the deadline; 80 hands the case up while there is still time to save it. Leave at 0 to follow the threshold on Grievance Deferral Policy.",
+   "fieldname": "auto_escalation_threshold",
+   "fieldtype": "Int",
+   "label": "Auto Escalation Threshold (%)",
+   "non_negative": 1
+  },
+  {
+   "default": "1",
+   "description": "Queue the SLA breach notification when a case in this category escalates. Escalation itself is unaffected.",
+   "fieldname": "notify_on_breach",
+   "fieldtype": "Check",
+   "label": "Notify on Breach"
+  },
+  {
+   "fieldname": "sec_milestones",
+   "fieldtype": "Section Break",
+   "label": "Milestone Durations & Cadence"
+  },
+  {
+   "default": "4",
+   "description": "Initial triage & first response deadline in hours",
+   "fieldname": "first_response_hours",
+   "fieldtype": "Int",
+   "label": "First Response Due (Hours)"
+  },
+  {
+   "default": "48",
+   "description": "Mandatory citizen progress update cadence in hours",
+   "fieldname": "update_cadence_hours",
+   "fieldtype": "Int",
+   "label": "Periodic Update Cadence (Hours)"
+  },
+  {
+   "fieldname": "col_milestones",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "24",
+   "description": "Fast-track execution timer for supervisor remand directives in hours",
+   "fieldname": "remand_execution_hours",
+   "fieldtype": "Int",
+   "label": "Supervisor Remand Execution (Hours)"
+  },
+  {
+   "fieldname": "sec_state_timers",
+   "fieldtype": "Section Break",
+   "label": "State Timers",
+   "description": "How long a case may sit in a state before something happens."
+  },
+  {
+   "fieldname": "state_timers",
+   "fieldtype": "Table",
+   "label": "State Timers",
+   "options": "Grievance State Timer"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-08 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance SLA Configuration",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Grievance Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

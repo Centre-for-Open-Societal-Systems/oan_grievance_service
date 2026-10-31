@@ -1,0 +1,94 @@
+[project]
+name = "oan_grievance_service"
+authors = [
+    { name = "COSS - Centre for Open Societal Systems", email = "admin@openagrinet.org"}
+]
+description = "OpenAgriNet Ethiopia Grievance Management Module: multi-channel grievance intake, routing, SLA tracking and escalation"
+requires-python = ">=3.14"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=16.0.0" # Installed and managed by bench.
+    # oan_auth_service is declared in hooks.py as required_apps, not here: bench
+    # installs a Frappe app from its repo, not from PyPI. PyJWT is that app's own
+    # dependency; this one does not import it.
+    #
+    # Attachment pipeline. Both ship with Frappe today, but this module imports them
+    # directly and each guards a security boundary -- the magic-byte sniff and the
+    # EXIF strip fail open if the import disappears, so neither is left transitive.
+    "filetype>=1.2",
+    "Pillow>=10.0",
+    # Same pattern as above: Frappe ships phonenumbers (libphonenumber), but we
+    # import it directly for country-aware contact_mobile validation.
+    "phonenumbers~=9.0.23",
+    # Request schemas and per-field validation errors (api/v1, services/identity).
+    "pydantic>=2.0",
+    # PDF structure check in the attachment pipeline (services/scanning).
+    "pypdf>=4.0",
+    # Streams attachment bytes as a raw Response from the view route (api/v1/attachment).
+    "Werkzeug>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "semgrep",
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+# These dependencies are only installed when developer mode is enabled
+[tool.bench.dev-dependencies]
+pre-commit = ">=3.0"
+semgrep = ">=1.0"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0"
+oan_auth_service = ">=0.0.1"
+
+# These apt dependencies will be installed from Ubuntu repositories when you host your app on Frappe Cloud
+[deploy.dependencies.apt]
+packages = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "UP",
+    "B",
+    "RUF",
+]
+ignore = [
+    "B017", # assertRaises(Exception) - should be more specific
+    "B018", # useless expression, not assigned to anything
+    "B023", # function doesn't bind loop variable - will have last iteration's value
+    "B904", # raise inside except without from
+    "E101", # indentation contains mixed spaces and tabs
+    "E402", # module level import not at top of file
+    "E501", # line too long
+    "E741", # ambiguous variable name
+    "F401", # "unused" imports
+    "F403", # can't detect undefined names from * import
+    "F405", # can't detect undefined names from * import
+    "F722", # syntax error in forward type annotation
+    "W191", # indentation contains tabs
+    "UP030", # Use implicit references for positional format fields (translations)
+    "UP031", # Use format specifiers instead of percent format
+    "UP032", # Use f-string instead of `format` call (translations)
+    "UP037", # quoted annotations
+    "UP040", # Use type aliases instead of type annotations
+]
+typing-modules = ["frappe.types.DF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "tab"
+docstring-code-format = true
