@@ -342,6 +342,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": "Unified Agri Dept",
 				"category_scope": "Inputs",
+				"grievance_type_scope": self.gtype_name,
 				"active": 1,
 				"effective_from": frappe.utils.today(),
 				"officers": [
@@ -562,6 +563,32 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		for scoped_field in ("assigned_dept", "service_category", "grievance_type", "area_lft"):
 			self.assertNotIn(scoped_field, cond)
 
+		other_officer = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": f"other.{frappe.generate_hash(length=8)}@example.com",
+				"first_name": "Other Officer",
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+		other_desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Unified Agri Dept",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": other_officer.name,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
 		other_case = frappe.get_doc(
 			{
 				"doctype": "Grievance",
@@ -571,7 +598,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"service_category": "Inputs",
 				"grievance_type": self.gtype_name,
 				"description": "Unassigned case for permission test",
-				"assigned_to": "Administrator",
+				"assigned_to": other_officer.name,
 				"workflow_state": "In Progress",
 				"status": "In Progress",
 			}
@@ -580,3 +607,5 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		other_case.insert(ignore_permissions=True)
 		self.assertFalse(has_grievance_permission(other_case, ptype="read", user=user.name))
 		discard_grievance(other_case.name)
+		frappe.delete_doc("Grievance RBAC Assignment", other_desk.name, force=True, ignore_permissions=True)
+		frappe.delete_doc("User", other_officer.name, force=True, ignore_permissions=True)

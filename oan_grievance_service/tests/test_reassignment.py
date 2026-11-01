@@ -301,7 +301,7 @@ class TestReassignmentResolution(FrappeTestCase):
 		self.assertNotIn("assigned_to", changes_nodal)
 
 	def test_r5_receiving_officer_with_no_desk_validates_actor_permission(self):
-		"""R5: Grievance Officer gets 'Invalid Officer'; Grievance Admin succeeds."""
+		"""R5: Both Grievance Officer and Admin get 'Invalid Officer' if officer has no desk in dept."""
 		# officer3 has no desk in dept1
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			reassignment.resolve(
@@ -312,14 +312,15 @@ class TestReassignmentResolution(FrappeTestCase):
 			)
 		self.assertIn("Invalid Officer", str(ctx.exception))
 
-		# Admin caller succeeds
-		changes = reassignment.resolve(
-			self.grievance,
-			self.dept1,
-			officer=self.officer3,
-			actor="Administrator",
-		)
-		self.assertEqual(changes.get("assigned_to"), self.officer3)
+		# Admin caller is also rejected because an assignee must have a desk covering the department
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			reassignment.resolve(
+				self.grievance,
+				self.dept1,
+				officer=self.officer3,
+				actor="Administrator",
+			)
+		self.assertIn("Invalid Officer", str(ctx.exception))
 
 	def test_r6_no_desk_in_target_department_and_no_officer_named_errors(self):
 		"""R6: If target department has no desk and no officer named, throw error."""

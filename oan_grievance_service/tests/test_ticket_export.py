@@ -93,10 +93,22 @@ class TicketExportTestCase(FrappeTestCase):
 		frappe.set_user("Administrator")
 		frappe.cache.delete_keys("grievance:export-denials:*")
 		suffix = frappe.generate_hash(length=6)
+		self.dept = a_department()
 		self.officer = _user(f"export-officer-{suffix}@example.com", "Dawit Officer")
 		self.submitter = _user(
 			f"export-submitter-{suffix}@example.com", "Almaz Bekele", role=C.ROLE_SUBMITTER
 		)
+		self.desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{"user": self.officer, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
 		self.addCleanup(self._remove_users)
 		self.addCleanup(frappe.local.response.pop, "type", None)
 		self.case = self._full_case()
@@ -104,6 +116,10 @@ class TicketExportTestCase(FrappeTestCase):
 
 	def _remove_users(self):
 		frappe.set_user("Administrator")
+		if hasattr(self, "desk") and frappe.db.exists("Grievance RBAC Assignment", self.desk.name):
+			frappe.delete_doc(
+				"Grievance RBAC Assignment", self.desk.name, force=True, ignore_permissions=True
+			)
 		for user in (self.officer, self.submitter):
 			frappe.delete_doc("User", user, force=True, ignore_permissions=True)
 
@@ -365,6 +381,10 @@ class TestFormMapping(TicketExportTestCase):
 	def test_a_reassignment_is_part_of_the_assignment_history_for_staff(self):
 		other = _user(f"export-other-{frappe.generate_hash(length=6)}@example.com", "Hana Officer")
 		self.addCleanup(frappe.delete_doc, "User", other, force=True, ignore_permissions=True)
+		self.desk.append(
+			"officers", {"user": other, "role_level": "nodal_officer", "is_primary": 0, "active": 1}
+		)
+		self.desk.save(ignore_permissions=True)
 		# A request can only be raised on an open case; this one was reassigned before it closed.
 		state = {"status": C.STATE_IN_PROGRESS, "workflow_state": C.STATE_IN_PROGRESS}
 		frappe.db.set_value("Grievance", self.case.name, state, update_modified=False)

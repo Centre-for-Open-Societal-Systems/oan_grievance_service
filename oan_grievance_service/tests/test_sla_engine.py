@@ -296,6 +296,25 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 			ignore_permissions=True,
 		)
 		dept = lone_dept.name
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"category_scope": self.cat_a,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{"user": officer_email, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			desk.name,
+			force=True,
+			ignore_permissions=True,
+		)
 		g = a_grievance(
 			service_category=self.cat_a,
 			grievance_type=self.gtype_a.name,
