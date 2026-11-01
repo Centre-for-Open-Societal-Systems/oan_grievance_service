@@ -282,8 +282,8 @@ paths:
         \ System Managers see all cases.\n\nSupports multi-select values (list, JSON array, or comma-separated\
         \ string) for status,\nservice_category/category, administrative_area/location/region/zone/woreda/kebele,\n\
         grievance_type, department, and submission_channel.\n\nStatus filters use the queue cards (All,\
-        \ In Progress, More Info Needed, Rejected,\nResolved, Closed; officers also get Assigned). Workflow\n\
-        stages that are not a card are reported as the card they roll up into."
+        \ Submitted, Reopened, In Progress, More Info\nNeeded, Rejected, Resolved, Closed; officers also\
+        \ get Assigned). Workflow\nstages that are not a card are reported as the card they roll up into."
       operationId: get_api_v1_grievances
       responses:
         '200':
@@ -1341,9 +1341,9 @@ paths:
       description: 'Counts of visible grievances on each queue status card.
 
 
-        The cards are All, In Progress, More Info Needed, Rejected,
+        The cards are All, Submitted, Reopened, In Progress, More Info Needed,
 
-        Resolved and Closed. Officers also get an Assigned card. Any other workflow
+        Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
 
         state is counted under In Progress. Each card includes its display order and
 
@@ -7996,6 +7996,27 @@ components:
           type: string
           format: date-time
           nullable: true
+        can_act:
+          type: boolean
+          description: 'Whether the caller may act on the case now: the submitter while a reply or confirmation
+            is owed, the assigned officer (or their supervisor) otherwise'
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'The one deadline that matters now: the auto-close date while awaiting the submitter,
+            the SLA due date while awaiting an officer'
+        due_kind:
+          type: string
+          nullable: true
+          enum:
+          - auto_close
+          - sla_breach
+          description: 'What happens at due_date: the case closes by itself, or the SLA is breached'
+        overdue_seconds:
+          type: integer
+          nullable: true
+          description: How long past due_date the case already is; null until it is
         is_paused:
           type: boolean
           nullable: true

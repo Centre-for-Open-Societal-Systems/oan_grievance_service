@@ -519,8 +519,8 @@ def list_grievances(
 	service_category/category, administrative_area/location/region/zone/woreda/kebele,
 	grievance_type, department, and submission_channel.
 
-	Status filters use the queue cards (All, In Progress, More Info Needed, Rejected,
-	Resolved, Closed; officers also get Assigned). Workflow
+	Status filters use the queue cards (All, Submitted, Reopened, In Progress, More Info
+	Needed, Rejected, Resolved, Closed; officers also get Assigned). Workflow
 	stages that are not a card are reported as the card they roll up into.
 	"""
 	effective_limit = limit if limit is not None else page_size
@@ -752,8 +752,19 @@ def list_grievances(
 	is_staff = permissions.is_staff(frappe.session.user)
 	assignee_names = _officer_names(item.get("assigned_to") for item in items) if is_staff else {}
 	timer_cache = {}
+	officer_may_act = permissions.officer_write_check() if is_staff else None
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
+		deadline = sla.deadline_view(item, timer_cache)
+		item["due_date"] = to_tz_aware_iso(deadline["due_date"])
+		item["due_kind"] = deadline["due_kind"]
+		item["overdue_seconds"] = deadline["overdue_seconds"]
+		# Only the side the case is waiting on can act on it: the submitter while a
+		# reply or confirmation is owed, an officer who owns the case otherwise.
+		if is_staff:
+			item["can_act"] = deadline["awaiting"] == "officer" and officer_may_act(item)
+		else:
+			item["can_act"] = deadline["awaiting"] == "submitter"
 		held = sla.pause_view(item, timer_cache)
 		item.pop("on_hold_since", None)
 		item["auto_close_at"] = held["auto_close_at"]
@@ -1330,7 +1341,7 @@ def action(
 		)
 
 	if matching_action == "In Progress" or (
-		doc.workflow_state == C.STATE_ASSIGNED
+		doc.workflow_state in (C.STATE_ASSIGNED, C.STATE_REOPENED)
 		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
 	):
 		_ensure_owner(doc)
@@ -2111,8 +2122,8 @@ def _load(ticket_number, ptype="read"):
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
-	The cards are All, In Progress, More Info Needed, Rejected,
-	Resolved and Closed. Officers also get an Assigned card. Any other workflow
+	The cards are All, Submitted, Reopened, In Progress, More Info Needed,
+	Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
 	state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
 	"""

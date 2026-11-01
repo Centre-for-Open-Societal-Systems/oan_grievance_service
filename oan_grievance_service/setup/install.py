@@ -56,6 +56,7 @@ WORKFLOW_NAME = "Grievance Workflow"
 WORKFLOW_STATES = [
 	(C.STATE_SUBMITTED, "Info", "Running"),
 	(C.STATE_ASSIGNED, "Primary", "Running"),
+	(C.STATE_REOPENED, "Warning", "Running"),
 	(C.STATE_IN_PROGRESS, "Primary", "Running"),
 	(C.STATE_MORE_INFO_NEEDED, "Warning", "Paused"),
 	(C.STATE_RESOLVED, "Success", "Stopped"),
@@ -76,6 +77,12 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	# A reopened case waits for an officer exactly as an assigned one does.
+	(C.STATE_REOPENED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
@@ -84,7 +91,7 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
-	(C.STATE_RESOLVED, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_RESOLVED, "Reopen", C.STATE_REOPENED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
@@ -467,8 +474,15 @@ NOTIFICATION_EVENTS = [
 		"Department Officer",
 		("Email", "System Notification"),
 		"Submitter reopens",
-		"Grievance {0} has been reopened by the submitter and needs attention.",
-		("doc.ticket_number",),
+		# A reopen starts a fresh SLA window, so the officer is told the new deadline.
+		{
+			"text": "Grievance {0} has been reopened by the submitter and needs attention.",
+			"args": ("doc.ticket_number",),
+			"if": "doc.sla_due_date",
+			"then": ("The new deadline is {0}.", ("doc.sla_due_date",)),
+			"else": ("", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_SLA_REMINDER_50,

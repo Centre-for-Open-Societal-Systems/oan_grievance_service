@@ -85,7 +85,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Submitted\nAssigned\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
+   "options": "Submitted\nAssigned\nReopened\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1

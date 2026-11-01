@@ -561,6 +561,23 @@ data(
 			"escalated": B(nullable=True),
 			"is_anonymous": B(nullable=True),
 			"confirmation_deadline": S(format="date-time", nullable=True),
+			"can_act": B(
+				description="Whether the caller may act on the case now: the submitter while a reply or confirmation is owed, the assigned officer (or their supervisor) otherwise"
+			),
+			"due_date": S(
+				format="date-time",
+				nullable=True,
+				description="The one deadline that matters now: the auto-close date while awaiting the submitter, the SLA due date while awaiting an officer",
+			),
+			"due_kind": S(
+				nullable=True,
+				enum=["auto_close", "sla_breach"],
+				description="What happens at due_date: the case closes by itself, or the SLA is breached",
+			),
+			"overdue_seconds": I(
+				nullable=True,
+				description="How long past due_date the case already is; null until it is",
+			),
 			"is_paused": B(
 				nullable=True, description="Whether the SLA clock is held (waiting on the submitter)"
 			),

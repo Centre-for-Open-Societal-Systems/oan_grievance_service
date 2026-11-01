@@ -62,10 +62,10 @@ def after_workflow_action(doc, from_state):
 
 	if context.get("notify", True):
 		if to_state == C.STATE_IN_PROGRESS:
-			if from_state in (C.STATE_ASSIGNED, C.STATE_SUBMITTED):
+			if from_state in (C.STATE_ASSIGNED, C.STATE_SUBMITTED, C.STATE_REOPENED):
 				notifications.queue(doc, C.EVENT_STATUS_IN_PROGRESS)
-			elif from_state == C.STATE_RESOLVED or context.get("action") == "Reopen":
-				notifications.queue(doc, C.EVENT_REOPENED)
+		elif to_state == C.STATE_REOPENED:
+			notifications.queue(doc, C.EVENT_REOPENED)
 		elif to_state == C.STATE_MORE_INFO_NEEDED:
 			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
 		elif to_state == C.STATE_RESOLVED:
