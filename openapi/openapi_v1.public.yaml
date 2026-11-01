@@ -4855,17 +4855,19 @@ paths:
         defaults to Officer. An Officer needs level (L1, L2 or L3) and service_categories; department
         and designation are optional. Without a department the officer sits on the category assignments
         that have no department. Level L3 makes a category admin, who may also leave out the service_categories
-        (a last-resort desk for every case); a more specific head always wins over them. A Reviewer needs
-        service_categories and takes no level or reports_to: they read those desks'' cases only, are never
-        assigned one and cannot change one. For an L1, L2 or Reviewer every service category must already
-        have a category assignment for the department (or with no department). For an L3 a missing category
-        assignment is created with the head on it, and with create_department (default false) the department
-        is created too, refused when it already exists. reports_to is an L2 officer and is only for an
-        L1. The login is created when the email is new. An existing login keeps its own roles and is given
-        the officer or review role; a System Manager or Administrator is never managed here. temporary_password
-        is optional: when provided, the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
-        When omitted, they log in with Keycloak. It is applied to a new login only. An email that already
-        has a login keeps its own password and the message says so.'
+        (a last-resort desk for every case); a more specific head always wins over them. Only one category
+        admin handles a category in a department, or a category with no department; a second is refused.
+        A Reviewer needs service_categories and takes no level or reports_to: they read those desks''
+        cases only, are never assigned one and cannot change one. For an L1, L2 or Reviewer every service
+        category must already have a category assignment for the department (or with no department). For
+        an L3 a missing category assignment is created with the head on it, and with create_department
+        (default false) the department is created too, refused when it already exists. reports_to is an
+        L2 officer and is only for an L1. The login is created when the email is new. An existing login
+        keeps its own roles and is given the officer or review role; a System Manager or Administrator
+        is never managed here. temporary_password is optional: when provided, the account holder signs
+        in with it only to replace it through /api/v1/auth/password/initial. When omitted, they log in
+        with Keycloak. It is applied to a new login only. An email that already has a login keeps its
+        own password and the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -6787,7 +6789,8 @@ paths:
       - Administration
       summary: List service categories
       description: Admin list of service categories in display order, active and inactive, filterable
-        by active flag and by text in the name or code. Each record counts what refers to it.
+        by active flag, by whether the category has an active desk (has_desk) and by text in the name
+        or code. Each record counts what refers to it.
       operationId: get_api_v1_service_categories
       responses:
         '200':
@@ -6851,6 +6854,15 @@ paths:
           type: boolean
           default: null
           nullable: true
+      - name: has_desk
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: true lists only categories with an active desk (assignment_count above 0), false
+          only those without
       - name: search
         in: query
         required: false

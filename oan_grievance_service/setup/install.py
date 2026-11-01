@@ -951,7 +951,7 @@ def seed_unrouted_desk():
 				"last_name": "Officer",
 				"send_welcome_email": 0,
 				"enabled": 1,
-				"roles": [{"role": "Grievance Officer"}],
+				"roles": [{"role": "Grievance Officer"}, {"role": C.ROLE_DESK_HEAD}],
 			}
 		).insert(ignore_permissions=True)
 		made.append("officer")
@@ -965,7 +965,12 @@ def seed_unrouted_desk():
 				"active": 1,
 				"effective_from": frappe.utils.today(),
 				"officers": [
-					{"user": C.UNROUTED_OFFICER, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+					{
+						"user": C.UNROUTED_OFFICER,
+						"role_level": "department_head",
+						"is_primary": 1,
+						"active": 1,
+					}
 				],
 			}
 		).insert(ignore_permissions=True)
