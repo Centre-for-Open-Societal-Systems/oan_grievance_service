@@ -681,12 +681,16 @@ class TestGrievanceDelete(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Grievance Timeline", timeline.name))
 		self.assertTrue(frappe.db.exists("Grievance Status History", history.name))
 
-
 	def test_a_user_with_a_timeline_entry_still_cannot_be_deleted(self):
 		case = a_grievance()
 		self.addCleanup(discard_grievance, case.name)
 		author = frappe.get_doc(
-			{"doctype": "User", "email": "timeline-author@example.com", "first_name": "Author", "send_welcome_email": 0}
+			{
+				"doctype": "User",
+				"email": "timeline-author@example.com",
+				"first_name": "Author",
+				"send_welcome_email": 0,
+			}
 		).insert(ignore_permissions=True)
 		frappe.get_doc(
 			{
