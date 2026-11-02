@@ -421,6 +421,35 @@ class Grievance(Document):
 		"""A rejected change request records the decision note and timeline."""
 		pass
 
+	def on_trash(self):
+		"""Deleting a case removes what only exists for it; the audit tables keep their rows.
+
+		The rows go here, before Frappe's link check, so they do not block the delete. Their Files
+		do not: a File's bytes leave the disk at once and a rollback cannot bring them back, so
+		the Files are collected and removed in after_delete, once the delete can no longer be refused.
+		"""
+		self.flags.files_to_remove = []
+		for name in frappe.get_all("Grievance Attachment", filters={"grievance": self.name}, pluck="name"):
+			attachment = frappe.get_doc("Grievance Attachment", name)
+			if attachment.file:
+				self.flags.files_to_remove.append(attachment.file)
+			attachment.flags.keep_file = True
+			attachment.delete(ignore_permissions=True, force=True)
+		for doctype in ("Grievance Feedback", "Grievance Change Request"):
+			for name in frappe.get_all(doctype, filters={"grievance": self.name}, pluck="name"):
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+		for name in frappe.get_all(
+			"Grievance Duplicate",
+			or_filters={"grievance": self.name, "duplicate_of": self.name},
+			pluck="name",
+		):
+			frappe.delete_doc("Grievance Duplicate", name, force=True, ignore_permissions=True)
+
+	def after_delete(self):
+		for file in self.flags.files_to_remove or []:
+			if frappe.db.exists("File", file):
+				frappe.delete_doc("File", file, force=True, ignore_permissions=True)
+
 	def on_update(self):
 		if self.flags.change_request:
 			if getattr(self.flags, "reassignment", False):

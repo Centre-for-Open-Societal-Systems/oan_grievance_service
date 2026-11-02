@@ -21,10 +21,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import constants, notifications
-from oan_grievance_service.services.constants import ADMIN_ROLES, STAFF_ROLES
+from oan_grievance_service.services.constants import ADMIN_ROLES, ROLE_REVIEW_OFFICER, STAFF_ROLES
 from oan_grievance_service.services.notifications import RECIPIENT_ROLE_LEVEL, RECIPIENT_TYPES
 
 route = prefixed("/api/v1/notification-templates")
+
+# The Review Officer reads the templates and edits none.
+READ_ROLES = STAFF_ROLES | {ROLE_REVIEW_OFFICER}
 
 
 class NotificationTemplateRecord(BaseModel):
@@ -176,7 +179,7 @@ def _to_record(row: dict, role_level_names: dict[str, str]) -> NotificationTempl
 
 @route("", methods=("GET",), summary="List grievance notification templates", tier="officer-core")
 @handle_api_errors
-@require_role(STAFF_ROLES)
+@require_role(READ_ROLES)
 @validate_request(ListNotificationTemplates)
 @api_doc(
 	summary="List grievance notification templates",
@@ -321,7 +324,7 @@ def get_notification_placeholders(**kwargs):
 
 @route("/<template>", methods=("GET",), summary="Get a notification template", tier="officer-core")
 @handle_api_errors
-@require_role(STAFF_ROLES)
+@require_role(READ_ROLES)
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Get a notification template",

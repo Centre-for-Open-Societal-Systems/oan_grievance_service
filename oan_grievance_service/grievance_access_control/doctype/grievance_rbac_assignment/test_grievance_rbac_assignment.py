@@ -17,7 +17,7 @@ from oan_grievance_service.permissions import (
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing
 from oan_grievance_service.setup.install import seed_unrouted_desk
-from oan_grievance_service.tests.fixtures import a_leaf_area, discard_grievance
+from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_staffed_desk, discard_grievance
 
 
 def _set_unrouted_desk_active(active: int) -> None:
@@ -609,3 +609,23 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 		discard_grievance(other_case.name)
 		frappe.delete_doc("Grievance RBAC Assignment", other_desk.name, force=True, ignore_permissions=True)
 		frappe.delete_doc("User", other_officer.name, force=True, ignore_permissions=True)
+
+	def test_routing_switch_sends_every_case_to_the_unrouted_desk_when_off(self):
+		_set_unrouted_desk_active(1)
+		case = a_grievance()
+		self.addCleanup(discard_grievance, case.name)
+		a_staffed_desk(self, case.service_category)
+		was = frappe.db.get_single_value("Grievance Settings", "auto_routing_enabled")
+		self.addCleanup(frappe.db.set_single_value, "Grievance Settings", "auto_routing_enabled", was)
+
+		frappe.db.set_single_value("Grievance Settings", "auto_routing_enabled", 1)
+		routing.apply_routing(case, commit_status=False)
+		case.reload()
+		self.assertNotEqual(case.assigned_to, C.UNROUTED_OFFICER)
+		self.assertTrue(case.assigned_to)
+
+		frappe.db.set_single_value("Grievance Settings", "auto_routing_enabled", 0)
+		routing.apply_routing(case, commit_status=False)
+		case.reload()
+		self.assertEqual(case.assigned_to, C.UNROUTED_OFFICER)
+		self.assertEqual(case.assigned_dept, C.UNROUTED_DEPARTMENT)

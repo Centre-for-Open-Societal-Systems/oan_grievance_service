@@ -40,6 +40,7 @@ from oan_grievance_service.api.v1._schemas import (
 	blank_to_none,
 )
 from oan_grievance_service.services import response_body
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES
 
 route = prefixed("/api/v1/response-templates")
 
@@ -252,7 +253,7 @@ def _get_template(name: str):
 
 @route("", methods=("GET",), summary="List response templates", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListResponseTemplatesRequest)
 @api_doc(
 	summary="List response templates",
@@ -307,7 +308,7 @@ def list_response_templates(
 
 @route("/<template>", methods=("GET",), summary="Get a response template", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Get a response template",

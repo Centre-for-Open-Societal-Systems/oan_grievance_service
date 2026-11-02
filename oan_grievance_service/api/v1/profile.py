@@ -30,8 +30,11 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		scopes = active_scopes(user)
 		if scopes:
 			primary_scope = next((s for s in scopes if s.get("is_primary")), scopes[0])
+			level = primary_scope.get("role_level")
 			return "grievance", {
-				"type": primary_scope.get("role_level") or ROLE_OFFICER,
+				"type": (level and frappe.db.get_value("Grievance Role Level", level, "level_name"))
+				or level
+				or ROLE_OFFICER,
 				"department": primary_scope.get("department_scope"),
 				"administrative_area": primary_scope.get("administrative_area_scope"),
 				"category": primary_scope.get("category_scope"),
