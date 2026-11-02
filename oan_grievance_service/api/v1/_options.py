@@ -199,15 +199,27 @@ _STATUS_CARDS = (
 		"officer_only": False,
 	},
 	{
+		"status": "Submitted",
+		"label": "Submitted",
+		"workflow_states": (C.STATE_SUBMITTED,),
+		"officer_only": False,
+	},
+	{
 		"status": "Assigned",
 		"label": "Assigned",
 		"workflow_states": (C.STATE_ASSIGNED,),
 		"officer_only": True,
 	},
 	{
+		"status": "Reopened",
+		"label": "Reopened",
+		"workflow_states": (C.STATE_REOPENED,),
+		"officer_only": False,
+	},
+	{
 		"status": "In Progress",
 		"label": "In Progress",
-		"workflow_states": (C.STATE_SUBMITTED, C.STATE_IN_PROGRESS),
+		"workflow_states": (C.STATE_IN_PROGRESS,),
 		"officer_only": False,
 	},
 	{
@@ -241,7 +253,9 @@ _CARD_BY_STATUS = {card["status"]: card for card in _STATUS_CARDS}
 # Lower-cased, punctuation-stripped keys the list filter and the cards accept.
 _STATUS_ALIASES = {
 	"all": "All",
+	"submitted": "Submitted",
 	"assigned": "Assigned",
+	"reopened": "Reopened",
 	"in progress": "In Progress",
 	"more info needed": "More Info Needed",
 	"rejected": "Rejected",
@@ -340,8 +354,8 @@ def get_status_options() -> list[dict]:
 def public_status(workflow_status: str | None) -> str:
 	"""The queue status a workflow state is shown as.
 
-	Unknown open states are In Progress. Assigned maps to Assigned for staff and
-	to In Progress for submitters (who do not get an Assigned KPI card).
+	Unknown open states are In Progress. Assigned maps to itself for staff and to
+	In Progress for submitters (who do not get an Assigned KPI card).
 	"""
 	if not workflow_status:
 		return ""

@@ -291,8 +291,8 @@ paths:
         \ System Managers see all cases.\n\nSupports multi-select values (list, JSON array, or comma-separated\
         \ string) for status,\nservice_category/category, administrative_area/location/region/zone/woreda/kebele,\n\
         grievance_type, department, and submission_channel.\n\nStatus filters use the queue cards (All,\
-        \ In Progress, More Info Needed, Rejected,\nResolved, Closed; officers also get Assigned). Workflow\n\
-        stages that are not a card are reported as the card they roll up into."
+        \ Submitted, Reopened, In Progress, More Info\nNeeded, Rejected, Resolved, Closed; officers also\
+        \ get Assigned). Workflow\nstages that are not a card are reported as the card they roll up into."
       operationId: get_api_v1_grievances
       responses:
         '200':
@@ -1374,9 +1374,9 @@ paths:
       description: 'Counts of visible grievances on each queue status card.
 
 
-        The cards are All, In Progress, More Info Needed, Rejected,
+        The cards are All, Submitted, Reopened, In Progress, More Info Needed,
 
-        Resolved and Closed. Officers also get an Assigned card. Any other workflow
+        Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
 
         state is counted under In Progress. Each card includes its display order and
 
@@ -4972,17 +4972,19 @@ paths:
         defaults to Officer. An Officer needs level (L1, L2 or L3) and service_categories; department
         and designation are optional. Without a department the officer sits on the category assignments
         that have no department. Level L3 makes a category admin, who may also leave out the service_categories
-        (a last-resort desk for every case); a more specific head always wins over them. A Reviewer needs
-        service_categories and takes no level or reports_to: they read those desks'' cases only, are never
-        assigned one and cannot change one. For an L1, L2 or Reviewer every service category must already
-        have a category assignment for the department (or with no department). For an L3 a missing category
-        assignment is created with the head on it, and with create_department (default false) the department
-        is created too, refused when it already exists. reports_to is an L2 officer and is only for an
-        L1. The login is created when the email is new. An existing login keeps its own roles and is given
-        the officer or review role; a System Manager or Administrator is never managed here. temporary_password
-        is optional: when provided, the account holder signs in with it only to replace it through /api/v1/auth/password/initial.
-        When omitted, they log in with Keycloak. It is applied to a new login only. An email that already
-        has a login keeps its own password and the message says so.'
+        (a last-resort desk for every case); a more specific head always wins over them. Only one category
+        admin handles a category in a department, or a category with no department; a second is refused.
+        A Reviewer needs service_categories and takes no level or reports_to: they read those desks''
+        cases only, are never assigned one and cannot change one. For an L1, L2 or Reviewer every service
+        category must already have a category assignment for the department (or with no department). For
+        an L3 a missing category assignment is created with the head on it, and with create_department
+        (default false) the department is created too, refused when it already exists. reports_to is an
+        L2 officer and is only for an L1. The login is created when the email is new. An existing login
+        keeps its own roles and is given the officer or review role; a System Manager or Administrator
+        is never managed here. temporary_password is optional: when provided, the account holder signs
+        in with it only to replace it through /api/v1/auth/password/initial. When omitted, they log in
+        with Keycloak. It is applied to a new login only. An email that already has a login keeps its
+        own password and the message says so.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -6964,7 +6966,8 @@ paths:
       - Administration
       summary: List service categories
       description: Admin list of service categories in display order, active and inactive, filterable
-        by active flag and by text in the name or code. Each record counts what refers to it.
+        by active flag, by whether the category has an active desk (has_desk) and by text in the name
+        or code. Each record counts what refers to it.
       operationId: get_api_v1_service_categories
       responses:
         '200':
@@ -7028,6 +7031,15 @@ paths:
           type: boolean
           default: null
           nullable: true
+      - name: has_desk
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: true lists only categories with an active desk (assignment_count above 0), false
+          only those without
       - name: search
         in: query
         required: false
@@ -8193,6 +8205,27 @@ components:
           type: string
           format: date-time
           nullable: true
+        can_act:
+          type: boolean
+          description: 'Whether the caller may act on the case now: the submitter while a reply or confirmation
+            is owed, the assigned officer (or their supervisor) otherwise'
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: 'The one deadline that matters now: the auto-close date while awaiting the submitter,
+            the SLA due date while awaiting an officer'
+        due_kind:
+          type: string
+          nullable: true
+          enum:
+          - auto_close
+          - sla_breach
+          description: 'What happens at due_date: the case closes by itself, or the SLA is breached'
+        overdue_seconds:
+          type: integer
+          nullable: true
+          description: How long past due_date the case already is; null until it is
         is_paused:
           type: boolean
           nullable: true

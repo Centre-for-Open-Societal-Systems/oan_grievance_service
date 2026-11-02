@@ -827,10 +827,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		# This class commits (below), so the desk's removal has to be committed too.
-		self.addCleanup(frappe.db.commit)
-		a_staffed_desk(self, "Inputs", "Test Agri Dept")
-
 		# Setup officer user
 		if frappe.db.exists("User", "officer.options@example.com"):
 			frappe.delete_doc("User", "officer.options@example.com", force=True, ignore_permissions=True)
@@ -845,6 +841,33 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		self.addCleanup(
 			frappe.delete_doc, "User", "officer.options@example.com", force=True, ignore_permissions=True
+		)
+
+		# Place officer on active desk
+		self.addCleanup(frappe.db.commit)
+		self.desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Test Agri Dept",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": self.officer_user.name,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			self.desk.name,
+			force=True,
+			ignore_permissions=True,
 		)
 
 		# Setup submitter user
@@ -885,9 +908,18 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		status_names = [s["status"] for s in data["statuses"]]
 		self.assertEqual(
 			status_names,
-			["All", "Assigned", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+			[
+				"All",
+				"Submitted",
+				"Assigned",
+				"Reopened",
+				"In Progress",
+				"More Info Needed",
+				"Rejected",
+				"Resolved",
+				"Closed",
+			],
 		)
-		self.assertNotIn("Submitted", status_names)
 
 		# Validate categories and channels
 		self.assertIn("service_categories", data)
@@ -906,7 +938,16 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertNotIn("Assigned", status_names)
 		self.assertEqual(
 			status_names,
-			["All", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+			[
+				"All",
+				"Submitted",
+				"Reopened",
+				"In Progress",
+				"More Info Needed",
+				"Rejected",
+				"Resolved",
+				"Closed",
+			],
 		)
 
 	def test_unauthorized_user_cannot_access_options(self):
@@ -941,6 +982,11 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 			self.addCleanup(frappe.delete_doc, "User", email, force=True, ignore_permissions=True)
+			self.desk.append(
+				"officers", {"user": email, "role_level": "nodal_officer", "is_primary": 0, "active": 1}
+			)
+
+		self.desk.save(ignore_permissions=True)
 
 		case = frappe.get_doc(
 			{

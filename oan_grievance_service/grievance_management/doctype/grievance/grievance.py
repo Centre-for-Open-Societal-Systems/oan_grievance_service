@@ -191,7 +191,30 @@ class Grievance(Document):
 			self.guard_filed_fields()
 			self.guard_requestable_fields()
 		self.validate_classification_is_active()
+		self.guard_assignee_has_desk()
 		self.record_the_workflow_move()
+
+	def guard_assignee_has_desk(self):
+		"""A case goes only to an officer who sits on an active desk. Anyone else would own
+		a case that no routing, escalation or reassignment rule can place."""
+		if self.assigned_to and (self.is_new() or self.has_value_changed("assigned_to")):
+			self.assert_officer_has_desk(self.assigned_to)
+
+	@staticmethod
+	def assert_officer_has_desk(officer):
+		desks = frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={"user": officer, "parenttype": "Grievance RBAC Assignment", "active": 1},
+			pluck="parent",
+		)
+		if not desks or not frappe.db.exists(
+			"Grievance RBAC Assignment", {"name": ["in", desks], "active": 1}
+		):
+			frappe.throw(
+				_("Invalid Officer: {0} is not on any desk.").format(officer),
+				frappe.ValidationError,
+				title=_("Invalid Officer"),
+			)
 
 	def validate_filing(self):
 		"""Domain rules a case must meet when it is filed. Frappe already enforces
@@ -345,6 +368,9 @@ class Grievance(Document):
 
 		if fieldname == "assigned_to" and new_value and not frappe.db.exists("User", new_value):
 			frappe.throw(_("Officer '{0}' does not exist.").format(new_value), title=_("Invalid Officer"))
+
+		if fieldname == "assigned_to" and new_value:
+			self.assert_officer_has_desk(new_value)
 
 		if fieldname == "service_category" and not frappe.db.exists("Grievance Service Category", new_value):
 			frappe.throw(

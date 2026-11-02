@@ -19,6 +19,7 @@ QUEUE_NOTIFICATIONS = "grievance_notifications"
 # branches on where a case is compares against these, never a bare string.
 STATE_SUBMITTED = "Submitted"
 STATE_ASSIGNED = "Assigned"
+STATE_REOPENED = "Reopened"
 STATE_IN_PROGRESS = "In Progress"
 STATE_MORE_INFO_NEEDED = "More Info Needed"
 STATE_RESOLVED = "Resolved"

@@ -280,6 +280,22 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	return ptype == "read" and _scope_covers(doc, active_scopes(user))
 
 
+def officer_write_check(user=None):
+	"""A test for "may this user act on this case row", with the team read once.
+
+	`has_grievance_permission` does the same per document; a list of rows should not
+	look the reporting chain up again for each one.
+	"""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & UNRESTRICTED_ROLES:
+		return lambda case: True
+	if ROLE_OFFICER not in roles:
+		return lambda case: False
+	team = get_subordinate_officers(user)
+	return lambda case: bool(case.get("assigned_to")) and case.get("assigned_to") in team
+
+
 def _template_scope_clause(scope):
 	"""SQL matching templates one RBAC scope may see: an empty template dimension
 	matches everyone, an empty scope dimension matches every template."""

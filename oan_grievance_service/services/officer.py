@@ -133,6 +133,8 @@ def create(
 			new_or_resolved_department(department, is_head and create_department) if department else None
 		)
 		desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
+		if is_head and role == DEFAULT_ROLE:
+			_assert_head_free(department, desks)
 
 	user = account.new_or_existing_user(email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
@@ -251,6 +253,9 @@ def update(user_id: str, changes: dict) -> str:
 				categories = _head_categories_in(department, categories)
 		desks, missing = _category_desks(department, categories, allow_missing=_is_head(level))
 		target = {desk.name for desk in desks}
+		placing_head = level != current.level or {"department", "service_categories"} & changes.keys()
+		if role == DEFAULT_ROLE and _is_head(level) and placing_head:
+			_assert_head_free(department, desks, user_id)
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
@@ -553,6 +558,41 @@ def _category_desks(
 			frappe.ValidationError,
 		)
 	return desks, missing
+
+
+def _assert_head_free(department, desks, user_id=None) -> None:
+	"""A desk has one category admin: refuse a second on a category and department.
+
+	`desks` are the existing desks for the categories and department being staffed, a
+	missing department meaning the desks that have none. A desk that already has an active
+	category admin is handled by them. `user_id` is the officer being edited, who does not
+	count against themselves.
+	"""
+	top = top_rung()
+	if not top or not desks:
+		return
+	taken = frappe.get_all(
+		ROW,
+		filters={
+			"parenttype": DESK,
+			"parent": ["in", [desk.name for desk in desks]],
+			"role_level": top,
+			"active": 1,
+			"user": ["!=", user_id or ""],
+		},
+		fields=["parent", "user"],
+		limit=1,
+	)
+	if taken:
+		desk = next(desk for desk in desks if desk.name == taken[0].parent)
+		scope = desk.get("category_scope") or _("All categories")
+		where = _("in {0}").format(department) if department else _("with no department")
+		frappe.throw(
+			_("{0} {1} is already handled by another category admin: {2}.").format(
+				scope, where, taken[0].user
+			),
+			frappe.ValidationError,
+		)
 
 
 def _assert_status(role: str, status: str) -> None:

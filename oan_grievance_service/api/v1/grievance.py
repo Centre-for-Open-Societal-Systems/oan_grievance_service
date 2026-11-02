@@ -9,12 +9,11 @@ from typing import Literal
 
 import frappe
 from frappe import N_, _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
-	from_tz_aware_iso,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -519,8 +518,8 @@ def list_grievances(
 	service_category/category, administrative_area/location/region/zone/woreda/kebele,
 	grievance_type, department, and submission_channel.
 
-	Status filters use the queue cards (All, In Progress, More Info Needed, Rejected,
-	Resolved, Closed; officers also get Assigned). Workflow
+	Status filters use the queue cards (All, Submitted, Reopened, In Progress, More Info
+	Needed, Rejected, Resolved, Closed; officers also get Assigned). Workflow
 	stages that are not a card are reported as the card they roll up into.
 	"""
 	effective_limit = limit if limit is not None else page_size
@@ -752,8 +751,19 @@ def list_grievances(
 	is_staff = permissions.is_staff(frappe.session.user)
 	assignee_names = _officer_names(item.get("assigned_to") for item in items) if is_staff else {}
 	timer_cache = {}
+	officer_may_act = permissions.officer_write_check() if is_staff else None
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
+		deadline = sla.deadline_view(item, timer_cache)
+		item["due_date"] = to_tz_aware_iso(deadline["due_date"])
+		item["due_kind"] = deadline["due_kind"]
+		item["overdue_seconds"] = deadline["overdue_seconds"]
+		# Only the side the case is waiting on can act on it: the submitter while a
+		# reply or confirmation is owed, an officer who owns the case otherwise.
+		if is_staff:
+			item["can_act"] = deadline["awaiting"] == "officer" and officer_may_act(item)
+		else:
+			item["can_act"] = deadline["awaiting"] == "submitter"
 		held = sla.pause_view(item, timer_cache)
 		item.pop("on_hold_since", None)
 		item["auto_close_at"] = held["auto_close_at"]
@@ -1330,7 +1340,7 @@ def action(
 		)
 
 	if matching_action == "In Progress" or (
-		doc.workflow_state == C.STATE_ASSIGNED
+		doc.workflow_state in (C.STATE_ASSIGNED, C.STATE_REOPENED)
 		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
 	):
 		_ensure_owner(doc)
@@ -1550,23 +1560,15 @@ def timeline(
 		)
 
 	if cursor:
-		cursor = cursor.strip()
-		if " " in cursor and "+" not in cursor:
-			import re
-
-			cursor = re.sub(r" (\d{2}:\d{2})([|]|$)", r"+\1\2", cursor)
-
 		try:
-			cursor_ts_raw, cursor_name = cursor.split("|", 1)
-			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
-			query = query.where(
-				(timeline_dt.created_on > cursor_ts)
-				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
-			)
+			cursor_ts_raw, cursor_name = cursor.strip().split("|", 1)
+			cursor_ts = get_datetime(cursor_ts_raw)
 		except ValueError:
-			# Fallback for old cursor format
-			cursor_ts = from_tz_aware_iso(cursor)
-			query = query.where(timeline_dt.created_on > cursor_ts)
+			frappe.throw(_("Invalid cursor."), frappe.ValidationError)
+		query = query.where(
+			(timeline_dt.created_on > cursor_ts)
+			| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
+		)
 
 	query = (
 		query.orderby(timeline_dt.created_on, order=frappe.qb.asc)
@@ -1581,7 +1583,7 @@ def timeline(
 
 	if has_more and entries:
 		last = entries[-1]
-		next_cursor = f"{to_tz_aware_iso(last['created_on'])}|{last['name']}"
+		next_cursor = f"{get_datetime(last['created_on']).isoformat(sep=' ')}|{last['name']}"
 	else:
 		next_cursor = None
 
@@ -2111,8 +2113,8 @@ def _load(ticket_number, ptype="read"):
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
-	The cards are All, In Progress, More Info Needed, Rejected,
-	Resolved and Closed. Officers also get an Assigned card. Any other workflow
+	The cards are All, Submitted, Reopened, In Progress, More Info Needed,
+	Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
 	state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
 	"""
