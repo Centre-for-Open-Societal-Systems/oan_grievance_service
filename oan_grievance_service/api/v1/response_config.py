@@ -40,12 +40,11 @@ from oan_grievance_service.api.v1._schemas import (
 	blank_to_none,
 )
 from oan_grievance_service.services import response_body
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES
 
 route = prefixed("/api/v1/response-templates")
 
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
-# The Review Officer reads the templates and edits none.
-ADMIN_READ_ROLES = [*ADMIN_ROLES, "Grievance Review Officer"]
 
 TEMPLATE_DOCTYPE = "Grievance Response Template"
 

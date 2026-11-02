@@ -98,9 +98,8 @@
   },
   {
    "fieldname": "ref_docname",
-   "fieldtype": "Dynamic Link",
-   "label": "Reference DocName",
-   "options": "ref_doctype"
+   "fieldtype": "Data",
+   "label": "Reference DocName"
   },
   {
    "fieldname": "client_message_id",

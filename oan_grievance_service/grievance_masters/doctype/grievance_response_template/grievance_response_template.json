@@ -176,7 +176,7 @@
    "submit": 0,
    "cancel": 0,
    "amend": 0,
-   "report": 1,
+   "report": 0,
    "export": 0,
    "share": 0,
    "print": 0,

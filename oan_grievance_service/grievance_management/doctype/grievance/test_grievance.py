@@ -682,6 +682,27 @@ class TestGrievanceDelete(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("Grievance Status History", history.name))
 
 
+	def test_a_user_with_a_timeline_entry_still_cannot_be_deleted(self):
+		case = a_grievance()
+		self.addCleanup(discard_grievance, case.name)
+		author = frappe.get_doc(
+			{"doctype": "User", "email": "timeline-author@example.com", "first_name": "Author", "send_welcome_email": 0}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Timeline",
+				"grievance": case.name,
+				"entry_type": "note",
+				"created_on": frappe.utils.now_datetime(),
+				"body": "authored",
+				"author_user": author.name,
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.LinkExistsError):
+			frappe.delete_doc("User", author.name, ignore_permissions=True)
+
+
 class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	"""The submission endpoint owns identity: a caller cannot choose whose case it is.
 
