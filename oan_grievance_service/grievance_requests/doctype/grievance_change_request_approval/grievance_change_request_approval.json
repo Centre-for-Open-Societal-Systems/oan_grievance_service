@@ -1,0 +1,65 @@
+{
+ "actions": [],
+ "creation": "2026-09-26 23:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "action",
+  "user",
+  "pending_with",
+  "at",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "label": "Action",
+   "options": "Requested\nForwarded\nApproved\nRejected",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "By",
+   "options": "User",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_with",
+   "fieldtype": "Link",
+   "label": "Now With",
+   "options": "User",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "at",
+   "fieldtype": "Datetime",
+   "label": "At",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-26 23:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Requests",
+ "name": "Grievance Change Request Approval",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1
+}

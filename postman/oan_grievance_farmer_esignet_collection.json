@@ -1,0 +1,1484 @@
+{
+  "info": {
+    "_postman_id": "60d71415-f11a-4dbe-b2a2-8a545d4320ee",
+    "name": "OAN Grievance - Farmer (eSignet) + Officer endpoints",
+    "description": "Farmer logs in with eSignet (OTP) through IAM bene portal and oan_auth_service, then calls every endpoint a beneficiary can call. Folder 6 holds OFFICER/ADMIN endpoints, which are NOT part of the beneficiary API. Layout follows consent-manager-beneficiary.postman_collection.json. Run with the environment: newman run <collection> -e postman/oan_grievance_environment.json --bail",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Farmer Login (eSignet via IAM bene portal + oan_auth_service)",
+      "item": [
+        {
+          "name": "1a. List login options",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/iam/providers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "iam",
+                "providers"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('beneficiary option is enabled', function () { pm.expect(JSON.stringify(d.providers)).to.include('\"' + pm.environment.get('iam_login_key') + '\"'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1b. Start login (oan_auth_service asks IAM for the eSignet URL)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/iam/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "iam",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{iam_login_key}}\",\n  \"return_url\": \"{{iam_return_url}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('redirect_url returned', function () { pm.expect(d.redirect_url).to.be.a('string'); });",
+                  "var q = {};",
+                  "(d.redirect_url.split('?')[1] || '').split('&').forEach(function (p) { var i = p.indexOf('='); if (i > 0) { q[p.slice(0, i)] = decodeURIComponent(p.slice(i + 1).replace(/\\+/g, ' ')); } });",
+                  "['client_id', 'redirect_uri', 'state', 'nonce', 'code_challenge', 'acr_values', 'scope'].forEach(function (k) { pm.environment.set('iam_' + k, q[k] || ''); });",
+                  "pm.test('state present', function () { pm.expect(q.state).to.be.ok; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1c. eSignet CSRF token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{esignet_url}}/csrf/token",
+              "host": [
+                "{{esignet_url}}"
+              ],
+              "path": [
+                "csrf",
+                "token"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.environment.set('xsrf', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1d. eSignet OAuth details",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{esignet_url}}/authorization/v2/oauth-details",
+              "host": [
+                "{{esignet_url}}"
+              ],
+              "path": [
+                "authorization",
+                "v2",
+                "oauth-details"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestTime\": \"{{now}}\",\n  \"request\": {\n    \"clientId\": \"{{iam_client_id}}\",\n    \"scope\": \"{{iam_scope}}\",\n    \"responseType\": \"code\",\n    \"redirectUri\": \"{{iam_redirect_uri}}\",\n    \"display\": \"popup\",\n    \"prompt\": \"login\",\n    \"acrValues\": \"{{iam_acr_values}}\",\n    \"nonce\": \"{{iam_nonce}}\",\n    \"state\": \"{{iam_state}}\",\n    \"claimsLocales\": \"en\",\n    \"uiLocales\": \"en\",\n    \"claims\": {\"userinfo\": {\"name\": {\"essential\": false}}, \"id_token\": {}},\n    \"codeChallenge\": \"{{iam_code_challenge}}\",\n    \"codeChallengeMethod\": \"S256\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('now', new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var b = pm.response.json();",
+                  "pm.expect(b.response, JSON.stringify(b.errors)).to.be.ok;",
+                  "pm.environment.set('txn', b.response.transactionId);",
+                  "var hash = CryptoJS.SHA256(JSON.stringify(b.response)).toString(CryptoJS.enc.Base64).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+                  "pm.environment.set('oauth_hash', hash);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1e. eSignet send OTP (proxy OTP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf}}"
+              },
+              {
+                "key": "oauth-details-key",
+                "value": "{{txn}}"
+              },
+              {
+                "key": "oauth-details-hash",
+                "value": "{{oauth_hash}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{esignet_url}}/authorization/send-otp",
+              "host": [
+                "{{esignet_url}}"
+              ],
+              "path": [
+                "authorization",
+                "send-otp"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestTime\": \"{{now}}\",\n  \"request\": {\n    \"transactionId\": \"{{txn}}\",\n    \"individualId\": \"{{esignet_individual_id}}\",\n    \"otpChannels\": [\"phone\"],\n    \"captchaToken\": \"x\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('now', new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var b = pm.response.json();",
+                  "if (!b.response) { var e = (b.errors || [])[0] || {}; throw new Error('eSignet error: ' + (e.errorCode || '?') + ' - ' + (e.errorMessage || JSON.stringify(b))); }",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1f. eSignet authenticate with OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf}}"
+              },
+              {
+                "key": "oauth-details-key",
+                "value": "{{txn}}"
+              },
+              {
+                "key": "oauth-details-hash",
+                "value": "{{oauth_hash}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{esignet_url}}/authorization/v2/authenticate",
+              "host": [
+                "{{esignet_url}}"
+              ],
+              "path": [
+                "authorization",
+                "v2",
+                "authenticate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestTime\": \"{{now}}\",\n  \"request\": {\n    \"transactionId\": \"{{txn}}\",\n    \"individualId\": \"{{esignet_individual_id}}\",\n    \"challengeList\": [{\"authFactorType\": \"OTP\", \"challenge\": \"{{esignet_otp}}\", \"format\": \"alpha-numeric\"}]\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('now', new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var b = pm.response.json();",
+                  "if (!b.response) { var e = (b.errors || [])[0] || {}; throw new Error('eSignet error: ' + (e.errorCode || '?') + ' - ' + (e.errorMessage || JSON.stringify(b))); }",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1g. eSignet authorize claims and get code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrf}}"
+              },
+              {
+                "key": "oauth-details-key",
+                "value": "{{txn}}"
+              },
+              {
+                "key": "oauth-details-hash",
+                "value": "{{oauth_hash}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{esignet_url}}/authorization/auth-code",
+              "host": [
+                "{{esignet_url}}"
+              ],
+              "path": [
+                "authorization",
+                "auth-code"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestTime\": \"{{now}}\",\n  \"request\": {\n    \"transactionId\": \"{{txn}}\",\n    \"acceptedClaims\": [\"name\"],\n    \"permittedAuthorizeScopes\": []\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('now', new Date().toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var b = pm.response.json();",
+                  "if (!b.response) { var e = (b.errors || [])[0] || {}; throw new Error('eSignet error: ' + (e.errorCode || '?') + ' - ' + (e.errorMessage || JSON.stringify(b))); }",
+                  "pm.test('auth code received', function () { pm.expect(b.response.code).to.be.ok; });",
+                  "pm.environment.set('auth_code', b.response.code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1h. IAM callback (exchange code, receive access token cookie)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{iam_url}}/auth/callback?state={{iam_state}}&code={{auth_code}}",
+              "host": [
+                "{{iam_url}}"
+              ],
+              "path": [
+                "auth",
+                "callback"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "{{iam_state}}"
+                },
+                {
+                  "key": "code",
+                  "value": "{{auth_code}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('IAM redirects after exchange', function () { pm.expect([302, 303, 307]).to.include(pm.response.code); });",
+                  "var prefix = pm.environment.get('iam_cookie_prefix') || '';",
+                  "var cookies = pm.response.headers.filter(function (h) { return h.key.toLowerCase() === 'set-cookie'; }).map(function (h) { return h.value; });",
+                  "var find = function (n) { var c = cookies.find(function (v) { return v.indexOf(prefix + n + '=') === 0; }); return c ? c.split(';')[0].slice((prefix + n).length + 1).replace(/^\"|\"$/g, '') : ''; };",
+                  "var tok = find('X-Access-Token');",
+                  "pm.test('access token cookie issued', function () { pm.expect(tok).to.not.be.empty; });",
+                  "pm.environment.set('farmer_token', tok);",
+                  "pm.environment.set('farmer_id_token', find('X-ID-Token'));",
+                  "pm.environment.set('farmer_session_id', find('X-Session-Id'));"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          }
+        },
+        {
+          "name": "1i. Who am I (provisions the Frappe user on first login)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('login_option is the eSignet row', function () { pm.expect(d.login_option).to.eql(pm.environment.get('iam_login_key')); });",
+                  "pm.test('has Grievance Submitter role', function () { pm.expect(d.roles).to.include('Grievance Submitter'); });",
+                  "pm.environment.set('farmer_user', d.user);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "The farmer never types a password: eSignet sends an OTP (proxy OTP 111111 on the local mock identity system). oan_auth_service validates the eSignet access token through the IAM bene portal and provisions a local user with the row's default role (Grievance Submitter)."
+    },
+    {
+      "name": "2. Reference data (public, no token)",
+      "item": [
+        {
+          "name": "2a. Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2b. Ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/ping",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "ping"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2c. Submitter options (types, categories, grievance types)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/submitters/options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "submitters",
+                "options"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('has grievance_types', function () { pm.expect(d.grievance_types.length).to.be.above(0); });",
+                  "pm.test('configured grievance type is offered', function () { pm.expect(JSON.stringify(d.grievance_types)).to.include(pm.environment.get('grievance_type')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2d. Administrative areas (regions)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/administrative-areas?parent=",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "administrative-areas"
+              ],
+              "query": [
+                {
+                  "key": "parent",
+                  "value": ""
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('areas returned', function () { pm.expect(d.areas.length).to.be.above(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2e. Administrative area ancestors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/administrative-areas/{{administrative_area}}/ancestors",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "administrative-areas",
+                "{{administrative_area}}",
+                "ancestors"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Profile",
+      "item": [
+        {
+          "name": "3a. Auth me (duplicate of 1i)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3d. My organization (404 unless the farmer registered a cooperative)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/orgs/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "orgs",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/404', function () { pm.expect([200, 404]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Grievances (farmer's own cases)",
+      "item": [
+        {
+          "name": "4b. Submit grievance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_submission_uuid\": \"{{client_uuid}}\",\n  \"submission_channel\": \"Web Portal\",\n  \"submitter_type\": \"Individual Farmer\",\n  \"submitter_name\": \"{{farmer_name}}\",\n  \"contact_mobile\": \"{{farmer_phone}}\",\n  \"administrative_area\": \"{{administrative_area}}\",\n  \"administrative_unit\": \"{{administrative_unit}}\",\n  \"service_category\": \"{{service_category}}\",\n  \"grievance_type\": \"{{grievance_type}}\",\n  \"description\": \"Newman run: fertilizer voucher never arrived for this cycle.\",\n  \"desired_outcome\": \"Reissue the fertilizer voucher.\",\n  \"is_anonymous\": 0,\n  \"consent_given\": 1\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('client_uuid', require('uuid').v4());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/201', function () { pm.expect([200, 201]).to.include(pm.response.code); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('ticket number issued', function () { pm.expect(d.ticket_number).to.be.ok; });",
+                  "pm.environment.set('ticket_number', d.ticket_number);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4c. List my grievances",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances?page=1&page_size=20&sort_order=desc",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort_order",
+                  "value": "desc"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.test('new ticket is listed', function () { pm.expect(JSON.stringify(d.items)).to.include(pm.environment.get('ticket_number')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4e. Timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "timeline"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4g. Upload supporting document",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/attachments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "attachments"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "files",
+                  "type": "file",
+                  "src": "{{attachment_file}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/201', function () { pm.expect([200, 201]).to.include(pm.response.code); });",
+                  "var a = (pm.response.json().data || [])[0] || {};",
+                  "pm.environment.set('attachment_id', a.attachment);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4h. List the grievance's attachments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/attachments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "attachments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4i. Get attachment download URL",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}/download",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "download"
+              ]
+            },
+            "description": "Returns 200 once the virus scan is clean; a pending scan is refused with 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/400/409/423', function () { pm.expect([200, 400, 409, 423]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4j. Stream attachment inline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}/view",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "view"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/400/409/423', function () { pm.expect([200, 400, 409, 423]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4m. Delete the attachment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/attachments/{{attachment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "attachments",
+                "{{attachment_id}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/204', function () { pm.expect([200, 204]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Resolution round-trip (farmer calls + two officer steps, existing category and officer)",
+      "item": [
+        {
+          "name": "5-0. [OFFICER, not beneficiary] Login as the assigned L1 officer ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{officer_usr}}\",\n  \"pwd\": \"{{officer_pwd}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(function () {}, 6000); // routing runs in a background worker"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "var d = (pm.response.json() || {}).data || {};",
+                  "pm.environment.set('officer_token', d.access_token);",
+                  "pm.environment.set('officer_refresh_token', d.refresh_token);",
+                  "pm.test('token issued', function () { pm.expect(d.access_token).to.be.ok; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5a. [OFFICER, not beneficiary] Resolve the grievance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{officer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Replacement fertilizer voucher issued at the Woreda desk.\",\n  \"resolution_summary\": \"Voucher reissued.\"\n}"
+            },
+            "description": "OFFICER ENDPOINT. Needed so the farmer can reopen / close / rate."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5b. Reopen (farmer; only from Resolved)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Reopen\",\n  \"reason\": \"The replacement voucher could not be redeemed locally.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5c. [OFFICER, not beneficiary] Resolve again",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{officer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Resolve\",\n  \"action_taken\": \"Voucher re-activated.\",\n  \"resolution_summary\": \"Voucher works now.\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5d. Close case with rating (farmer confirms resolution)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/action",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "action"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"Close Case\",\n  \"rating\": 5,\n  \"reason\": \"Issue resolved. Thank you!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5e. Submit feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/feedback",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "feedback"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"comment\": \"Fast and clear.\"\n}"
+            },
+            "description": "400 is accepted when 5d already recorded the rating."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/201/400', function () { pm.expect([200, 201, 400]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5f. Final timeline (duplicate of 4e, same endpoint, checks final state)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/timeline",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "timeline"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5g. Export closed grievance as CSV",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/export?format=csv",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "csv"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5h. Export closed grievance as PDF",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{farmer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/export?format=pdf",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "format",
+                  "value": "pdf"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Session end (farmer)",
+      "item": [
+        {
+          "name": "7a. Refresh IAM session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_token\": \"{{farmer_token}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is one of 200/401', function () { pm.expect([200, 401]).to.include(pm.response.code); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7b. Logout (IAM + eSignet end-session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "logout"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"access_token\": \"{{farmer_token}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

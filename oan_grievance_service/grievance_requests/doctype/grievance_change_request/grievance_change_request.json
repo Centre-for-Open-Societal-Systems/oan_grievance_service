@@ -1,0 +1,212 @@
+{
+ "actions": [],
+ "creation": "2026-09-26 23:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "subject",
+  "status",
+  "col_request",
+  "requested_by",
+  "requested_at",
+  "pending_with",
+  "pending_since",
+  "sec_reason",
+  "reason",
+  "sec_changes",
+  "changes",
+  "sec_decision",
+  "decided_by",
+  "decided_at",
+  "col_decision",
+  "decision_note",
+  "sec_trail",
+  "approvals"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "label": "Grievance",
+   "options": "Grievance",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "label": "Subject",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "What is being asked for, in a line - like an email subject."
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected",
+   "default": "Pending",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "col_request",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_at",
+   "fieldtype": "Datetime",
+   "label": "Requested At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_with",
+   "fieldtype": "Link",
+   "label": "Pending With",
+   "options": "User",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "Who decides next. Empty while pending means the admin queue."
+  },
+  {
+   "fieldname": "pending_since",
+   "fieldtype": "Datetime",
+   "label": "Pending Since",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sec_reason",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "sec_changes",
+   "fieldtype": "Section Break",
+   "label": "Changes"
+  },
+  {
+   "fieldname": "changes",
+   "fieldtype": "Table",
+   "label": "Changes",
+   "options": "Grievance Change Request Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sec_decision",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "fieldname": "decided_by",
+   "fieldtype": "Link",
+   "label": "Decided By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_at",
+   "fieldtype": "Datetime",
+   "label": "Decided At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_decision",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note"
+  },
+  {
+   "fieldname": "sec_trail",
+   "fieldtype": "Section Break",
+   "label": "Approval Trail",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "approvals",
+   "fieldtype": "Table",
+   "label": "Approvals",
+   "options": "Grievance Change Request Approval",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-26 23:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Requests",
+ "name": "Grievance Change Request",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "Grievance Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Officer",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:GR-CHG-{#####}",
+ "naming_rule": "Expression (old style)",
+ "track_changes": 1,
+ "title_field": "subject",
+ "show_title_field_in_link": 0
+}

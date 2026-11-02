@@ -1,0 +1,937 @@
+# Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
+# See license.txt
+
+"""The upload endpoint, end to end.
+
+The scanning service already has its own tests for the three checks in isolation.
+What these cover is that the endpoint actually applies them -- that a renamed
+executable is refused at the door rather than merely refusable, and that a file
+nobody has scanned yet cannot be downloaded.
+"""
+
+import io
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+
+from oan_grievance_service.api.v1 import attachment
+from oan_grievance_service.services import scanning
+from oan_grievance_service.services import ticket_number as tn
+from oan_grievance_service.tests.fixtures import a_grievance
+
+WINDOWS_EXECUTABLE = b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00"
+
+
+def _pdf() -> bytes:
+	"""A structurally valid PDF.
+
+	Not a handful of header bytes: core's File runs pdf_contains_js() over every
+	PDF upload -- its own check for embedded JavaScript -- and that parses the
+	whole document. A truncated fixture fails there rather than in anything this
+	module does.
+	"""
+	from io import BytesIO
+
+	from pypdf import PdfWriter
+
+	writer = PdfWriter()
+	writer.add_blank_page(width=72, height=72)
+	out = BytesIO()
+	writer.write(out)
+	return out.getvalue()
+
+
+def _jpeg(with_gps: bool = False) -> bytes:
+	from PIL import Image
+
+	image = Image.new("RGB", (8, 8), (120, 140, 110))
+	out = io.BytesIO()
+	if with_gps:
+		exif = image.getexif()
+		gps = exif.get_ifd(scanning.EXIF_GPS_TAG)
+		gps[1] = "N"
+		gps[2] = (9.0, 10.0, 0.0)
+		gps[3] = "E"
+		gps[4] = (38.0, 45.0, 0.0)
+		image.save(out, format="JPEG", exif=exif)
+	else:
+		image.save(out, format="JPEG")
+	return out.getvalue()
+
+
+class _Upload:
+	"""Stands in for the werkzeug FileStorage the endpoint reads off the request."""
+
+	def __init__(self, filename, content):
+		self.filename = filename
+		self.stream = io.BytesIO(content)
+
+
+class _Request:
+	"""A minimal stand-in for the werkzeug request.
+
+	`host` is here because saving a File reaches frappe.utils.get_url(), which asks
+	the request for its host before resolving a storage path. Left falsy so that
+	lookup falls through to the site config, as it does outside a web request.
+
+	`headers` is here because newer Frappe (version-16 since 2026-10-21) reads
+	`request.host or request.headers.get("Host", "")` there. Empty, so the lookup
+	still falls through to the site config.
+	"""
+
+	def __init__(self, upload=None, files=None):
+		if files is not None:
+			self.files = files
+		elif upload:
+			self.files = {"file": upload}
+		else:
+			self.files = {}
+		self.path = "/api/method/test"
+		self.host = None
+		self.headers = {}
+
+
+class AttachmentAPITestCase(FrappeTestCase):
+	def setUp(self):
+		self.grievance = a_grievance()
+		self._saved_request = getattr(frappe.local, "request", None)
+
+	def tearDown(self):
+		frappe.local.request = self._saved_request
+		frappe.db.rollback()
+
+	def _send(self, filename, content, **kwargs):
+		frappe.local.request = _Request(_Upload(filename, content))
+		return attachment.submit_documents(grievance=self.grievance.name, **kwargs)
+
+	def _send_multiple(self, file_tuples, endpoint_func=None, **kwargs):
+		uploads = [_Upload(fname, content) for fname, content in file_tuples]
+		frappe.local.request = _Request(files={"files": uploads})
+		func = endpoint_func or attachment.submit_documents
+		return func(grievance=self.grievance.name, **kwargs)
+
+
+class TestUploadGate(AttachmentAPITestCase):
+	def test_a_valid_image_is_accepted_and_queued(self):
+		result = self._send("receipt.jpg", _jpeg())
+
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(result["data"][0]["mime_type"], "image/jpeg")
+		# Pending, not Clean: nothing has looked at it yet.
+		self.assertEqual(result["data"][0]["scan_status"], "Pending")
+
+	def test_a_pdf_is_accepted(self):
+		result = self._send("evidence.pdf", _pdf())
+		self.assertEqual(result["data"][0]["mime_type"], "application/pdf")
+
+	def test_an_executable_renamed_to_jpg_is_refused(self):
+		"""The extension says image; the bytes decide, and they say otherwise."""
+		result = self._send("holiday.jpg", WINDOWS_EXECUTABLE)
+		self.assertEqual(result["status"], "error")
+
+	def test_an_oversized_file_is_refused(self):
+		oversized = _jpeg() + b"\x00" * scanning.MAX_SIZE_BYTES
+		result = self._send("huge.jpg", oversized)
+		self.assertEqual(result["status"], "error")
+
+	def test_an_empty_upload_is_refused(self):
+		result = self._send("nothing.jpg", b"")
+		self.assertEqual(result["status"], "error")
+
+	def test_a_request_with_no_file_is_refused(self):
+		frappe.local.request = _Request(None)
+		result = attachment.submit_documents(grievance=self.grievance.name)
+		self.assertEqual(result["status"], "error")
+
+	def test_an_upload_without_grievance_is_refused(self):
+		frappe.local.request = _Request(_Upload("receipt.jpg", _jpeg()))
+		result = attachment.submit_documents(grievance="")
+		self.assertEqual(result["status"], "error")
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+
+	def test_upload_with_formatted_ticket_number_is_accepted(self):
+		"""Uploading using a grouped/hyphenated ticket number (e.g. B-003-000D-0) resolves correctly."""
+		formatted_ticket = tn.display(self.grievance.ticket_number or self.grievance.name)
+		frappe.local.request = _Request(_Upload("evidence.jpg", _jpeg()))
+		result = attachment.submit_documents(ticket_number=formatted_ticket)
+		self.assertEqual(result["status"], "success")
+		self.assertEqual(len(result["data"]), 1)
+
+	def test_get_attachments_with_formatted_ticket_number(self):
+		"""Listing attachments using a formatted ticket number resolves the case correctly."""
+		formatted_ticket = tn.display(self.grievance.ticket_number or self.grievance.name)
+		self._send("sample.jpg", _jpeg())
+		result = attachment.get_attachments(ticket_number=formatted_ticket)
+		self.assertEqual(result["status"], "success")
+		self.assertGreaterEqual(len(result["data"]), 1)
+
+
+class TestLocationMetadataIsStripped(AttachmentAPITestCase):
+	def test_coordinates_do_not_survive_the_upload(self):
+		"""Anonymity would otherwise die in the EXIF block."""
+		original = _jpeg(with_gps=True)
+		self.assertTrue(scanning.has_location_metadata(original))
+
+		result = self._send("field.jpg", original)
+		name = result["data"][0]["attachment"]
+		stored = frappe.get_doc("Grievance Attachment", name)
+
+		file_name = frappe.db.get_value("File", {"file_url": stored.file_url}, "name")
+		content = frappe.get_doc("File", file_name).get_content()
+		self.assertFalse(scanning.has_location_metadata(content))
+
+	def test_the_checksum_matches_what_was_actually_stored(self):
+		"""Taken after the strip, so it describes the bytes on disk, not the upload."""
+		result = self._send("field.jpg", _jpeg(with_gps=True))
+		stored = frappe.get_doc("Grievance Attachment", result["data"][0]["attachment"])
+
+		file_name = frappe.db.get_value("File", {"file_url": stored.file_url}, "name")
+		content = frappe.get_doc("File", file_name).get_content()
+		self.assertEqual(stored.checksum_sha256, scanning.sha256_of(content))
+
+
+class TestDownloadIsGatedOnTheScan(AttachmentAPITestCase):
+	def _uploaded(self):
+		result = self._send("receipt.jpg", _jpeg())
+		return result["data"][0]["attachment"]
+
+	def test_a_pending_file_cannot_be_downloaded(self):
+		result = attachment.download(attachment=self._uploaded())
+		self.assertEqual(result["status"], "error")
+
+	def test_a_clean_file_can_be(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		result = attachment.download(attachment=name)
+		self.assertEqual(result["status"], "success")
+		self.assertTrue(result["data"]["file_url"])
+
+	def test_an_infected_file_stays_withheld(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+
+		result = attachment.download(attachment=name)
+		self.assertEqual(result["status"], "error")
+
+	def test_a_failed_scan_withholds_too(self):
+		"""Fail closed: an outage makes a file unavailable, not trusted."""
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Failed")
+
+		result = attachment.download(attachment=name)
+		self.assertEqual(result["status"], "error")
+
+
+class TestAVerdictIsRecordedOnce(AttachmentAPITestCase):
+	"""Two scanners can hold one row: the upload enqueues a scan and the hourly
+	sweep picks up whatever is still Pending. The second arrival must not
+	overwrite the first one's verdict.
+
+	The failure this guards against: the worker marks a file Infected and
+	discards the object, the sweep then reads the missing object and records
+	Failed on top, and the case loses the fact that malware was submitted.
+	"""
+
+	def _uploaded(self):
+		return self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+
+	def _clamd_that_must_not_be_called(self):
+		def refuse(*args, **kwargs):
+			raise AssertionError("a settled row was sent to the scanner again")
+
+		self.addCleanup(setattr, scanning.socket, "create_connection", scanning.socket.create_connection)
+		scanning.socket.create_connection = refuse
+
+	def test_an_infected_verdict_survives_a_second_scan(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, {"scan_status": "Infected", "scan_detail": "FOUND"})
+		self._clamd_that_must_not_be_called()
+
+		self.assertEqual(scanning.scan_attachment(name), "Infected")
+		row = frappe.db.get_value("Grievance Attachment", name, ["scan_status", "scan_detail"], as_dict=True)
+		self.assertEqual((row.scan_status, row.scan_detail), ("Infected", "FOUND"))
+
+	def test_a_clean_verdict_is_not_rescanned_either(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+		self._clamd_that_must_not_be_called()
+
+		self.assertEqual(scanning.scan_attachment(name), "Clean")
+
+	def test_a_pending_row_is_still_scanned(self):
+		name = self._uploaded()
+		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
+		frappe.conf["grievance_clamav_port"] = 1  # nothing listens here: stays withheld
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_host", None)
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_port", None)
+
+		self.assertEqual(scanning.scan_attachment(name), "Pending")
+		self.assertEqual(frappe.db.get_value("Grievance Attachment", name, "scan_attempts"), 1)
+
+	def test_malware_found_after_another_writer_said_clean_still_condemns_the_row(self):
+		"""The scan holds no lock, so the row can settle while clamd is busy.
+
+		The sweep calls scan_attachment directly, so the upload job and the sweep
+		can both be inside clamd for one row. If the Clean lands first and this
+		scan then finds malware, Infected must overwrite it and the object must go.
+		"""
+		name = self._uploaded()
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+
+		def settle_elsewhere_then_find_malware(content):
+			frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+			return scanning.SCAN_INFECTED, "stream: Eicar-Test-Signature FOUND"
+
+		self.addCleanup(setattr, scanning, "scan_bytes", scanning.scan_bytes)
+		scanning.scan_bytes = settle_elsewhere_then_find_malware
+
+		self.assertEqual(scanning.scan_attachment(name), "Infected")
+		self.assertFalse(frappe.db.exists("File", file_name))
+
+	def test_a_clean_verdict_does_not_overwrite_an_infected_one(self):
+		name = self._uploaded()
+
+		def condemn_elsewhere_then_say_clean(content):
+			frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+			return scanning.SCAN_CLEAN, "stream: OK"
+
+		self.addCleanup(setattr, scanning, "scan_bytes", scanning.scan_bytes)
+		scanning.scan_bytes = condemn_elsewhere_then_say_clean
+
+		self.assertEqual(scanning.scan_attachment(name), "Infected")
+
+	def test_a_verdict_for_a_row_deleted_meanwhile_is_dropped(self):
+		name = self._uploaded()
+
+		def delete_elsewhere_then_find_malware(content):
+			frappe.delete_doc("Grievance Attachment", name, force=True, ignore_permissions=True)
+			return scanning.SCAN_INFECTED, "stream: Eicar-Test-Signature FOUND"
+
+		self.addCleanup(setattr, scanning, "scan_bytes", scanning.scan_bytes)
+		scanning.scan_bytes = delete_elsewhere_then_find_malware
+
+		self.assertEqual(scanning.scan_attachment(name), "Failed")
+		self.assertFalse(frappe.db.exists("Grievance Attachment", name))
+
+
+class TestAnOutageIsRetriedNotFinal(AttachmentAPITestCase):
+	"""clamd down used to mean Failed forever; now the row waits and is asked again."""
+
+	def _uploaded(self):
+		return self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+
+	def _scanner_down(self):
+		frappe.conf["grievance_clamav_host"] = "127.0.0.1"
+		frappe.conf["grievance_clamav_port"] = 1
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_host", None)
+		self.addCleanup(frappe.conf.pop, "grievance_clamav_port", None)
+
+	def test_each_deferred_scan_counts_one_attempt(self):
+		name = self._uploaded()
+		self._scanner_down()
+
+		scanning.scan_attachment(name)
+		scanning.scan_attachment(name)
+
+		row = frappe.db.get_value(
+			"Grievance Attachment", name, ["scan_status", "scan_attempts", "scan_detail"], as_dict=True
+		)
+		self.assertEqual((row.scan_status, row.scan_attempts), ("Pending", 2))
+		self.assertIn("unreachable", row.scan_detail)
+
+	def test_a_deferred_row_is_still_withheld(self):
+		name = self._uploaded()
+		self._scanner_down()
+		scanning.scan_attachment(name)
+
+		self.assertFalse(frappe.get_doc("Grievance Attachment", name).is_servable())
+
+	def test_the_row_is_given_up_on_after_the_last_attempt(self):
+		name = self._uploaded()
+		self._scanner_down()
+		frappe.db.set_value("Grievance Attachment", name, "scan_attempts", scanning.MAX_SCAN_ATTEMPTS - 1)
+
+		self.assertEqual(scanning.scan_attachment(name), "Failed")
+		self.assertIn("attempts", frappe.db.get_value("Grievance Attachment", name, "scan_detail"))
+
+	def test_the_sweep_skips_the_batch_while_the_scanner_is_down(self):
+		name = self._uploaded()
+		self._scanner_down()
+
+		self.assertEqual(scanning.scan_pending(), 0)
+		row = frappe.db.get_value(
+			"Grievance Attachment", name, ["scan_status", "scan_attempts"], as_dict=True
+		)
+		self.assertEqual((row.scan_status, row.scan_attempts or 0), ("Pending", 0))
+
+	def test_a_skipped_sweep_with_rows_waiting_is_visible_in_the_error_log(self):
+		"""The skip charges no row a retry, so without this an outage left no trace."""
+		self._uploaded()
+		self._scanner_down()
+
+		scanning.scan_pending()
+
+		self.assertTrue(
+			frappe.db.exists("Error Log", {"method": "Attachment scan sweep skipped: scanner unreachable"})
+		)
+
+
+class TestTheRowOwnsItsFile(AttachmentAPITestCase):
+	"""A real Link to File, and one owner for deleting it."""
+
+	def test_upload_links_the_row_to_the_file_core_attached(self):
+		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+
+		stored = frappe.get_doc("File", file_name)
+		self.assertEqual(
+			(stored.attached_to_doctype, stored.attached_to_name), ("Grievance Attachment", name)
+		)
+		self.assertEqual(stored.file_url, frappe.db.get_value("Grievance Attachment", name, "file_url"))
+
+	def test_deleting_the_row_deletes_its_file(self):
+		name = self._send("mistake.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+
+		attachment.delete(attachment=name)
+
+		self.assertFalse(frappe.db.exists("Grievance Attachment", name))
+		self.assertFalse(frappe.db.exists("File", file_name))
+
+	def test_the_object_is_read_through_the_link(self):
+		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+
+		self.assertEqual(scanning.read_object(file_name), scanning.read_object(self._file_of_url(name)))
+
+	def _file_of_url(self, name):
+		return frappe.db.get_value("Grievance Attachment", name, "file_url")
+
+
+class TestInfectedBytesAreRemovedEverywhere(AttachmentAPITestCase):
+	"""Core keeps one object per content hash and only deletes it from disk once
+	no File row shares the hash. Two identical uploads are one object; an
+	Infected verdict on either must take the other's copy down with it."""
+
+	def _found_malware(self):
+		self.addCleanup(setattr, scanning, "scan_bytes", scanning.scan_bytes)
+		scanning.scan_bytes = lambda content: (scanning.SCAN_INFECTED, "stream: Eicar-Test-Signature FOUND")
+
+	def test_an_identical_upload_on_another_case_is_marked_infected_too(self):
+		first = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		self.grievance = a_grievance()
+		second = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		first_file = frappe.db.get_value("Grievance Attachment", first, "file")
+		second_file = frappe.db.get_value("Grievance Attachment", second, "file")
+		self._found_malware()
+
+		self.assertEqual(scanning.scan_attachment(first), "Infected")
+
+		self.assertEqual(frappe.db.get_value("Grievance Attachment", second, "scan_status"), "Infected")
+		self.assertFalse(frappe.db.exists("File", first_file))
+		self.assertFalse(frappe.db.exists("File", second_file))
+		self.assertIsNone(frappe.db.get_value("Grievance Attachment", second, "file"))
+
+	def test_a_twin_condemned_during_the_scan_condemns_this_row_too(self):
+		first = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		self.grievance = a_grievance()
+		second = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+
+		def condemn_the_twin_then_say_clean(content):
+			frappe.db.set_value("Grievance Attachment", first, "scan_status", "Infected")
+			return scanning.SCAN_CLEAN, "stream: OK"
+
+		self.addCleanup(setattr, scanning, "scan_bytes", scanning.scan_bytes)
+		scanning.scan_bytes = condemn_the_twin_then_say_clean
+
+		self.assertEqual(scanning.scan_attachment(second), "Infected")
+		self.assertIn(first, frappe.db.get_value("Grievance Attachment", second, "scan_detail"))
+
+	def test_a_twin_of_an_infected_row_is_not_sent_to_the_scanner(self):
+		first = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		frappe.db.set_value("Grievance Attachment", first, "scan_status", "Infected")
+		self.grievance = a_grievance()
+		second = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+
+		def refuse(*args, **kwargs):
+			raise AssertionError("a known-infected object was sent to the scanner")
+
+		self.addCleanup(setattr, scanning.socket, "create_connection", scanning.socket.create_connection)
+		scanning.socket.create_connection = refuse
+
+		self.assertEqual(scanning.scan_attachment(second), "Infected")
+		self.assertIn(first, frappe.db.get_value("Grievance Attachment", second, "scan_detail"))
+
+
+class TestLegacyFilesGoThroughTheGate(AttachmentAPITestCase):
+	"""A File attached straight to the case used to be listed as Clean, unscanned."""
+
+	def _legacy_file(self, content=None, file_name="old-evidence.jpg"):
+		return frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": file_name,
+				"content": content or _jpeg(),
+				"is_private": 1,
+				"attached_to_doctype": "Grievance",
+				"attached_to_name": self.grievance.name,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_the_patch_folds_a_legacy_file_into_a_pending_row(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		stored = self._legacy_file()
+		execute()
+
+		row = frappe.db.get_value(
+			"Grievance Attachment",
+			{"file": stored.name},
+			["name", "grievance", "scan_status", "mime_type", "checksum_sha256", "uploaded_by_user"],
+			as_dict=True,
+		)
+		self.assertEqual(
+			(row.grievance, row.scan_status, row.mime_type), (self.grievance.name, "Pending", "image/jpeg")
+		)
+		self.assertEqual(row.checksum_sha256, scanning.sha256_of(_jpeg()))
+		self.assertTrue(row.uploaded_by_user)
+		stored.reload()
+		self.assertEqual(
+			(stored.attached_to_doctype, stored.attached_to_name), ("Grievance Attachment", row.name)
+		)
+
+	def test_the_patch_records_an_unacceptable_legacy_file_as_failed(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		stored = self._legacy_file(content=b"MZ" + b"\x00" * 64, file_name="tool.exe")
+		execute()
+
+		row = frappe.db.get_value(
+			"Grievance Attachment", {"file": stored.name}, ["scan_status", "scan_detail"], as_dict=True
+		)
+		self.assertEqual(row.scan_status, "Failed")
+		self.assertTrue(row.scan_detail)
+
+	def test_the_patch_links_a_row_that_predates_the_link(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+		frappe.db.set_value("Grievance Attachment", name, "file", None)
+
+		execute()
+
+		self.assertEqual(frappe.db.get_value("Grievance Attachment", name, "file"), file_name)
+
+	def _legacy_row(self):
+		"""An attachment row whose File is still attached to the Grievance and whose
+		link is empty: the state the first pass links by URL and the second pass
+		then sees as an unfiled legacy File."""
+		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+		frappe.db.set_value(
+			"File", file_name, {"attached_to_doctype": "Grievance", "attached_to_name": self.grievance.name}
+		)
+		frappe.db.set_value("Grievance Attachment", name, "file", None)
+		return name, file_name
+
+	def test_the_patch_does_not_file_a_legacy_file_twice(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		name, file_name = self._legacy_row()
+		execute()
+
+		rows = frappe.get_all(
+			"Grievance Attachment", filters={"grievance": self.grievance.name}, pluck="name"
+		)
+		self.assertEqual(rows, [name])
+		self.assertEqual(frappe.db.get_value("Grievance Attachment", name, "file"), file_name)
+		stored = frappe.get_doc("File", file_name)
+		self.assertEqual(
+			(stored.attached_to_doctype, stored.attached_to_name), ("Grievance Attachment", name)
+		)
+
+	def test_a_stripped_replacement_is_carried_onto_the_existing_row(self):
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		name, file_name = self._legacy_row()
+		clean = _jpeg()
+		self.addCleanup(setattr, scanning, "has_location_metadata", scanning.has_location_metadata)
+		self.addCleanup(setattr, scanning, "strip_location_metadata", scanning.strip_location_metadata)
+		scanning.has_location_metadata = lambda content: True
+		scanning.strip_location_metadata = lambda content, mime: clean
+
+		execute()
+
+		row = frappe.db.get_value(
+			"Grievance Attachment", name, ["file", "file_url", "checksum_sha256", "size_bytes"], as_dict=True
+		)
+		self.assertNotEqual(row.file, file_name)
+		self.assertFalse(frappe.db.exists("File", file_name))
+		self.assertEqual(frappe.db.get_value("File", row.file, "file_url"), row.file_url)
+		self.assertEqual(row.checksum_sha256, scanning.sha256_of(clean))
+		self.assertEqual(row.size_bytes, len(clean))
+		self.assertEqual(
+			frappe.get_all("Grievance Attachment", filters={"grievance": self.grievance.name}, pluck="name"),
+			[name],
+		)
+
+	def test_the_patch_refuses_to_guess_between_rows_that_share_a_url(self):
+		"""Core keeps a File row per upload and one URL per content. Two rows with
+		the same URL and no File attached to them cannot be told apart, and a
+		wrong link would let one case's delete remove the other case's File."""
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		first = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		self.grievance = a_grievance()
+		second = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
+		for name in (first, second):
+			file_name = frappe.db.get_value("Grievance Attachment", name, "file")
+			frappe.db.set_value("File", file_name, {"attached_to_doctype": None, "attached_to_name": None})
+			frappe.db.set_value("Grievance Attachment", name, "file", None)
+
+		execute()
+
+		self.assertIsNone(frappe.db.get_value("Grievance Attachment", first, "file"))
+		self.assertIsNone(frappe.db.get_value("Grievance Attachment", second, "file"))
+		self.assertTrue(frappe.db.exists("Error Log", {"method": "Attachments left without a File link"}))
+
+	def test_the_patch_strips_location_metadata_from_a_legacy_photo(self):
+		"""Core may already strip EXIF at insert on this site, so the detection and
+		the strip are stood in for; what is under test is that a photo found to
+		carry location data is re-stored clean, linked and checksummed as such."""
+		from oan_grievance_service.patches.link_attachments_to_files import execute
+
+		stored = self._legacy_file(content=_jpeg(with_gps=True), file_name="plot.jpg")
+		clean = _jpeg()
+		self.addCleanup(setattr, scanning, "has_location_metadata", scanning.has_location_metadata)
+		self.addCleanup(setattr, scanning, "strip_location_metadata", scanning.strip_location_metadata)
+		scanning.has_location_metadata = lambda content: True
+		scanning.strip_location_metadata = lambda content, mime: clean
+
+		execute()
+
+		row = frappe.db.get_value(
+			"Grievance Attachment",
+			{"grievance": self.grievance.name},
+			["file", "checksum_sha256"],
+			as_dict=True,
+		)
+		self.assertNotEqual(row.file, stored.name)
+		self.assertFalse(frappe.db.exists("File", stored.name))
+		self.assertEqual(scanning.read_object(row.file), clean)
+		self.assertEqual(row.checksum_sha256, scanning.sha256_of(clean))
+
+
+class TestViewStreamsTheObject(AttachmentAPITestCase):
+	"""`/view` hands the bytes to an API client under the same gate as download.
+
+	`file_url` points at core's private-file route, which is outside the JWT
+	namespaces: a bearer token does nothing there, so a Next.js client could list
+	a case but never open its evidence. `/view` streams the object from under
+	`/api/v1`, inline, with the scan verdict checked on the way out.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		# The route flags frappe.response as a download so the envelope wrapper
+		# steps aside; that flag must not leak into the next test.
+		self.addCleanup(lambda: frappe.local.response.pop("type", None))
+
+	def _uploaded(self, content=None):
+		return self._send("receipt.jpg", content or _jpeg())["data"][0]["attachment"]
+
+	def test_a_clean_file_is_streamed_inline(self):
+		content = _jpeg()
+		name = self._uploaded(content)
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.mimetype, "image/jpeg")
+		self.assertTrue(response.headers["Content-Disposition"].startswith("inline"))
+		self.assertIn("receipt.jpg", response.headers["Content-Disposition"])
+		self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+		self.assertEqual(response.data, content)
+
+	def test_download_flag_switches_to_attachment_disposition(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name, download="1")
+
+		self.assertTrue(response.headers["Content-Disposition"].startswith("attachment"))
+
+	def test_the_bytes_match_the_recorded_checksum(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		response = attachment.view(attachment=name)
+		recorded = frappe.db.get_value("Grievance Attachment", name, "checksum_sha256")
+
+		self.assertEqual(scanning.sha256_of(response.data), recorded)
+		self.assertEqual(response.headers["ETag"], f'"{recorded}"')
+
+	def test_a_pending_file_is_not_streamed(self):
+		result = attachment.view(attachment=self._uploaded())
+		self.assertEqual(result["status"], "error")
+		self.assertIn("Pending", result["message"])
+
+	def test_an_infected_file_is_not_streamed(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+
+		result = attachment.view(attachment=name)
+		self.assertEqual(result["status"], "error")
+		self.assertIn("Infected", result["message"])
+
+	def test_a_failed_scan_is_not_streamed(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Failed")
+
+		result = attachment.view(attachment=name)
+		self.assertEqual(result["status"], "error")
+
+	def test_download_metadata_now_points_at_view(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+
+		result = attachment.download(attachment=name)
+		self.assertEqual(result["data"]["view_url"], f"/api/v1/attachments/{name}/view")
+
+
+class TestTheObjectIsNotReachableAroundTheGate(AttachmentAPITestCase):
+	"""The download endpoint is not the only way to a private file.
+
+	Core serves /private/files/<name> itself and decides permission by asking
+	whatever the File is attached to. While these files hung off the Grievance,
+	that question was "may you read the case" -- which an officer can -- so the
+	scan verdict was never consulted and download() guarded a door beside an open
+	window.
+	"""
+
+	def _uploaded(self):
+		result = self._send("receipt.jpg", _jpeg())
+		return result["data"][0]["attachment"]
+
+	def _file_of(self, name):
+		return frappe.get_doc("File", frappe.db.get_value("Grievance Attachment", name, "file"))
+
+	def _as_officer(self):
+		"""Ask the question as someone the check actually applies to.
+
+		Administrator bypasses has_permission entirely, so asserting as Administrator
+		would pass whether the gate existed or not -- it would test nothing.
+		"""
+		email = "attachment.officer@example.com"
+		if frappe.db.exists("User", email):
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "Attachment Officer",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(email)
+		return email
+
+	def test_the_file_hangs_off_the_attachment_not_the_case(self):
+		name = self._uploaded()
+		stored = self._file_of(name)
+
+		self.assertEqual(stored.attached_to_doctype, "Grievance Attachment")
+		self.assertEqual(stored.attached_to_name, name)
+
+	def test_core_refuses_to_serve_a_file_that_has_not_been_scanned(self):
+		name = self._uploaded()
+		self._as_officer()
+		self.assertFalse(frappe.has_permission("Grievance Attachment", "read", doc=name))
+
+	def test_core_serves_it_once_the_scan_is_clean(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Clean")
+		self._as_officer()
+
+		self.assertTrue(frappe.has_permission("Grievance Attachment", "read", doc=name))
+
+	def test_an_infected_file_stays_unreachable_by_the_direct_route(self):
+		name = self._uploaded()
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+		self._as_officer()
+
+		self.assertFalse(frappe.has_permission("Grievance Attachment", "read", doc=name))
+
+	def test_no_url_is_handed_back_at_upload_time(self):
+		"""Returning it was the other half of the leak: a client could hold the path
+		before anything had looked at the bytes."""
+		result = self._send("receipt.jpg", _jpeg())
+		self.assertNotIn("file_url", result["data"][0])
+
+
+class TestListing(AttachmentAPITestCase):
+	def test_every_attachment_is_listed_with_its_verdict(self):
+		self._send("one.jpg", _jpeg())
+		self._send("two.pdf", _pdf())
+
+		result = attachment.get_attachments(grievance=self.grievance.name)
+		rows = result["data"]
+
+		self.assertEqual(len(rows), 2)
+		self.assertEqual({r["file_name"] for r in rows}, {"one.jpg", "two.pdf"})
+		self.assertTrue(all(r["scan_status"] == "Pending" for r in rows))
+
+	def test_an_infected_file_is_still_listed(self):
+		"""An officer needs to know something was submitted and what became of it."""
+		name = self._send("bad.jpg", _jpeg())["data"][0]["attachment"]
+		frappe.db.set_value("Grievance Attachment", name, "scan_status", "Infected")
+
+		rows = attachment.get_attachments(grievance=self.grievance.name)["data"]
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["scan_status"], "Infected")
+
+
+class TestLimits(AttachmentAPITestCase):
+	def test_a_case_cannot_carry_more_than_the_cap(self):
+		for i in range(attachment.MAX_ATTACHMENTS_PER_CASE):
+			self._send(f"file{i}.jpg", _jpeg())
+
+		result = self._send("one-too-many.jpg", _jpeg())
+		self.assertEqual(result["status"], "error")
+
+
+class TestDeletion(AttachmentAPITestCase):
+	def test_an_attachment_can_be_removed_while_the_case_is_open(self):
+		name = self._send("mistake.jpg", _jpeg())["data"][0]["attachment"]
+
+		result = attachment.delete(attachment=name)
+		self.assertEqual(result["status"], "success")
+		self.assertFalse(frappe.db.exists("Grievance Attachment", name))
+
+	def test_evidence_cannot_be_removed_once_the_case_is_closed(self):
+		"""It is part of what the decision rested on.
+
+		handle_api_errors rolls the request back before returning the envelope, so
+		the assertion is on the refusal rather than on the row outliving it.
+		"""
+		name = self._send("evidence.jpg", _jpeg())["data"][0]["attachment"]
+		frappe.db.set_value(
+			"Grievance", self.grievance.name, {"status": "Closed", "workflow_state": "Closed"}
+		)
+
+		result = attachment.delete(attachment=name)
+		self.assertEqual(result["status"], "error")
+		self.assertIn("Closed", result["message"])
+
+
+class TestGuestCannotUpload(AttachmentAPITestCase):
+	"""Uploads require authentication (Grievance Submitter, Officer, or Admin role)."""
+
+	def test_a_guest_may_not_upload_against_a_grievance(self):
+		grievance = a_grievance()
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user("Guest")
+
+		frappe.local.request = _Request(_Upload("receipt.jpg", _jpeg()))
+		result = attachment.submit_documents(grievance=grievance.name)
+		self.assertEqual(result["status"], "error")
+
+
+class TestTheTrailSaysWhatHappened(AttachmentAPITestCase):
+	def test_a_deletion_is_recorded_as_a_deletion(self):
+		"""It was being written as view_attachment, which files the one event an
+		auditor is looking for among the thousands they are not."""
+		from oan_grievance_service.services import audit
+
+		name = self._send("mistake.jpg", _jpeg())["data"][0]["attachment"]
+		attachment.delete(attachment=name)
+
+		actions = frappe.get_all(
+			"Grievance Access Audit Event",
+			filters={"grievance": self.grievance.name},
+			pluck="action",
+		)
+		self.assertIn(audit.ACTION_DELETE_ATTACHMENT, actions)
+
+
+class TestMultiDocumentUpload(AttachmentAPITestCase):
+	def test_multiple_documents_uploaded_via_submit_documents(self):
+		result = self._send_multiple(
+			[
+				("doc1.jpg", _jpeg()),
+				("doc2.pdf", _pdf()),
+			]
+		)
+		self.assertEqual(result["status"], "success")
+		self.assertIsInstance(result["data"], list)
+		self.assertEqual(len(result["data"]), 2)
+		self.assertEqual(result["data"][0]["mime_type"], "image/jpeg")
+		self.assertEqual(result["data"][1]["mime_type"], "application/pdf")
+		self.assertEqual(result["data"][0]["scan_status"], "Pending")
+		self.assertEqual(result["data"][1]["scan_status"], "Pending")
+
+	def test_submit_documents_always_returns_list(self):
+		result = self._send_multiple(
+			[("doc1.jpg", _jpeg())],
+			endpoint_func=attachment.submit_documents,
+		)
+		self.assertEqual(result["status"], "success")
+		self.assertIsInstance(result["data"], list)
+		self.assertEqual(len(result["data"]), 1)
+		self.assertEqual(result["data"][0]["file_name"], "doc1.jpg")
+
+	def test_batch_upload_exceeding_limit_fails_atomically(self):
+		initial_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name})
+		self.assertEqual(initial_count, 0)
+
+		# Attempt to upload 11 files in one batch -> exceeds limit 10
+		files_to_upload = [
+			(f"overflow{i}.jpg", _jpeg()) for i in range(attachment.MAX_ATTACHMENTS_PER_CASE + 1)
+		]
+		result = self._send_multiple(files_to_upload)
+		self.assertEqual(result["status"], "error")
+		err_str = str(result.get("details")) + str(result.get("message", ""))
+		self.assertIn("A grievance may carry at most 10 attachments", err_str)
+
+		# Verify atomic refusal: no attachments were created
+		current_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name})
+		self.assertEqual(current_count, 0)
+
+	def test_batch_upload_with_one_invalid_file_fails_atomically(self):
+		initial_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name})
+
+		result = self._send_multiple(
+			[
+				("good.jpg", _jpeg()),
+				("bad.exe.jpg", WINDOWS_EXECUTABLE),
+			]
+		)
+		self.assertEqual(result["status"], "error")
+		current_count = frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name})
+		self.assertEqual(current_count, initial_count)
+
+	def test_virus_scanning_is_enqueued_asynchronously(self):
+		from unittest.mock import patch
+
+		with patch("frappe.enqueue") as mock_enqueue:
+			result = self._send_multiple(
+				[
+					("scan1.jpg", _jpeg()),
+					("scan2.pdf", _pdf()),
+				]
+			)
+			self.assertEqual(result["status"], "success")
+			self.assertEqual(mock_enqueue.call_count, 2)
+			for call in mock_enqueue.call_args_list:
+				self.assertEqual(
+					call.args[0] if call.args else call.kwargs.get("method"),
+					"oan_grievance_service.services.scanning.scan_attachment",
+				)
+				self.assertTrue(call.kwargs.get("is_async"))
+				self.assertTrue(call.kwargs.get("enqueue_after_commit"))
