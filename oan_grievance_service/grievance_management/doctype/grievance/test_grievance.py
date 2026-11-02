@@ -650,9 +650,7 @@ class TestGrievanceDelete(FrappeTestCase):
 			"Grievance Duplicate": {"duplicate_of": other.name},
 		}
 		for doctype, values in children.items():
-			frappe.get_doc({"doctype": doctype, "grievance": name, **values}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc({"doctype": doctype, "grievance": name, **values}).insert(ignore_permissions=True)
 		timeline = frappe.get_doc(
 			{
 				"doctype": "Grievance Timeline",
