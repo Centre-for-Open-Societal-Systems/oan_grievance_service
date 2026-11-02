@@ -17,6 +17,7 @@ from oan_grievance_service.permissions import grievance_query_conditions, has_gr
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing, ticket_number
 from oan_grievance_service.tests.fixtures import (
+	a_grievance,
 	a_grievance_type,
 	a_leaf_area,
 	a_staffed_desk,
@@ -618,6 +619,69 @@ class TestGrievance(FrappeTestCase):
 				frappe.delete_doc(
 					"Grievance RBAC Assignment", specific_rule.name, force=True, ignore_permissions=True
 				)
+
+
+class TestGrievanceDelete(FrappeTestCase):
+	"""Deleting a case removes what exists only for it and leaves the audit trail."""
+
+	def test_delete_without_force_cascades_and_keeps_audit_rows(self):
+		case = a_grievance()
+		other = a_grievance()
+		self.addCleanup(discard_grievance, other.name)
+		name = case.name
+		frappe.db.set_value("Grievance", name, "status", C.STATE_CLOSED)
+
+		file = frappe.get_doc(
+			{"doctype": "File", "file_name": "evidence.txt", "content": "x", "is_private": 1}
+		).insert(ignore_permissions=True)
+		children = {
+			"Grievance Attachment": {
+				"file_name": "evidence.txt",
+				"file_url": file.file_url,
+				"file": file.name,
+				"scan_status": "Clean",
+				"uploaded_by_user": "Administrator",
+			},
+			"Grievance Feedback": {
+				"rating": 4,
+				"feedback_type": "Resolution",
+				"submitted_at": frappe.utils.now_datetime(),
+			},
+			"Grievance Duplicate": {"duplicate_of": other.name},
+		}
+		for doctype, values in children.items():
+			frappe.get_doc({"doctype": doctype, "grievance": name, **values}).insert(
+				ignore_permissions=True
+			)
+		timeline = frappe.get_doc(
+			{
+				"doctype": "Grievance Timeline",
+				"grievance": name,
+				"entry_type": "note",
+				"created_on": frappe.utils.now_datetime(),
+				"body": "kept",
+				"ref_doctype": "Grievance",
+				"ref_docname": name,
+			}
+		).insert(ignore_permissions=True)
+		history = frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": name,
+				"to_status": "Submitted",
+				"timestamp": frappe.utils.now_datetime(),
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.set_user("Administrator")
+		frappe.delete_doc("Grievance", name)
+
+		self.assertFalse(frappe.db.exists("Grievance", name))
+		self.assertFalse(frappe.db.exists("File", file.name))
+		for doctype in children:
+			self.assertFalse(frappe.db.exists(doctype, {"grievance": name}), doctype)
+		self.assertTrue(frappe.db.exists("Grievance Timeline", timeline.name))
+		self.assertTrue(frappe.db.exists("Grievance Status History", history.name))
 
 
 class TestGrievanceSubmitterOwnership(FrappeTestCase):

@@ -70,8 +70,15 @@ _CLEAR_LOOKUP_CACHE = {
 	"on_update": "oan_grievance_service.api.v1._options.clear_reference_cache",
 	"after_delete": "oan_grievance_service.api.v1._options.clear_reference_cache",
 }
-# Timeline rows point at their case through a Dynamic Link; they outlive it, so they must not block its delete.
-ignore_links_on_delete = ["Grievance Timeline"]
+# Timeline rows outlive their case; the others are removed with it in Grievance.after_delete, which
+# runs after the link check. None of them may block the delete.
+ignore_links_on_delete = [
+	"Grievance Timeline",
+	"Grievance Attachment",
+	"Grievance Feedback",
+	"Grievance Change Request",
+	"Grievance Duplicate",
+]
 
 doc_events = {
 	"Grievance": {
