@@ -44,6 +44,8 @@ from oan_grievance_service.services import response_body
 route = prefixed("/api/v1/response-templates")
 
 ADMIN_ROLES = ["Grievance Admin", "System Manager", "Administrator"]
+# The Review Officer reads the templates and edits none.
+ADMIN_READ_ROLES = [*ADMIN_ROLES, "Grievance Review Officer"]
 
 TEMPLATE_DOCTYPE = "Grievance Response Template"
 
@@ -252,7 +254,7 @@ def _get_template(name: str):
 
 @route("", methods=("GET",), summary="List response templates", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(ListResponseTemplatesRequest)
 @api_doc(
 	summary="List response templates",
@@ -307,7 +309,7 @@ def list_response_templates(
 
 @route("/<template>", methods=("GET",), summary="Get a response template", tier="officer-core")
 @handle_api_errors
-@require_role(ADMIN_ROLES)
+@require_role(ADMIN_READ_ROLES)
 @validate_request(TemplateRef)
 @api_doc(
 	summary="Get a response template",
