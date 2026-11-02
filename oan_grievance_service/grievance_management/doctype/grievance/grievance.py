@@ -421,8 +421,13 @@ class Grievance(Document):
 		"""A rejected change request records the decision note and timeline."""
 		pass
 
-	def on_trash(self):
-		"""Deleting a case removes what only exists for it; the audit tables keep their rows."""
+	def after_delete(self):
+		"""Deleting a case removes what only exists for it; the audit tables keep their rows.
+
+		This runs after Frappe's link checks, not in on_trash: a File's bytes leave the disk
+		at once and a rollback cannot bring them back, so nothing may be removed until the
+		delete can no longer be refused.
+		"""
 		for doctype, filters in (
 			("Grievance Attachment", {"grievance": self.name}),
 			("Grievance Feedback", {"grievance": self.name}),

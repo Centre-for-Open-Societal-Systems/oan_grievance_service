@@ -421,7 +421,8 @@ def apply_routing(grievance, commit_status=True):
 	from oan_grievance_service.services import lifecycle, notifications
 
 	doc = officer_user = None
-	desks = ranked_assignments(grievance) if auto_routing_enabled() else assignments_for_unrouted()
+	routing_on = auto_routing_enabled()
+	desks = ranked_assignments(grievance) if routing_on else assignments_for_unrouted()
 	for assignment in desks:
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
 		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
@@ -449,9 +450,12 @@ def apply_routing(grievance, commit_status=True):
 		grievance.db_set(updates, update_modified=False)
 
 	if commit_status:
-		lifecycle.transition(
-			grievance, "Assign", reason=f"Auto-routed by assignment {doc.name}", automated=True
+		reason = (
+			f"Auto-routed by assignment {doc.name}"
+			if routing_on
+			else f"Auto-routing is off; sent to triage desk {doc.name}"
 		)
+		lifecycle.transition(grievance, "Assign", reason=reason, automated=True)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc
 
