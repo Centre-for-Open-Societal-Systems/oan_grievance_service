@@ -9,12 +9,11 @@ from typing import Literal
 
 import frappe
 from frappe import N_, _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
-	from_tz_aware_iso,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -1561,23 +1560,15 @@ def timeline(
 		)
 
 	if cursor:
-		cursor = cursor.strip()
-		if " " in cursor and "+" not in cursor:
-			import re
-
-			cursor = re.sub(r" (\d{2}:\d{2})([|]|$)", r"+\1\2", cursor)
-
 		try:
-			cursor_ts_raw, cursor_name = cursor.split("|", 1)
-			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
-			query = query.where(
-				(timeline_dt.created_on > cursor_ts)
-				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
-			)
+			cursor_ts_raw, cursor_name = cursor.strip().split("|", 1)
+			cursor_ts = get_datetime(cursor_ts_raw)
 		except ValueError:
-			# Fallback for old cursor format
-			cursor_ts = from_tz_aware_iso(cursor)
-			query = query.where(timeline_dt.created_on > cursor_ts)
+			frappe.throw(_("Invalid cursor."), frappe.ValidationError)
+		query = query.where(
+			(timeline_dt.created_on > cursor_ts)
+			| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
+		)
 
 	query = (
 		query.orderby(timeline_dt.created_on, order=frappe.qb.asc)
@@ -1592,7 +1583,7 @@ def timeline(
 
 	if has_more and entries:
 		last = entries[-1]
-		next_cursor = f"{to_tz_aware_iso(last['created_on'])}|{last['name']}"
+		next_cursor = f"{get_datetime(last['created_on']).isoformat(sep=' ')}|{last['name']}"
 	else:
 		next_cursor = None
 
