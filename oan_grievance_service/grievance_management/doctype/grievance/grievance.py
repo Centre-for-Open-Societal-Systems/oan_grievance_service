@@ -429,13 +429,13 @@ class Grievance(Document):
 			("Grievance Change Request", {"grievance": self.name}),
 		):
 			for name in frappe.get_all(doctype, filters=filters, pluck="name"):
-				frappe.delete_doc(doctype, name, force=True)
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
 		for name in frappe.get_all(
 			"Grievance Duplicate",
 			or_filters={"grievance": self.name, "duplicate_of": self.name},
 			pluck="name",
 		):
-			frappe.delete_doc("Grievance Duplicate", name, force=True)
+			frappe.delete_doc("Grievance Duplicate", name, force=True, ignore_permissions=True)
 
 	def on_update(self):
 		if self.flags.change_request:
