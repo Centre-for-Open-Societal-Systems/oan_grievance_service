@@ -421,6 +421,22 @@ class Grievance(Document):
 		"""A rejected change request records the decision note and timeline."""
 		pass
 
+	def on_trash(self):
+		"""Deleting a case removes what only exists for it; the audit tables keep their rows."""
+		for doctype, filters in (
+			("Grievance Attachment", {"grievance": self.name}),
+			("Grievance Feedback", {"grievance": self.name}),
+			("Grievance Change Request", {"grievance": self.name}),
+		):
+			for name in frappe.get_all(doctype, filters=filters, pluck="name"):
+				frappe.delete_doc(doctype, name, force=True)
+		for name in frappe.get_all(
+			"Grievance Duplicate",
+			or_filters={"grievance": self.name, "duplicate_of": self.name},
+			pluck="name",
+		):
+			frappe.delete_doc("Grievance Duplicate", name, force=True)
+
 	def on_update(self):
 		if self.flags.change_request:
 			if getattr(self.flags, "reassignment", False):

@@ -415,10 +415,14 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 
 
 def apply_routing(grievance, commit_status=True):
+	from oan_grievance_service.grievance_management.doctype.grievance_settings.grievance_settings import (
+		auto_routing_enabled,
+	)
 	from oan_grievance_service.services import lifecycle, notifications
 
 	doc = officer_user = None
-	for assignment in ranked_assignments(grievance):
+	desks = ranked_assignments(grievance) if auto_routing_enabled() else assignments_for_unrouted()
+	for assignment in desks:
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
 		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
 		# the Unrouted triage desk.
