@@ -896,7 +896,7 @@ def _current_state(doc, extra=None):
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 	state = {
-		"status": doc.status,
+		"status": public_status(doc.status),
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
 		"assigned_to_name": _assignee_name(doc),
@@ -1030,7 +1030,7 @@ def submit(**kwargs):
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
 			"routing_rule": getattr(doc, "routing_rule", None),
@@ -1426,7 +1426,7 @@ def action(
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"action": matching_action,
 			"attachments": attachments,
 			"current_state": current_state,
@@ -1713,7 +1713,7 @@ def timeline(
 		data={
 			"name": doc.name,
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"escalated": bool(doc.escalated),
 			"description": doc.description,
 			"desired_outcome": doc.desired_outcome,
@@ -1867,7 +1867,7 @@ def message(
 			"is_internal": bool(entry.is_internal),
 			"author_type": "officer" if is_staff else "submitter",
 			"created_on": to_tz_aware_iso(entry.created_on),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"attachments": attachments,
 			"current_state": _current_state(doc),
 			"timeline_event": _timeline_event_with(entry, doc, attachments),
@@ -1902,7 +1902,7 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"change_request": serialize(req),
 			"current_state": current_state,
 			"timeline_event": _format_timeline_event(timeline_entry, doc) if timeline_entry else None,
