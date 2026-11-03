@@ -660,6 +660,26 @@ data(
 )
 
 data(
+	"TimelineChangeItem",
+	OBJ(
+		{
+			"fieldname": S(example="assigned_to", description="The grievance field the request changed"),
+			"label": S(example="Assigned Officer", description="Display label of the field"),
+			"old_value": S(nullable=True, description="Stored value before the change (an id or email)"),
+			"new_value": S(nullable=True, description="Stored value after the change (an id or email)"),
+			"old_display": S(
+				example="Selam Bekele", description="Name to show for the old value; '-' if empty"
+			),
+			"new_display": S(
+				example="Hana Girma", description="Name to show for the new value; '-' if empty"
+			),
+		},
+		required=["fieldname", "label", "old_display", "new_display"],
+		description="One field a change request moved, with the names to show for its values",
+	),
+)
+
+data(
 	"TimelineEventItem",
 	OBJ(
 		{
@@ -688,7 +708,16 @@ data(
 			"author_name": S(
 				nullable=True, description="Full name of actor when visible (e.g. for staff oversight)"
 			),
-			"body": S(nullable=True, description="Timeline message or description text"),
+			"body": S(
+				nullable=True,
+				description="Timeline message or description text. A change request's internal note "
+				"reads with field labels and officer and grievance type names, one line per change.",
+			),
+			"changes": ARR(
+				REF("TimelineChangeItem"),
+				description="Only on the internal note of a change request (reassignment, SLA deferral): "
+				"the same changes as `body`, as data",
+			),
 			"is_internal": B(description="Whether visible only to staff"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
 			"created_on": S(format="date-time", nullable=True),

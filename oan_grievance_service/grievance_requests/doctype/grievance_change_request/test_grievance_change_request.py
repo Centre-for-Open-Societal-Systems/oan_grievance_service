@@ -911,6 +911,89 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		self.grievance.reload()
 		self.assertEqual(self.grievance.assigned_dept, self.dept2)
 
+	def test_timeline_shows_change_request_note_with_names(self):
+		"""The timeline reads a change request's note with labels and names, not ids and emails."""
+		import json
+
+		import frappe.api
+
+		from oan_grievance_service.tests.fixtures import a_grievance_type
+		from oan_grievance_service.tests.test_router import make_test_request
+
+		old_type = self.grievance.grievance_type
+		new_type = frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": f"Loan Issue {frappe.generate_hash(length=6)}",
+				"service_category": self.grievance.service_category,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+		self.assertEqual(old_type, a_grievance_type())
+
+		frappe.set_user(self.officer1)
+		cr = frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": "Reassignment",
+				"reason": "please review",
+				"changes": [
+					{"fieldname": "assigned_dept", "new_value": self.dept2},
+					{"fieldname": "assigned_to", "new_value": self.officer2},
+					{"fieldname": "grievance_type", "new_value": new_type.name},
+				],
+			}
+		).insert(ignore_permissions=True)
+		frappe.set_user(self.head2)
+		cr.reload()
+		cr.status = "Approved"
+		cr.save(ignore_permissions=True)
+
+		frappe.set_user("Administrator")
+		req = make_test_request(
+			f"/api/v1/grievances/{self.grievance.ticket_number}/timeline?limit=50", method="GET"
+		)
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+		events = json.loads(res.get_data(as_text=True))["data"]["timeline"]
+		notes = [e for e in events if e["entry_type"] == "note" and e["is_internal"]]
+		self.assertEqual(len(notes), 1)
+		old_type_name = frappe.db.get_value("Grievance Type", old_type, "type_name")
+
+		self.assertEqual(
+			notes[0]["body"],
+			"Reassignment (approved)\n"
+			f"Department: {self.dept} -> {self.dept2}\n"
+			"Assigned Officer: Officer One -> Officer Two\n"
+			f"Grievance Type: {old_type_name} -> {new_type.type_name}\n"
+			"Reason: please review",
+		)
+		self.assertEqual(
+			[(c["fieldname"], c["old_display"], c["new_display"]) for c in notes[0]["changes"]],
+			[
+				("assigned_dept", self.dept, self.dept2),
+				("assigned_to", "Officer One", "Officer Two"),
+				("grievance_type", old_type_name, new_type.type_name),
+			],
+		)
+		self.assertEqual(notes[0]["changes"][1]["old_value"], self.officer1)
+		self.assertEqual(notes[0]["changes"][2]["new_value"], new_type.name)
+
+		# The stored note is the audit record: it keeps the raw values.
+		stored = frappe.db.get_value(
+			"Grievance Timeline",
+			{"grievance": self.grievance.name, "ref_docname": cr.name, "is_internal": 1},
+			"body",
+		)
+		self.assertIn(f"assigned_to: {self.officer1} -> {self.officer2}", stored)
+		self.assertIn(f"grievance_type: {old_type} -> {new_type.name}", stored)
+
+		# The public line has no changes to show.
+		public = [e for e in events if e["entry_type"] == "assignment"]
+		self.assertEqual(len(public), 1)
+		self.assertNotIn("changes", public[0])
+
 	def test_decide_deferral_endpoint_works_for_approver(self):
 		"""Designated approver can decide SLA deferral request via decide_deferral endpoint."""
 		import json

@@ -66,6 +66,7 @@ from oan_grievance_service.services import (
 	routing,
 	sla,
 	ticket_export,
+	timeline_changes,
 )
 from oan_grievance_service.services import constants as C
 
@@ -1216,6 +1217,17 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 
 	parts = response_body.split(body)
 
+	# A change request's note is stored with raw ids; the API shows names. Only the
+	# internal note: the public assignment line is already plain text.
+	changes = None
+	if is_internal and ref_name and get_field("ref_doctype") == timeline_changes.CHANGE_REQUEST:
+		change_requests = context.get("change_requests")
+		if change_requests is None:
+			change_requests = timeline_changes.load([ref_name])
+		shown = change_requests.get(ref_name)
+		if shown:
+			body, changes = shown["body"], shown["changes"]
+
 	result = {
 		"id": entry_name,
 		"name": entry_name,
@@ -1236,6 +1248,8 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 			response_numbers = _get_response_numbers(doc.name, up_to_name=entry_name)
 		result["response_number"] = response_numbers.get(entry_name) or 1
 
+	if changes is not None:
+		result["changes"] = changes
 	if action_val:
 		result["action"] = action_val
 	if parts:
@@ -1610,6 +1624,13 @@ def timeline(
 		"user_names": user_names,
 		"history_fetched": True,
 		"response_numbers": _get_response_numbers(doc.name),
+		"change_requests": timeline_changes.load(
+			{
+				e["ref_docname"]
+				for e in entries
+				if e.get("is_internal") and e.get("ref_doctype") == timeline_changes.CHANGE_REQUEST
+			}
+		),
 	}
 
 	formatted_entries = []
