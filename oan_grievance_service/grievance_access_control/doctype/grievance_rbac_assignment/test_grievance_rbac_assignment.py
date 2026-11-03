@@ -169,6 +169,11 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 				"status": "In Progress",
 			}
 		)
+		# A nodal officer reads only their own and their reports' cases, not the whole desk.
+		self.assertFalse(
+			has_grievance_permission(fake_grievance, ptype="read", user="prim_officer@example.com")
+		)
+		fake_grievance["assigned_to"] = "prim_officer@example.com"
 		self.assertTrue(
 			has_grievance_permission(fake_grievance, ptype="read", user="prim_officer@example.com")
 		)

@@ -85,8 +85,51 @@ def get_pending_request(grievance_name: str, fieldnames: list[str]) -> str | Non
 	return result[0] if result else None
 
 
+def add_names(items):
+	"""Show each officer by full name and keep the id beside it, in place.
+
+	`requested_by`, `pending_with` and `decided_by` (and a trail step's `user` and
+	`pending_with`) carry the name; `<field>_id` carries the user id, which is the email.
+	One lookup covers every item. An `assigned_to` row in `changes` does the same with `old_value` and `new_value`; other rows stay as stored.
+	"""
+	from oan_grievance_service.api.v1.grievance import _officer_names
+
+	ids = set()
+	for item in items:
+		ids.update([item["requested_by"], item["pending_with"], item["decided_by"]])
+		for step in item["trail"]:
+			ids.update([step["user"], step["pending_with"]])
+		for change in item["changes"]:
+			if change["fieldname"] == "assigned_to":
+				ids.update([change["old_value"], change["new_value"]])
+	names = _officer_names(ids)
+
+	def swap(row, field):
+		row[f"{field}_id"] = row[field]
+		row[field] = names.get(row[field])
+
+	for item in items:
+		for field in ("requested_by", "pending_with", "decided_by"):
+			swap(item, field)
+		for step in item["trail"]:
+			swap(step, "user")
+			swap(step, "pending_with")
+		for change in item["changes"]:
+			# Only an officer field holds a user id; every other value is shown as stored.
+			is_officer = change["fieldname"] == "assigned_to"
+			for field in ("old_value", "new_value"):
+				change[f"{field}_id"] = change[field] if is_officer else None
+				if is_officer:
+					change[field] = names.get(change[field])
+	return items
+
+
 def serialize(req):
 	ticket_num = frappe.db.get_value("Grievance", req.grievance, "ticket_number") if req.grievance else None
+	return add_names([_serialize(req, ticket_num)])[0]
+
+
+def _serialize(req, ticket_num):
 	return {
 		"name": req.name,
 		"ticket_number": tn.display(ticket_num),
@@ -284,6 +327,7 @@ def list_requests(
 			}
 		)
 
+	add_names(items)
 	meta = page_meta(total_count, effective_page, effective_limit)
 	return success_response(
 		data={"items": items, "count": len(items), "pagination": meta},
