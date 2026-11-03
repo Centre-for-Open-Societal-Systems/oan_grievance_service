@@ -4,8 +4,8 @@
 """Dashboard rollups: the only reader of Grievance for analytics.
 
 The dashboards never aggregate `tabGrievance` on a request. The scheduler folds it
-into small tables every 15 minutes, and services.dashboard answers every chart
-from those:
+into small tables every 15 minutes, and again as soon as a case is filed or changed
+(`request_refresh`), and services.dashboard answers every chart from those:
 
 - Grievance Stat Daily: events per day (filed, resolved, rejected, feedback) by
   region, category and department, and how many of the cases filed that day have
@@ -43,6 +43,10 @@ AREA = "Grievance Stat Area"
 # what every chart reports as its as_of.
 AS_OF_DEFAULT = "grievance_dashboard_as_of"
 JOB_ID = "grievance_dashboard_rollup"
+# Raised when a case changes, so a run that was already going knows it missed something.
+DIRTY_KEY = "grievance_dashboard_dirty"
+DIRTY_TTL = 60 * 60
+CATCH_UP_RUNS = 3
 
 # An incremental refresh rebuilds this many days, today included. More than one,
 # so a run that failed around midnight is repaired by the next.
@@ -286,17 +290,58 @@ def _area_query():
 	)
 
 
-def enqueue(full=False):
+def enqueue(full=False, after_commit=True):
 	"""Queue a refresh. Every caller shares one job id, so a refresh never starts while
 	another is queued or running; that is what keeps two runs off the same rows."""
 	frappe.enqueue(
-		"oan_grievance_service.services.dashboard_rollup.refresh",
+		"oan_grievance_service.services.dashboard_rollup.refresh_until_current",
 		full=full,
 		queue="long",
 		job_id=JOB_ID,
 		deduplicate=True,
-		enqueue_after_commit=True,
+		enqueue_after_commit=after_commit,
 	)
+
+
+def request_refresh(doc=None, method=None):
+	"""Grievance doc_events handler: a case was filed, changed or deleted, so refresh now
+	instead of waiting for the next 15-minute run.
+
+	The flag is raised only once the change is committed. A run clears it before it reads,
+	so a run already under way, which `enqueue` cannot join, still leaves the flag standing
+	for the catch-up in `refresh_until_current`. Writes that skip doc events (db_set, bulk
+	SQL) are picked up by the scheduled run.
+	"""
+	if frappe.flags.in_test or frappe.flags.in_migrate or frappe.flags.in_install:
+		return
+	frappe.db.after_commit.add(_flag_and_enqueue)
+
+
+def _flag_and_enqueue():
+	frappe.cache.set_value(DIRTY_KEY, 1, expires_in_sec=DIRTY_TTL)
+	enqueue(after_commit=False)
+
+
+def _take_dirty():
+	"""Whether a case changed since the last call, and lower the flag."""
+	if frappe.cache.get_value(DIRTY_KEY) is None:
+		return False
+	frappe.cache.delete_value(DIRTY_KEY)
+	return True
+
+
+def refresh_until_current(full=False):
+	"""Run a refresh, then again for as long as cases changed while it ran (at most
+	CATCH_UP_RUNS more; the next scheduled run takes anything beyond that)."""
+	_take_dirty()
+	result = refresh(full=full)
+	for _ in range(CATCH_UP_RUNS):
+		# Commit so the next pass reads a fresh snapshot, not the one this run began with.
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		if not _take_dirty():
+			break
+		result = refresh()
+	return result
 
 
 def refresh(full=False):

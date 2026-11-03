@@ -978,3 +978,74 @@ class TestGatewayContract(FrappeTestCase):
 			for rule in route["plugins"]["limit-count"]["rules"]:
 				self.assertTrue(rule["key"].startswith("$remote_addr:"))
 		self.assertNotIn("consumers", doc)
+
+
+class TestDashboardImmediateRefresh(FrappeTestCase):
+	"""A case filed or moved refreshes the rollups at once, not on the next 15-minute run."""
+
+	def setUp(self):
+		frappe.cache.delete_value(dashboard_rollup.DIRTY_KEY)
+		self.addCleanup(frappe.cache.delete_value, dashboard_rollup.DIRTY_KEY)
+
+	def test_grievance_changes_are_wired_to_a_refresh(self):
+		handler = "oan_grievance_service.services.dashboard_rollup.request_refresh"
+		events = frappe.get_hooks("doc_events")["Grievance"]
+		for event in ("after_insert", "on_change", "after_delete"):
+			self.assertIn(handler, events[event])
+
+	def test_a_change_queues_a_refresh_only_after_it_commits(self):
+		with patch.dict(frappe.flags, {"in_test": False}), patch.object(frappe, "enqueue") as enqueue:
+			dashboard_rollup.request_refresh()
+			enqueue.assert_not_called()
+			self.assertIsNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
+			frappe.db.after_commit.run()
+		enqueue.assert_called_once()
+		kwargs = enqueue.call_args.kwargs
+		self.assertEqual(kwargs["job_id"], dashboard_rollup.JOB_ID)
+		self.assertTrue(kwargs["deduplicate"])
+		# Already past the commit, so waiting for another would never queue it.
+		self.assertFalse(kwargs["enqueue_after_commit"])
+		self.assertIsNotNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
+
+	def test_a_rolled_back_change_queues_nothing(self):
+		with patch.dict(frappe.flags, {"in_test": False}), patch.object(frappe, "enqueue") as enqueue:
+			dashboard_rollup.request_refresh()
+			frappe.db.after_commit.reset()
+			frappe.db.after_commit.run()
+		enqueue.assert_not_called()
+
+	def test_a_change_during_a_run_gets_a_second_pass(self):
+		runs = []
+
+		def refresh(full=False):
+			runs.append(full)
+			if len(runs) == 1:
+				frappe.cache.set_value(dashboard_rollup.DIRTY_KEY, 1)
+			return {"run": len(runs)}
+
+		with patch.object(dashboard_rollup, "refresh", refresh), patch.object(frappe.db, "commit"):
+			result = dashboard_rollup.refresh_until_current(full=True)
+		# The full rebuild once, then an ordinary refresh for what changed meanwhile.
+		self.assertEqual(runs, [True, False])
+		self.assertEqual(result, {"run": 2})
+		self.assertIsNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
+
+	def test_a_quiet_run_does_not_repeat(self):
+		with (
+			patch.object(dashboard_rollup, "refresh", return_value={}) as refresh,
+			patch.object(frappe.db, "commit"),
+		):
+			dashboard_rollup.refresh_until_current()
+		refresh.assert_called_once()
+
+	def test_catch_up_is_bounded(self):
+		def refresh(full=False):
+			frappe.cache.set_value(dashboard_rollup.DIRTY_KEY, 1)
+			return {}
+
+		with (
+			patch.object(dashboard_rollup, "refresh", side_effect=refresh) as run,
+			patch.object(frappe.db, "commit"),
+		):
+			dashboard_rollup.refresh_until_current()
+		self.assertEqual(run.call_count, 1 + dashboard_rollup.CATCH_UP_RUNS)

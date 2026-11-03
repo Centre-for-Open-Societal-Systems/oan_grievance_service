@@ -73,6 +73,10 @@ _CLEAR_LOOKUP_CACHE = {
 doc_events = {
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
+		# The charts read the rollups, so a case filed or moved refreshes them at once.
+		"after_insert": "oan_grievance_service.services.dashboard_rollup.request_refresh",
+		"on_change": "oan_grievance_service.services.dashboard_rollup.request_refresh",
+		"after_delete": "oan_grievance_service.services.dashboard_rollup.request_refresh",
 	},
 	# Our send path renders per recipient inside print_language(), which only
 	# moves _()-marked strings, so a Grievance notification must not carry bare literal
@@ -99,7 +103,8 @@ scheduler_events = {
 		# Process unrouted submitted cases through the routing engine in the background
 		"oan_grievance_service.tasks.enqueue_routing_sweep",
 	],
-	# The dashboards read only these rollups, so this is how fresh they are.
+	# The dashboards read only these rollups. This is the fallback for writes that skip doc
+	# events; a case filed or saved refreshes them at once (doc_events above).
 	"cron": {
 		"*/15 * * * *": [
 			"oan_grievance_service.tasks.refresh_dashboard_rollup",

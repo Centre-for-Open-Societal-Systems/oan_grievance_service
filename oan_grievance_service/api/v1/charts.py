@@ -5,8 +5,8 @@
                                                      to the caller's RBAC desks.
     GET /api/v1/charts/<chart_id>?<filters>          Grievance Dashboard Reader; public charts only
 
-Both are answered by services.dashboard from the rollups the scheduler refreshes
-every 15 minutes, never from Grievance on the request; see that module for what
+Both are answered by services.dashboard from the rollups, which refresh every
+15 minutes and whenever a case is filed or changed, never from Grievance on the request; see that module for what
 each chart returns. The public form is the contract the OAN dashboards read
 (`GET <base>/api/v1/charts/<id>` returning `{data: [...]}`), and serves counts
 only.
