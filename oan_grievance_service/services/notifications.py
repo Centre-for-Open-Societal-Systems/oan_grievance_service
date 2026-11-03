@@ -902,34 +902,30 @@ def _send_system_row(row, grievance):
 	return {}
 
 
-def _claim(name):
-	"""Take a Queued row for this job; False if another job already has it.
+def _next_queued_row(grievance=None):
+	"""Lock and return the oldest Queued row no other job holds, or None.
 
-	The immediate jobs and the sweep read the same Queued rows, so each row is flipped to
-	Sending and committed before it is sent. Only the job whose update changed the row sends.
+	The immediate jobs and the sweep run side by side. Each takes a row lock and skips rows
+	another job holds, so no row is sent twice. The lock lasts until the commit after the
+	send, and a worker that dies loses it, which leaves the row Queued for the next sweep.
 	"""
-	frappe.db.sql(
-		"update `tabGrievance Notification Log` set status = 'Sending' where name = %s and status = 'Queued'",
-		name,
+	rows = frappe.db.sql(
+		"""
+		select name, grievance, channel, recipient, message, subject
+		from `tabGrievance Notification Log`
+		where status = 'Queued' and (%(grievance)s is null or grievance = %(grievance)s)
+		order by creation asc, name asc
+		limit 1
+		for update skip locked
+		""",
+		{"grievance": grievance},
+		as_dict=True,
 	)
-	claimed = frappe.db.sql("select row_count()")[0][0] == 1
-	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
-	return claimed
+	return rows[0] if rows else None
 
 
 def dispatch_queued(limit=100, grievance=None):
 	"""Send whatever is queued. Called by the scheduler."""
-	filters = {"status": "Queued"}
-	if grievance:
-		filters["grievance"] = grievance
-	pending = frappe.get_all(
-		"Grievance Notification Log",
-		filters=filters,
-		fields=["name", "grievance", "channel", "recipient", "message", "subject"],
-		limit=limit,
-		order_by="creation asc",
-	)
-
 	grievance_cache = {}
 
 	def _get_cached_grievance(name):
@@ -937,9 +933,8 @@ def dispatch_queued(limit=100, grievance=None):
 			grievance_cache[name] = frappe.get_doc("Grievance", name)
 		return grievance_cache[name]
 
-	for row in pending:
-		if not _claim(row.name):
-			continue
+	handled = 0
+	while handled < limit and (row := _next_queued_row(grievance)):
 		update = {"status": "Sent", "sent_at": now_datetime()}
 		try:
 			if row.channel == CHANNEL_EMAIL:
@@ -959,5 +954,8 @@ def dispatch_queued(limit=100, grievance=None):
 			update = {"status": "Failed", "error": frappe.get_traceback(with_context=False)}
 
 		frappe.db.set_value("Grievance Notification Log", row.name, update, update_modified=False)
+		# Commit per row: it releases this row's lock and records the send before the next.
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		handled += 1
 
-	return len(pending)
+	return handled
