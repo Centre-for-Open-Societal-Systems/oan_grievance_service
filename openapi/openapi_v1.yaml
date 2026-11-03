@@ -8371,6 +8371,39 @@ components:
       - resolution_summary
       description: A department response's two parts, split from the stored text. Null on any text that
         was not written in two parts (a rejection, a reopen, an older template).
+    TimelineChangeItem:
+      type: object
+      properties:
+        fieldname:
+          type: string
+          example: assigned_to
+          description: The grievance field the request changed
+        label:
+          type: string
+          example: Assigned Officer
+          description: Display label of the field
+        old_value:
+          type: string
+          nullable: true
+          description: Stored value before the change (an id or email)
+        new_value:
+          type: string
+          nullable: true
+          description: Stored value after the change (an id or email)
+        old_display:
+          type: string
+          example: Selam Bekele
+          description: Name to show for the old value; '-' if empty
+        new_display:
+          type: string
+          example: Hana Girma
+          description: Name to show for the new value; '-' if empty
+      required:
+      - fieldname
+      - label
+      - old_display
+      - new_display
+      description: One field a change request moved, with the names to show for its values
     TimelineEventItem:
       type: object
       properties:
@@ -8427,7 +8460,14 @@ components:
         body:
           type: string
           nullable: true
-          description: Timeline message or description text
+          description: Timeline message or description text. A change request's internal note reads with
+            field labels and officer and grievance type names, one line per change.
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineChangeItem'
+          description: 'Only on the internal note of a change request (reassignment, SLA deferral): the
+            same changes as `body`, as data'
         is_internal:
           type: boolean
           description: Whether visible only to staff
