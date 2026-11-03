@@ -999,6 +999,56 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 		resp_data = json.loads(res_resp.get_data(as_text=True))
 		self.assertEqual(resp_data["data"]["status"], "Resolved")
 
+	def test_status_reads_the_same_in_list_timeline_and_writes(self):
+		"""A case shows one status label wherever it is returned.
+
+		Assigned is a staff-only status: the submitter's list shows it as In Progress, so the
+		timeline and the write responses must too, or the label flips when the case is opened
+		or acted on.
+		"""
+		import uuid
+
+		import frappe.api
+
+		from oan_grievance_service.services import lifecycle
+		from oan_grievance_service.tests.fixtures import a_department
+
+		frappe.set_user(self.farmer_user.name)
+		submit_payload = {
+			"client_submission_uuid": str(uuid.uuid4()),
+			"submission_channel": "Mobile App",
+			"administrative_area": self.area,
+			"service_category": "Inputs",
+			"grievance_type": self.gtype.name,
+			"description": "Testing that the status label is the same in every response.",
+			"consent_given": 1,
+		}
+		res_submit = frappe.api.handle(make_test_request("/api/v1/grievances", "POST", data=submit_payload))
+		ticket_number = json.loads(res_submit.get_data(as_text=True))["data"]["ticket_number"]
+
+		frappe.set_user("Administrator")
+		doc = frappe.get_doc("Grievance", tn.normalize(ticket_number))
+		doc.assigned_dept = a_department()
+		doc.save(ignore_permissions=True)
+		lifecycle.transition(doc, "Assign")
+		self.assertEqual(doc.status, "Assigned")
+
+		def call(path, method="GET", **data):
+			res = frappe.api.handle(make_test_request(f"/api/v1/grievances{path}", method, data=data or None))
+			self.assertEqual(res.status_code, 200, res.get_data(as_text=True))
+			return json.loads(res.get_data(as_text=True))["data"]
+
+		for user, expected in ((self.farmer_user.name, "In Progress"), ("Administrator", "Assigned")):
+			with self.subTest(user=user):
+				frappe.set_user(user)
+				listed = next(i for i in call(f"?search={doc.name}")["items"] if i["name"] == doc.name)
+				written = call(f"/{ticket_number}/message", "POST", body="Checking the status label.")
+
+				self.assertEqual(listed["status"], expected)
+				self.assertEqual(call(f"/{ticket_number}/timeline")["status"], expected)
+				self.assertEqual(written["status"], expected)
+				self.assertEqual(written["current_state"]["status"], expected)
+
 	def test_list_grievances_prioritizes_escalated(self):
 		"""Test that GET /api/v1/grievances returns escalated cases first."""
 		import uuid
