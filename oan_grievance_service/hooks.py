@@ -96,7 +96,6 @@ scheduler_events = {
 		# Reminders, escalation, state timers and stale change requests run on the
 		# grievance_sla queue.
 		"oan_grievance_service.tasks.enqueue_sla_sweeps",
-		"oan_grievance_service.tasks.enqueue_notification_sweep",
 		# Attachments land as Pending and is_servable() withholds anything not yet
 		# Clean, so without this every uploaded file stays invisible to officers.
 		"oan_grievance_service.tasks.enqueue_scan_sweep",
@@ -108,6 +107,10 @@ scheduler_events = {
 	"cron": {
 		"*/15 * * * *": [
 			"oan_grievance_service.tasks.refresh_dashboard_rollup",
+		],
+		# Notifications go out right after the event; this picks up what that job missed.
+		"*/5 * * * *": [
+			"oan_grievance_service.tasks.enqueue_notification_sweep",
 		],
 	},
 	"daily_long": [

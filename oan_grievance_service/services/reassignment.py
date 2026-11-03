@@ -5,6 +5,7 @@ Rules:
 - For a move within the same department, that is the department's own head.
 - Approver = department_head_of(target department, area).
 - Decider may act directly if admin, if the desk flag reassignment_requires_approval is OFF,
+  if the move hands the case to an officer who reports to the user,
   if the case sits in the fallback "Other" category, the move takes it to another and the user is an
   officer on an "Other" desk (the receiving category's head does not rule),
   or if the user is the head of the target department.
@@ -16,6 +17,7 @@ from frappe import _
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	department_head_of,
+	get_subordinate_officers,
 	query_active_officer_assignments,
 )
 from oan_grievance_service.permissions import is_department_head, is_unrestricted
@@ -122,10 +124,21 @@ def may_decide(user, grievance, request) -> bool:
 		and _sits_on_fallback_desk(user)
 	):
 		return True
+	if _hands_down_to_subordinate(user, request):
+		return True
 	target_dept = target_department(grievance, request)
 	return is_department_head(
 		user, target_dept, grievance.administrative_area, category=target_category(grievance, request)
 	)
+
+
+def _hands_down_to_subordinate(user, request) -> bool:
+	"""Whether the request names an officer who reports to `user`, directly or further down."""
+	for r in getattr(request, "changes", None) or []:
+		if getattr(r, "fieldname", None) == "assigned_to":
+			officer = r.new_value
+			return bool(officer) and officer != user and officer in get_subordinate_officers(user)
+	return False
 
 
 def _sits_on_fallback_desk(user) -> bool:

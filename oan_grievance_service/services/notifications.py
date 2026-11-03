@@ -23,6 +23,7 @@ row is deduplicated on (grievance, event, recipient) and a disabled Notification
 whose condition is false, sends nothing.
 """
 
+import copy
 import re
 
 import frappe
@@ -31,6 +32,9 @@ from frappe.core.doctype.sms_settings.sms_settings import _send_sms
 from frappe.email.doctype.notification.notification import get_context
 from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
+
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import ticket_number as tn
 
 RECIPIENT_SUBMITTER = "Submitter"
 RECIPIENT_ASSIGNED_OFFICER = "Assigned Officer"
@@ -167,6 +171,7 @@ PLACEHOLDER_EXPRESSIONS = {
 	"department": "doc.assigned_dept",
 	"assigned_to": "frappe.db.get_value('User', doc.assigned_to, 'full_name')",
 	"response_days": "frappe.utils.date_diff(doc.state_deadline, frappe.utils.today())",
+	"sla_due_date": "frappe.utils.format_datetime(doc.sla_due_date, 'yyyy-MM-dd HH:mm')",
 }
 
 
@@ -611,6 +616,11 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 	)
 
 
+def _shown_ticket(grievance) -> str:
+	"""The ticket as people read it, grouped 3-001-002A-0; stored flat."""
+	return tn.display(grievance.ticket_number) or grievance.name
+
+
 def queue(grievance, event_code, recipient_override=None):
 	"""Write a Grievance Notification Log row for an event.
 
@@ -630,6 +640,11 @@ def queue(grievance, event_code, recipient_override=None):
 	for notification_name in notification_names:
 		notification = frappe.get_doc("Notification", notification_name)
 		context = get_context(grievance)
+		# Templates print `doc.ticket_number`; a copy carries the grouped form so the stored
+		# value on the case itself is never touched.
+		shown = copy.copy(grievance)
+		shown.ticket_number = _shown_ticket(grievance)
+		shown_context = {**context, "doc": shown}
 
 		# Core evaluates this inside evaluate_alert; we are not going through that path,
 		# so the condition is honoured here or not at all.
@@ -669,9 +684,11 @@ def queue(grievance, event_code, recipient_override=None):
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
 			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			message = frappe.render_template(notification.message, context)
+			message = frappe.render_template(notification.message, shown_context)
 			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			subject = frappe.render_template(notification.subject, context) if notification.subject else ""
+			subject = (
+				frappe.render_template(notification.subject, shown_context) if notification.subject else ""
+			)
 
 		rows.append(
 			frappe.get_doc(
@@ -688,6 +705,16 @@ def queue(grievance, event_code, recipient_override=None):
 					"notification": notification_name,
 				}
 			).insert(ignore_permissions=True)
+		)
+
+	if rows:
+		# Send as soon as the event commits instead of waiting for the sweep, which stays
+		# on as the backstop for rows this job skips or loses.
+		frappe.enqueue(
+			"oan_grievance_service.services.notifications.dispatch_queued",
+			queue=C.QUEUE_NOTIFICATIONS,
+			grievance=grievance.name,
+			enqueue_after_commit=True,
 		)
 
 	return rows
@@ -782,7 +809,7 @@ def _send_email_row(row, grievance):
 		doctype="Grievance",
 		name=grievance.name,
 		content=row.message,
-		subject=row.subject or f"Grievance {grievance.ticket_number or grievance.name}",
+		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
 		recipients=address,
 		communication_medium="Email",
 		send_email=False,
@@ -791,7 +818,7 @@ def _send_email_row(row, grievance):
 
 	frappe.sendmail(
 		recipients=[address],
-		subject=row.subject or f"Grievance {grievance.ticket_number or grievance.name}",
+		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
 		message=row.message,
 		reference_doctype="Grievance",
 		reference_name=grievance.name,
@@ -853,8 +880,8 @@ def _send_system_row(row, grievance):
 			"type": "Alert",
 			"document_type": "Grievance",
 			"document_name": grievance.name,
-			"subject": row.subject or grievance.ticket_number or grievance.name,
-			"title": row.subject or grievance.ticket_number or grievance.name,
+			"subject": row.subject or _shown_ticket(grievance),
+			"title": row.subject or _shown_ticket(grievance),
 			"description": row.message,
 			"from_user": from_user,
 		},

@@ -8735,11 +8735,19 @@ components:
         old_value:
           type: string
           nullable: true
-          description: Value before change
+          description: Value before change; the officer's full name for assigned_to
+        old_value_id:
+          type: string
+          nullable: true
+          description: Officer's user id; set only for assigned_to
         new_value:
           type: string
           nullable: true
-          description: Requested value
+          description: Requested value; the officer's full name for assigned_to
+        new_value_id:
+          type: string
+          nullable: true
+          description: Officer's user id; set only for assigned_to
       required:
       - fieldname
       description: Specific field modification item in a change request
@@ -8752,11 +8760,19 @@ components:
           description: Approval lifecycle action
         user:
           type: string
-          description: User performing action
+          nullable: true
+          description: Full name of the user performing action
+        user_id:
+          type: string
+          description: User id of the user performing action
         pending_with:
           type: string
           nullable: true
-          description: User or role pending decision
+          description: Full name of the user pending decision
+        pending_with_id:
+          type: string
+          nullable: true
+          description: User id of the user pending decision
         at:
           type: string
           format: date-time
@@ -8768,7 +8784,6 @@ components:
           description: Approval or rejection remarks
       required:
       - action
-      - user
       description: Change request approval audit step
     PublicChangeRequestData:
       type: object
@@ -8809,7 +8824,11 @@ components:
           - Rejected
         requested_by:
           type: string
-          description: User who raised the request
+          nullable: true
+          description: Full name of the user who raised the request
+        requested_by_id:
+          type: string
+          description: User id of the user who raised the request
         requested_at:
           type: string
           format: date-time
@@ -8817,7 +8836,11 @@ components:
         pending_with:
           type: string
           nullable: true
-          description: User currently required to decide
+          description: Full name of the user currently required to decide
+        pending_with_id:
+          type: string
+          nullable: true
+          description: User id of the user currently required to decide
         pending_since:
           type: string
           format: date-time
@@ -8825,7 +8848,11 @@ components:
         decided_by:
           type: string
           nullable: true
-          description: User who finalized decision
+          description: Full name of the user who finalized decision
+        decided_by_id:
+          type: string
+          nullable: true
+          description: User id of the user who finalized decision
         decided_at:
           type: string
           format: date-time

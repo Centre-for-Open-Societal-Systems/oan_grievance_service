@@ -987,8 +987,14 @@ data(
 	OBJ(
 		{
 			"fieldname": S(description="Grievance field to modify"),
-			"old_value": S(nullable=True, description="Value before change"),
-			"new_value": S(nullable=True, description="Requested value"),
+			"old_value": S(
+				nullable=True, description="Value before change; the officer's full name for assigned_to"
+			),
+			"old_value_id": S(nullable=True, description="Officer's user id; set only for assigned_to"),
+			"new_value": S(
+				nullable=True, description="Requested value; the officer's full name for assigned_to"
+			),
+			"new_value_id": S(nullable=True, description="Officer's user id; set only for assigned_to"),
 		},
 		required=["fieldname"],
 		description="Specific field modification item in a change request",
@@ -1000,12 +1006,14 @@ data(
 	OBJ(
 		{
 			"action": S(example="Requested", description="Approval lifecycle action"),
-			"user": S(description="User performing action"),
-			"pending_with": S(nullable=True, description="User or role pending decision"),
+			"user": S(nullable=True, description="Full name of the user performing action"),
+			"user_id": S(description="User id of the user performing action"),
+			"pending_with": S(nullable=True, description="Full name of the user pending decision"),
+			"pending_with_id": S(nullable=True, description="User id of the user pending decision"),
 			"at": S(format="date-time", nullable=True, description="Timestamp of action"),
 			"note": S(nullable=True, description="Approval or rejection remarks"),
 		},
-		required=["action", "user"],
+		required=["action"],
 		description="Change request approval audit step",
 	),
 )
@@ -1034,11 +1042,18 @@ data(
 			"subject": S(description="Summary of requested change"),
 			"reason": S(nullable=True, description="Reason or justification"),
 			"status": S(example="Pending", enum=["Pending", "Approved", "Rejected"]),
-			"requested_by": S(description="User who raised the request"),
+			"requested_by": S(nullable=True, description="Full name of the user who raised the request"),
+			"requested_by_id": S(description="User id of the user who raised the request"),
 			"requested_at": S(format="date-time", nullable=True),
-			"pending_with": S(nullable=True, description="User currently required to decide"),
+			"pending_with": S(
+				nullable=True, description="Full name of the user currently required to decide"
+			),
+			"pending_with_id": S(
+				nullable=True, description="User id of the user currently required to decide"
+			),
 			"pending_since": S(format="date-time", nullable=True),
-			"decided_by": S(nullable=True, description="User who finalized decision"),
+			"decided_by": S(nullable=True, description="Full name of the user who finalized decision"),
+			"decided_by_id": S(nullable=True, description="User id of the user who finalized decision"),
 			"decided_at": S(format="date-time", nullable=True),
 			"decision_note": S(nullable=True, description="Decision explanation"),
 			"changes": ARR(REF("ChangeItem")),

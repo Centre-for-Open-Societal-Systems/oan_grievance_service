@@ -321,7 +321,7 @@ NOTIFICATION_EVENTS = [
 			"text": "Your grievance {0} has been received under {1}.",
 			"args": ("doc.ticket_number", "doc.service_category"),
 			"if": "doc.sla_due_date",
-			"then": ("Expected response by {0}.", ("doc.sla_due_date",)),
+			"then": ("Expected response by {0}.", (PLACEHOLDER_EXPRESSIONS["sla_due_date"],)),
 			"else": ("You will be informed once an officer is assigned.", ()),
 		},
 		(),
@@ -346,8 +346,8 @@ NOTIFICATION_EVENTS = [
 			"doc.ticket_number",
 			"doc.service_category",
 			"doc.grievance_type",
-			"doc.assigned_dept",
-			"doc.sla_due_date",
+			PLACEHOLDER_EXPRESSIONS["assigned_to"],
+			PLACEHOLDER_EXPRESSIONS["sla_due_date"],
 		),
 	),
 	(
@@ -357,7 +357,11 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"On nodal officer assignment",
 		"Grievance {0} has been assigned to {1} by the nodal officer. SLA deadline {2}.",
-		("doc.ticket_number", "doc.assigned_dept", "doc.sla_due_date"),
+		(
+			"doc.ticket_number",
+			PLACEHOLDER_EXPRESSIONS["assigned_to"],
+			PLACEHOLDER_EXPRESSIONS["sla_due_date"],
+		),
 	),
 	(
 		C.EVENT_STATUS_IN_PROGRESS,
@@ -439,7 +443,7 @@ NOTIFICATION_EVENTS = [
 		("SMS", "Email", "System Notification"),
 		"Approved SLA deferral",
 		"The expected response date for your grievance {0} has been moved to {1}.",
-		("doc.ticket_number", "doc.sla_due_date"),
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SUBMITTER_RESPONDED,
@@ -479,7 +483,7 @@ NOTIFICATION_EVENTS = [
 			"text": "Grievance {0} has been reopened by the submitter and needs attention.",
 			"args": ("doc.ticket_number",),
 			"if": "doc.sla_due_date",
-			"then": ("The new deadline is {0}.", ("doc.sla_due_date",)),
+			"then": ("The new deadline is {0}.", (PLACEHOLDER_EXPRESSIONS["sla_due_date"],)),
 			"else": ("", ()),
 		},
 		(),
@@ -491,7 +495,7 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"Scheduled job at 50% SLA elapsed",
 		"Grievance {0} has reached 50% of its SLA window. Deadline {1}.",
-		("doc.ticket_number", "doc.sla_due_date"),
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SLA_REMINDER_80,
@@ -509,7 +513,7 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"Scheduled job at 80%",
 		"Grievance {0} is approaching its SLA deadline {1}.",
-		("doc.ticket_number", "doc.sla_due_date"),
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SLA_BREACH,
