@@ -5142,7 +5142,7 @@ paths:
       - Administration
       summary: Get an officer
       description: One officer, department head or Reviewer with the desks (RBAC assignments) they sit
-        on. The id is the account's email. Reading a Reviewer needs an admin role.
+        on. The id is the User id and email is the login email. Reading a Reviewer needs an admin role.
       operationId: get_api_v1_officers_officer
       responses:
         '200':
