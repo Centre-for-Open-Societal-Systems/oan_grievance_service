@@ -711,12 +711,21 @@ def queue(grievance, event_code, recipient_override=None):
 	if rows:
 		# Send as soon as the event commits instead of waiting for the sweep, which stays
 		# on as the backstop for rows this job skips or loses.
-		frappe.enqueue(
-			"oan_grievance_service.services.notifications.dispatch_queued",
-			queue=C.QUEUE_NOTIFICATIONS,
-			grievance=grievance.name,
-			enqueue_after_commit=True,
-		)
+		try:
+			from frappe.utils.background_jobs import get_queues_timeout
+
+			queue_name = C.QUEUE_NOTIFICATIONS if C.QUEUE_NOTIFICATIONS in get_queues_timeout() else "default"
+			frappe.enqueue(
+				"oan_grievance_service.services.notifications.dispatch_queued",
+				queue=queue_name,
+				grievance=grievance.name,
+				enqueue_after_commit=True,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"Failed to enqueue notifications for grievance: {grievance.name}",
+				message=frappe.get_traceback(),
+			)
 
 	return rows
 
