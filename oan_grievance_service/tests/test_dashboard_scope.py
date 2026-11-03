@@ -11,6 +11,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1 import charts as charts_api
+from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+	top_rung,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard, dashboard_rollup
 from oan_grievance_service.tests.fixtures import (
@@ -111,7 +114,7 @@ class TestOfficerChartScope(FrappeTestCase):
 				"officers": [
 					{
 						"user": user,
-						"role_level": "nodal_officer",
+						"role_level": top_rung(),
 						"administrative_area": area,
 						"is_primary": 0,
 						"active": 1,

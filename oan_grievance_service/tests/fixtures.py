@@ -289,11 +289,11 @@ def a_user_with_role(role, label="user"):
 	return email
 
 
-def a_role_level():
+def a_role_level(level_order=1):
 	"""A new Grievance Role Level, for a desk's officers; returns its code. The caller deletes it."""
 	code = f"lvl_{frappe.generate_hash(length=6)}"
 	frappe.get_doc(
-		{"doctype": "Grievance Role Level", "level_name": code, "level_code": code, "level_order": 1}
+		{"doctype": "Grievance Role Level", "level_name": code, "level_code": code, "level_order": level_order}
 	).insert(ignore_permissions=True)
 	return code
 

@@ -78,7 +78,8 @@ class AdminLevelFixture(FrappeTestCase):
 		cls.w1_code, cls.w2_code = cls._code(cls.w1), cls._code(cls.w2)
 
 		cls.category = a_service_category()
-		cls.role_level = a_role_level()
+		# Only the top rung reads a whole desk, so the dashboard counts the desk for this level.
+		cls.role_level = a_role_level(level_order=9999)
 		cls.d1, cls.d2, cls.d3 = (a_unique_department(label) for label in ("One", "Two", "Three"))
 		cls.mine = (cls.d1, cls.d2)
 		# Users are throttled (Frappe allows 60 a hour), so a few are shared by the class's tests.
