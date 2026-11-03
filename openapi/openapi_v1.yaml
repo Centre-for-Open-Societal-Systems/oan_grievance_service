@@ -36,7 +36,8 @@ tags:
 - name: Organizations
   description: NGO, FPO and cooperative registration, profile, and the admin verification queue
 - name: Dashboard Charts
-  description: Aggregate counts from the 15-minute rollups, for the OAN programme dashboards
+  description: Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing
+    and at least every 15 minutes, for the OAN programme dashboards
 paths:
   /api/v1/grievances/health:
     get:
@@ -5142,7 +5143,7 @@ paths:
       - Administration
       summary: Get an officer
       description: One officer, department head or Reviewer with the desks (RBAC assignments) they sit
-        on. The id is the account's email. Reading a Reviewer needs an admin role.
+        on. The id is the User id and email is the login email. Reading a Reviewer needs an admin role.
       operationId: get_api_v1_officers_officer
       responses:
         '200':

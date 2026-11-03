@@ -398,6 +398,28 @@ class TestOfficerManagement(FrappeTestCase):
 		self.assertGreaterEqual(page["pagination"]["total_count"], 2)
 		self.assertTrue(page["pagination"]["has_next"])
 
+	def test_email_is_the_login_email_not_the_synthetic_user_email(self):
+		"""The auth service names a User with an opaque id and keeps the real address in
+		oan_login_email; core resets User.email to the id, so the API must not report it."""
+		if not frappe.db.has_column("User", "oan_login_email"):
+			self.skipTest("oan_login_email is the auth service's field; not installed here")
+		registered = self._create("stg430-opaque@example.com")
+		plain = self._create("stg430-plain-login@example.com")
+		frappe.db.set_value("User", registered["name"], "oan_login_email", "tigist.real@example.org")
+
+		def listed(**filters):
+			rows = list_officers(page_size=100, **filters)["data"]["officers"]
+			return {row["name"]: row["email"] for row in rows}
+
+		self.assertEqual(listed()[registered["name"]], "tigist.real@example.org")
+		self.assertEqual(
+			get_officer(registered["name"])["data"]["officer"]["email"], "tigist.real@example.org"
+		)
+		# An account with no login email falls back to User.email.
+		self.assertEqual(listed()[plain["name"]], "stg430-plain-login@example.com")
+		# The login email is searchable, as User.email was.
+		self.assertEqual(set(listed(q="tigist.real")), {registered["name"]})
+
 	def test_list_filters_by_scope(self):
 		area = a_leaf_area()
 		in_scope = self._create("stg430-scope@example.com", service_categories=[self.credit], region=area)

@@ -284,7 +284,11 @@ def enqueue_service_provider_syncs():
 
 
 def refresh_dashboard_rollup():
-	"""Every 15 minutes: bring the dashboard rollups up to date (last few days)."""
+	"""Every 15 minutes: bring the dashboard rollups up to date (last few days).
+
+	A case saved in between refreshes them at once (dashboard_rollup.request_refresh); this
+	is the fallback for writes that skip doc events.
+	"""
 	from oan_grievance_service.services import dashboard_rollup
 
 	dashboard_rollup.enqueue()

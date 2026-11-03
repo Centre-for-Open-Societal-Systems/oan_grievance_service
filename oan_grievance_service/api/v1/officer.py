@@ -6,7 +6,8 @@ Department Heads (L3) and Reviewers, through one resource configured by `role` a
 
 An officer is a User placed on category desks through Grievance RBAC Assignment Officer
 rows, so what an admin edits here is what routing, permissions and escalation read. The
-officer id is the User id, which is the officer's email.
+officer id is the User id; `email` is the address the officer signs in with (`User.oan_login_email`,
+falling back to `User.email`), because the User id may be an opaque synthetic one.
 
 A department head is an L3 officer: a department's final escalation rung, who approves its
 reassignments. A Reviewer is placed on a department's desks too, with read-only access limited
@@ -368,7 +369,7 @@ def officer_status_counts(
 @api_doc(
 	summary="Get an officer",
 	description="One officer, department head or Reviewer with the desks (RBAC assignments) "
-	+ "they sit on. The id is the account's email. Reading a Reviewer needs an admin role.",
+	+ "they sit on. The id is the User id and email is the login email. Reading a Reviewer needs an admin role.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
