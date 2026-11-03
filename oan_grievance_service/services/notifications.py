@@ -902,6 +902,21 @@ def _send_system_row(row, grievance):
 	return {}
 
 
+def _claim(name):
+	"""Take a Queued row for this job; False if another job already has it.
+
+	The immediate jobs and the sweep read the same Queued rows, so each row is flipped to
+	Sending and committed before it is sent. Only the job whose update changed the row sends.
+	"""
+	frappe.db.sql(
+		"update `tabGrievance Notification Log` set status = 'Sending' where name = %s and status = 'Queued'",
+		name,
+	)
+	claimed = frappe.db.sql("select row_count()")[0][0] == 1
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	return claimed
+
+
 def dispatch_queued(limit=100, grievance=None):
 	"""Send whatever is queued. Called by the scheduler."""
 	filters = {"status": "Queued"}
@@ -923,6 +938,8 @@ def dispatch_queued(limit=100, grievance=None):
 		return grievance_cache[name]
 
 	for row in pending:
+		if not _claim(row.name):
+			continue
 		update = {"status": "Sent", "sent_at": now_datetime()}
 		try:
 			if row.channel == CHANNEL_EMAIL:

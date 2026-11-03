@@ -1006,14 +1006,14 @@ data(
 	OBJ(
 		{
 			"action": S(example="Requested", description="Approval lifecycle action"),
-			"user": S(nullable=True, description="Full name of the user performing action"),
+			"user": S(description="Full name of the user performing action"),
 			"user_id": S(description="User id of the user performing action"),
 			"pending_with": S(nullable=True, description="Full name of the user pending decision"),
 			"pending_with_id": S(nullable=True, description="User id of the user pending decision"),
 			"at": S(format="date-time", nullable=True, description="Timestamp of action"),
 			"note": S(nullable=True, description="Approval or rejection remarks"),
 		},
-		required=["action"],
+		required=["action", "user"],
 		description="Change request approval audit step",
 	),
 )
@@ -1042,7 +1042,7 @@ data(
 			"subject": S(description="Summary of requested change"),
 			"reason": S(nullable=True, description="Reason or justification"),
 			"status": S(example="Pending", enum=["Pending", "Approved", "Rejected"]),
-			"requested_by": S(nullable=True, description="Full name of the user who raised the request"),
+			"requested_by": S(description="Full name of the user who raised the request"),
 			"requested_by_id": S(description="User id of the user who raised the request"),
 			"requested_at": S(format="date-time", nullable=True),
 			"pending_with": S(

@@ -8760,7 +8760,6 @@ components:
           description: Approval lifecycle action
         user:
           type: string
-          nullable: true
           description: Full name of the user performing action
         user_id:
           type: string
@@ -8784,6 +8783,7 @@ components:
           description: Approval or rejection remarks
       required:
       - action
+      - user
       description: Change request approval audit step
     PublicChangeRequestData:
       type: object
@@ -8824,7 +8824,6 @@ components:
           - Rejected
         requested_by:
           type: string
-          nullable: true
           description: Full name of the user who raised the request
         requested_by_id:
           type: string
