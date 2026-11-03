@@ -244,8 +244,8 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		self.grievance.reload()
 		self.assertEqual(self.grievance.assigned_to, self.officer1)
 
-	def test_senior_reassignment_within_dept_routes_to_dept_head(self):
-		"""Senior nodal reassigning within dept routes to head; outranking is not enough."""
+	def test_senior_reassignment_to_own_report_auto_approves(self):
+		"""A senior handing a case to an officer who reports to them needs no approval."""
 		frappe.set_user(self.senior)
 		cr = frappe.get_doc(
 			{
@@ -257,10 +257,9 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-		self.assertEqual(cr.status, "Pending")
-		self.assertEqual(cr.pending_with, self.head)
+		self.assertEqual(cr.status, "Approved")
 		self.grievance.reload()
-		self.assertEqual(self.grievance.assigned_to, self.officer1)
+		self.assertEqual(self.grievance.assigned_to, self.officer2)
 
 	def test_dept_head_reassignment_within_dept_auto_approves(self):
 		"""Department head reassigning within dept is approved on insert and applied immediately."""
