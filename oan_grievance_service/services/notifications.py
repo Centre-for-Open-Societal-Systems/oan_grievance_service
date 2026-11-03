@@ -621,6 +621,11 @@ def _shown_ticket(grievance) -> str:
 	return tn.display(grievance.ticket_number) or grievance.name
 
 
+def _render_template(template: str | None, context: dict) -> str:
+	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+	return frappe.render_template(template, context) if template else ""
+
+
 def queue(grievance, event_code, recipient_override=None):
 	"""Write a Grievance Notification Log row for an event.
 
@@ -683,12 +688,8 @@ def queue(grievance, event_code, recipient_override=None):
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			message = frappe.render_template(notification.message, shown_context)
-			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			subject = (
-				frappe.render_template(notification.subject, shown_context) if notification.subject else ""
-			)
+			message = _render_template(notification.message, shown_context)
+			subject = _render_template(notification.subject, shown_context)
 
 		rows.append(
 			frappe.get_doc(
