@@ -5289,7 +5289,8 @@ paths:
       summary: Register an organization
       description: Register an NGO, FPO or cooperative with the caller as its authorized representative.
         It starts In Review and cannot file grievances until an administrator sets it Active. One organization
-        per account, and one account per registration number. consent_given must be true.
+        per account, and one account per registration number. representative_name is required, 1 to 140
+        characters. consent_given must be true.
       operationId: post_api_v1_orgs
       responses:
         '200':
@@ -10870,12 +10871,6 @@ components:
           type: string
           default: null
           nullable: true
-        representative_name:
-          maxLength: 140
-          minLength: 1
-          type: string
-          default: null
-          nullable: true
         members_affected:
           maximum: 100000000
           minimum: 0
@@ -10912,12 +10907,17 @@ components:
           maxLength: 140
           minLength: 1
           type: string
+        representative_name:
+          maxLength: 140
+          minLength: 1
+          type: string
         registration_number:
           maxLength: 140
           minLength: 1
           type: string
         contact_email:
           type: string
+          maxLength: 140
           nullable: true
         contact_phone:
           maxLength: 140
@@ -10940,7 +10940,6 @@ components:
           minLength: 1
           type: string
         postal_code:
-          pattern: ^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$
           type: string
         consent_given:
           type: boolean
@@ -10950,6 +10949,7 @@ components:
       - legal_name
       - org_type
       - entity_type
+      - representative_name
       - registration_number
       - contact_email
       - contact_phone
@@ -10970,12 +10970,6 @@ components:
           type: string
           default: null
           nullable: true
-        representative_name:
-          maxLength: 140
-          minLength: 1
-          type: string
-          default: null
-          nullable: true
         members_affected:
           maximum: 100000000
           minimum: 0
@@ -11012,6 +11006,10 @@ components:
           maxLength: 140
           minLength: 1
           type: string
+        representative_name:
+          maxLength: 140
+          minLength: 1
+          type: string
         registration_number:
           maxLength: 140
           minLength: 1
@@ -11019,6 +11017,7 @@ components:
         contact_email:
           type: string
           default: null
+          maxLength: 140
           nullable: true
         contact_phone:
           maxLength: 140
@@ -11041,7 +11040,6 @@ components:
           minLength: 1
           type: string
         postal_code:
-          pattern: ^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$
           type: string
       type: object
     SetOrganizationStatus:
