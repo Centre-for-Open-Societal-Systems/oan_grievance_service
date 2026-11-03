@@ -52,18 +52,28 @@ def _website(value: str | None) -> str | None:
 		return value
 	if not re.match(r"^[a-z][a-z0-9+.-]*://", value, re.IGNORECASE):
 		value = f"https://{value}"
-	if len(value) > 255 or not re.match(r"^https?://[^\s/.]+(\.[^\s/.]+)+(/\S*)?$", value):
+	# An "@" would make a login or an email address of it.
+	if len(value) > 255 or "@" in value or not re.match(r"^https?://[^\s/.]+(\.[^\s/.]+)+(/\S*)?$", value):
 		raise ValueError("Website must be a valid http or https address.")
+	return value
+
+
+# 3 to 10 letters and digits, with a single space or hyphen between groups.
+POSTAL_CODE_PATTERN = re.compile(r"^(?=.{3,10}$)[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$")
+
+
+def _postal_code(value: str) -> str:
+	if not POSTAL_CODE_PATTERN.match(value):
+		raise ValueError("Postal code must match the required format.")
 	return value
 
 
 # Frappe's Data length, which is what the columns hold.
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=140)]
 RegistrationNumber = Annotated[Text, AfterValidator(_registration_number)]
-# 3 to 10 letters and digits, with spaces or hyphens inside.
-PostalCode = Annotated[
-	str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$")
-]
+PostalCode = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_postal_code)]
+# The contact_email column is a Data field, so a longer address would fail at the database.
+ContactEmail = Annotated[SafeEmail, Field(max_length=140)]
 Website = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_website)]
 Reason = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
 
@@ -109,23 +119,23 @@ class OptionalFields(Body):
 	"""What a registration may leave out, and the rules for each, shared by create and update."""
 
 	brand_name: Text | None = None
-	representative_name: Text | None = None
 	members_affected: int | None = Field(default=None, ge=0, le=100_000_000)
 	website: Website | None = None
 	kebele: Text | None = None
 	woreda: Text | None = None
 
-	_blank = field_validator(
-		"brand_name", "representative_name", "members_affected", "website", "kebele", "woreda", mode="before"
-	)(blank_to_none)
+	_blank = field_validator("brand_name", "members_affected", "website", "kebele", "woreda", mode="before")(
+		blank_to_none
+	)
 
 
 class CreateOrganization(OptionalFields):
 	legal_name: Text
 	org_type: OrgType
 	entity_type: Text
+	representative_name: Text
 	registration_number: RegistrationNumber
-	contact_email: SafeEmail
+	contact_email: ContactEmail
 	contact_phone: Text
 	street_address: Text
 	zone: Text
@@ -141,8 +151,9 @@ class UpdateOrganization(OptionalFields):
 	legal_name: Text = None
 	org_type: OrgType = None
 	entity_type: Text = None
+	representative_name: Text = None
 	registration_number: RegistrationNumber = None
-	contact_email: SafeEmail = None
+	contact_email: ContactEmail = None
 	contact_phone: Text = None
 	street_address: Text = None
 	zone: Text = None
@@ -195,7 +206,7 @@ def organization_record(org) -> dict:
 	description="Register an NGO, FPO or cooperative with the caller as its authorized "
 	+ "representative. It starts In Review and cannot file grievances until an administrator "
 	+ "sets it Active. One organization per account, and one account per registration number. "
-	+ "consent_given must be true.",
+	+ "representative_name is required, 1 to 140 characters. consent_given must be true.",
 	tags=["Organizations"],
 	response_model=OrganizationRecord,
 )

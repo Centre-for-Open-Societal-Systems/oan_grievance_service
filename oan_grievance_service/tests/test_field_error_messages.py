@@ -46,6 +46,7 @@ ORGANISATION = {
 	"legal_name": "Oromia Farmers Union",
 	"org_type": "FPO",
 	"entity_type": "Cooperative",
+	"representative_name": "Almaz Bekele",
 	"registration_number": "Oromia/Coop/Agri-045/2018",
 	"contact_email": "office@example.org",
 	"contact_phone": "+251911000000",
@@ -67,7 +68,13 @@ class TestOrganisationMessages(FrappeTestCase):
 		self.assertEqual(_errors(self.Create, **ORGANISATION), {})
 
 	def test_required_fields_say_so(self):
-		for field in ("legal_name", "street_address", "contact_phone", "registration_number"):
+		for field in (
+			"legal_name",
+			"representative_name",
+			"street_address",
+			"contact_phone",
+			"registration_number",
+		):
 			with self.subTest(field=field):
 				payload = {k: v for k, v in ORGANISATION.items() if k != field}
 				self.assertEqual(
@@ -98,14 +105,32 @@ class TestOrganisationMessages(FrappeTestCase):
 	def test_postal_code(self):
 		for good in ("1000", "ABC", "A" * 10, "SW1A 1AA"):
 			self.assertEqual(_errors(self.Create, **{**ORGANISATION, "postal_code": good}), {}, good)
-		for bad in ("12", "A" * 11, "12#4", ""):
+		for bad in ("12", "A" * 11, "12#4", "", "AB  CD", "AB--CD", "AB- CD", "-1000", "1000-"):
 			errors = _errors(self.Create, **{**ORGANISATION, "postal_code": bad})
 			self.assertEqual(errors, {"postal_code": "Postal code must match the required format."}, bad)
 
 	def test_website(self):
 		self.assertEqual(_errors(self.Create, **{**ORGANISATION, "website": "https://example.org"}), {})
-		errors = _errors(self.Create, **{**ORGANISATION, "website": "ftp://example.org"})
-		self.assertEqual(errors, {"website": "Website must be a valid http or https address."})
+		for bad in ("ftp://example.org", "https://user@example.org", "https://example.org/a@b"):
+			errors = _errors(self.Create, **{**ORGANISATION, "website": bad})
+			self.assertEqual(errors, {"website": "Website must be a valid http or https address."}, bad)
+
+	def test_contact_email_stops_at_the_column_size(self):
+		domain = "@example.org"
+		for length in (20, 140):
+			email = "a" * (length - len(domain)) + domain
+			self.assertEqual(_errors(self.Create, **{**ORGANISATION, "contact_email": email}), {}, length)
+		for length in (141, 254):
+			email = "a" * (length - len(domain)) + domain
+			errors = _errors(self.Create, **{**ORGANISATION, "contact_email": email})
+			self.assertEqual(list(errors), ["contact_email"], length)
+			self.assertIn("140", errors["contact_email"])
+		errors = _errors(self.Create, **{**ORGANISATION, "contact_email": "not-an-email"})
+		self.assertEqual(list(errors), ["contact_email"])
+		self.assertEqual(
+			_errors(organization.UpdateOrganization, contact_email="a" * 141 + domain).keys(),
+			{"contact_email"},
+		)
 
 	def test_member_count(self):
 		for good in (0, 100_000_000):
