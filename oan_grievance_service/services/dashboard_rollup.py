@@ -336,8 +336,9 @@ def refresh_until_current(full=False):
 	_take_dirty()
 	result = refresh(full=full)
 	for _ in range(CATCH_UP_RUNS):
-		# Commit so the next pass reads a fresh snapshot, not the one this run began with.
-		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		# Commit so the next pass reads a fresh snapshot, not the one this run began with; this
+		# runs only in the background job, which owns its transaction.
+		frappe.db.commit()  # nosemgrep
 		if not _take_dirty():
 			break
 		result = refresh()
