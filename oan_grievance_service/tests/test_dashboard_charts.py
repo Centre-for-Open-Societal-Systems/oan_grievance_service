@@ -7,6 +7,7 @@ The site may already hold grievances, so every count is asserted as a change
 against a baseline taken before the fixtures are made.
 """
 
+import time
 from unittest.mock import patch
 
 import frappe
@@ -981,11 +982,54 @@ class TestGatewayContract(FrappeTestCase):
 
 
 class TestDashboardImmediateRefresh(FrappeTestCase):
-	"""A case filed or moved refreshes the rollups at once, not on the next 15-minute run."""
+	"""A case filed or moved refreshes the rollups at once, not on the next 15-minute run.
+
+	Runs against Redis with test-only keys, so a worker on the same site is not disturbed.
+	"""
 
 	def setUp(self):
-		frappe.cache.delete_value(dashboard_rollup.DIRTY_KEY)
-		self.addCleanup(frappe.cache.delete_value, dashboard_rollup.DIRTY_KEY)
+		keys = {
+			name: f"test_{getattr(dashboard_rollup, name)}"
+			for name in ("DIRTY_KEY", "FULL_KEY", "LOCK_KEY", "PENDING_KEY", "LAST_KEY")
+		}
+		patcher = patch.multiple(dashboard_rollup, **keys)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		self.addCleanup(self.clear_keys)
+		self.clear_keys()
+		self.enqueue = self.start_patch(patch.object(frappe, "enqueue"))
+		self.log_error = self.start_patch(patch.object(frappe, "log_error"))
+		self.commit = self.start_patch(patch.object(frappe.db, "commit"))
+		self.sleep = self.start_patch(patch.object(dashboard_rollup.time, "sleep"))
+		frappe.db.after_commit.reset()
+		frappe.db.after_rollback.reset()
+		frappe.flags[dashboard_rollup.REQUESTED] = False
+		self.addCleanup(frappe.db.after_commit.reset)
+		self.addCleanup(frappe.db.after_rollback.reset)
+
+	def start_patch(self, patcher):
+		mock = patcher.start()
+		self.addCleanup(patcher.stop)
+		return mock
+
+	def clear_keys(self):
+		for name in ("DIRTY_KEY", "FULL_KEY", "LOCK_KEY", "PENDING_KEY", "LAST_KEY"):
+			frappe.cache.delete(frappe.cache.make_key(getattr(dashboard_rollup, name)))
+
+	def up(self, name):
+		return bool(frappe.cache.exists(getattr(dashboard_rollup, name)))
+
+	def raise_(self, name):
+		dashboard_rollup._raise(getattr(dashboard_rollup, name), 60)
+
+	def asks_at_commit(self):
+		"""What a transaction does when it commits, with the real hook gate open."""
+		with patch.dict(frappe.flags, {"in_test": False, "in_migrate": False, "in_install": False}):
+			dashboard_rollup.request_refresh()
+		frappe.db.after_commit.run()
+
+	# Wiring
+	# ------
 
 	def test_grievance_changes_are_wired_to_a_refresh(self):
 		handler = "oan_grievance_service.services.dashboard_rollup.request_refresh"
@@ -993,59 +1037,226 @@ class TestDashboardImmediateRefresh(FrappeTestCase):
 		for event in ("after_insert", "on_change", "after_delete"):
 			self.assertIn(handler, events[event])
 
-	def test_a_change_queues_a_refresh_only_after_it_commits(self):
-		with patch.dict(frappe.flags, {"in_test": False}), patch.object(frappe, "enqueue") as enqueue:
-			dashboard_rollup.request_refresh()
-			enqueue.assert_not_called()
-			self.assertIsNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
-			frappe.db.after_commit.run()
-		enqueue.assert_called_once()
-		kwargs = enqueue.call_args.kwargs
-		self.assertEqual(kwargs["job_id"], dashboard_rollup.JOB_ID)
-		self.assertTrue(kwargs["deduplicate"])
+	def test_a_real_insert_save_and_delete_each_fire_the_hook(self):
+		fired = []
+
+		def record(doc=None, method=None):
+			fired.append(method)
+
+		with patch.object(dashboard_rollup, "request_refresh", record):
+			doc = a_grievance()
+			self.assertIn("after_insert", fired)
+			self.assertIn("on_change", fired)
+			fired.clear()
+			doc.reload()
+			doc.save(ignore_permissions=True)
+			self.assertIn("on_change", fired)
+			fired.clear()
+			frappe.delete_doc("Grievance", doc.name, force=True, ignore_permissions=True)
+			self.assertIn("after_delete", fired)
+
+	def test_migrate_install_and_tests_do_not_ask(self):
+		for skipped in ("in_test", "in_migrate", "in_install"):
+			with (
+				self.subTest(skipped),
+				patch.dict(
+					frappe.flags,
+					{"in_test": False, "in_migrate": False, "in_install": False, skipped: True},
+				),
+			):
+				dashboard_rollup.request_refresh()
+				frappe.db.after_commit.run()
+				self.enqueue.assert_not_called()
+				self.assertFalse(self.up("DIRTY_KEY"))
+		# With none of them set it does ask.
+		self.asks_at_commit()
+		self.enqueue.assert_called_once()
+
+	# Asking
+	# ------
+
+	def test_a_commit_asks_once_however_many_saves_it_holds(self):
+		with patch.dict(frappe.flags, {"in_test": False, "in_migrate": False, "in_install": False}):
+			for _ in range(3):
+				dashboard_rollup.request_refresh()
+		self.enqueue.assert_not_called()
+		self.assertFalse(self.up("DIRTY_KEY"))
+		frappe.db.after_commit.run()
+		self.enqueue.assert_called_once()
+		args, kwargs = self.enqueue.call_args
+		self.assertEqual(args, (dashboard_rollup.RUNNER,))
+		self.assertEqual(kwargs["queue"], "long")
+		# The queue cannot join a job that has started, so no job id is used to merge requests.
+		self.assertNotIn("job_id", kwargs)
+		self.assertNotIn("deduplicate", kwargs)
 		# Already past the commit, so waiting for another would never queue it.
 		self.assertFalse(kwargs["enqueue_after_commit"])
-		self.assertIsNotNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
+		self.assertTrue(self.up("DIRTY_KEY"))
 
-	def test_a_rolled_back_change_queues_nothing(self):
-		with patch.dict(frappe.flags, {"in_test": False}), patch.object(frappe, "enqueue") as enqueue:
+	def test_a_rolled_back_save_asks_for_nothing_and_a_later_one_still_can(self):
+		with patch.dict(frappe.flags, {"in_test": False, "in_migrate": False, "in_install": False}):
 			dashboard_rollup.request_refresh()
-			frappe.db.after_commit.reset()
-			frappe.db.after_commit.run()
-		enqueue.assert_not_called()
+		frappe.db.after_commit.reset()
+		frappe.db.after_rollback.run()
+		self.enqueue.assert_not_called()
+		self.assertFalse(frappe.flags[dashboard_rollup.REQUESTED])
+		self.asks_at_commit()
+		self.enqueue.assert_called_once()
 
-	def test_a_change_during_a_run_gets_a_second_pass(self):
-		runs = []
+	def test_a_queue_failure_does_not_fail_the_commit(self):
+		self.enqueue.side_effect = ConnectionError("queue down")
+		self.asks_at_commit()
+		self.log_error.assert_called_once()
+		# The next request can queue a runner: the failed one did not leave itself pending.
+		self.assertFalse(self.up("PENDING_KEY"))
+
+	def test_a_cache_failure_does_not_fail_the_commit(self):
+		with patch.object(dashboard_rollup, "_raise", side_effect=ConnectionError("redis down")):
+			self.asks_at_commit()
+		self.log_error.assert_called_once()
+		self.enqueue.assert_not_called()
+
+	def test_enqueue_waits_for_the_commit_unless_told_not_to(self):
+		dashboard_rollup.enqueue(full=True)
+		self.assertFalse(self.up("DIRTY_KEY"))
+		frappe.db.after_commit.run()
+		self.assertTrue(self.up("DIRTY_KEY"))
+		self.assertTrue(self.up("FULL_KEY"))
+		self.enqueue.assert_called_once()
+
+		self.clear_keys()
+		self.enqueue.reset_mock()
+		dashboard_rollup.enqueue(after_commit=False)
+		self.assertTrue(self.up("DIRTY_KEY"))
+		self.assertFalse(self.up("FULL_KEY"))
+		self.enqueue.assert_called_once()
+
+	def test_one_runner_is_queued_until_it_starts(self):
+		dashboard_rollup._kick()
+		dashboard_rollup._kick()
+		self.enqueue.assert_called_once()
+		with patch.object(dashboard_rollup, "refresh"):
+			dashboard_rollup.run_pending()
+		dashboard_rollup._kick()
+		self.assertEqual(self.enqueue.call_count, 2)
+
+	def test_taking_a_flag_is_all_or_nothing(self):
+		self.raise_("DIRTY_KEY")
+		self.assertTrue(dashboard_rollup._take(dashboard_rollup.DIRTY_KEY))
+		self.assertFalse(dashboard_rollup._take(dashboard_rollup.DIRTY_KEY))
+
+	def test_the_escalation_cohort_patch_asks_through_the_lock(self):
+		from oan_grievance_service.patches import (
+			rebuild_dashboard_rollup_for_escalation_cohorts as patch_module,
+		)
+
+		a_grievance()
+		with patch.object(dashboard_rollup, "enqueue") as enqueue:
+			patch_module.execute()
+		enqueue.assert_called_once_with(full=True)
+
+	# Running
+	# -------
+
+	def test_a_run_refreshes_what_was_asked_and_lets_go(self):
+		self.raise_("DIRTY_KEY")
+		self.raise_("FULL_KEY")
+		with patch.object(dashboard_rollup, "refresh", return_value={"ok": 1}) as refresh:
+			result = dashboard_rollup.run_pending()
+		refresh.assert_called_once_with(full=True)
+		self.assertEqual(result, {"ok": 1})
+		for name in ("DIRTY_KEY", "FULL_KEY", "LOCK_KEY", "PENDING_KEY"):
+			self.assertFalse(self.up(name), name)
+		self.assertTrue(self.up("LAST_KEY"))
+		self.enqueue.assert_not_called()
+
+	def test_a_run_with_nothing_asked_does_nothing(self):
+		with patch.object(dashboard_rollup, "refresh") as refresh:
+			self.assertIsNone(dashboard_rollup.run_pending())
+		refresh.assert_not_called()
+		self.assertFalse(self.up("LOCK_KEY"))
+
+	def test_a_run_that_finds_the_lock_taken_leaves_the_request_for_its_holder(self):
+		dashboard_rollup._acquire(dashboard_rollup.LOCK_KEY, 60)
+		self.raise_("DIRTY_KEY")
+		with patch.object(dashboard_rollup, "refresh") as refresh:
+			self.assertIsNone(dashboard_rollup.run_pending())
+		refresh.assert_not_called()
+		self.assertTrue(self.up("DIRTY_KEY"))
+		# It does not let go of a lock that is not its own.
+		self.assertTrue(self.up("LOCK_KEY"))
+
+	def test_a_request_after_the_last_look_gets_a_new_runner(self):
+		"""A request that lands once the loop has stopped looking, while the job is still
+		running, is what the queue's own de-duplication used to drop."""
+		self.raise_("DIRTY_KEY")
+		take = dashboard_rollup._take
+
+		def take_then_request_late(name):
+			result = take(name)
+			if name == dashboard_rollup.LOCK_KEY:
+				self.raise_("DIRTY_KEY")
+			return result
+
+		with (
+			patch.object(dashboard_rollup, "refresh"),
+			patch.object(dashboard_rollup, "_take", take_then_request_late),
+		):
+			dashboard_rollup.run_pending()
+		self.enqueue.assert_called_once()
+		self.assertEqual(self.enqueue.call_args.args, (dashboard_rollup.RUNNER,))
+		self.assertTrue(self.up("DIRTY_KEY"))
+
+	def test_a_request_during_a_pass_gets_another_pass(self):
+		self.raise_("DIRTY_KEY")
+		passes = []
 
 		def refresh(full=False):
-			runs.append(full)
-			if len(runs) == 1:
-				frappe.cache.set_value(dashboard_rollup.DIRTY_KEY, 1)
-			return {"run": len(runs)}
+			passes.append(full)
+			if len(passes) == 1:
+				self.raise_("DIRTY_KEY")
+				self.raise_("FULL_KEY")
 
-		with patch.object(dashboard_rollup, "refresh", refresh), patch.object(frappe.db, "commit"):
-			result = dashboard_rollup.refresh_until_current(full=True)
-		# The full rebuild once, then an ordinary refresh for what changed meanwhile.
-		self.assertEqual(runs, [True, False])
-		self.assertEqual(result, {"run": 2})
-		self.assertIsNone(frappe.cache.get_value(dashboard_rollup.DIRTY_KEY))
+		with patch.object(dashboard_rollup, "refresh", refresh):
+			dashboard_rollup.run_pending()
+		# The rebuild asked for meanwhile is not lost, nor run for the pass before it.
+		self.assertEqual(passes, [False, True])
+		self.assertFalse(self.up("DIRTY_KEY"))
+		self.enqueue.assert_not_called()
 
-	def test_a_quiet_run_does_not_repeat(self):
-		with (
-			patch.object(dashboard_rollup, "refresh", return_value={}) as refresh,
-			patch.object(frappe.db, "commit"),
-		):
-			dashboard_rollup.refresh_until_current()
-		refresh.assert_called_once()
+	def test_the_pass_limit_hands_over_to_a_new_runner(self):
+		self.raise_("DIRTY_KEY")
 
-	def test_catch_up_is_bounded(self):
 		def refresh(full=False):
-			frappe.cache.set_value(dashboard_rollup.DIRTY_KEY, 1)
-			return {}
+			self.raise_("DIRTY_KEY")
 
-		with (
-			patch.object(dashboard_rollup, "refresh", side_effect=refresh) as run,
-			patch.object(frappe.db, "commit"),
-		):
-			dashboard_rollup.refresh_until_current()
+		with patch.object(dashboard_rollup, "refresh", side_effect=refresh) as run:
+			dashboard_rollup.run_pending()
 		self.assertEqual(run.call_count, 1 + dashboard_rollup.CATCH_UP_RUNS)
+		self.enqueue.assert_called_once()
+		self.assertFalse(self.up("LOCK_KEY"))
+
+	def test_a_failed_pass_puts_the_request_back(self):
+		self.raise_("DIRTY_KEY")
+		self.raise_("FULL_KEY")
+		with patch.object(dashboard_rollup, "refresh", side_effect=RuntimeError("boom")):
+			with self.assertRaises(RuntimeError):
+				dashboard_rollup.run_pending()
+		self.assertTrue(self.up("DIRTY_KEY"))
+		self.assertTrue(self.up("FULL_KEY"))
+		self.assertFalse(self.up("LOCK_KEY"))
+
+	def test_runs_start_at_least_the_minimum_gap_apart(self):
+		gap = dashboard_rollup.MIN_GAP
+		for ended, waits in ((time.time(), True), (time.time() - 10 * gap, False)):
+			with self.subTest(waits=waits):
+				self.sleep.reset_mock()
+				dashboard_rollup._put(dashboard_rollup.LAST_KEY, repr(ended), 60)
+				self.raise_("DIRTY_KEY")
+				with patch.object(dashboard_rollup, "refresh"):
+					dashboard_rollup.run_pending()
+				if waits:
+					self.sleep.assert_called_once()
+					self.assertTrue(0 < self.sleep.call_args.args[0] <= gap)
+				else:
+					self.sleep.assert_not_called()

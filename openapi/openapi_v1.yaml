@@ -36,7 +36,8 @@ tags:
 - name: Organizations
   description: NGO, FPO and cooperative registration, profile, and the admin verification queue
 - name: Dashboard Charts
-  description: Aggregate counts from the 15-minute rollups, for the OAN programme dashboards
+  description: Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing
+    and at least every 15 minutes, for the OAN programme dashboards
 paths:
   /api/v1/grievances/health:
     get:

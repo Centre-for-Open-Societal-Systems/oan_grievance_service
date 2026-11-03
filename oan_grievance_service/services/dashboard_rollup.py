@@ -26,6 +26,9 @@ Only counts, sums and minimums are stored. Rates and averages are worked out whe
 a chart is read, so every filter combination stays exact.
 """
 
+import time
+from functools import partial
+
 import frappe
 from frappe.query_builder import Case, Order
 from frappe.query_builder.functions import Coalesce, Count, Date, Min, Sum, UnixTimestamp
@@ -42,11 +45,27 @@ AREA = "Grievance Stat Area"
 # Where the time of the last completed refresh is kept, as a system default: it is
 # what every chart reports as its as_of.
 AS_OF_DEFAULT = "grievance_dashboard_as_of"
-JOB_ID = "grievance_dashboard_rollup"
-# Raised when a case changes, so a run that was already going knows it missed something.
-DIRTY_KEY = "grievance_dashboard_dirty"
+
+# Keeping the rollups current without two runs on the same rows. Each of these is a Redis key
+# that is either there or not; see `request` for how they work together.
+DIRTY_KEY = "grievance_dashboard_dirty"  # a case changed since a run last read
+FULL_KEY = "grievance_dashboard_full"  # the next run rebuilds every day
+LOCK_KEY = "grievance_dashboard_lock"  # a run is under way
+PENDING_KEY = "grievance_dashboard_pending"  # a runner job is queued and has not started
+LAST_KEY = "grievance_dashboard_last"  # when the last run ended
 DIRTY_TTL = 60 * 60
+# A run that dies without letting go frees the lock by itself, and a queued job that is lost
+# is replaced.
+LOCK_TTL = 30 * 60
+PENDING_TTL = 5 * 60
+# One runner makes at most 1 + CATCH_UP_RUNS passes, then queues a successor behind the other
+# jobs on the long queue instead of holding a worker while cases keep arriving.
 CATCH_UP_RUNS = 3
+# Runs start at least this many seconds apart, so a stream of saves is one pass per interval.
+MIN_GAP = 5
+# Set on the request while a save has asked for a refresh at commit; see `request_refresh`.
+REQUESTED = "grievance_dashboard_requested"
+RUNNER = "oan_grievance_service.services.dashboard_rollup.run_pending"
 
 # An incremental refresh rebuilds this many days, today included. More than one,
 # so a run that failed around midnight is repaired by the next.
@@ -291,57 +310,157 @@ def _area_query():
 
 
 def enqueue(full=False, after_commit=True):
-	"""Queue a refresh. Every caller shares one job id, so a refresh never starts while
-	another is queued or running; that is what keeps two runs off the same rows."""
-	frappe.enqueue(
-		"oan_grievance_service.services.dashboard_rollup.refresh_until_current",
-		full=full,
-		queue="long",
-		job_id=JOB_ID,
-		deduplicate=True,
-		enqueue_after_commit=after_commit,
-	)
+	"""Ask for a refresh (a full rebuild when `full`): the scheduler, the nightly rebuild, the
+	first build after migrate and the patches all come through here.
+
+	With `after_commit` the request is made once the current transaction commits, as
+	frappe.enqueue(enqueue_after_commit=True) does: a run started before the commit would
+	read the data without it, and its flag would be gone by the time the change is visible.
+	"""
+	if after_commit:
+		frappe.db.after_commit.add(partial(_request_safely, full))
+	else:
+		_request(full)
 
 
 def request_refresh(doc=None, method=None):
 	"""Grievance doc_events handler: a case was filed, changed or deleted, so refresh now
 	instead of waiting for the next 15-minute run.
 
-	The flag is raised only once the change is committed. A run clears it before it reads,
-	so a run already under way, which `enqueue` cannot join, still leaves the flag standing
-	for the catch-up in `refresh_until_current`. Writes that skip doc events (db_set, bulk
-	SQL) are picked up by the scheduled run.
+	However many saves a transaction holds, it asks once, at commit, and not at all if it is
+	rolled back. Writes that skip doc events (db_set, bulk SQL) are picked up by the
+	scheduled run.
 	"""
 	if frappe.flags.in_test or frappe.flags.in_migrate or frappe.flags.in_install:
 		return
-	frappe.db.after_commit.add(_flag_and_enqueue)
+	if frappe.flags.get(REQUESTED):
+		return
+	frappe.flags[REQUESTED] = True
+	frappe.db.after_commit.add(_requested_by_save)
+	frappe.db.after_rollback.add(_forget_request)
 
 
-def _flag_and_enqueue():
-	frappe.cache.set_value(DIRTY_KEY, 1, expires_in_sec=DIRTY_TTL)
-	enqueue(after_commit=False)
+def _requested_by_save():
+	frappe.flags[REQUESTED] = False
+	_request_safely()
 
 
-def _take_dirty():
-	"""Whether a case changed since the last call, and lower the flag."""
-	if frappe.cache.get_value(DIRTY_KEY) is None:
-		return False
-	frappe.cache.delete_value(DIRTY_KEY)
-	return True
+def _forget_request():
+	frappe.flags[REQUESTED] = False
 
 
-def refresh_until_current(full=False):
-	"""Run a refresh, then again for as long as cases changed while it ran (at most
-	CATCH_UP_RUNS more; the next scheduled run takes anything beyond that)."""
-	_take_dirty()
-	result = refresh(full=full)
-	for _ in range(CATCH_UP_RUNS):
-		# Commit so the next pass reads a fresh snapshot, not the one this run began with; this
-		# runs only in the background job, which owns its transaction.
-		frappe.db.commit()  # nosemgrep
-		if not _take_dirty():
-			break
-		result = refresh()
+# Requesting, and running
+# -----------------------
+# A request raises DIRTY (and FULL, for a rebuild) and then makes sure a runner will look.
+# A runner holds LOCK while it works, takes DIRTY before it reads, and looks at DIRTY again
+# after it lets go. A request that lands while a runner is working is therefore either seen
+# by that runner's next pass or by its look after unlocking, and one that lands after that
+# finds the lock free for the runner it queues. Nothing relies on the queue to merge two
+# requests, because the queue cannot join a job that has already started.
+
+
+def _key(name):
+	"""The Redis key for `name`, prefixed with the site as set_value/get_value do."""
+	return frappe.cache.make_key(name)
+
+
+# The next two are the only raw Redis calls here. A lock needs set-if-absent with an expiry in
+# one step, which set_value cannot do; the key is made by `_key`, so it is per site as the
+# multitenancy rule asks.
+def _put(name, value, ttl, only_if_absent=False):
+	return frappe.cache.set(_key(name), value, ex=ttl, nx=only_if_absent)  # nosemgrep
+
+
+def _read(name):
+	return frappe.cache.get(_key(name))  # nosemgrep
+
+
+def _raise(name, ttl):
+	_put(name, 1, ttl)
+
+
+def _take(name):
+	"""Lower a flag and say whether it was up. It is one DEL, so of two callers one wins."""
+	return bool(frappe.cache.delete(_key(name)))
+
+
+def _acquire(name, ttl):
+	return bool(_put(name, 1, ttl, only_if_absent=True))
+
+
+def _request(full=False):
+	if full:
+		_raise(FULL_KEY, DIRTY_TTL)
+	_raise(DIRTY_KEY, DIRTY_TTL)
+	_kick()
+
+
+def _request_safely(full=False):
+	"""`_request` for a callback that runs after the commit: a Redis or queue failure must not
+	fail the request whose change is already saved. A missed refresh waits for the next
+	scheduled run."""
+	try:
+		_request(full)
+	except Exception:
+		frappe.log_error(title="Dashboard rollup refresh was not requested")
+
+
+def _kick():
+	"""Queue a runner unless one is queued already. A runner that is working does not count:
+	it may be past its last look, so it looks again after unlocking (see `run_pending`)."""
+	if not _acquire(PENDING_KEY, PENDING_TTL):
+		return
+	try:
+		frappe.enqueue(RUNNER, queue="long", enqueue_after_commit=False)
+	except Exception:
+		_take(PENDING_KEY)
+		raise
+
+
+def _wait_for_gap():
+	last = _read(LAST_KEY)
+	if last:
+		wait = MIN_GAP - (time.time() - float(last))
+		if wait > 0:
+			time.sleep(min(wait, MIN_GAP))
+
+
+def run_pending():
+	"""The queued job: refresh while someone has asked, at most 1 + CATCH_UP_RUNS times.
+
+	Returns what the last refresh did, or None when there was nothing to do or another run
+	holds the lock (that run looks again once it lets go, so the request is not lost).
+	"""
+	_take(PENDING_KEY)
+	if not _acquire(LOCK_KEY, LOCK_TTL):
+		return None
+	result = None
+	try:
+		for _ in range(1 + CATCH_UP_RUNS):
+			if not frappe.cache.exists(DIRTY_KEY):
+				break
+			_wait_for_gap()
+			# DIRTY first, then FULL: a request raises them the other way round, so a rebuild
+			# whose DIRTY we took has its FULL up already.
+			_take(DIRTY_KEY)
+			full = _take(FULL_KEY)
+			try:
+				result = refresh(full=full)
+			except Exception:
+				# Put the request back for the next run rather than lose it.
+				_raise(DIRTY_KEY, DIRTY_TTL)
+				if full:
+					_raise(FULL_KEY, DIRTY_TTL)
+				raise
+			_put(LAST_KEY, repr(time.time()), MIN_GAP * 10)
+			# Commit so the next pass reads a fresh snapshot, not the one this run began with;
+			# this runs only in the background job, which owns its transaction.
+			frappe.db.commit()  # nosemgrep
+	finally:
+		_take(LOCK_KEY)
+	# A request that came after the last look, or that the pass limit left, needs a runner.
+	if frappe.cache.exists(DIRTY_KEY):
+		_kick()
 	return result
 
 

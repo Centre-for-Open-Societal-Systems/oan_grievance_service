@@ -1,13 +1,18 @@
 # Dashboard analytics
 
 The grievance dashboards (the officer/admin dashboard and the public OAN programme
-dashboards) are served from rollup tables that the scheduler refreshes every 15
-minutes. No dashboard request ever aggregates `tabGrievance`.
+dashboards) are served from rollup tables that are refreshed as soon as a grievance is filed,
+changed or deleted, and by the scheduler every 15 minutes as a fallback. No dashboard request
+ever aggregates `tabGrievance`.
 
 ## Data flow
 
 ```
-every 15 min (cron */15)      services/dashboard_rollup.refresh()
+a Grievance is saved or deleted   services/dashboard_rollup.request_refresh()  (at commit)
+every 15 min (cron */15)          services/dashboard_rollup.enqueue()
+nightly (daily_long)              services/dashboard_rollup.enqueue(full=True)
+  -> run_pending() on the long queue
+     -> services/dashboard_rollup.refresh()
   tabGrievance, Status History, Duplicate
       -> Grievance Stat Daily      events per day (last 3 days rebuilt; all nightly)
       -> Grievance Stat Snapshot   status counts per day (today replaced; history kept)
@@ -47,12 +52,25 @@ request                        services/dashboard.get_chart()
 - A region is the Region-level ancestor of the filing area, stored as its P-code (`ET04`). A
   woreda is its Woreda-level ancestor, stored as its code, or its name when the registry gave it
   none.
-- Refreshes never overlap: the 15-minute refresh, the nightly rebuild and the first build after
-  migrate all queue one background job under a shared job id, and a run is not queued while
-  another is queued or running. A nightly rebuild skipped that way is picked up the next night.
+- Refreshes never overlap, and none is lost. Every trigger (a case save, the 15-minute refresh,
+  the nightly rebuild, the first build after migrate, a patch) raises a "changed" flag in Redis
+  and queues a runner on the long queue unless one is already queued. A runner takes a Redis
+  lock, so only one works at a time; it takes the flag before it reads, repeats while the flag
+  is raised again (at most four passes, at least five seconds apart), and looks at the flag
+  once more after it unlocks. A request that arrives while a runner is working is seen by its
+  next pass or by that last look, and the runner then queues a successor if one is needed.
+  A nightly rebuild raises its own flag, so a busy day cannot skip it; the runner turns its
+  next pass into a full rebuild. A run that fails puts its flags back. A lock or queue entry
+  that is lost frees itself after 30 and 5 minutes.
+- A save asks once per transaction, after the commit, and not if it rolls back. If Redis or the
+  queue is unavailable at that moment the failure is logged (Error Log) and the save still
+  succeeds; the next scheduled run catches up.
 
-Staleness: at most 15 minutes here, plus whatever the consumer caches (the OAN dashboards
-cache another 15 minutes).
+Staleness: a few seconds after a case is filed or changed (the time to queue and run the
+refresh, plus up to five seconds when another run has just ended), plus whatever the consumer
+caches (the OAN dashboards cache another 15 minutes). A change made without a doc event
+(`db_set`, bulk SQL, some SLA-sweep escalations) waits for the next 15-minute refresh, so at
+most 15 minutes.
 
 ## Definitions
 

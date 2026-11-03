@@ -115,7 +115,7 @@ TIERS = {
 		"minute": 120,
 		"hour": 3000,
 		"policy": "redis",
-		"note": "Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
+		"note": "Dashboard charts: counts from the dashboard rollups, read by the OAN dashboards with their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
 	},
 	"officer-core": {
 		"limit_by": "consumer",

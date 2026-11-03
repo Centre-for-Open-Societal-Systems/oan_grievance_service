@@ -411,7 +411,7 @@ Wired in `hooks.py`, all defined in `tasks.py`. They require
 | Hourly     | `enqueue_notification_sweep`    | Queues `dispatch_notifications`                     |
 | Hourly     | `enqueue_scan_sweep`            | Queues `scan_pending_attachments` (ClamAV)          |
 | Hourly     | `enqueue_routing_sweep`         | Queues `drain_routing_queue` for unrouted cases     |
-| Every 15 m | `refresh_dashboard_rollup`      | Updates dashboard rollups for the last few days     |
+| Every 15 m | `refresh_dashboard_rollup`      | Updates dashboard rollups (also on every case save) |
 | Daily long | `rebuild_dashboard_rollup`      | Rebuilds every day of the dashboard rollup          |
 
 To run one job now without waiting for the scheduler:

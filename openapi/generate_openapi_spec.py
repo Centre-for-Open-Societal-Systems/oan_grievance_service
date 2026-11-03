@@ -1946,7 +1946,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			},
 			{
 				"name": "Dashboard Charts",
-				"description": "Aggregate counts from the 15-minute rollups, for the OAN programme dashboards",
+				"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
 			},
 		],
 		"paths": paths,
