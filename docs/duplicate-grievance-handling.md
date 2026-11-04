@@ -87,8 +87,7 @@ algorithms document).
 ## Migration
 
 `add_duplicate_status` re-seeds the workflow. `dismiss_legacy_duplicate_flags` dismisses the
-unreviewed rows the earlier same-type-within-7-days detector left (method `Identity + Type + Time
-Proximity`, score 1.0, no match level), so they do not appear as pending reviews under the new rule.
+unreviewed rows the earlier same-type-within-7-days detector left (method `Identity + Type + Time Proximity`, score 1.0, no match level), so they do not appear as pending reviews under the new rule.
 Confirmed legacy rows are kept.
 
 ## Not done yet
