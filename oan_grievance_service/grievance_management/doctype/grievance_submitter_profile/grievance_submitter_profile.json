@@ -80,7 +80,8 @@
    "description": "E.164 mobile validated by country via phonenumbers (libphonenumber)",
    "fieldname": "contact_mobile",
    "fieldtype": "Data",
-   "label": "Contact Mobile"
+   "label": "Contact Mobile",
+   "mandatory_depends_on": "eval:doc.submitter_type != 'Development Agent'"
   },
   {
    "fieldname": "contact_email",
@@ -181,7 +182,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-03 18:00:00.000000",
+ "modified": "2026-11-04 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Submitter Profile",

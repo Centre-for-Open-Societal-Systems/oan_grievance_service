@@ -222,7 +222,9 @@ def _create_or_update_submitter_profile(
 			profile.user = user_doc.name
 		profile.submitter_type = submitter_type
 		profile.submitter_name = submitter_name
-		profile.contact_mobile = contact_mobile
+		# A user-fallback update has no phone to give, so it never removes the one on file.
+		if contact_mobile:
+			profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
 		if submission_channel:
@@ -231,9 +233,9 @@ def _create_or_update_submitter_profile(
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
 		has_explicit_id = bool(fayda_id or national_id or registration_number or org_number or dedupe_key)
-		if old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id:
-			pass
-		else:
+		# Nor does a user key ever replace a phone or verified key.
+		keep_key = old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id
+		if not keep_key and split_dedupe_key(derived_key)[0] != SCHEME_USER:
 			profile.dedupe_key = derived_key
 
 		if admin_area:
@@ -301,6 +303,8 @@ def options(
 	    service_categories: Active service categories (e.g. Inputs, Schemes, Payments, etc.)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	"""
+	# The message is translated, so a cached answer holds for one language only.
+	frappe.local.response_headers.set("Vary", "Accept-Language")
 	data = {
 		"submitter_types": get_submitter_types(),
 		"identity_schemes": get_identity_schemes(),

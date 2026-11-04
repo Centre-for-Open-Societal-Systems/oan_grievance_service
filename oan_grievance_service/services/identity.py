@@ -10,6 +10,8 @@ SCHEME_ORG = "org"
 SCHEME_PHONE = "phone"
 # Server-assigned fallback for a staff type (user_fallback) with no phone or Fayda ID; never chosen by a client.
 SCHEME_USER = "user"
+# The schemes a client may name in a dedupe key.
+CLIENT_SCHEMES = (SCHEME_FAYDA, SCHEME_ORG, SCHEME_PHONE)
 
 # Fields every submitter needs regardless of type (profile registration, not grievance).
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
@@ -182,16 +184,19 @@ def derive_dedupe_key(
 	if raw_key:
 		if ":" in raw_key:
 			scheme, _sep, value = raw_key.partition(":")
-			if scheme == SCHEME_USER:
+			scheme, value = scheme.strip().lower(), value.strip()
+			if scheme not in CLIENT_SCHEMES:
 				frappe.throw(
-					_("A user identity key is assigned by the server and cannot be supplied."),
+					_("A dedupe key must use one of these identity schemes: {0}.").format(
+						", ".join(CLIENT_SCHEMES)
+					),
 					title=_("Invalid Identity Scheme"),
 				)
 			if scheme == SCHEME_FAYDA and value:
 				_validate_fayda_id(value)
 			elif scheme == SCHEME_ORG and value:
 				_validate_registration_number(value)
-			return raw_key
+			return f"{scheme}:{value}"
 		default_scheme = allowed_schemes[0] if allowed_schemes else SCHEME_PHONE
 		return f"{default_scheme}:{raw_key}"
 

@@ -380,7 +380,7 @@ data(
 			"full_name": S(description="Full name of submitter or representative"),
 			"type": S(description="Submitter Type e.g. Individual Farmer or Cooperative"),
 			"role": S(example="Grievance Submitter"),
-			"identity_scheme": S(nullable=True, enum=["fayda", "org", "phone", None]),
+			"identity_scheme": S(nullable=True, enum=["fayda", "org", "phone", "user", None]),
 			"identity_value": S(nullable=True),
 			"fayda_id": S(nullable=True),
 			"registration_number": S(nullable=True),

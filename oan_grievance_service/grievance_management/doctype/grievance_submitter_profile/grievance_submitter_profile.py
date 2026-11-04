@@ -118,8 +118,12 @@ class GrievanceSubmitterProfile(Document):
 			)
 
 		# A user key is the profile's own account and nothing else, so no one can claim another's.
+		# Only a new key is checked: renaming the User leaves the stored key behind, and that
+		# must not stop the profile from being saved.
 		scheme, value = split_dedupe_key(key)
-		if scheme == identity.SCHEME_USER and (not value or value != (self.user or "")):
+		before = self.get_doc_before_save()
+		key_is_new = not before or before.dedupe_key != key
+		if key_is_new and scheme == identity.SCHEME_USER and (not value or value != (self.user or "")):
 			frappe.throw(
 				_("A user identity key must match the profile's own user account."),
 				title=_("Invalid Identity Scheme"),

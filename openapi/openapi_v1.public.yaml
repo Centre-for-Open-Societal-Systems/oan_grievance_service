@@ -7792,6 +7792,7 @@ components:
           - fayda
           - org
           - phone
+          - user
           - null
         identity_value:
           type: string
