@@ -62,6 +62,7 @@ WORKFLOW_STATES = [
 	(C.STATE_RESOLVED, "Success", "Stopped"),
 	(C.STATE_CLOSED, "Success", "Stopped"),
 	(C.STATE_REJECTED, "Danger", "Stopped"),
+	(C.STATE_DUPLICATE, "Inverse", "Stopped"),
 ]
 
 OFFICER_ROLES = ("Grievance Officer", "Grievance Admin")
@@ -91,6 +92,13 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	# Taken only through the duplicate endpoints, which name the main ticket; the generic
+	# action endpoint refuses it.
+	(C.STATE_SUBMITTED, "Confirm Duplicate", C.STATE_DUPLICATE, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Confirm Duplicate", C.STATE_DUPLICATE, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Confirm Duplicate", C.STATE_DUPLICATE, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Confirm Duplicate", C.STATE_DUPLICATE, OFFICER_ROLES),
+	(C.STATE_MORE_INFO_NEEDED, "Confirm Duplicate", C.STATE_DUPLICATE, OFFICER_ROLES),
 	(C.STATE_RESOLVED, "Reopen", C.STATE_REOPENED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
