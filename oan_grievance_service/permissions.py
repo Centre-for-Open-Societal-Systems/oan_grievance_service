@@ -106,14 +106,17 @@ def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
 
 
-def officer_case_scopes(user):
+def officer_case_scopes(user, scopes=None):
 	"""The desks through which an officer reads cases they are not assigned.
 
 	Only the top rung (category admin) reads a whole desk's cases. Every other officer reads
 	the cases assigned to them and to their reports, and nothing else.
+
+	`scopes` is the user's `active_scopes`, for a caller that has them already.
 	"""
 	top = top_rung()
-	return [scope for scope in active_scopes(user) if top and scope.get("role_level") == top]
+	scopes = active_scopes(user) if scopes is None else scopes
+	return [scope for scope in scopes if top and scope.get("role_level") == top]
 
 
 def _scope_clauses(scopes):
