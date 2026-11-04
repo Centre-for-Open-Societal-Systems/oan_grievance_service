@@ -9,6 +9,7 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
 {{- if .Values.web.externalHosts }}
   externalNodes:
 {{- range .Values.web.externalHosts }}
@@ -37,6 +38,7 @@ metadata:
   labels:
     app: oan-grievance
 spec:
+  ingressClassName: {{ .Values.ingressClassName | quote }}
 {{- if .Values.socket.externalHosts }}
   externalNodes:
 {{- range .Values.socket.externalHosts }}
