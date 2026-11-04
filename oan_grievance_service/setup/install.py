@@ -15,6 +15,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	save_sla_configuration,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
@@ -55,6 +56,7 @@ WORKFLOW_NAME = "Grievance Workflow"
 WORKFLOW_STATES = [
 	(C.STATE_SUBMITTED, "Info", "Running"),
 	(C.STATE_ASSIGNED, "Primary", "Running"),
+	(C.STATE_REOPENED, "Warning", "Running"),
 	(C.STATE_IN_PROGRESS, "Primary", "Running"),
 	(C.STATE_MORE_INFO_NEEDED, "Warning", "Paused"),
 	(C.STATE_RESOLVED, "Success", "Stopped"),
@@ -75,6 +77,12 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
+	# A reopened case waits for an officer exactly as an assigned one does.
+	(C.STATE_REOPENED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
@@ -83,7 +91,7 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
-	(C.STATE_RESOLVED, "Reopen", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
+	(C.STATE_RESOLVED, "Reopen", C.STATE_REOPENED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
@@ -313,7 +321,7 @@ NOTIFICATION_EVENTS = [
 			"text": "Your grievance {0} has been received under {1}.",
 			"args": ("doc.ticket_number", "doc.service_category"),
 			"if": "doc.sla_due_date",
-			"then": ("Expected response by {0}.", ("doc.sla_due_date",)),
+			"then": ("Expected response by {0}.", (PLACEHOLDER_EXPRESSIONS["sla_due_date"],)),
 			"else": ("You will be informed once an officer is assigned.", ()),
 		},
 		(),
@@ -338,8 +346,8 @@ NOTIFICATION_EVENTS = [
 			"doc.ticket_number",
 			"doc.service_category",
 			"doc.grievance_type",
-			"doc.assigned_dept",
-			"doc.sla_due_date",
+			PLACEHOLDER_EXPRESSIONS["assigned_to"],
+			PLACEHOLDER_EXPRESSIONS["sla_due_date"],
 		),
 	),
 	(
@@ -349,7 +357,11 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"On nodal officer assignment",
 		"Grievance {0} has been assigned to {1} by the nodal officer. SLA deadline {2}.",
-		("doc.ticket_number", "doc.assigned_dept", "doc.sla_due_date"),
+		(
+			"doc.ticket_number",
+			PLACEHOLDER_EXPRESSIONS["assigned_to"],
+			PLACEHOLDER_EXPRESSIONS["sla_due_date"],
+		),
 	),
 	(
 		C.EVENT_STATUS_IN_PROGRESS,
@@ -402,8 +414,18 @@ NOTIFICATION_EVENTS = [
 		"Submitter",
 		("SMS", "Email", "System Notification"),
 		"Officer sets More Info Needed",
-		"Additional information is needed for grievance {0}. Please respond via the portal.",
-		("doc.ticket_number",),
+		# Without a state timer on the category there is no deadline to name.
+		{
+			"text": "Additional information is needed for grievance {0}. Please respond via the portal.",
+			"args": ("doc.ticket_number",),
+			"if": "doc.state_deadline",
+			"then": (
+				"Please reply within {0} days, or the case will be closed.",
+				(PLACEHOLDER_EXPRESSIONS["response_days"],),
+			),
+			"else": ("", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_ANONYMITY_DISCLOSURE_REQUESTED,
@@ -413,6 +435,15 @@ NOTIFICATION_EVENTS = [
 		"Officer declines an anonymity request",
 		"Your request to stay anonymous on grievance {0} was not approved. Your identity has not been shared. Please choose in the portal whether to continue with your identity disclosed or withdraw the grievance.",
 		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_DEADLINE_EXTENDED,
+		"Deadline Extended",
+		"Submitter",
+		("SMS", "Email", "System Notification"),
+		"Approved SLA deferral",
+		"The expected response date for your grievance {0} has been moved to {1}.",
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SUBMITTER_RESPONDED,
@@ -447,8 +478,15 @@ NOTIFICATION_EVENTS = [
 		"Department Officer",
 		("Email", "System Notification"),
 		"Submitter reopens",
-		"Grievance {0} has been reopened by the submitter and needs attention.",
-		("doc.ticket_number",),
+		# A reopen starts a fresh SLA window, so the officer is told the new deadline.
+		{
+			"text": "Grievance {0} has been reopened by the submitter and needs attention.",
+			"args": ("doc.ticket_number",),
+			"if": "doc.sla_due_date",
+			"then": ("The new deadline is {0}.", (PLACEHOLDER_EXPRESSIONS["sla_due_date"],)),
+			"else": ("", ()),
+		},
+		(),
 	),
 	(
 		C.EVENT_SLA_REMINDER_50,
@@ -457,7 +495,7 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"Scheduled job at 50% SLA elapsed",
 		"Grievance {0} has reached 50% of its SLA window. Deadline {1}.",
-		("doc.ticket_number", "doc.sla_due_date"),
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SLA_REMINDER_80,
@@ -475,7 +513,7 @@ NOTIFICATION_EVENTS = [
 		("Email", "System Notification"),
 		"Scheduled job at 80%",
 		"Grievance {0} is approaching its SLA deadline {1}.",
-		("doc.ticket_number", "doc.sla_due_date"),
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
 	),
 	(
 		C.EVENT_SLA_BREACH,
@@ -917,7 +955,7 @@ def seed_unrouted_desk():
 				"last_name": "Officer",
 				"send_welcome_email": 0,
 				"enabled": 1,
-				"roles": [{"role": "Grievance Officer"}],
+				"roles": [{"role": "Grievance Officer"}, {"role": C.ROLE_DESK_HEAD}],
 			}
 		).insert(ignore_permissions=True)
 		made.append("officer")
@@ -931,7 +969,12 @@ def seed_unrouted_desk():
 				"active": 1,
 				"effective_from": frappe.utils.today(),
 				"officers": [
-					{"user": C.UNROUTED_OFFICER, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+					{
+						"user": C.UNROUTED_OFFICER,
+						"role_level": "department_head",
+						"is_primary": 1,
+						"active": 1,
+					}
 				],
 			}
 		).insert(ignore_permissions=True)

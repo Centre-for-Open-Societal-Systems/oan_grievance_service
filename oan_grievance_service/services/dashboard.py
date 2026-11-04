@@ -151,7 +151,11 @@ def caller_scope(user=None):
 	if set(frappe.get_roles(user)) & perms.UNRESTRICTED_ROLES:
 		return None
 
-	scopes = perms.active_scopes(user)
+	# A Grievance Officer reads a desk only through the top rung; a Review Officer reads every desk.
+	if perms.ROLE_REVIEW_OFFICER in frappe.get_roles(user):
+		scopes = perms.active_scopes(user)
+	else:
+		scopes = perms.officer_case_scopes(user)
 	areas = scope_areas(scopes)
 	clauses = []
 	for scope in scopes:

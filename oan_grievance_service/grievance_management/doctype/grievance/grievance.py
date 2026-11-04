@@ -191,7 +191,30 @@ class Grievance(Document):
 			self.guard_filed_fields()
 			self.guard_requestable_fields()
 		self.validate_classification_is_active()
+		self.guard_assignee_has_desk()
 		self.record_the_workflow_move()
+
+	def guard_assignee_has_desk(self):
+		"""A case goes only to an officer who sits on an active desk. Anyone else would own
+		a case that no routing, escalation or reassignment rule can place."""
+		if self.assigned_to and (self.is_new() or self.has_value_changed("assigned_to")):
+			self.assert_officer_has_desk(self.assigned_to)
+
+	@staticmethod
+	def assert_officer_has_desk(officer):
+		desks = frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={"user": officer, "parenttype": "Grievance RBAC Assignment", "active": 1},
+			pluck="parent",
+		)
+		if not desks or not frappe.db.exists(
+			"Grievance RBAC Assignment", {"name": ["in", desks], "active": 1}
+		):
+			frappe.throw(
+				_("Invalid Officer: {0} is not on any desk.").format(officer),
+				frappe.ValidationError,
+				title=_("Invalid Officer"),
+			)
 
 	def validate_filing(self):
 		"""Domain rules a case must meet when it is filed. Frappe already enforces
@@ -346,6 +369,9 @@ class Grievance(Document):
 		if fieldname == "assigned_to" and new_value and not frappe.db.exists("User", new_value):
 			frappe.throw(_("Officer '{0}' does not exist.").format(new_value), title=_("Invalid Officer"))
 
+		if fieldname == "assigned_to" and new_value:
+			self.assert_officer_has_desk(new_value)
+
 		if fieldname == "service_category" and not frappe.db.exists("Grievance Service Category", new_value):
 			frappe.throw(
 				_("Service Category '{0}' does not exist.").format(new_value),
@@ -395,6 +421,35 @@ class Grievance(Document):
 		"""A rejected change request records the decision note and timeline."""
 		pass
 
+	def on_trash(self):
+		"""Deleting a case removes what only exists for it; the audit tables keep their rows.
+
+		The rows go here, before Frappe's link check, so they do not block the delete. Their Files
+		do not: a File's bytes leave the disk at once and a rollback cannot bring them back, so
+		the Files are collected and removed in after_delete, once the delete can no longer be refused.
+		"""
+		self.flags.files_to_remove = []
+		for name in frappe.get_all("Grievance Attachment", filters={"grievance": self.name}, pluck="name"):
+			attachment = frappe.get_doc("Grievance Attachment", name)
+			if attachment.file:
+				self.flags.files_to_remove.append(attachment.file)
+			attachment.flags.keep_file = True
+			attachment.delete(ignore_permissions=True, force=True)
+		for doctype in ("Grievance Feedback", "Grievance Change Request"):
+			for name in frappe.get_all(doctype, filters={"grievance": self.name}, pluck="name"):
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+		for name in frappe.get_all(
+			"Grievance Duplicate",
+			or_filters={"grievance": self.name, "duplicate_of": self.name},
+			pluck="name",
+		):
+			frappe.delete_doc("Grievance Duplicate", name, force=True, ignore_permissions=True)
+
+	def after_delete(self):
+		for file in self.flags.files_to_remove or []:
+			if frappe.db.exists("File", file):
+				frappe.delete_doc("File", file, force=True, ignore_permissions=True)
+
 	def on_update(self):
 		if self.flags.change_request:
 			if getattr(self.flags, "reassignment", False):
@@ -430,6 +485,12 @@ class Grievance(Document):
 				self.db_set(updates, update_modified=False)
 				if "next_escalation_at" not in updates:
 					sla.arm_escalation(self, sla.resolve_policy(self.service_category))
+				# A later deadline is news for the submitter; an earlier one is not.
+				if shift.total_seconds() > 0:
+					from oan_grievance_service.services import notifications
+					from oan_grievance_service.services.constants import EVENT_DEADLINE_EXTENDED
+
+					notifications.queue(self, EVENT_DEADLINE_EXTENDED)
 
 	def set_administrative_area_metadata(self):
 		"""Denormalise area_lft and capture immutable area_path_code snapshot."""

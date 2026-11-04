@@ -349,7 +349,8 @@ def on_status_change(grievance, to_state, from_state=None):
 	The clock starts when the case reaches a department. A Paused state holds it, and
 	the deadline is pushed out by the hold when the case leaves. A Stopped state ends
 	it: any hold is banked first, so the deadline the outcome is judged against stays
-	fair, and escalation is disarmed for good.
+	fair, and escalation is disarmed. Only a reopen brings a case back from a Stopped
+	state, and it starts the window again.
 	"""
 	if to_state == C.STATE_ASSIGNED:
 		start_clock(grievance)
@@ -361,37 +362,16 @@ def on_status_change(grievance, to_state, from_state=None):
 		return
 
 	resume_clock(grievance)
-	if category == STOPPED and grievance.next_escalation_at:
-		grievance.db_set("next_escalation_at", None, update_modified=False)
-		grievance.next_escalation_at = None
+	if category == STOPPED:
+		# Also on the way from one Stopped state to the next (Resolved to Closed): the
+		# escalation was disarmed on entering the first and must stay so.
+		if grievance.next_escalation_at:
+			grievance.db_set("next_escalation_at", None, update_modified=False)
+			grievance.next_escalation_at = None
 	elif from_state and sla_category_of(from_state) == STOPPED:
-		rearm_after_reopen(grievance)
-
-
-def rearm_after_reopen(grievance):
-	"""Restart escalation for a case coming back out of a Stopped state (Reopen).
-
-	Entering the Stopped state disarmed it. A case that had not escalated is re-armed
-	against its deadline as usual, so an overdue reopened case is bumped on the next
-	run. One that had already escalated gives the rung it sits on that rung's own hours
-	again; on a terminal rung (no hours) the ladder stays stopped.
-	"""
-	if grievance.next_escalation_at or not grievance.sla_due_date:
-		return
-
-	policy = resolve_policy(grievance.service_category)
-	if not grievance.escalated:
-		arm_escalation(grievance, policy=policy)
-		return
-	if not policy or not policy.auto_escalate:
-		return
-
-	level = current_level_of(grievance.assigned_to)
-	hours = frappe.db.get_value("Grievance Role Level", level, "escalation_hours") if level else None
-	if hours:
-		at = add_to_date(now_datetime(), hours=hours)
-		grievance.db_set("next_escalation_at", at, update_modified=False)
-		grievance.next_escalation_at = at
+		# A reopened case gets a fresh window: the first round's deadline, hold time
+		# and reminders belong to the work that was already done.
+		reset_clock(grievance)
 
 
 def state_timer(service_category, state):
@@ -425,6 +405,68 @@ def arm_state_timer(grievance, state):
 	deadline = add_to_date(now_datetime(), hours=timer[0]) if timer else None
 	if deadline or grievance.get("state_deadline"):
 		grievance.db_set("state_deadline", deadline, update_modified=False)
+
+
+def pause_view(case, timer_cache=None):
+	"""What a response says about a held clock, from fields the case already stores.
+
+	`case` is a Grievance or a row of its fields (service_category, status, sla_due_date,
+	on_hold_since, state_deadline). Nothing here is stored: the hold is banked by
+	`resume_clock`, and this only reads ahead of it.
+
+	`auto_close_at` is the state's deadline, but only when that state's timer closes the
+	case; an Escalate timer is not a close date. While the clock is held the due date is
+	the latest it can reach: the farmer replying at the last moment adds the rest of the
+	wait to it, and a case that is never answered closes instead. `timer_cache` spares a
+	list the repeat lookups of one category and state.
+	"""
+	state = case.get("workflow_state") or case.get("status")
+	key = (case.get("service_category"), state)
+	cache = timer_cache if timer_cache is not None else {}
+	if key not in cache:
+		timer = state_timer(*key)
+		cache[key] = bool(timer and timer[1] == "Auto Close")
+	deadline = case.get("state_deadline") if cache[key] else None
+	due = case.get("sla_due_date")
+	held_since = case.get("on_hold_since")
+	if held_since and due and deadline:
+		held = max(0, (get_datetime(deadline) - get_datetime(held_since)).total_seconds())
+		due = add_to_date(get_datetime(due), seconds=held)
+	return {
+		"is_paused": bool(held_since),
+		"paused_since": held_since,
+		"auto_close_at": deadline,
+		"sla_due_date": due,
+	}
+
+
+def deadline_view(case, timer_cache=None):
+	"""The one deadline a row shows, and whose move the case is waiting on.
+
+	A case waiting on the submitter (a held clock, or a resolved case awaiting
+	confirmation) is judged against the date it auto-closes; a case waiting on an
+	officer, against its SLA due date. A closed or rejected case has neither.
+	`overdue_seconds` is how far past that date it already is, None until then.
+	"""
+	state = case.get("workflow_state") or case.get("status")
+	category = sla_category_of(state)
+	auto_close_at = pause_view(case, timer_cache)["auto_close_at"]
+	if auto_close_at:
+		awaiting, due, kind = "submitter", auto_close_at, "auto_close"
+	elif category == PAUSED:
+		awaiting, due, kind = "submitter", None, None
+	elif category == RUNNING:
+		awaiting, due, kind = "officer", case.get("sla_due_date"), "sla_breach"
+	else:
+		awaiting, due, kind = None, None, None
+
+	late = (now_datetime() - get_datetime(due)).total_seconds() if due else 0
+	return {
+		"awaiting": awaiting,
+		"due_date": due,
+		"due_kind": kind if due else None,
+		"overdue_seconds": int(late) if late > 0 else None,
+	}
 
 
 def resume_clock(grievance):

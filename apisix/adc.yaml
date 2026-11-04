@@ -637,7 +637,7 @@ services:
         allow_degradation: true
         group: oan-grievance:officer-core:bearer
   - name: oan-grievance-public-dashboards-frappe-token-get
-    description: 'Dashboard charts: counts from the 15-minute rollups, read by the OAN dashboards with
+    description: 'Dashboard charts: counts from the dashboard rollups, read by the OAN dashboards with
       their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT
       in api/v1/charts.py.'
     labels:

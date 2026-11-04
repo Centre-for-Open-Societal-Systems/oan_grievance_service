@@ -115,7 +115,7 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 
 	def test_a_reopen_exists_only_inside_the_confirmation_window(self):
 		reopens = {(row.state, row.next_state) for row in workflow().transitions if row.action == "Reopen"}
-		self.assertEqual(reopens, {("Resolved", "In Progress")})
+		self.assertEqual(reopens, {("Resolved", "Reopened")})
 
 	def test_seeding_again_rebuilds_rather_than_duplicates(self):
 		before = {(r.state, r.action, r.next_state, r.allowed) for r in workflow().transitions}
@@ -271,7 +271,7 @@ class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):
 		lifecycle.transition(self._saved(), "Reopen", reason="The delivery never arrived.")
 		doc = self._saved()
 		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
-		self.assertEqual(self._state()["workflow_state"], "In Progress")
+		self.assertEqual(self._state()["workflow_state"], "Reopened")
 		self.assertEqual(frappe.db.get_value("Grievance", self.grievance.name, "reopen_count"), 1)
 		self.assertEqual(history(self.grievance.name)[-1].reason, "The delivery never arrived.")
 		self.assertTrue(

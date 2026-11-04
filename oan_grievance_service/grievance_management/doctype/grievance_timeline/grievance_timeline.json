@@ -24,11 +24,10 @@
  "fields": [
   {
    "fieldname": "grievance",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Grievance",
-   "options": "Grievance",
    "reqd": 1,
    "search_index": 1
   },
@@ -99,9 +98,8 @@
   },
   {
    "fieldname": "ref_docname",
-   "fieldtype": "Dynamic Link",
-   "label": "Reference DocName",
-   "options": "ref_doctype"
+   "fieldtype": "Data",
+   "label": "Reference DocName"
   },
   {
    "fieldname": "client_message_id",

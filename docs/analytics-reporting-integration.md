@@ -64,7 +64,9 @@ Unknown region or category values return 400, and so does a malformed or future 
 ```
 
 - `meta.as_of` is when each chart's data was last refreshed. The data comes from rollups
-  refreshed every 15 minutes, so it can lag live data by up to that long.
+  refreshed within seconds of a case being filed or changed, and at least every 15
+  minutes, so it can lag live data by a few seconds, or by up to 15 minutes for a change
+  made without a doc event (a direct database write).
 - `meta.unavailable.<id>` is set when a chart is empty because no data was kept, not because
   there are no cases (today only `"no_snapshot"`, from the region chart with `as_of_month`).
   The key is absent otherwise.

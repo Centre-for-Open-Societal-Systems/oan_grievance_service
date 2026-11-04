@@ -23,6 +23,7 @@ row is deduplicated on (grievance, event, recipient) and a disabled Notification
 whose condition is false, sends nothing.
 """
 
+import copy
 import re
 
 import frappe
@@ -31,6 +32,9 @@ from frappe.core.doctype.sms_settings.sms_settings import _send_sms
 from frappe.email.doctype.notification.notification import get_context
 from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
+
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import ticket_number as tn
 
 RECIPIENT_SUBMITTER = "Submitter"
 RECIPIENT_ASSIGNED_OFFICER = "Assigned Officer"
@@ -135,6 +139,12 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 		"description": "Confirmation window or state timer deadline",
 		"example": "2026-10-22 17:00:00",
 	},
+	"response_days": {
+		"name": "response_days",
+		"label": "Days to Respond",
+		"description": "Whole days left until the state timer runs out, for example the farmer's time to reply",
+		"example": "7",
+	},
 	"status": {
 		"name": "status",
 		"label": "Status",
@@ -160,6 +170,8 @@ ALLOWED_TEMPLATE_PLACEHOLDERS: dict[str, dict[str, str]] = {
 PLACEHOLDER_EXPRESSIONS = {
 	"department": "doc.assigned_dept",
 	"assigned_to": "frappe.db.get_value('User', doc.assigned_to, 'full_name')",
+	"response_days": "frappe.utils.date_diff(doc.state_deadline, frappe.utils.today())",
+	"sla_due_date": "frappe.utils.format_datetime(doc.sla_due_date, 'yyyy-MM-dd HH:mm')",
 }
 
 
@@ -577,6 +589,10 @@ def _recipient_language(recipient):
 	return frappe.db.get_single_value("System Settings", "language") or "en"
 
 
+# Events that can legitimately happen more than once on a case, so each occurrence is sent.
+REPEATABLE_EVENTS = frozenset({"deadline_extended"})
+
+
 def _already_queued(grievance_name, event_code, recipient, channel):
 	"""Guard against redundant messaging.
 
@@ -585,6 +601,8 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 	out - so deduplicating on (grievance, event, recipient) alone would silently drop
 	whichever of the pair was queued second.
 	"""
+	if event_code in REPEATABLE_EVENTS:
+		return False
 	return bool(
 		frappe.db.exists(
 			"Grievance Notification Log",
@@ -596,6 +614,16 @@ def _already_queued(grievance_name, event_code, recipient, channel):
 			},
 		)
 	)
+
+
+def _shown_ticket(grievance) -> str:
+	"""The ticket as people read it, grouped 3-001-002A-0; stored flat."""
+	return tn.display(grievance.ticket_number) or grievance.name
+
+
+def _render_template(template: str | None, context: dict) -> str:
+	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
+	return frappe.render_template(template, context) if template else ""
 
 
 def queue(grievance, event_code, recipient_override=None):
@@ -617,6 +645,11 @@ def queue(grievance, event_code, recipient_override=None):
 	for notification_name in notification_names:
 		notification = frappe.get_doc("Notification", notification_name)
 		context = get_context(grievance)
+		# Templates print `doc.ticket_number`; a copy carries the grouped form so the stored
+		# value on the case itself is never touched.
+		shown = copy.copy(grievance)
+		shown.ticket_number = _shown_ticket(grievance)
+		shown_context = {**context, "doc": shown}
 
 		# Core evaluates this inside evaluate_alert; we are not going through that path,
 		# so the condition is honoured here or not at all.
@@ -655,10 +688,8 @@ def queue(grievance, event_code, recipient_override=None):
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			message = frappe.render_template(notification.message, context)
-			# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
-			subject = frappe.render_template(notification.subject, context) if notification.subject else ""
+			message = _render_template(notification.message, shown_context)
+			subject = _render_template(notification.subject, shown_context)
 
 		rows.append(
 			frappe.get_doc(
@@ -676,6 +707,25 @@ def queue(grievance, event_code, recipient_override=None):
 				}
 			).insert(ignore_permissions=True)
 		)
+
+	if rows:
+		# Send as soon as the event commits instead of waiting for the sweep, which stays
+		# on as the backstop for rows this job skips or loses.
+		try:
+			from frappe.utils.background_jobs import get_queues_timeout
+
+			queue_name = C.QUEUE_NOTIFICATIONS if C.QUEUE_NOTIFICATIONS in get_queues_timeout() else "default"
+			frappe.enqueue(
+				"oan_grievance_service.services.notifications.dispatch_queued",
+				queue=queue_name,
+				grievance=grievance.name,
+				enqueue_after_commit=True,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"Failed to enqueue notifications for grievance: {grievance.name}",
+				message=frappe.get_traceback(),
+			)
 
 	return rows
 
@@ -769,7 +819,7 @@ def _send_email_row(row, grievance):
 		doctype="Grievance",
 		name=grievance.name,
 		content=row.message,
-		subject=row.subject or f"Grievance {grievance.ticket_number or grievance.name}",
+		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
 		recipients=address,
 		communication_medium="Email",
 		send_email=False,
@@ -778,7 +828,7 @@ def _send_email_row(row, grievance):
 
 	frappe.sendmail(
 		recipients=[address],
-		subject=row.subject or f"Grievance {grievance.ticket_number or grievance.name}",
+		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
 		message=row.message,
 		reference_doctype="Grievance",
 		reference_name=grievance.name,
@@ -840,8 +890,8 @@ def _send_system_row(row, grievance):
 			"type": "Alert",
 			"document_type": "Grievance",
 			"document_name": grievance.name,
-			"subject": row.subject or grievance.ticket_number or grievance.name,
-			"title": row.subject or grievance.ticket_number or grievance.name,
+			"subject": row.subject or _shown_ticket(grievance),
+			"title": row.subject or _shown_ticket(grievance),
 			"description": row.message,
 			"from_user": from_user,
 		},
@@ -852,19 +902,30 @@ def _send_system_row(row, grievance):
 	return {}
 
 
+def _next_queued_row(grievance=None):
+	"""Lock and return the oldest Queued row no other job holds, or None.
+
+	The immediate jobs and the sweep run side by side. Each takes a row lock and skips rows
+	another job holds, so no row is sent twice. The lock lasts until the commit after the
+	send, and a worker that dies loses it, which leaves the row Queued for the next sweep.
+	"""
+	rows = frappe.db.sql(
+		"""
+		select name, grievance, channel, recipient, message, subject
+		from `tabGrievance Notification Log`
+		where status = 'Queued' and (%(grievance)s is null or grievance = %(grievance)s)
+		order by creation asc, name asc
+		limit 1
+		for update skip locked
+		""",
+		{"grievance": grievance},
+		as_dict=True,
+	)
+	return rows[0] if rows else None
+
+
 def dispatch_queued(limit=100, grievance=None):
 	"""Send whatever is queued. Called by the scheduler."""
-	filters = {"status": "Queued"}
-	if grievance:
-		filters["grievance"] = grievance
-	pending = frappe.get_all(
-		"Grievance Notification Log",
-		filters=filters,
-		fields=["name", "grievance", "channel", "recipient", "message", "subject"],
-		limit=limit,
-		order_by="creation asc",
-	)
-
 	grievance_cache = {}
 
 	def _get_cached_grievance(name):
@@ -872,7 +933,8 @@ def dispatch_queued(limit=100, grievance=None):
 			grievance_cache[name] = frappe.get_doc("Grievance", name)
 		return grievance_cache[name]
 
-	for row in pending:
+	handled = 0
+	while handled < limit and (row := _next_queued_row(grievance)):
 		update = {"status": "Sent", "sent_at": now_datetime()}
 		try:
 			if row.channel == CHANNEL_EMAIL:
@@ -892,5 +954,8 @@ def dispatch_queued(limit=100, grievance=None):
 			update = {"status": "Failed", "error": frappe.get_traceback(with_context=False)}
 
 		frappe.db.set_value("Grievance Notification Log", row.name, update, update_modified=False)
+		# Commit per row: it releases this row's lock and records the send before the next.
+		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		handled += 1
 
-	return len(pending)
+	return handled

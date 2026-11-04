@@ -65,6 +65,10 @@ ROLE_CODES = {
 	REVIEWER_ROLE: (C.ROLE_LEVEL_REVIEW_OFFICER,),
 }
 MUST_CHANGE_PASSWORD_FIELD = account.MUST_CHANGE_PASSWORD_FIELD
+# The auth service's custom User field holding the address an account signs in with. User.name
+# is a synthetic id and core resets User.email to it on every save, so User.email is not a
+# mailbox for an account the auth service registered. The field is absent on a site without it.
+LOGIN_EMAIL_FIELD = "oan_login_email"
 USER_FIELDS = [
 	"name",
 	"full_name",
@@ -133,6 +137,8 @@ def create(
 			new_or_resolved_department(department, is_head and create_department) if department else None
 		)
 		desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
+		if is_head and role == DEFAULT_ROLE:
+			_assert_head_free(department, desks)
 
 	user = account.new_or_existing_user(email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
@@ -251,6 +257,9 @@ def update(user_id: str, changes: dict) -> str:
 				categories = _head_categories_in(department, categories)
 		desks, missing = _category_desks(department, categories, allow_missing=_is_head(level))
 		target = {desk.name for desk in desks}
+		placing_head = level != current.level or {"department", "service_categories"} & changes.keys()
+		if role == DEFAULT_ROLE and _is_head(level) and placing_head:
+			_assert_head_free(department, desks, user_id)
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
@@ -373,8 +382,20 @@ def _officer_query(*, role, level, department, service_category, region, q):
 		query = query.where(row.administrative_area == _resolve_region(region))
 	if q:
 		like = f"%{q.strip()}%"
-		query = query.where(user.full_name.like(like) | user.email.like(like))
+		match = user.full_name.like(like) | user.email.like(like)
+		if _has_login_email():
+			match = match | getattr(user, LOGIN_EMAIL_FIELD).like(like)
+		query = query.where(match)
 	return query
+
+
+def _has_login_email() -> bool:
+	return frappe.db.has_column("User", LOGIN_EMAIL_FIELD)
+
+
+def login_email(person) -> str:
+	"""The address `person` (a User row) signs in with: its login email, else User.email."""
+	return (person.get(LOGIN_EMAIL_FIELD) or person.email or "").strip()
 
 
 def records(user_ids: list[str]) -> list[dict]:
@@ -387,10 +408,11 @@ def records(user_ids: list[str]) -> list[dict]:
 		by_user[row.user].append(row)
 
 	supervisors = {row.reports_to for row in rows if row.reports_to}
+	fields = [*USER_FIELDS, LOGIN_EMAIL_FIELD] if _has_login_email() else USER_FIELDS
 	people = {
 		person.name: person
 		for person in frappe.get_all(
-			"User", filters={"name": ["in", list(set(user_ids) | supervisors)]}, fields=USER_FIELDS
+			"User", filters={"name": ["in", list(set(user_ids) | supervisors)]}, fields=fields
 		)
 	}
 	area_names = {
@@ -426,7 +448,7 @@ def records(user_ids: list[str]) -> list[dict]:
 				"designation": next((row.designation for row in own if row.designation), None),
 				"level": CODE_LEVELS.get(top.role_level),
 				"department": top.department_scope,
-				"email": person.email,
+				"email": login_email(person),
 				"phone": person.phone,
 				"must_change_password": bool(person.get(MUST_CHANGE_PASSWORD_FIELD)),
 				"region": region,
@@ -553,6 +575,41 @@ def _category_desks(
 			frappe.ValidationError,
 		)
 	return desks, missing
+
+
+def _assert_head_free(department, desks, user_id=None) -> None:
+	"""A desk has one category admin: refuse a second on a category and department.
+
+	`desks` are the existing desks for the categories and department being staffed, a
+	missing department meaning the desks that have none. A desk that already has an active
+	category admin is handled by them. `user_id` is the officer being edited, who does not
+	count against themselves.
+	"""
+	top = top_rung()
+	if not top or not desks:
+		return
+	taken = frappe.get_all(
+		ROW,
+		filters={
+			"parenttype": DESK,
+			"parent": ["in", [desk.name for desk in desks]],
+			"role_level": top,
+			"active": 1,
+			"user": ["!=", user_id or ""],
+		},
+		fields=["parent", "user"],
+		limit=1,
+	)
+	if taken:
+		desk = next(desk for desk in desks if desk.name == taken[0].parent)
+		scope = desk.get("category_scope") or _("All categories")
+		where = _("in {0}").format(department) if department else _("with no department")
+		frappe.throw(
+			_("{0} {1} is already handled by another category admin: {2}.").format(
+				scope, where, taken[0].user
+			),
+			frappe.ValidationError,
+		)
 
 
 def _assert_status(role: str, status: str) -> None:

@@ -40,6 +40,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	active_scopes,
 	current_level_of,
 	get_subordinate_officers,
+	top_rung,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	profiles_of,
@@ -103,6 +104,16 @@ def can_see_identity(grievance, user=None):
 
 def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
+
+
+def officer_case_scopes(user):
+	"""The desks through which an officer reads cases they are not assigned.
+
+	Only the top rung (category admin) reads a whole desk's cases. Every other officer reads
+	the cases assigned to them and to their reports, and nothing else.
+	"""
+	top = top_rung()
+	return [scope for scope in active_scopes(user) if top and scope.get("role_level") == top]
 
 
 def _scope_clauses(scopes):
@@ -200,7 +211,8 @@ def grievance_query_conditions(user=None):
 	"""SQL appended to every Grievance list query. Deny-by-default.
 
 	- Submitters only see their own cases and assisted submissions.
-	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting chain.
+	- Officers see cases assigned to themselves and cases assigned to subordinate officers in their reporting
+	  chain, and a category admin also sees every case inside their desk's scope.
 	- Admins see all cases.
 	- Review Officers see the cases in the scopes of the desks they are placed on, and every
 	  case if they were never placed on one.
@@ -227,9 +239,14 @@ def grievance_query_conditions(user=None):
 
 	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
-		scope_clauses = _scope_clauses(active_scopes(user))
+		scope_clauses = _scope_clauses(officer_case_scopes(user))
 		team = get_subordinate_officers(user)
 		scope_clauses.append(f"`tabGrievance`.assigned_to in ({_quote(team)})")
+		# A case waiting on this officer's ruling, as `has_grievance_permission` allows.
+		scope_clauses.append(
+			"`tabGrievance`.name in (select grievance from `tabGrievance Change Request` "
+			f"where status = 'Pending' and pending_with = {frappe.db.escape(user)})"
+		)
 		clauses.append("(" + " or ".join(scope_clauses) + ")")
 
 	if not clauses:
@@ -276,8 +293,24 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	):
 		return True
 
-	# Scope grants visibility; editing still needs the case assigned.
-	return ptype == "read" and _scope_covers(doc, active_scopes(user))
+	# A category admin's desk grants visibility; editing still needs the case assigned.
+	return ptype == "read" and _scope_covers(doc, officer_case_scopes(user))
+
+
+def officer_write_check(user=None):
+	"""A test for "may this user act on this case row", with the team read once.
+
+	`has_grievance_permission` does the same per document; a list of rows should not
+	look the reporting chain up again for each one.
+	"""
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	if roles & UNRESTRICTED_ROLES:
+		return lambda case: True
+	if ROLE_OFFICER not in roles:
+		return lambda case: False
+	team = get_subordinate_officers(user)
+	return lambda case: bool(case.get("assigned_to")) and case.get("assigned_to") in team
 
 
 def _template_scope_clause(scope):
