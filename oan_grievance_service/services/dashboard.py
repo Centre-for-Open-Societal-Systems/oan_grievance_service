@@ -159,12 +159,21 @@ def caller_scope(user=None):
 	if roles & perms.UNRESTRICTED_ROLES:
 		return None
 
+	# The RBAC rows are read once, and so is each area's set of regions, whatever the clause.
+	placements = perms.active_scopes(user)
+	areas = scope_areas(placements)
+	regions_in = {}
+
+	def regions_of(area):
+		if area.name not in regions_in:
+			regions_in[area.name] = rollup_keys_within(C.AREA_LEVEL_REGION, area)
+		return regions_in[area.name]
+
 	# A Grievance Officer reads a desk only through the top rung; a Review Officer reads every desk.
 	if perms.ROLE_REVIEW_OFFICER in roles:
-		scopes = perms.active_scopes(user)
+		scopes = placements
 	else:
-		scopes = perms.officer_case_scopes(user)
-	areas = scope_areas(scopes)
+		scopes = perms.officer_case_scopes(user, placements)
 	clauses = []
 	for scope in scopes:
 		if scope.grievance_type_scope or scope.service_provider_scope:
@@ -177,7 +186,7 @@ def caller_scope(user=None):
 			area = areas.get(scope.administrative_area_scope)
 			if not area:
 				continue
-			regions = rollup_keys_within(C.AREA_LEVEL_REGION, area)
+			regions = regions_of(area)
 			if regions:
 				level = LEVEL_FEDERAL if area.level_name == C.AREA_LEVEL_COUNTRY else LEVEL_REGION
 			else:
@@ -191,25 +200,32 @@ def caller_scope(user=None):
 	if perms.ROLE_OFFICER in roles:
 		# The officer and everyone below them in the reporting chain, as the case list reads it.
 		team = tuple(sorted(perms.get_subordinate_officers(user)))
-		clauses.append(Clause(level=_placement_level(user), assigned_to=team))
+		clauses.append(Clause(level=_placement_level(placements, areas, regions_of), assigned_to=team))
 	return tuple(dict.fromkeys(clauses))
 
 
-def _placement_level(user):
-	"""The widest administrative level of the areas `user` is placed on, whatever their rung.
+def _placement_level(placements, areas, regions_of):
+	"""The widest administrative level of the places an officer is put on, whatever their rung.
 
 	It is the level the cases assigned to them may be read at: their own and the ones below,
 	never the country row for an officer placed on a Region, which would present their cases as
-	the nation's. An officer placed on no area reads Woreda counts only, the narrowest.
+	the nation's. A placement with no area covers every region, as a desk with none does, so it
+	is the widest. An officer placed nowhere reads Woreda counts only, the narrowest.
 	"""
 	widest = LEVEL_WOREDA
-	for area in scope_areas(perms.active_scopes(user)).values():
-		if area.level_name == C.AREA_LEVEL_COUNTRY:
+	for placement in placements:
+		if not placement.administrative_area_scope:
 			level = LEVEL_FEDERAL
-		elif rollup_keys_within(C.AREA_LEVEL_REGION, area):
-			level = LEVEL_REGION
 		else:
-			level = LEVEL_WOREDA
+			area = areas.get(placement.administrative_area_scope)
+			if not area:
+				continue
+			if area.level_name == C.AREA_LEVEL_COUNTRY:
+				level = LEVEL_FEDERAL
+			elif regions_of(area):
+				level = LEVEL_REGION
+			else:
+				level = LEVEL_WOREDA
 		if LEVELS.index(level) < LEVELS.index(widest):
 			widest = level
 	return widest
@@ -233,7 +249,10 @@ def _apply_scope(query, table, scope):
 		if clause.assigned_dept:
 			parts.append(table.assigned_dept == clause.assigned_dept)
 		if clause.assigned_to is not None:
-			parts.append(table.assigned_to.isin(clause.assigned_to))
+			# An empty IN () is a syntax error, and a clause for nobody covers no case.
+			parts.append(
+				table.assigned_to.isin(clause.assigned_to) if clause.assigned_to else table.name.isnull()
+			)
 		desks.append(Criterion.all(parts))
 	return query.where(Criterion.any(desks))
 
@@ -415,10 +434,27 @@ def _month_bounds(ctx, month=None):
 	return month_start, month_end
 
 
-def _month_snapshot_day(month_start, month_end):
-	"""The snapshot that stood at the end of the month, or None when none was kept within it."""
+def _readable_snapshot_day(ctx, day):
+	"""`day`, or None when the caller's scope cannot read that day's snapshot.
+
+	Only today's snapshot rows are split by assignee: when a day ends, its rows are folded to one
+	per case group (see dashboard_rollup._compact_history) so the retained history does not grow
+	with the number of officers. A scope made only of assigned-case clauses has nothing to read
+	on a past day, and reading zeros there would pass for data, so it gets None, the same
+	"no data" a month before the snapshots began gets. A scope with a desk reads the desk's
+	cases on a past day: less than the officer's case list, never more.
+	"""
+	assigned_only = bool(ctx.scope) and all(clause.assigned_to is not None for clause in ctx.scope)
+	if day and day < ctx.today and assigned_only:
+		return None
+	return day
+
+
+def _month_snapshot_day(ctx, month_start, month_end):
+	"""The snapshot that stood at the end of the month, or None when none was kept within it, or
+	when the caller's scope cannot read it."""
 	day = _snapshot_on_or_before(month_end)
-	return day if day and day >= month_start else None
+	return _readable_snapshot_day(ctx, day if day and day >= month_start else None)
 
 
 def build_performance_kpis(ctx):
@@ -427,12 +463,11 @@ def build_performance_kpis(ctx):
 	prev_start = getdate(add_months(month_start, -1))
 	prev_end = month_start - timedelta(days=1)
 
-	current = _performance(ctx, month_start, month_end, _snapshot_on_or_before(month_end))
-	# A previous month from before the rollups existed has no snapshot to compare with.
-	prev_snapshot = _snapshot_on_or_before(prev_end)
-	previous = _performance(
-		ctx, prev_start, prev_end, prev_snapshot if prev_snapshot and prev_snapshot >= prev_start else None
+	current = _performance(
+		ctx, month_start, month_end, _readable_snapshot_day(ctx, _snapshot_on_or_before(month_end))
 	)
+	# A previous month from before the rollups existed has no snapshot to compare with.
+	previous = _performance(ctx, prev_start, prev_end, _month_snapshot_day(ctx, prev_start, prev_end))
 
 	def delta(metric):
 		if current[metric] is None or previous[metric] is None:
@@ -633,7 +668,7 @@ def build_performance_score(ctx):
 	feedback = _total(events, "feedback_count")
 
 	cases = resolved_cases = routed = 0
-	day = _month_snapshot_day(month_start, month_end)
+	day = _month_snapshot_day(ctx, month_start, month_end)
 	if day:
 		for r in _snapshot(ctx, ("status", "has_desk"), on_date=day):
 			n = int(r.grievances or 0)
@@ -667,7 +702,7 @@ def build_resolution_rate_by_region(ctx):
 	totals = {}
 	snapshot_day = None
 	if ctx.params.as_of_month:
-		snapshot_day = _month_snapshot_day(*_month_bounds(ctx, ctx.params.as_of_month))
+		snapshot_day = _month_snapshot_day(ctx, *_month_bounds(ctx, ctx.params.as_of_month))
 		if not snapshot_day:
 			ctx.unavailable = NO_SNAPSHOT
 			return []

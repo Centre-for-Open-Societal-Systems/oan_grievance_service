@@ -35,15 +35,21 @@ request                        services/dashboard.get_chart()
   escalated or first answered in them (a later reply on an already answered case changes
   nothing). Only those days are rebuilt, newest first and at most 31 a run, so the work follows
   the days touched, not the age of the case; the nightly run rebuilds every day and absorbs
-  the rest. A row carries the assignee as of its last rebuild, so after a reassignment the
-  case's older days move to the new assignee at the next nightly rebuild.
+  the rest. A row carries the assignee as of its last rebuild, so a case moved to another
+  assignee has its filing day rebuilt too. No write path records the move itself (routing and
+  the SLA sweep use `db_set`), so the refresh reads what each leaves behind: an escalation or
+  assignment entry on the timeline, a move to Assigned in the status history, a Version that
+  names `assigned_to`. A move none of them shows waits for the nightly rebuild.
 - **Grievance Stat Snapshot** holds how many cases stood in each status on a day, by the same
   dimensions plus `escalated`, `has_desk` (the case is not on the Unrouted desk and has a
   department, a routing rule or an officer; behind the coverage axis), `sla_state` (ok / at_risk / breached / paused / no_sla),
   cases awaiting duplicate review, and the oldest open, non-escalated filing date. Today's rows
   are replaced on every refresh; earlier days are kept, because a past day's status counts
-  cannot be rebuilt from current data. Days kept before the assignee was added have none, so an
-  officer's status counts for those days (a past month's resolution rate) read as empty.
+  cannot be rebuilt from current data. Today's rows are also split by assignee. When a day
+  ends its rows are folded to one per group without it, so the history is as small as it was
+  before the assignee existed: split by assignee it would be about as many rows as there are
+  cases, every day, for good. The rows add up the same, so nothing but an officer's own cases
+  reads differently (see the officer view).
 - Only counts, sums and minimums are stored. Rates and averages are worked out when a chart is
   read, so every filter combination is exact.
 - **Grievance Stat Area** holds how many cases stand in each region and woreda, by service
@@ -143,9 +149,17 @@ woreda level for `grvByAdminLevel`, and errs towards showing less:
 - A desk narrowed by grievance type or service provider contributes nothing.
 - A case waiting on the officer's ruling on a change request is not counted.
 - An officer with no usable desk and no assigned case reads zeros.
-- `grvByAdminLevel` shows an officer's assigned cases at the widest level of the areas they are
-  placed on, and the levels below it, never the country row for an officer placed on a Region.
-  An officer placed on no area reads Woreda counts only.
+- `grvByAdminLevel` shows an officer's assigned cases at the widest level of the places they are
+  put on, and the levels below it, never the country row for an officer placed on a Region. A
+  placement with no area covers every region, as a desk with none does, so it is the widest. An
+  officer placed nowhere reads Woreda counts only.
+- An officer's own cases are today's. A past day's snapshot is not split by assignee, so a
+  chart that reads one (a past month's resolution rate and coverage, `as_of_month`) has nothing
+  to read for an officer who has no desk and returns no data (`null`, or `unavailable`), not
+  zero. A Category Admin reads the desk's cases for a past day, which leaves out cases
+  assigned to them outside it.
+- After the migrate that adds the assignee, the rollups are rebuilt inside the migrate, so
+  officers read their cases as soon as it ends.
 
 ### Cases by administrative level (STG-471)
 

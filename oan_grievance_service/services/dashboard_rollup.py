@@ -11,21 +11,21 @@ into small tables every 15 minutes, and again as soon as a case is filed or chan
   region, category, department and assignee, and how many of the cases filed that day have
   been escalated, and given a public officer update, since. Events never move once
   they happen, so a refresh rebuilds only the last few days, plus the filing day of
-  each older case just escalated or first answered (at most BACKFILL_DAYS_MAX of
-  them, newest first); the nightly run rebuilds all of them to absorb the rest and
-  anything later edited by hand.
+  each older case just escalated, first answered or moved to another assignee (at most
+  BACKFILL_DAYS_MAX of them, newest first); the nightly run rebuilds all of them to absorb
+  the rest and anything later edited by hand.
 - Grievance Stat Snapshot: how many cases stood in each status on a day, by the
   same dimensions plus the escalation flag, whether a desk holds the case, and SLA state. Today's rows are
   replaced on every refresh; earlier days stay as they were at midnight, which is
-  the only record of past status counts.
+  the only record of past status counts. Today's rows are also split by assignee; a past
+  day's are folded to one per group without it, so the history stays as small as it was.
 - Grievance Stat Area: how many cases stand in each Region and Woreda, by category and
   department. Only today's: every refresh replaces the whole table. Woreda is a dimension of
   its own rather than a column of the snapshot, which would multiply every retained day.
 
 The assignee (`assigned_to`) is a dimension of all three, so an officer's dashboard can count the
 cases assigned to them and their team, as their case list does. It is the assignee now: a daily
-row is rebuilt with the current one, so a reassignment of an older case reaches its past days at
-the next nightly rebuild.
+row is rebuilt with the current one, which is why moving a case rebuilds its filing day.
 
 Only counts, sums and minimums are stored. Rates and averages are worked out when
 a chart is read, so every filter combination stays exact.
@@ -475,6 +475,33 @@ def run_pending():
 	return result
 
 
+def refresh_now(full=False, wait=120):
+	"""Refresh in this process and wait for it, for a patch that needs the rows right now.
+
+	It takes the runners' lock, so it cannot overlap one. If a runner holds it, this waits up to
+	`wait` seconds for the runner to end, then gives up and returns None: the caller queues the
+	refresh instead. Every request raised so far is answered by this run.
+	"""
+	deadline = time.time() + wait
+	while not _acquire(LOCK_KEY, LOCK_TTL):
+		if time.time() >= deadline:
+			return None
+		time.sleep(2)
+	try:
+		_take(DIRTY_KEY)
+		full = _take(FULL_KEY) or full
+		try:
+			return refresh(full=full)
+		except Exception:
+			# Put the request back for the next run rather than lose it, as run_pending does.
+			_raise(DIRTY_KEY, DIRTY_TTL)
+			if full:
+				_raise(FULL_KEY, DIRTY_TTL)
+			raise
+	finally:
+		_take(LOCK_KEY)
+
+
 def refresh(full=False):
 	"""Bring both rollups up to date. Returns what it did.
 
@@ -511,9 +538,10 @@ def _incremental_window(today):
 
 	escalated_count and informed_count sit on the day a case was filed, so first
 	escalating a case, or first giving it a public officer update, in the window changes
-	an older day. Those days are rebuilt one by one, not everything since the oldest, so
-	the work follows how many days were touched and not how old the cases are. At most
-	BACKFILL_DAYS_MAX, newest first; the nightly rebuild takes the rest.
+	an older day, and so does moving a case to another assignee (see `_reassigned`). Those
+	days are rebuilt one by one, not everything since the oldest, so the work follows how
+	many days were touched and not how old the cases are. At most BACKFILL_DAYS_MAX, newest
+	first; the nightly rebuild takes the rest.
 
 	A later reply on a case that already had a public update changes nothing, so only a
 	case whose first one falls in the window counts.
@@ -543,10 +571,54 @@ def _incremental_window(today):
 		.where(answered_before.negate())
 	)
 	days = set()
-	for query in (escalated, first_answered):
+	for query in (escalated, first_answered, *_reassigned(start, g, t)):
 		query = query.orderby(LiteralValue("1"), order=Order.desc).limit(BACKFILL_DAYS_MAX)
 		days.update(getdate(d) for (d,) in query.run())
 	return start, sorted(sorted(days, reverse=True)[:BACKFILL_DAYS_MAX])
+
+
+def _reassigned(start, g, t):
+	"""Queries for the filing days of older cases whose assignee may have changed since `start`.
+
+	A daily row carries the assignee as of its last rebuild, so a case moved to someone else
+	must have its filing day rebuilt, or the old assignee keeps counting it. No write path
+	records the move itself (routing and the SLA sweep use db_set, which leaves no Version and
+	does not touch `modified`), so this reads what each path leaves behind:
+
+	- an escalation or assignment entry on the timeline: the SLA sweep, a change request;
+	- a move to Assigned in the status history: routing, including a late re-route;
+	- a Version that names assigned_to: an edit saved through the form.
+
+	A signal with no move behind it only costs a rebuild of one day. A move none of them shows
+	waits for the nightly rebuild, which takes every day.
+	"""
+	moved = frappe.qb.from_(t).join(g).on(g.name == t.grievance)
+	h = frappe.qb.DocType("Grievance Status History", alias="h")
+	v = frappe.qb.DocType("Version", alias="v")
+	return (
+		moved.select(Date(g.creation))
+		.distinct()
+		.where(
+			(t.creation >= start) & (g.creation < start) & t.entry_type.isin(("assignment", "escalation"))
+		),
+		frappe.qb.from_(h)
+		.join(g)
+		.on(g.name == h.grievance)
+		.select(Date(g.creation))
+		.distinct()
+		.where((h.timestamp >= start) & (g.creation < start) & (h.to_status == C.STATE_ASSIGNED)),
+		frappe.qb.from_(v)
+		.join(g)
+		.on(g.name == v.docname)
+		.select(Date(g.creation))
+		.distinct()
+		.where(
+			(v.ref_doctype == "Grievance")
+			& (v.creation >= start)
+			& (g.creation < start)
+			& v.data.like('%"assigned_to"%')
+		),
+	)
 
 
 def _day_ranges(days):
@@ -605,7 +677,56 @@ def _rebuild_snapshot(today, now):
 		("snapshot_date", *SNAPSHOT_FIELDS),
 		[(today, *(row[f] for f in SNAPSHOT_FIELDS)) for row in rows],
 	)
+	_compact_history(today)
 	return len(rows)
+
+
+def _compact_history(today):
+	"""Fold each past day's snapshot rows to one per case group, without the assignee.
+
+	Today's rows are split by assignee, for an officer's dashboard. The days kept as history
+	are not: split by assignee they would be as many rows as there are cases, every day, for
+	good, where the other dimensions need a few hundred. The rows add up the same either way,
+	so every chart that reads a past day without filtering on the assignee reads the same
+	numbers; one that does (an officer's own cases) has nothing to read there, see
+	dashboard._readable_snapshot_day.
+	"""
+	S = frappe.qb.DocType(SNAPSHOT)
+	days = [
+		day
+		for (day,) in frappe.qb.from_(S)
+		.select(S.snapshot_date)
+		.distinct()
+		.where((S.snapshot_date < today) & S.assigned_to.notnull() & (S.assigned_to != ""))
+		.run()
+	]
+	grouped = ("status", "region", "service_category", "assigned_dept", "escalated", "has_desk", "sla_state")
+	for day in days:
+		rows = (
+			frappe.qb.from_(S)
+			.select(
+				*(getattr(S, f) for f in grouped),
+				Sum(S.grievance_count).as_("grievance_count"),
+				Sum(S.dup_pending_count).as_("dup_pending_count"),
+				Min(S.oldest_open_creation).as_("oldest_open_creation"),
+			)
+			.where(S.snapshot_date == day)
+			.groupby(*(getattr(S, f) for f in grouped))
+			.run(as_dict=True)
+		)
+		frappe.db.delete(SNAPSHOT, {"snapshot_date": day})
+		_insert(SNAPSHOT, ("snapshot_date", *SNAPSHOT_FIELDS), [(day, *_without_assignee(r)) for r in rows])
+
+
+def _without_assignee(row):
+	# SUM() comes back as Decimal.
+	values = {
+		**row,
+		"assigned_to": "",
+		"grievance_count": int(row.grievance_count or 0),
+		"dup_pending_count": int(row.dup_pending_count or 0),
+	}
+	return tuple(values[f] for f in SNAPSHOT_FIELDS)
 
 
 def _rebuild_area():

@@ -288,7 +288,8 @@ class TestOfficerAssignedCases(FrappeTestCase):
 		for email in cls.users:
 			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
 		frappe.delete_doc("Grievance Role Level", cls.low, force=True, ignore_permissions=True)
-		dashboard_rollup.refresh(full=True)
+		# Every case here was filed today, so the recent window is all there is to undo.
+		dashboard_rollup.refresh()
 		super().tearDownClass()
 
 	def tearDown(self):
@@ -319,10 +320,10 @@ class TestOfficerAssignedCases(FrappeTestCase):
 		self.assertEqual(self._total(self.head), 5)
 
 	def test_the_scope_is_the_officers_own_team(self):
-		# Placed on no area, the nodal officer reads the narrowest level.
+		# The nodal officer's desk has no area, so it covers every region: the widest level.
 		self.assertEqual(
 			dashboard.caller_scope(self.l1),
-			(dashboard.Clause(level=dashboard.LEVEL_WOREDA, assigned_to=(self.l1,)),),
+			(dashboard.Clause(level=dashboard.LEVEL_FEDERAL, assigned_to=(self.l1,)),),
 		)
 		# A supervisor with no desk of their own has one clause: themself and who reports to them.
 		(clause,) = dashboard.caller_scope(self.l2)
@@ -344,8 +345,17 @@ class TestOfficerAssignedCases(FrappeTestCase):
 		)
 		self.assertEqual(sum(r["grievances"] for r in data["grvFilterRegions"]), 2)
 
-	def test_an_officer_placed_on_no_area_reads_no_wider_level_than_woreda(self):
+	def test_an_officer_on_a_desk_with_no_area_reads_every_level(self):
+		# Their assigned cases are nationwide, so the country row and the region rows hold them.
 		rows = self._charts(self.l1, "grvByAdminLevel")["grvByAdminLevel"]
+		federal = next((r for r in rows if r["level"] == dashboard.LEVEL_FEDERAL), None)
+		self.assertIsNotNone(federal)
+		self.assertEqual(federal["count"], 2)
+
+	def test_an_officer_placed_nowhere_reads_woreda_counts_only(self):
+		(clause,) = dashboard.caller_scope(self.stranger)
+		self.assertEqual(clause.level, dashboard.LEVEL_WOREDA)
+		rows = self._charts(self.stranger, "grvByAdminLevel")["grvByAdminLevel"]
 		self.assertLessEqual({r["level"] for r in rows}, {dashboard.LEVEL_WOREDA})
 
 	def test_an_officer_placed_on_a_region_reads_region_counts_but_not_the_country_row(self):
