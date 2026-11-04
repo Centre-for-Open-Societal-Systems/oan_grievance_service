@@ -51,7 +51,12 @@ class GrievanceSubmitterProfile(Document):
 				title=_("Unknown Submitter Type"),
 			)
 
-		missing = [field for field in rule.required if not (self.get(field) or "").strip()]
+		required = rule.required
+		if self.identity_scheme == identity.SCHEME_USER:
+			# Anchored to the account, so a phone number is neither the key nor mandatory.
+			required = tuple(field for field in required if field != "contact_mobile")
+
+		missing = [field for field in required if not (self.get(field) or "").strip()]
 		if missing:
 			labels = [frappe.unscrub(field) for field in missing]
 			frappe.throw(
@@ -125,7 +130,7 @@ class GrievanceSubmitterProfile(Document):
 
 	@property
 	def identity_scheme(self):
-		"""Which scheme the party was resolved by: 'fayda', 'org' or 'phone'."""
+		"""Which scheme the party was resolved by: 'fayda', 'org', 'phone' or 'user'."""
 		return split_dedupe_key(self.dedupe_key)[0]
 
 	@property
@@ -148,7 +153,7 @@ def split_dedupe_key(key):
 
 def build_dedupe_key(scheme, value):
 	"""The one place a key is composed, so intake and this controller cannot drift."""
-	valid_schemes = (identity.SCHEME_FAYDA, identity.SCHEME_ORG, identity.SCHEME_PHONE)
+	valid_schemes = (identity.SCHEME_FAYDA, identity.SCHEME_ORG, identity.SCHEME_PHONE, identity.SCHEME_USER)
 	if scheme not in valid_schemes:
 		frappe.throw(_("Unknown identity scheme {0}.").format(scheme))
 	return f"{scheme}:{(value or '').strip()}"

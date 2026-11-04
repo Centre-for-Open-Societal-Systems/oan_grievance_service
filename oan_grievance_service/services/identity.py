@@ -8,6 +8,8 @@ from frappe import _
 SCHEME_FAYDA = "fayda"
 SCHEME_ORG = "org"
 SCHEME_PHONE = "phone"
+# Server-assigned to a Keycloak development agent with no phone or Fayda ID; never chosen by a client.
+SCHEME_USER = "user"
 
 # Fields every submitter needs regardless of type (profile registration, not grievance).
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")

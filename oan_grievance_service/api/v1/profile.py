@@ -280,7 +280,8 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 
 	A development agent (Keycloak, `Grievance Assisted Submitter`) gets a Development
 	Agent profile from their `User`; the identity provider supplies no national-ID
-	details for them, so none are written and `id_source` stays empty.
+	details for them, so none are written and `id_source` stays empty. With no phone
+	number on the `User`, the profile has none and is keyed on the user.
 
 	Never refuses the login. A profile that cannot be built from the claims (no phone
 	number, a taken Fayda ID) is logged and skipped; the user signs in with what they had.
@@ -346,6 +347,7 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 			submitter_type="Development Agent",
 			contact_email=principal.get("email"),
 			submission_channel="Web Portal",
+			mobile_optional=True,
 		)
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")

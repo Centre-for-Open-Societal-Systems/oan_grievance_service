@@ -12,9 +12,17 @@ from oan_grievance_service.services.administrative_area import get_ancestors
 
 route = prefixed("/api/v1/administrative-areas")
 
+# Reference data that rarely changes; clients may reuse an answer for this long.
+REFERENCE_CACHE_SECONDS = 300
+
 
 @route(  # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method, tmp.frappe-semgrep-rules.rules.security.guest-whitelisted-method
-	"", methods=("GET",), allow_guest=True, summary="Fetch administrative areas", tier="public-reference"
+	"",
+	methods=("GET",),
+	allow_guest=True,
+	summary="Fetch administrative areas",
+	tier="public-reference",
+	cache_seconds=REFERENCE_CACHE_SECONDS,
 )
 @handle_api_errors
 def get_areas(
@@ -87,6 +95,7 @@ def get_areas(
 	allow_guest=True,
 	summary="Fetch ancestor hierarchy",
 	tier="public-reference",
+	cache_seconds=REFERENCE_CACHE_SECONDS,
 )
 @handle_api_errors
 def get_area_ancestors(area_id_or_path: str):

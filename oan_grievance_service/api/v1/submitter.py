@@ -26,12 +26,14 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 	MIN_DESCRIPTION_LENGTH,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+	build_dedupe_key,
 	split_dedupe_key,
 )
 from oan_grievance_service.services.constants import STAFF_ROLES
 from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
 	SCHEME_ORG,
+	SCHEME_USER,
 	derive_dedupe_key,
 	validate_mobile,
 )
@@ -101,9 +103,15 @@ def _create_or_update_submitter_profile(
 	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 	submission_channel: str | None = None,
+	*,
+	mobile_optional: bool = False,
 	**kwargs,
 ):
-	"""Internal helper to validate inputs and persist a Submitter Profile."""
+	"""Internal helper to validate inputs and persist a Submitter Profile.
+
+	`mobile_optional` is for a user-bound profile from a server-side caller: with no
+	mobile number and no other identifier, the profile is keyed on the user.
+	"""
 	submitter_type = (submitter_type or "Individual Farmer").strip()
 
 	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
@@ -140,13 +148,13 @@ def _create_or_update_submitter_profile(
 
 	if not contact_mobile and user_doc:
 		contact_mobile = user_doc.mobile_no or ""
-	contact_mobile = (contact_mobile or "").strip()
-	if not contact_mobile:
+	contact_mobile = (contact_mobile or "").strip() or None
+	if contact_mobile:
+		contact_mobile = validate_mobile(contact_mobile)
+	elif not mobile_optional:
 		frappe.throw(
 			_("Contact mobile number is required."), frappe.ValidationError, title=_("Missing Mobile")
 		)
-
-	contact_mobile = validate_mobile(contact_mobile)
 
 	if (
 		not contact_email
@@ -171,6 +179,8 @@ def _create_or_update_submitter_profile(
 		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 	)
+	if not derived_key and mobile_optional and user_doc:
+		derived_key = build_dedupe_key(SCHEME_USER, user_doc.name)
 	if not derived_key:
 		frappe.throw(
 			_("Submitter registration requires a valid contact phone number or identifier."),
@@ -262,6 +272,7 @@ def _create_or_update_submitter_profile(
 	allow_guest=True,
 	summary="Dropdown options and reference data for submitters",
 	tier="public-reference",
+	cache_seconds=300,  # reference data; clients may reuse an answer for 5 minutes
 )
 # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
