@@ -22,7 +22,9 @@ https://grievance-dev.oanstaging.com/api/proxy/api/v1/charts?charts=grvPerforman
 
 Auth is the same as the Dashboard call (the logged-in Grievance Admin or Grievance Officer).
 A Grievance Admin sees every case. A Grievance Officer gets the same charts narrowed to
-their own desks.
+what their case list shows: the cases assigned to them or to anyone who reports to them, and,
+for a Category Admin, every case on their desks. An officer with no such case reads zeros and
+`null`s, with HTTP 200.
 
 ### Query parameters
 

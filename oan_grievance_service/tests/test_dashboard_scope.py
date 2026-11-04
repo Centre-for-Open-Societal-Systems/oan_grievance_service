@@ -20,8 +20,10 @@ from oan_grievance_service.tests.fixtures import (
 	a_grievance,
 	a_grievance_type,
 	a_leaf_area,
+	a_role_level,
 	a_service_category,
 	a_unique_department,
+	a_user_with_role,
 	discard_grievance,
 )
 
@@ -209,6 +211,184 @@ class TestOfficerChartScope(FrappeTestCase):
 	def test_the_admin_view_refuses_a_scope(self):
 		with self.assertRaises(ValueError):
 			dashboard.get_chart("grvKpis", dashboard.Params(), admin=True, scope=())
+
+
+class TestOfficerAssignedCases(FrappeTestCase):
+	"""Below the top rung an officer reads what their case list shows: the cases assigned to
+	them and to everyone who reports to them. Only the top rung also reads the whole desk.
+
+	Cases c1 and c2 are the nodal officer's, c3 sits on the desk with nobody, c4 is a
+	stranger's, c6 is the desk head's inside the desk and c7 the desk head's outside it.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		frappe.set_user("Administrator")
+		if not frappe.db.exists("Grievance Role Level", "nodal_officer"):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Role Level",
+					"level_name": "Nodal Officer",
+					"level_code": "nodal_officer",
+					"level_order": 1,
+				}
+			).insert(ignore_permissions=True)
+		# A rung below every other, so the top rung is not the nodal officer's.
+		cls.low = a_role_level(level_order=0)
+		cls.category = a_service_category()
+		cls.dept = a_unique_department("Mine")
+		cls.other_dept = a_unique_department("Theirs")
+		cls.l1 = a_user_with_role(C.ROLE_OFFICER, "nodal")
+		cls.l2 = a_user_with_role(C.ROLE_OFFICER, "senior")
+		cls.stranger = a_user_with_role(C.ROLE_OFFICER, "stranger")
+		cls.head = a_user_with_role(C.ROLE_OFFICER, "head")
+		cls.users = [cls.l1, cls.l2, cls.stranger, cls.head]
+
+		cls.desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": cls.dept,
+				"category_scope": cls.category,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": cls.l1,
+						"role_level": cls.low,
+						"reports_to": cls.l2,
+						"is_primary": 0,
+						"active": 1,
+					},
+					{"user": cls.head, "role_level": top_rung(), "is_primary": 0, "active": 1},
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		cls.created = []
+		for dept, assignee in (
+			(cls.dept, cls.l1),
+			(cls.dept, cls.l1),
+			(cls.dept, None),
+			(cls.other_dept, cls.stranger),
+			(cls.dept, cls.head),
+			(cls.other_dept, cls.head),
+		):
+			doc = a_grievance(assigned_dept=dept)
+			cls.created.append(doc.name)
+			frappe.db.set_value("Grievance", doc.name, "assigned_to", assignee)
+		dashboard_rollup.refresh()
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		for name in cls.created:
+			discard_grievance(name)
+		frappe.delete_doc("Grievance RBAC Assignment", cls.desk.name, force=True, ignore_permissions=True)
+		for email in cls.users:
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+		frappe.delete_doc("Grievance Role Level", cls.low, force=True, ignore_permissions=True)
+		dashboard_rollup.refresh(full=True)
+		super().tearDownClass()
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def _charts(self, user, charts):
+		frappe.set_user(user)
+		res = charts_api.get_charts(charts=charts)
+		self.assertEqual(res["status"], "success", res)
+		self.assertEqual(res["meta"]["errors"], {})
+		return res["data"]
+
+	def _total(self, user):
+		return _total(self._charts(user, "grvKpis")["grvKpis"])
+
+	def test_a_nodal_officer_reads_the_cases_assigned_to_them(self):
+		# Not c3, which sits on their desk with nobody: only the top rung reads a whole desk.
+		self.assertEqual(self._total(self.l1), 2)
+
+	def test_a_supervisor_reads_the_cases_of_the_officers_who_report_to_them(self):
+		self.assertEqual(self._total(self.l2), 2)
+
+	def test_an_officer_does_not_read_a_colleagues_cases(self):
+		self.assertEqual(self._total(self.stranger), 1)
+
+	def test_a_desk_head_reads_the_desk_and_their_own_cases_once_each(self):
+		# c1, c2, c3 and c6 are on the desk; c7 is theirs outside it; c6 is both, counted once.
+		self.assertEqual(self._total(self.head), 5)
+
+	def test_the_scope_is_the_officers_own_team(self):
+		# Placed on no area, the nodal officer reads the narrowest level.
+		self.assertEqual(
+			dashboard.caller_scope(self.l1),
+			(dashboard.Clause(level=dashboard.LEVEL_WOREDA, assigned_to=(self.l1,)),),
+		)
+		# A supervisor with no desk of their own has one clause: themself and who reports to them.
+		(clause,) = dashboard.caller_scope(self.l2)
+		self.assertEqual(set(clause.assigned_to), {self.l1, self.l2})
+
+	def test_a_review_officer_is_not_given_assigned_cases(self):
+		reviewer = a_user_with_role(C.ROLE_REVIEW_OFFICER, "reviewer")
+		self.addCleanup(frappe.delete_doc, "User", reviewer, force=True, ignore_permissions=True)
+		self.assertEqual(dashboard.caller_scope(reviewer), ())
+
+	def test_the_daily_charts_count_them_too(self):
+		weeks = self._charts(self.l1, "grvWeeklyTrend")["grvWeeklyTrend"]
+		self.assertEqual(sum(w["received"] for w in weeks), 2)
+
+	def test_the_filters_list_what_the_officer_can_read(self):
+		data = self._charts(self.l1, "grvFilterCategories,grvFilterRegions")
+		self.assertEqual(
+			[(r["category"], r["grievances"]) for r in data["grvFilterCategories"]], [(self.category, 2)]
+		)
+		self.assertEqual(sum(r["grievances"] for r in data["grvFilterRegions"]), 2)
+
+	def test_an_officer_placed_on_no_area_reads_no_wider_level_than_woreda(self):
+		rows = self._charts(self.l1, "grvByAdminLevel")["grvByAdminLevel"]
+		self.assertLessEqual({r["level"] for r in rows}, {dashboard.LEVEL_WOREDA})
+
+	def test_an_officer_placed_on_a_region_reads_region_counts_but_not_the_country_row(self):
+		lft = frappe.db.get_value("Grievance Administrative Area", a_leaf_area(), "lft")
+		region = _area_at_level("Region", lft)
+		if not region:
+			self.skipTest("the fixture area sits under no Region")
+		placed = a_user_with_role(C.ROLE_OFFICER, "placed")
+		dept = a_unique_department("Placed")
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": dept,
+				"category_scope": self.category,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": placed,
+						"role_level": self.low,
+						"administrative_area": region,
+						"is_primary": 0,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		doc = a_grievance(assigned_dept=dept)
+		frappe.db.set_value("Grievance", doc.name, "assigned_to", placed)
+		dashboard_rollup.refresh()
+		try:
+			rows = self._charts(placed, "grvByAdminLevel")["grvByAdminLevel"]
+		finally:
+			frappe.set_user("Administrator")
+			discard_grievance(doc.name)
+			frappe.delete_doc("Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True)
+			frappe.delete_doc("User", placed, force=True, ignore_permissions=True)
+		levels = {r["level"] for r in rows}
+		self.assertNotIn(dashboard.LEVEL_FEDERAL, levels)
+		self.assertEqual(sum(r["count"] for r in rows if r["level"] == dashboard.LEVEL_REGION), 1)
+
+	def test_an_admin_still_reads_everything(self):
+		self.assertGreaterEqual(self._total("Administrator"), 6)
 
 
 class TestOfficerChartErrors(FrappeTestCase):

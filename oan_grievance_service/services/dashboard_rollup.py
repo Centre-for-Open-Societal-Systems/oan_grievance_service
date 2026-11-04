@@ -8,7 +8,7 @@ into small tables every 15 minutes, and again as soon as a case is filed or chan
 (`request_refresh`), and services.dashboard answers every chart from those:
 
 - Grievance Stat Daily: events per day (filed, resolved, rejected, feedback) by
-  region, category and department, and how many of the cases filed that day have
+  region, category, department and assignee, and how many of the cases filed that day have
   been escalated, and given a public officer update, since. Events never move once
   they happen, so a refresh rebuilds only the last few days, plus the filing day of
   each older case just escalated or first answered (at most BACKFILL_DAYS_MAX of
@@ -21,6 +21,11 @@ into small tables every 15 minutes, and again as soon as a case is filed or chan
 - Grievance Stat Area: how many cases stand in each Region and Woreda, by category and
   department. Only today's: every refresh replaces the whole table. Woreda is a dimension of
   its own rather than a column of the snapshot, which would multiply every retained day.
+
+The assignee (`assigned_to`) is a dimension of all three, so an officer's dashboard can count the
+cases assigned to them and their team, as their case list does. It is the assignee now: a daily
+row is rebuilt with the current one, so a reassignment of an older case reaches its past days at
+the next nightly rebuild.
 
 Only counts, sums and minimums are stored. Rates and averages are worked out when
 a chart is read, so every filter combination stays exact.
@@ -78,6 +83,7 @@ AT_RISK_HOURS = 24
 SATISFIED_RATING = 4
 _EPOCH = "2000-01-01"
 
+DAILY_DIMENSIONS = ("region", "service_category", "assigned_dept", "assigned_to")
 DAILY_METRICS = (
 	"submitted_count",
 	"resolved_count",
@@ -92,12 +98,13 @@ DAILY_METRICS = (
 )
 # Cases per Region and Woreda, with the desk dimensions a scope filters on. Only the rows of
 # the moment: every refresh replaces the table, no history is kept.
-AREA_FIELDS = ("region", "woreda", "service_category", "assigned_dept", "grievance_count")
+AREA_FIELDS = ("region", "woreda", "service_category", "assigned_dept", "assigned_to", "grievance_count")
 SNAPSHOT_FIELDS = (
 	"status",
 	"region",
 	"service_category",
 	"assigned_dept",
+	"assigned_to",
 	"escalated",
 	"has_desk",
 	"sla_state",
@@ -140,6 +147,9 @@ def _grievances():
 		Coalesce(r.code, "").as_("region"),
 		g.service_category,
 		Coalesce(g.assigned_dept, "").as_("assigned_dept"),
+		# What lets an officer's dashboard count the cases assigned to them and their team,
+		# as their case list does.
+		Coalesce(g.assigned_to, "").as_("assigned_to"),
 	)
 	return g, query, dimensions
 
@@ -193,7 +203,7 @@ def _daily_query(start, end, day_column, measures, where=None):
 	query = (
 		query.select(Date(day).as_("stat_date"), *dimensions, *measures(g))
 		.where((day >= start) & (day < end))
-		.groupby(*_positions(4))
+		.groupby(*_positions(1 + len(dimensions)))
 	)
 	return query.where(where(g)) if where else query
 
@@ -295,7 +305,8 @@ def _snapshot_query(now):
 				"oldest_open_creation"
 			),
 		)
-		.groupby(*_positions(7))
+		# status, the dimensions, then escalated, has_desk and sla_state.
+		.groupby(*_positions(1 + len(dimensions) + 3))
 	)
 
 
@@ -305,7 +316,7 @@ def _area_query():
 	return (
 		query.select(*dimensions, woreda, Count("*").as_("grievance_count"))
 		.where(g.status.isin(list(live_states())))
-		.groupby(*_positions(4))
+		.groupby(*_positions(len(dimensions) + 1))
 	)
 
 
@@ -569,7 +580,7 @@ def _rebuild_daily(start, end, days=()):
 	for window_start, window_end in windows:
 		for query in _daily_queries(window_start, window_end):
 			for row in query.run(as_dict=True):
-				key = (row.stat_date, row.region, row.service_category, row.assigned_dept)
+				key = (row.stat_date, *(row[d] for d in DAILY_DIMENSIONS))
 				target = merged.setdefault(key, dict.fromkeys(DAILY_METRICS, 0))
 				for metric in DAILY_METRICS:
 					if metric in row:
@@ -580,7 +591,7 @@ def _rebuild_daily(start, end, days=()):
 		frappe.db.delete(DAILY, {"stat_date": ["between", [day_start, add_days(day_end, -1)]]})
 	_insert(
 		DAILY,
-		("stat_date", "region", "service_category", "assigned_dept", *DAILY_METRICS),
+		("stat_date", *DAILY_DIMENSIONS, *DAILY_METRICS),
 		[(*key, *(metrics[m] for m in DAILY_METRICS)) for key, metrics in merged.items()],
 	)
 	return len(merged)

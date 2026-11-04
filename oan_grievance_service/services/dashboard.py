@@ -118,10 +118,12 @@ class Context:
 
 @dataclass(frozen=True)
 class Clause:
-	"""One RBAC desk as rollup filters. `regions` / `woredas` None means no limit on that.
+	"""One RBAC desk, or one officer's own cases, as rollup filters. `regions` / `woredas` /
+	`assigned_to` None means no limit on that.
 
 	`level` is the widest administrative level the desk's area reaches: federal for a desk
 	with no area (or the Country), region for a Region, woreda for a Zone or a Woreda.
+	`assigned_to` is the officers whose assigned cases the clause covers; see `caller_scope`.
 	"""
 
 	regions: tuple | None = None
@@ -129,30 +131,36 @@ class Clause:
 	assigned_dept: str | None = None
 	woredas: tuple | None = None
 	level: str = LEVEL_FEDERAL
+	assigned_to: tuple | None = None
 
 
 def caller_scope(user=None):
 	"""The rollup filters for what `user` may see: None for no restriction, else desk clauses.
 
 	Mirrors permissions.grievance_query_conditions, as far as the rollups can. They are
-	grouped by region, category and department only (Grievance Stat Area also by woreda), so:
+	grouped by region, category, department and assignee (Grievance Stat Area also by woreda), so:
 
+	- A Grievance Officer reads the cases assigned to them or to anyone who reports to them,
+	  whatever their rung, as their case list does. A Category Admin also reads their desks.
+	  Without this an officer below the top rung read nothing, though their case list showed
+	  cases.
 	- A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no
 	  Region inside it and counts as the Woredas inside it instead, which only Grievance Stat Area
 	  knows (see `Chart.by_woreda`). A desk below Woreda level contributes nothing rather
 	  than its whole Woreda.
 	- A desk narrowed by grievance type or service provider contributes nothing.
-	- Cases an officer holds only through the reporting chain are not counted.
+	- A case waiting on the officer's ruling on a change request is not counted.
 
-	All three err towards showing less, never more. A user with no usable desk gets an empty
-	tuple, which matches nothing.
+	The last three err towards showing less, never more. A user with no usable desk and no
+	assigned case reads zeros.
 	"""
 	user = user or frappe.session.user
-	if set(frappe.get_roles(user)) & perms.UNRESTRICTED_ROLES:
+	roles = set(frappe.get_roles(user))
+	if roles & perms.UNRESTRICTED_ROLES:
 		return None
 
 	# A Grievance Officer reads a desk only through the top rung; a Review Officer reads every desk.
-	if perms.ROLE_REVIEW_OFFICER in frappe.get_roles(user):
+	if perms.ROLE_REVIEW_OFFICER in roles:
 		scopes = perms.active_scopes(user)
 	else:
 		scopes = perms.officer_case_scopes(user)
@@ -180,7 +188,31 @@ def caller_scope(user=None):
 		clauses.append(
 			Clause(regions, scope.category_scope or None, scope.department_scope or None, woredas, level)
 		)
+	if perms.ROLE_OFFICER in roles:
+		# The officer and everyone below them in the reporting chain, as the case list reads it.
+		team = tuple(sorted(perms.get_subordinate_officers(user)))
+		clauses.append(Clause(level=_placement_level(user), assigned_to=team))
 	return tuple(dict.fromkeys(clauses))
+
+
+def _placement_level(user):
+	"""The widest administrative level of the areas `user` is placed on, whatever their rung.
+
+	It is the level the cases assigned to them may be read at: their own and the ones below,
+	never the country row for an officer placed on a Region, which would present their cases as
+	the nation's. An officer placed on no area reads Woreda counts only, the narrowest.
+	"""
+	widest = LEVEL_WOREDA
+	for area in scope_areas(perms.active_scopes(user)).values():
+		if area.level_name == C.AREA_LEVEL_COUNTRY:
+			level = LEVEL_FEDERAL
+		elif rollup_keys_within(C.AREA_LEVEL_REGION, area):
+			level = LEVEL_REGION
+		else:
+			level = LEVEL_WOREDA
+		if LEVELS.index(level) < LEVELS.index(widest):
+			widest = level
+	return widest
 
 
 def _apply_scope(query, table, scope):
@@ -200,6 +232,8 @@ def _apply_scope(query, table, scope):
 			parts.append(table.service_category == clause.service_category)
 		if clause.assigned_dept:
 			parts.append(table.assigned_dept == clause.assigned_dept)
+		if clause.assigned_to is not None:
+			parts.append(table.assigned_to.isin(clause.assigned_to))
 		desks.append(Criterion.all(parts))
 	return query.where(Criterion.any(desks))
 

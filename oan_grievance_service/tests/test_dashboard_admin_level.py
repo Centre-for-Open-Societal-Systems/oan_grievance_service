@@ -176,8 +176,8 @@ class TestAdminLevelAggregation(AdminLevelFixture):
 			dashboard_rollup.AREA,
 			dashboard_rollup.AREA_FIELDS,
 			[
-				(self.region_code, self.w1_code, self.category, self.d3, 2),
-				("", "", self.category, self.d3, 5),
+				(self.region_code, self.w1_code, self.category, self.d3, "", 2),
+				("", "", self.category, self.d3, "", 5),
 			],
 		)
 		self.addCleanup(frappe.db.delete, dashboard_rollup.AREA, {"assigned_dept": self.d3})
@@ -443,9 +443,17 @@ class TestAdminLevelScope(AdminLevelFixture):
 			(self.officers[2], self.w1, "woreda"),
 		)
 		self._desk_of(self.d1, *((user, area) for user, area, _ in desks))
+
+		def desk_clause(user):
+			# Besides its desk, an officer's scope has a clause for the cases assigned to them.
+			(clause,) = (c for c in dashboard.caller_scope(user) if c.assigned_to is None)
+			return clause
+
 		for user, _, level in desks:
-			(clause,) = dashboard.caller_scope(user)
-			self.assertEqual(clause.level, level, user)
-		(clause,) = dashboard.caller_scope(desks[2][0])
+			self.assertEqual(desk_clause(user).level, level, user)
+		clause = desk_clause(desks[2][0])
 		self.assertEqual(clause.woredas, (self.w1_code,))
 		self.assertIsNone(clause.regions)
+		# That officer is placed on the Woreda, so their assigned cases read at that level too.
+		(assigned,) = (c for c in dashboard.caller_scope(desks[2][0]) if c.assigned_to is not None)
+		self.assertEqual(assigned.level, dashboard.LEVEL_WOREDA)

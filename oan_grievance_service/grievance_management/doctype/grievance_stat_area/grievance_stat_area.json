@@ -10,6 +10,7 @@
   "woreda",
   "service_category",
   "assigned_dept",
+  "assigned_to",
   "grievance_count"
  ],
  "fields": [
@@ -43,6 +44,12 @@
    "options": "Grievance Department"
   },
   {
+   "description": "User the case is assigned to; empty when it is unassigned.",
+   "fieldname": "assigned_to",
+   "fieldtype": "Data",
+   "label": "Assigned To"
+  },
+  {
    "fieldname": "grievance_count",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -52,7 +59,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-26 10:00:00.000000",
+ "modified": "2026-11-04 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Stat Area",

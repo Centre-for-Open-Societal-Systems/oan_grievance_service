@@ -10,6 +10,7 @@
   "region",
   "service_category",
   "assigned_dept",
+  "assigned_to",
   "sec_counts",
   "submitted_count",
   "resolved_count",
@@ -50,6 +51,12 @@
    "fieldtype": "Link",
    "label": "Assigned Department",
    "options": "Grievance Department"
+  },
+  {
+   "description": "User the case is assigned to; empty when it is unassigned.",
+   "fieldname": "assigned_to",
+   "fieldtype": "Data",
+   "label": "Assigned To"
   },
   {
    "fieldname": "sec_counts",
@@ -120,7 +127,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-23 14:00:00.000000",
+ "modified": "2026-11-04 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Stat Daily",
