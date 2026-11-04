@@ -58,14 +58,142 @@ class TestDuplicateScoring(FrappeTestCase):
 		self.assertEqual(duplicates.description_similarity("", FERTILIZER), 0.0)
 
 	def test_labels_alone_can_never_reach_the_threshold(self):
-		self.assertLess(duplicates.W_CATEGORY + duplicates.W_TYPE, duplicates.THRESHOLD)
-		self.assertAlmostEqual(duplicates.W_DESCRIPTION + duplicates.W_CATEGORY + duplicates.W_TYPE, 1.0)
+		config = duplicates.tuning()
+		self.assertLess(config.category + config.type, config.threshold)
+		self.assertAlmostEqual(config.description + config.category + config.type, 1.0)
 
 	def test_identical_text_under_another_category_is_still_flagged(self):
+		config = duplicates.tuning()
 		first = frappe._dict(description=FERTILIZER, service_category="A", grievance_type="X")
 		other = frappe._dict(description=FERTILIZER, service_category="B", grievance_type="Y")
-		self.assertAlmostEqual(duplicates.score(first, other), duplicates.W_DESCRIPTION)
-		self.assertGreaterEqual(duplicates.score(first, other), duplicates.THRESHOLD)
+		self.assertAlmostEqual(duplicates.score(first, other), config.description)
+		self.assertGreaterEqual(duplicates.score(first, other), config.threshold)
+
+
+class TestDuplicateTuning(FrappeTestCase):
+	"""An administrator sets the weights and thresholds in Grievance Settings."""
+
+	FIELDS = (
+		"duplicate_weight_category",
+		"duplicate_weight_type",
+		"duplicate_threshold",
+		"duplicate_high_threshold",
+	)
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.was = frappe.db.get_singles_dict("Grievance Settings")
+		self.farmer = a_submitter_profile()
+		self.made = []
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		for field in self.FIELDS:
+			if field in self.was:
+				frappe.db.set_single_value("Grievance Settings", field, self.was[field])
+			else:
+				frappe.db.delete("Singles", {"doctype": "Grievance Settings", "field": field})
+		for name in reversed(self.made):
+			discard_grievance(name)
+		frappe.delete_doc("Grievance Submitter Profile", self.farmer, force=True, ignore_permissions=True)
+
+	def _set(self, category=None, type_=None, threshold=None, high=None):
+		for field, value in zip(self.FIELDS, (category, type_, threshold, high), strict=True):
+			frappe.db.set_single_value("Grievance Settings", field, value)
+
+	def _case(self, **overrides):
+		doc = a_grievance(submitter=self.farmer, **overrides)
+		self.made.append(doc.name)
+		return doc
+
+	def _save_settings(self, **values):
+		settings = frappe.get_doc("Grievance Settings")
+		settings.update(values)
+		settings.save()
+
+	def test_missing_or_unusable_settings_use_the_defaults(self):
+		defaults = (0.7, duplicates.DEFAULT_W_CATEGORY, duplicates.DEFAULT_W_TYPE, 0.65, 0.85)
+		self._set()
+		self.assertEqual(duplicates.tuning(), defaults)
+		# A threshold of 0 would flag every pair, so it is never used.
+		self._set(category=0.1, type_=0.2, threshold=0, high=0.85)
+		self.assertEqual(duplicates.tuning(), defaults)
+
+	def test_the_description_weight_is_what_the_labels_leave(self):
+		self._set(category=0.2, type_=0.3, threshold=0.7, high=0.9)
+		self.assertEqual(duplicates.tuning(), (0.5, 0.2, 0.3, 0.7, 0.9))
+
+	def test_the_weights_change_the_score(self):
+		self._set(category=0.3, type_=0.1, threshold=0.65, high=0.85)
+		first = frappe._dict(description="", service_category="A", grievance_type="X")
+		same_category = frappe._dict(description="", service_category="A", grievance_type="Y")
+		same_type = frappe._dict(description="", service_category="B", grievance_type="X")
+		self.assertAlmostEqual(duplicates.score(first, same_category), 0.3)
+		self.assertAlmostEqual(duplicates.score(first, same_type), 0.1)
+
+	def test_a_lower_threshold_flags_a_looser_match(self):
+		self._case(description=FERTILIZER)
+		dup = self._case(description=CANAL)
+		self.assertEqual(duplicates.flag_possible_duplicates(dup), [], "unflagged at the defaults")
+
+		self._set(category=0.1, type_=0.2, threshold=0.4, high=0.9)
+		(row,) = duplicates.flag_possible_duplicates(dup)
+
+		self.assertEqual(row.match_level, "Medium")
+
+	def test_the_high_threshold_sets_the_match_level(self):
+		self._set(category=0.1, type_=0.2, threshold=0.65, high=0.9)
+		self.assertEqual(duplicates.match_level(0.89), "Medium")
+		self.assertEqual(duplicates.match_level(0.9), "High")
+
+		self._case(description=FERTILIZER)
+		dup = self._case(description=FERTILIZER)
+		(row,) = duplicates.flag_possible_duplicates(dup)
+		self.assertEqual(row.match_level, "High", "an identical repeat scores 1.0")
+
+	def test_saving_rejects_labels_that_alone_would_flag(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._save_settings(
+				duplicate_weight_category=0.4,
+				duplicate_weight_type=0.3,
+				duplicate_threshold=0.65,
+				duplicate_high_threshold=0.85,
+			)
+
+	def test_saving_rejects_a_high_threshold_below_the_flag_threshold(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._save_settings(
+				duplicate_weight_category=0.1,
+				duplicate_weight_type=0.2,
+				duplicate_threshold=0.7,
+				duplicate_high_threshold=0.6,
+			)
+
+	def test_saving_rejects_negative_weights_and_thresholds_out_of_range(self):
+		for values in (
+			{"duplicate_weight_category": -0.1},
+			{"duplicate_threshold": 0, "duplicate_high_threshold": 0.85},
+			{"duplicate_threshold": 0.9, "duplicate_high_threshold": 1.2},
+		):
+			with self.subTest(values), self.assertRaises(frappe.ValidationError):
+				self._save_settings(
+					**{
+						"duplicate_weight_category": 0.1,
+						"duplicate_weight_type": 0.2,
+						"duplicate_threshold": 0.65,
+						"duplicate_high_threshold": 0.85,
+						**values,
+					}
+				)
+
+	def test_a_valid_change_is_saved_and_used(self):
+		self._save_settings(
+			duplicate_weight_category=0.15,
+			duplicate_weight_type=0.25,
+			duplicate_threshold=0.7,
+			duplicate_high_threshold=0.9,
+		)
+		self.assertEqual(duplicates.tuning(), (0.6, 0.15, 0.25, 0.7, 0.9))
 
 
 class TestDuplicateFlow(FrappeTestCase):

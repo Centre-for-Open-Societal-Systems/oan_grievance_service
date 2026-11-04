@@ -1,31 +1,32 @@
 """Duplicate grievances: flagging a likely repeat, and the officer's ruling on it.
 
 The system only flags. A new grievance is compared with the same submitter's earlier
-grievances; a pair that scores at or above THRESHOLD is recorded as a Grievance Duplicate
+grievances; a pair that scores at or above the threshold is recorded as a Grievance Duplicate
 row awaiting review. Nothing about the ticket changes until an officer confirms it, which
 moves it to the terminal Duplicate state and points it at the main ticket. An officer who
 rules it is not a duplicate leaves the ticket exactly as it was.
 
 The comparison is the "Option A" score of GRIEVANCE_SIMILARITY_ALGORITHMS.md, phase 1:
 
-    score = W_DESCRIPTION * description + W_CATEGORY * same category + W_TYPE * same type
+    score = w_description * description + w_category * same category + w_type * same type
 
 The description is a cosine over character n-grams of the normalised text. Only one
 submitter's tickets are ever compared (a handful, not millions), so there is no index and
 no IDF weighting: the pool is too small for inverse document frequency to mean anything.
 Category and type are weights, not filters, because submitters sometimes pick the wrong
-one. The weights and thresholds are starting points to be replaced by measurements on
-labelled pairs; they live here, in one place, until then.
+one. The weights and thresholds are starting points an administrator tunes in Grievance
+Settings from measurements on labelled pairs; the defaults live here until they are set.
 """
 
 import math
 import re
 import unicodedata
 from collections import Counter
+from typing import NamedTuple
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, flt, now_datetime
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -50,13 +51,16 @@ CANDIDATE_STATES = (
 	C.STATE_RESOLVED,
 )
 
-W_DESCRIPTION = 0.70
-W_CATEGORY = 0.10
-W_TYPE = 0.20
+# Starting values, the same as the defaults of the Duplicate Detection fields in Grievance
+# Settings, where an administrator tunes them once confirm and dismiss rulings show what
+# works. They stand in only when the stored values are unusable (see tuning). The description
+# weight is whatever the category and type weights leave of 1.
+DEFAULT_W_CATEGORY = 0.10
+DEFAULT_W_TYPE = 0.20
 # Category and type together must stay below the threshold, so unrelated text can never be
-# flagged on matching labels alone.
-THRESHOLD = 0.65
-HIGH_THRESHOLD = 0.85
+# flagged on matching labels alone. Saving the settings enforces it (validate_tuning).
+DEFAULT_THRESHOLD = 0.65
+DEFAULT_HIGH_THRESHOLD = 0.85
 
 NGRAM_SIZES = (3, 4, 5)
 # One submitter's recent tickets are the pool; the cap only guards a runaway account.
@@ -133,18 +137,73 @@ def description_similarity(first, second):
 	return dot / norm if norm else 0.0
 
 
-def score(grievance, other):
+class Tuning(NamedTuple):
+	"""The weights and thresholds a comparison uses."""
+
+	description: float
+	category: float
+	type: float
+	threshold: float
+	high_threshold: float
+
+
+def tuning_problem(category, type_, threshold, high_threshold):
+	"""Why these weights and thresholds are unusable, or None when they are fine.
+
+	Category plus type is what two tickets score with identical labels and no shared words, so
+	it must stay below the threshold, or unrelated complaints would be flagged.
+	"""
+	if category < 0 or type_ < 0:
+		return _("The category and type weights cannot be negative.")
+	if not 0 < threshold <= high_threshold <= 1:
+		return _("The thresholds must satisfy 0 < flag threshold <= high threshold <= 1.")
+	if category + type_ >= threshold:
+		return _(
+			"The category weight plus the type weight ({0}) must be below the flag threshold ({1}), "
+			"or matching labels alone would flag a ticket."
+		).format(round(category + type_, 4), threshold)
+	return None
+
+
+def validate_tuning(category, type_, threshold, high_threshold):
+	"""Refuse to save settings that would flag on labels alone or make no sense."""
+	problem = tuning_problem(category, type_, threshold, high_threshold)
+	if problem:
+		frappe.throw(problem, title=_("Invalid Duplicate Detection Settings"))
+
+
+def tuning():
+	"""The weights and thresholds in force: Grievance Settings, else the defaults.
+
+	The defaults also apply when the stored values are unusable, such as code running before
+	the migrate that adds the fields: a threshold of 0 would flag every pair.
+	"""
+	settings = frappe.get_doc("Grievance Settings")
+	values = (
+		flt(settings.get("duplicate_weight_category")),
+		flt(settings.get("duplicate_weight_type")),
+		flt(settings.get("duplicate_threshold")),
+		flt(settings.get("duplicate_high_threshold")),
+	)
+	if tuning_problem(*values):
+		values = (DEFAULT_W_CATEGORY, DEFAULT_W_TYPE, DEFAULT_THRESHOLD, DEFAULT_HIGH_THRESHOLD)
+	category, type_, threshold, high_threshold = values
+	return Tuning(round(1 - category - type_, 4), category, type_, threshold, high_threshold)
+
+
+def score(grievance, other, config=None):
 	"""How alike two grievances are, 0 to 1. A ranking score, not a probability."""
+	config = config or tuning()
 	return round(
-		W_DESCRIPTION * description_similarity(grievance.get("description"), other.get("description"))
-		+ W_CATEGORY * (grievance.get("service_category") == other.get("service_category"))
-		+ W_TYPE * (grievance.get("grievance_type") == other.get("grievance_type")),
+		config.description * description_similarity(grievance.get("description"), other.get("description"))
+		+ config.category * (grievance.get("service_category") == other.get("service_category"))
+		+ config.type * (grievance.get("grievance_type") == other.get("grievance_type")),
 		4,
 	)
 
 
-def match_level(value):
-	return "High" if value >= HIGH_THRESHOLD else "Medium"
+def match_level(value, config=None):
+	return "High" if value >= (config or tuning()).high_threshold else "Medium"
 
 
 def candidates_for(grievance, since=None):
@@ -178,10 +237,11 @@ def candidates_for(grievance, since=None):
 
 def matches_for(grievance, since=None):
 	"""[(score, earlier ticket)] at or above the threshold, best first; the older wins a tie."""
+	config = tuning()
 	matches = []
 	for other in candidates_for(grievance, since):
-		value = score(grievance, other)
-		if value >= THRESHOLD:
+		value = score(grievance, other, config)
+		if value >= config.threshold:
 			matches.append((value, other))
 	matches.sort(key=lambda match: (-match[0], match[1].creation, match[1].name))
 	return matches[:MAX_FLAGS]

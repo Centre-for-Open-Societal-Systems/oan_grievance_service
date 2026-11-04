@@ -56,18 +56,27 @@ ticket that has barely been routed, and the specification's three statuses alone
 score = 0.70 * description + 0.10 * same category + 0.20 * same type
 ```
 
+These are the defaults. The category weight, the type weight and both thresholds are set in
+Grievance Settings (Duplicate Detection); the description weight is whatever the other two leave
+of 1.
+
 - `description` is the cosine of character 3-5-grams of the normalised text: lower-cased,
   punctuation removed, Ge'ez homophones folded (ሐ/ኀ to ሀ, ሠ to ሰ, ዐ to አ, ጸ to ፀ). Folding is applied to
   the copy used for matching only; the stored description is never changed.
 - Category and type are weights, not filters, because submitters sometimes pick the wrong one.
-- A flag needs `score >= 0.65` (`THRESHOLD`); `High` is `>= 0.85`, otherwise `Medium`.
-- Category plus type is 0.30, below the threshold, so matching labels alone never flag.
+- A flag needs `score >= 0.65` (the flag threshold); `High` is `>= 0.85`, otherwise `Medium`.
+- Category plus type is 0.30, below the threshold, so matching labels alone never flag. Saving
+  Grievance Settings is refused if the category weight plus the type weight reaches the flag
+  threshold, if a weight is negative, or unless `0 < flag threshold <= high threshold <= 1`. If the
+  stored values are ever unusable (for example before the migrate that adds them), the defaults
+  above apply.
 - Identical text filed under a different category and type scores 0.70 and is still flagged.
 
 The score ranks; it is not a probability, so the API returns the `High` or `Medium` label and
-never a percentage. The weights and thresholds are starting points. They live as constants at the
-top of `services/duplicates.py` until labelled pairs exist to replace them (section 8a of the
-algorithms document).
+never a percentage. The defaults are starting points: they are unmeasured, and the confirm and
+dismiss rulings officers record are the labelled pairs to tune them against (section 8a of the
+algorithms document). Watch the dismiss rate: complaints that share a category, a type and place or
+cooperative names can cross the threshold on a description similarity of about 0.5.
 
 ## Status, read-only and the dashboard
 
@@ -95,5 +104,4 @@ Confirmed legacy rows are kept.
 - A prompt on channels other than the web portal, which needs its own two-way flow.
 - Notifying the farmer when a duplicate is confirmed. The `duplicate_detected` template still
   describes the old submitter-decides flow and is no longer sent.
-- Admin-editable weights and thresholds.
 - Embeddings (T5) and Tigrinya handling, which the algorithms document schedules for phase 2.
