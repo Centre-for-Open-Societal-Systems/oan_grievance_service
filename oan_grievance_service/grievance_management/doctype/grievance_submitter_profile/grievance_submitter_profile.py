@@ -97,11 +97,11 @@ class GrievanceSubmitterProfile(Document):
 					key = build_dedupe_key(identity.SCHEME_PHONE, self.contact_mobile)
 
 			if old_key != key:
-				# Phone-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
+				# Phone- and user-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
 				# Verified identities (Fayda / Org) are immutable, except that the
 				# organization service may re-anchor an org key when its owner corrects
 				# the registration number.
-				if old_scheme != identity.SCHEME_PHONE and not (
+				if old_scheme not in (identity.SCHEME_PHONE, identity.SCHEME_USER) and not (
 					self.flags.org_identity_sync and old_scheme == identity.SCHEME_ORG
 				):
 					frappe.throw(
@@ -115,6 +115,14 @@ class GrievanceSubmitterProfile(Document):
 			frappe.throw(
 				_("A Submitter Profile must have a valid dedupe_key or contact_mobile."),
 				title=_("No Identity"),
+			)
+
+		# A user key is the profile's own account and nothing else, so no one can claim another's.
+		scheme, value = split_dedupe_key(key)
+		if scheme == identity.SCHEME_USER and (not value or value != (self.user or "")):
+			frappe.throw(
+				_("A user identity key must match the profile's own user account."),
+				title=_("Invalid Identity Scheme"),
 			)
 
 		# If dedupe_key changed, ensure it does not conflict with another existing profile

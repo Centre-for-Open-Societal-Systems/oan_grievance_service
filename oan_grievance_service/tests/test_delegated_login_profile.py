@@ -14,6 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1.profile import on_delegated_login_hook, resolve_user_profile_hook
 from oan_grievance_service.permissions import ROLE_OFFICER
+from oan_grievance_service.services import constants as C
 
 LOGIN_OPTION = "beneficiary"
 
@@ -180,6 +181,19 @@ class TestDelegatedLoginProfile(FrappeTestCase):
 			)
 		)
 		self.assertIsNone(self._profile(user))
+
+	def test_a_development_agent_without_a_phone_is_keyed_on_the_user(self):
+		user = self._user(C.ROLE_ASSISTED_SUBMITTER)
+
+		self.assertTrue(
+			on_delegated_login_hook(
+				user=user, principal=_principal(phone_number=...), login_option=LOGIN_OPTION
+			)
+		)
+		profile = self._profile(user)
+		self.assertEqual(profile.submitter_type, "Development Agent")
+		self.assertEqual(profile.dedupe_key, f"user:{user}")
+		self.assertFalse(profile.contact_mobile)
 
 	def test_a_fayda_id_already_taken_skips_the_profile_without_refusing_the_login(self):
 		fayda = _fayda()

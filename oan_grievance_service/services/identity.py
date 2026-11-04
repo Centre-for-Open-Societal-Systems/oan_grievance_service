@@ -182,6 +182,11 @@ def derive_dedupe_key(
 	if raw_key:
 		if ":" in raw_key:
 			scheme, _sep, value = raw_key.partition(":")
+			if scheme == SCHEME_USER:
+				frappe.throw(
+					_("A user identity key is assigned by the server and cannot be supplied."),
+					title=_("Invalid Identity Scheme"),
+				)
 			if scheme == SCHEME_FAYDA and value:
 				_validate_fayda_id(value)
 			elif scheme == SCHEME_ORG and value:

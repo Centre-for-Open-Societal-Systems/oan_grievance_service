@@ -10,7 +10,6 @@ from typing import Literal
 import frappe
 from frappe import N_, _
 from frappe.utils import get_datetime, now_datetime
-from oan_auth_service.api.idempotency import idempotent
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -959,7 +958,6 @@ def _current_state(doc, extra=None):
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_permission("Grievance", "create")
-@idempotent
 def submit(**kwargs):
 	"""File a grievance: one insert, straight into Submitted. Files sent as multipart
 	attach to the submission entry."""
