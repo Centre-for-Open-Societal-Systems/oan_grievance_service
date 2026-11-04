@@ -17,6 +17,7 @@ from oan_grievance_service.permissions import grievance_query_conditions, has_gr
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing, ticket_number
 from oan_grievance_service.tests.fixtures import (
+	a_grievance,
 	a_grievance_type,
 	a_leaf_area,
 	a_staffed_desk,
@@ -620,6 +621,92 @@ class TestGrievance(FrappeTestCase):
 				)
 
 
+class TestGrievanceDelete(FrappeTestCase):
+	"""Deleting a case removes what exists only for it and leaves the audit trail."""
+
+	def test_delete_without_force_cascades_and_keeps_audit_rows(self):
+		case = a_grievance()
+		other = a_grievance()
+		self.addCleanup(discard_grievance, other.name)
+		name = case.name
+		frappe.db.set_value("Grievance", name, "status", C.STATE_CLOSED)
+
+		file = frappe.get_doc(
+			{"doctype": "File", "file_name": "evidence.txt", "content": "x", "is_private": 1}
+		).insert(ignore_permissions=True)
+		children = {
+			"Grievance Attachment": {
+				"file_name": "evidence.txt",
+				"file_url": file.file_url,
+				"file": file.name,
+				"scan_status": "Clean",
+				"uploaded_by_user": "Administrator",
+			},
+			"Grievance Feedback": {
+				"rating": 4,
+				"feedback_type": "Resolution",
+				"submitted_at": frappe.utils.now_datetime(),
+			},
+			"Grievance Duplicate": {"duplicate_of": other.name},
+		}
+		for doctype, values in children.items():
+			frappe.get_doc({"doctype": doctype, "grievance": name, **values}).insert(ignore_permissions=True)
+		timeline = frappe.get_doc(
+			{
+				"doctype": "Grievance Timeline",
+				"grievance": name,
+				"entry_type": "note",
+				"created_on": frappe.utils.now_datetime(),
+				"body": "kept",
+				"ref_doctype": "Grievance",
+				"ref_docname": name,
+			}
+		).insert(ignore_permissions=True)
+		history = frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": name,
+				"to_status": "Submitted",
+				"timestamp": frappe.utils.now_datetime(),
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.set_user("Administrator")
+		frappe.delete_doc("Grievance", name)
+
+		self.assertFalse(frappe.db.exists("Grievance", name))
+		self.assertFalse(frappe.db.exists("File", file.name))
+		for doctype in children:
+			self.assertFalse(frappe.db.exists(doctype, {"grievance": name}), doctype)
+		self.assertTrue(frappe.db.exists("Grievance Timeline", timeline.name))
+		self.assertTrue(frappe.db.exists("Grievance Status History", history.name))
+
+	def test_a_user_with_a_timeline_entry_still_cannot_be_deleted(self):
+		case = a_grievance()
+		self.addCleanup(discard_grievance, case.name)
+		author = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": "timeline-author@example.com",
+				"first_name": "Author",
+				"send_welcome_email": 0,
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Timeline",
+				"grievance": case.name,
+				"entry_type": "note",
+				"created_on": frappe.utils.now_datetime(),
+				"body": "authored",
+				"author_user": author.name,
+			}
+		).insert(ignore_permissions=True)
+
+		with self.assertRaises(frappe.LinkExistsError):
+			frappe.delete_doc("User", author.name, ignore_permissions=True)
+
+
 class TestGrievanceSubmitterOwnership(FrappeTestCase):
 	"""The submission endpoint owns identity: a caller cannot choose whose case it is.
 
@@ -827,10 +914,6 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
-		# This class commits (below), so the desk's removal has to be committed too.
-		self.addCleanup(frappe.db.commit)
-		a_staffed_desk(self, "Inputs", "Test Agri Dept")
-
 		# Setup officer user
 		if frappe.db.exists("User", "officer.options@example.com"):
 			frappe.delete_doc("User", "officer.options@example.com", force=True, ignore_permissions=True)
@@ -845,6 +928,33 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		self.addCleanup(
 			frappe.delete_doc, "User", "officer.options@example.com", force=True, ignore_permissions=True
+		)
+
+		# Place officer on active desk
+		self.addCleanup(frappe.db.commit)
+		self.desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": "Test Agri Dept",
+				"category_scope": "Inputs",
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{
+						"user": self.officer_user.name,
+						"role_level": "nodal_officer",
+						"is_primary": 1,
+						"active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance RBAC Assignment",
+			self.desk.name,
+			force=True,
+			ignore_permissions=True,
 		)
 
 		# Setup submitter user
@@ -885,9 +995,18 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		status_names = [s["status"] for s in data["statuses"]]
 		self.assertEqual(
 			status_names,
-			["All", "Assigned", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+			[
+				"All",
+				"Submitted",
+				"Assigned",
+				"Reopened",
+				"In Progress",
+				"More Info Needed",
+				"Rejected",
+				"Resolved",
+				"Closed",
+			],
 		)
-		self.assertNotIn("Submitted", status_names)
 
 		# Validate categories and channels
 		self.assertIn("service_categories", data)
@@ -906,7 +1025,16 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 		self.assertNotIn("Assigned", status_names)
 		self.assertEqual(
 			status_names,
-			["All", "In Progress", "More Info Needed", "Rejected", "Resolved", "Closed"],
+			[
+				"All",
+				"Submitted",
+				"Reopened",
+				"In Progress",
+				"More Info Needed",
+				"Rejected",
+				"Resolved",
+				"Closed",
+			],
 		)
 
 	def test_unauthorized_user_cannot_access_options(self):
@@ -941,6 +1069,11 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 			self.addCleanup(frappe.delete_doc, "User", email, force=True, ignore_permissions=True)
+			self.desk.append(
+				"officers", {"user": email, "role_level": "nodal_officer", "is_primary": 0, "active": 1}
+			)
+
+		self.desk.save(ignore_permissions=True)
 
 		case = frappe.get_doc(
 			{

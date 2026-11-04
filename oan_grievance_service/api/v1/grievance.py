@@ -9,12 +9,11 @@ from typing import Literal
 
 import frappe
 from frappe import N_, _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
-	from_tz_aware_iso,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -67,6 +66,7 @@ from oan_grievance_service.services import (
 	routing,
 	sla,
 	ticket_export,
+	timeline_changes,
 )
 from oan_grievance_service.services import constants as C
 
@@ -519,8 +519,8 @@ def list_grievances(
 	service_category/category, administrative_area/location/region/zone/woreda/kebele,
 	grievance_type, department, and submission_channel.
 
-	Status filters use the queue cards (All, In Progress, More Info Needed, Rejected,
-	Resolved, Closed; officers also get Assigned). Workflow
+	Status filters use the queue cards (All, Submitted, Reopened, In Progress, More Info
+	Needed, Rejected, Resolved, Closed; officers also get Assigned). Workflow
 	stages that are not a card are reported as the card they roll up into.
 	"""
 	effective_limit = limit if limit is not None else page_size
@@ -700,6 +700,7 @@ def list_grievances(
 		"assigned_to",
 		"sla_due_date",
 		"state_deadline",
+		"on_hold_since",
 		"creation as submitted_on",
 		"modified as updated_at",
 	]
@@ -749,8 +750,28 @@ def list_grievances(
 		)
 
 	is_staff = permissions.is_staff(frappe.session.user)
+	assignee_names = _officer_names(item.get("assigned_to") for item in items) if is_staff else {}
+	timer_cache = {}
+	officer_may_act = permissions.officer_write_check() if is_staff else None
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
+		deadline = sla.deadline_view(item, timer_cache)
+		item["due_date"] = to_tz_aware_iso(deadline["due_date"])
+		item["due_kind"] = deadline["due_kind"]
+		item["overdue_seconds"] = deadline["overdue_seconds"]
+		# Only the side the case is waiting on can act on it: the submitter while a
+		# reply or confirmation is owed, an officer who owns the case otherwise.
+		if is_staff:
+			item["can_act"] = deadline["awaiting"] == "officer" and officer_may_act(item)
+		else:
+			item["can_act"] = deadline["awaiting"] == "submitter"
+		held = sla.pause_view(item, timer_cache)
+		item.pop("on_hold_since", None)
+		item["auto_close_at"] = held["auto_close_at"]
+		item["is_paused"] = held["is_paused"]
+		item["paused_since"] = to_tz_aware_iso(held["paused_since"])
+		if is_staff:
+			item["sla_due_date"] = held["sla_due_date"]
 		state_deadline = item.pop("state_deadline", None)
 		item["confirmation_deadline"] = state_deadline if item.get("status") == C.STATE_RESOLVED else None
 
@@ -765,6 +786,7 @@ def list_grievances(
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
 		item["department"] = item.get("assigned_dept")
+		item["assigned_to_name"] = assignee_names.get(item.get("assigned_to"))
 		if not is_staff:
 			item["assigned_to"] = None
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
@@ -846,6 +868,24 @@ def _get_available_actions_for_user(doc):
 	return result
 
 
+def _officer_names(users):
+	"""{user id: full name} for the officers a response names; the id when a user has no name."""
+	users = {u for u in users if u}
+	if not users:
+		return {}
+	return {
+		row.name: row.full_name or row.name
+		for row in frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"])
+	}
+
+
+def _assignee_name(doc):
+	"""The assigned officer's name, for staff; None for anyone else or an unassigned case."""
+	if not (doc.assigned_to and permissions.is_staff(frappe.session.user)):
+		return None
+	return _officer_names([doc.assigned_to]).get(doc.assigned_to)
+
+
 def _current_state(doc, extra=None):
 	"""The `current_state` block every mutating endpoint echoes back.
 
@@ -856,9 +896,10 @@ def _current_state(doc, extra=None):
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 	state = {
-		"status": doc.status,
+		"status": public_status(doc.status),
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
+		"assigned_to_name": _assignee_name(doc),
 		"department": doc.assigned_dept,
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
@@ -989,7 +1030,7 @@ def submit(**kwargs):
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
 			"routing_rule": getattr(doc, "routing_rule", None),
@@ -1176,6 +1217,17 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 
 	parts = response_body.split(body)
 
+	# A change request's note is stored with raw ids; the API shows names. Only the
+	# internal note: the public assignment line is already plain text.
+	changes = None
+	if is_internal and ref_name and get_field("ref_doctype") == timeline_changes.CHANGE_REQUEST:
+		change_requests = context.get("change_requests")
+		if change_requests is None:
+			change_requests = timeline_changes.load([ref_name])
+		shown = change_requests.get(ref_name)
+		if shown:
+			body, changes = shown["body"], shown["changes"]
+
 	result = {
 		"id": entry_name,
 		"name": entry_name,
@@ -1196,6 +1248,8 @@ def _format_timeline_event(entry, doc, from_status=None, to_status=None, context
 			response_numbers = _get_response_numbers(doc.name, up_to_name=entry_name)
 		result["response_number"] = response_numbers.get(entry_name) or 1
 
+	if changes is not None:
+		result["changes"] = changes
 	if action_val:
 		result["action"] = action_val
 	if parts:
@@ -1300,7 +1354,7 @@ def action(
 		)
 
 	if matching_action == "In Progress" or (
-		doc.workflow_state == C.STATE_ASSIGNED
+		doc.workflow_state in (C.STATE_ASSIGNED, C.STATE_REOPENED)
 		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
 	):
 		_ensure_owner(doc)
@@ -1372,7 +1426,7 @@ def action(
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"action": matching_action,
 			"attachments": attachments,
 			"current_state": current_state,
@@ -1520,23 +1574,15 @@ def timeline(
 		)
 
 	if cursor:
-		cursor = cursor.strip()
-		if " " in cursor and "+" not in cursor:
-			import re
-
-			cursor = re.sub(r" (\d{2}:\d{2})([|]|$)", r"+\1\2", cursor)
-
 		try:
-			cursor_ts_raw, cursor_name = cursor.split("|", 1)
-			cursor_ts = from_tz_aware_iso(cursor_ts_raw)
-			query = query.where(
-				(timeline_dt.created_on > cursor_ts)
-				| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
-			)
+			cursor_ts_raw, cursor_name = cursor.strip().split("|", 1)
+			cursor_ts = get_datetime(cursor_ts_raw)
 		except ValueError:
-			# Fallback for old cursor format
-			cursor_ts = from_tz_aware_iso(cursor)
-			query = query.where(timeline_dt.created_on > cursor_ts)
+			frappe.throw(_("Invalid cursor."), frappe.ValidationError)
+		query = query.where(
+			(timeline_dt.created_on > cursor_ts)
+			| ((timeline_dt.created_on == cursor_ts) & (timeline_dt.name > cursor_name))
+		)
 
 	query = (
 		query.orderby(timeline_dt.created_on, order=frappe.qb.asc)
@@ -1551,7 +1597,7 @@ def timeline(
 
 	if has_more and entries:
 		last = entries[-1]
-		next_cursor = f"{to_tz_aware_iso(last['created_on'])}|{last['name']}"
+		next_cursor = f"{get_datetime(last['created_on']).isoformat(sep=' ')}|{last['name']}"
 	else:
 		next_cursor = None
 
@@ -1578,6 +1624,13 @@ def timeline(
 		"user_names": user_names,
 		"history_fetched": True,
 		"response_numbers": _get_response_numbers(doc.name),
+		"change_requests": timeline_changes.load(
+			{
+				e["ref_docname"]
+				for e in entries
+				if e.get("is_internal") and e.get("ref_doctype") == timeline_changes.CHANGE_REQUEST
+			}
+		),
 	}
 
 	formatted_entries = []
@@ -1654,24 +1707,24 @@ def timeline(
 		frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name") if doc.grievance_type else None
 	)
 
+	held = sla.pause_view(doc)
+
 	return success_response(
 		data={
 			"name": doc.name,
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"escalated": bool(doc.escalated),
-			"summary": {
-				"description": doc.description,
-				"desired_outcome": doc.desired_outcome,
-				"service_category": doc.service_category,
-				"grievance_type_id": doc.grievance_type,
-				"grievance_type_name": grievance_type_name or doc.grievance_type,
-				"administrative_area": doc.administrative_area,
-				"administrative_hierarchy": area_hierarchy,
-				"location": location_str,
-				"administrative_unit": doc.administrative_unit,
-				"submission_channel": doc.submission_channel,
-			},
+			"description": doc.description,
+			"desired_outcome": doc.desired_outcome,
+			"service_category": doc.service_category,
+			"grievance_type": doc.grievance_type,
+			"grievance_type_name": grievance_type_name or doc.grievance_type,
+			"administrative_area": doc.administrative_area,
+			"administrative_hierarchy": area_hierarchy,
+			"location": location_str,
+			"administrative_unit": doc.administrative_unit,
+			"submission_channel": doc.submission_channel,
 			"submitter": {
 				"name": masked_name,
 				"contact_mobile": contact["contact_mobile"],
@@ -1683,7 +1736,10 @@ def timeline(
 			"sla": {
 				"sla_days": doc.sla_days,
 				"sla_start_at": to_tz_aware_iso(doc.sla_start_at),
-				"sla_due_date": to_tz_aware_iso(doc.sla_due_date),
+				"sla_due_date": to_tz_aware_iso(held["sla_due_date"] if is_staff else doc.sla_due_date),
+				"is_paused": held["is_paused"],
+				"paused_since": to_tz_aware_iso(held["paused_since"]),
+				"auto_close_at": to_tz_aware_iso(held["auto_close_at"]),
 				"sla_consumed_percent": sla.consumed_percent(doc),
 				"next_escalation_at": to_tz_aware_iso(doc.next_escalation_at),
 				# Kept under its old name for existing clients: the confirmation window is
@@ -1696,6 +1752,7 @@ def timeline(
 			"assignment": {
 				"department": doc.assigned_dept,
 				"assigned_to": doc.assigned_to if is_staff else None,
+				"assigned_to_name": _assignee_name(doc),
 				"routed_automatically": bool(doc.routed_automatically),
 				"active_reassignment_request": active_reassignment_request if is_staff else None,
 			},
@@ -1810,7 +1867,7 @@ def message(
 			"is_internal": bool(entry.is_internal),
 			"author_type": "officer" if is_staff else "submitter",
 			"created_on": to_tz_aware_iso(entry.created_on),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"attachments": attachments,
 			"current_state": _current_state(doc),
 			"timeline_event": _timeline_event_with(entry, doc, attachments),
@@ -1845,7 +1902,7 @@ def _change_response(doc, req, applied_message, pending_message, **extra):
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
-			"status": doc.status,
+			"status": public_status(doc.status),
 			"change_request": serialize(req),
 			"current_state": current_state,
 			"timeline_event": _format_timeline_event(timeline_entry, doc) if timeline_entry else None,
@@ -2077,8 +2134,8 @@ def _load(ticket_number, ptype="read"):
 def summary():
 	"""Counts of visible grievances on each queue status card.
 
-	The cards are All, In Progress, More Info Needed, Rejected,
-	Resolved and Closed. Officers also get an Assigned card. Any other workflow
+	The cards are All, Submitted, Reopened, In Progress, More Info Needed,
+	Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
 	state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
 	"""

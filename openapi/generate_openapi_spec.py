@@ -554,11 +554,39 @@ data(
 			"contact_mobile": S(example="+251911887766", nullable=True),
 			"contact_email": S(nullable=True),
 			"assigned_officer": S(nullable=True),
+			"assigned_to": S(nullable=True, description="Assigned officer email; staff only"),
+			"assigned_to_name": S(nullable=True, description="Assigned officer's full name; staff only"),
 			"sla_target_date": S(format="date-time", nullable=True),
 			"is_escalated": I(enum=[0, 1]),
 			"escalated": B(nullable=True),
 			"is_anonymous": B(nullable=True),
 			"confirmation_deadline": S(format="date-time", nullable=True),
+			"can_act": B(
+				description="Whether the caller may act on the case now: the submitter while a reply or confirmation is owed, the assigned officer (or their supervisor) otherwise"
+			),
+			"due_date": S(
+				format="date-time",
+				nullable=True,
+				description="The one deadline that matters now: the auto-close date while awaiting the submitter, the SLA due date while awaiting an officer",
+			),
+			"due_kind": S(
+				nullable=True,
+				enum=["auto_close", "sla_breach"],
+				description="What happens at due_date: the case closes by itself, or the SLA is breached",
+			),
+			"overdue_seconds": I(
+				nullable=True,
+				description="How long past due_date the case already is; null until it is",
+			),
+			"is_paused": B(
+				nullable=True, description="Whether the SLA clock is held (waiting on the submitter)"
+			),
+			"paused_since": S(format="date-time", nullable=True, description="When the hold started"),
+			"auto_close_at": S(
+				format="date-time",
+				nullable=True,
+				description="When the case closes by itself if nobody acts, for a state whose timer closes it",
+			),
 			"creation": S(format="date-time"),
 			"modified": S(format="date-time"),
 		},
@@ -632,6 +660,26 @@ data(
 )
 
 data(
+	"TimelineChangeItem",
+	OBJ(
+		{
+			"fieldname": S(example="assigned_to", description="The grievance field the request changed"),
+			"label": S(example="Assigned Officer", description="Display label of the field"),
+			"old_value": S(nullable=True, description="Stored value before the change (an id or email)"),
+			"new_value": S(nullable=True, description="Stored value after the change (an id or email)"),
+			"old_display": S(
+				example="Selam Bekele", description="Name to show for the old value; '-' if empty"
+			),
+			"new_display": S(
+				example="Hana Girma", description="Name to show for the new value; '-' if empty"
+			),
+		},
+		required=["fieldname", "label", "old_display", "new_display"],
+		description="One field a change request moved, with the names to show for its values",
+	),
+)
+
+data(
 	"TimelineEventItem",
 	OBJ(
 		{
@@ -660,7 +708,16 @@ data(
 			"author_name": S(
 				nullable=True, description="Full name of actor when visible (e.g. for staff oversight)"
 			),
-			"body": S(nullable=True, description="Timeline message or description text"),
+			"body": S(
+				nullable=True,
+				description="Timeline message or description text. A change request's internal note "
+				"reads with field labels and officer and grievance type names, one line per change.",
+			),
+			"changes": ARR(
+				REF("TimelineChangeItem"),
+				description="Only on the internal note of a change request (reassignment, SLA deferral): "
+				"the same changes as `body`, as data",
+			),
 			"is_internal": B(description="Whether visible only to staff"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files attached to this entry"),
 			"created_on": S(format="date-time", nullable=True),
@@ -694,20 +751,32 @@ data(
 			"ticket_number": S(example="ET14IN000012026"),
 			"status": S(example="Under Investigation"),
 			"escalated": B(),
-			"summary": OBJ(
-				{
-					"description": S(nullable=True),
-					"desired_outcome": S(nullable=True),
-					"service_category": S(nullable=True),
-					"grievance_type_id": S(nullable=True),
-					"grievance_type_name": S(nullable=True),
-					"administrative_area": S(nullable=True),
-				},
-				additionalProperties=True,
-			),
+			"description": S(nullable=True),
+			"desired_outcome": S(nullable=True),
+			"service_category": S(nullable=True),
+			"grievance_type": S(nullable=True),
+			"grievance_type_name": S(nullable=True),
+			"administrative_area": S(nullable=True),
+			"administrative_hierarchy": OBJ({}, additionalProperties=True, nullable=True),
+			"location": S(nullable=True),
+			"administrative_unit": S(nullable=True),
+			"submission_channel": S(nullable=True),
 			"sla": OBJ(
 				{
-					"sla_due_date": S(format="date-time", nullable=True),
+					"sla_due_date": S(
+						format="date-time",
+						nullable=True,
+						description="Due date. While the clock is held (is_paused) it is the latest date it can reach, for staff",
+					),
+					"is_paused": B(
+						nullable=True, description="Whether the SLA clock is held (waiting on the submitter)"
+					),
+					"paused_since": S(format="date-time", nullable=True, description="When the hold started"),
+					"auto_close_at": S(
+						format="date-time",
+						nullable=True,
+						description="When the case closes by itself if nobody acts, for a state whose timer closes it",
+					),
 					"active_deferral_request": {
 						"oneOf": [REF("ChangeRequestData"), REF("PublicChangeRequestData")],
 						"nullable": True,
@@ -718,6 +787,7 @@ data(
 				{
 					"department": S(nullable=True),
 					"assigned_to": S(nullable=True),
+					"assigned_to_name": S(nullable=True),
 					"routed_automatically": B(),
 					"active_reassignment_request": {**REF("ChangeRequestData"), "nullable": True},
 				}
@@ -946,8 +1016,14 @@ data(
 	OBJ(
 		{
 			"fieldname": S(description="Grievance field to modify"),
-			"old_value": S(nullable=True, description="Value before change"),
-			"new_value": S(nullable=True, description="Requested value"),
+			"old_value": S(
+				nullable=True, description="Value before change; the officer's full name for assigned_to"
+			),
+			"old_value_id": S(nullable=True, description="Officer's user id; set only for assigned_to"),
+			"new_value": S(
+				nullable=True, description="Requested value; the officer's full name for assigned_to"
+			),
+			"new_value_id": S(nullable=True, description="Officer's user id; set only for assigned_to"),
 		},
 		required=["fieldname"],
 		description="Specific field modification item in a change request",
@@ -959,8 +1035,10 @@ data(
 	OBJ(
 		{
 			"action": S(example="Requested", description="Approval lifecycle action"),
-			"user": S(description="User performing action"),
-			"pending_with": S(nullable=True, description="User or role pending decision"),
+			"user": S(description="Full name of the user performing action"),
+			"user_id": S(description="User id of the user performing action"),
+			"pending_with": S(nullable=True, description="Full name of the user pending decision"),
+			"pending_with_id": S(nullable=True, description="User id of the user pending decision"),
 			"at": S(format="date-time", nullable=True, description="Timestamp of action"),
 			"note": S(nullable=True, description="Approval or rejection remarks"),
 		},
@@ -993,11 +1071,18 @@ data(
 			"subject": S(description="Summary of requested change"),
 			"reason": S(nullable=True, description="Reason or justification"),
 			"status": S(example="Pending", enum=["Pending", "Approved", "Rejected"]),
-			"requested_by": S(description="User who raised the request"),
+			"requested_by": S(description="Full name of the user who raised the request"),
+			"requested_by_id": S(description="User id of the user who raised the request"),
 			"requested_at": S(format="date-time", nullable=True),
-			"pending_with": S(nullable=True, description="User currently required to decide"),
+			"pending_with": S(
+				nullable=True, description="Full name of the user currently required to decide"
+			),
+			"pending_with_id": S(
+				nullable=True, description="User id of the user currently required to decide"
+			),
 			"pending_since": S(format="date-time", nullable=True),
-			"decided_by": S(nullable=True, description="User who finalized decision"),
+			"decided_by": S(nullable=True, description="Full name of the user who finalized decision"),
+			"decided_by_id": S(nullable=True, description="User id of the user who finalized decision"),
 			"decided_at": S(format="date-time", nullable=True),
 			"decision_note": S(nullable=True, description="Decision explanation"),
 			"changes": ARR(REF("ChangeItem")),
@@ -1041,6 +1126,7 @@ data(
 			"status": S(description="Public grievance status"),
 			"escalated": B(description="Whether case is currently escalated"),
 			"assigned_to": S(nullable=True, description="Assigned officer email"),
+			"assigned_to_name": S(nullable=True, description="Assigned officer's full name; staff only"),
 			"department": S(nullable=True, description="Assigned department ID"),
 			"updated_at": S(format="date-time", nullable=True),
 			"available_actions": ARR(REF("AvailableActionItem")),
@@ -1904,7 +1990,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			},
 			{
 				"name": "Dashboard Charts",
-				"description": "Aggregate counts from the 15-minute rollups, for the OAN programme dashboards",
+				"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
 			},
 		],
 		"paths": paths,

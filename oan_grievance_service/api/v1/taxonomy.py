@@ -147,9 +147,13 @@ class ListServiceCategories(PageParams, Body):
 	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
 
 	is_active: bool | None = None
+	has_desk: bool | None = Field(
+		None,
+		description="true lists only categories with an active desk (assignment_count above 0), false only those without",
+	)
 	search: str | None = Field(None, description="Matches the name or code")
 
-	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
+	_active_blank = field_validator("is_active", "has_desk", mode="before")(blank_to_none)
 
 
 def _category_records(docs: list) -> list[dict]:
@@ -185,12 +189,14 @@ def _category_records(docs: list) -> list[dict]:
 @api_doc(
 	summary="List service categories",
 	description="Admin list of service categories in display order, active and inactive, filterable by "
-	+ "active flag and by text in the name or code. Each record counts what refers to it.",
+	+ "active flag, by whether the category has an active desk (has_desk) and by text in the name or code. "
+	+ "Each record counts what refers to it.",
 	tags=["Administration"],
 	response_model=ServiceCategoryListData,
 )
 def list_service_categories(
 	is_active: bool | str | None = None,
+	has_desk: bool | str | None = None,
 	search: str | None = None,
 	page: int | str = 1,
 	page_size: int | str = 20,
@@ -203,6 +209,19 @@ def list_service_categories(
 	"""
 	params = PageParams(page=page, page_size=page_size)
 	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
+	if has_desk is not None:
+		staffed = set(
+			frappe.get_all(
+				"Grievance RBAC Assignment",
+				filters={"active": 1, "category_scope": ["is", "set"]},
+				pluck="category_scope",
+			)
+		)
+		if has_desk:
+			# A category name is never empty, so [""] matches nothing when no desk exists.
+			filters["name"] = ["in", list(staffed) or [""]]
+		elif staffed:
+			filters["name"] = ["not in", list(staffed)]
 	or_filters = _search(CATEGORY, search, ("category_name", "code"))
 	docs = frappe.get_all(
 		CATEGORY,

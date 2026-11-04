@@ -49,9 +49,8 @@
   },
   {
    "fieldname": "grievance",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Grievance",
-   "options": "Grievance",
    "read_only": 1
   },
   {

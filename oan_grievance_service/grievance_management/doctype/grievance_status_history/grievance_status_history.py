@@ -59,9 +59,7 @@ def require_reason(from_status, to_status, reason):
 	the move, so a missing reason rolls the move back whether it came from the
 	desk, the API or a scheduled job.
 	"""
-	is_reason_required = (to_status == C.STATE_REJECTED) or (
-		from_status == C.STATE_RESOLVED and to_status == C.STATE_IN_PROGRESS
-	)
+	is_reason_required = to_status in (C.STATE_REJECTED, C.STATE_REOPENED)
 	if not is_reason_required:
 		return
 	if reason and reason.strip():

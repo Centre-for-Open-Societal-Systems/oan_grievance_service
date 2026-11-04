@@ -341,7 +341,7 @@ class TestSlaSettings(FrappeTestCase):
 	def test_notify_on_breach_gates_the_breach_notification(self):
 		self._assign()
 		name = self._config()["name"]
-		officer = _user("stg412-assignee@example.com", "Hana Assignee")
+		officer = self.l1
 		grievance_type = frappe.get_doc(
 			{
 				"doctype": "Grievance Type",

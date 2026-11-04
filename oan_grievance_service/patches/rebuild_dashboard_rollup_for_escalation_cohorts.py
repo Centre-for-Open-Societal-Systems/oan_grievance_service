@@ -13,16 +13,11 @@ rather than run inside the migrate.
 
 import frappe
 
+from oan_grievance_service.services import dashboard_rollup
+
 
 def execute():
 	frappe.reload_doc("grievance_management", "doctype", "grievance_stat_daily")
 	if not frappe.db.get_value("Grievance", {}, "name"):
 		return
-	frappe.enqueue(
-		"oan_grievance_service.services.dashboard_rollup.refresh",
-		full=True,
-		queue="long",
-		job_id="grievance_dashboard_rollup",
-		deduplicate=True,
-		enqueue_after_commit=True,
-	)
+	dashboard_rollup.enqueue(full=True)

@@ -88,7 +88,7 @@ class TestDeskHead(base.RoleCase):
 
 	def test_a_head_cannot_edit_a_head_or_promote_an_officer(self):
 		head = self._desk_head()
-		other_head = self._head(f"{base.PREFIX}head2@example.com")
+		other_head = self._head(f"{base.PREFIX}head2@example.com", service_categories=[self.credit])
 		mine = self._officer(f"{base.PREFIX}mine@example.com")
 		frappe.set_user(head["name"])
 		with _keep_transaction():

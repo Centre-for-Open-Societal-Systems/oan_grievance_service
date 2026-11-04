@@ -89,7 +89,7 @@ Role: Grievance Submitter. Officers, reviewers and admins get 403.
 }
 ```
 
-Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `representative_name` (defaults to the account's name), `members_affected` (Cooperative / FPO member count, a whole number from 0, default 0), `website`, `kebele`, `woreda`. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, and only `http` and `https` addresses are accepted. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy. The registration screen's checkbox sends it. The server does not store it separately, because the organization's creation time is when it was given, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
+Required: `legal_name`, `org_type`, `entity_type`, `registration_number`, `representative_name`, `contact_email`, `contact_phone`, `street_address`, `zone`, `region`, `country`, `postal_code`, `consent_given`. Optional: `brand_name`, `members_affected` (Cooperative / FPO member count, a whole number from 0, default 0), `website`, `kebele`, `woreda`. `contact_email` is a valid address of at most 140 characters. `contact_phone` is any valid number in the service's jurisdiction and is stored as E.164. `postal_code` is 3 to 10 letters or numbers, with a single space or hyphen between groups. `website` is optional and may be added later: a bare `example.org` is stored as `https://example.org`, only `http` and `https` addresses are accepted, and an address containing `@` is refused. `consent_given` must be `true`: it is the representative's confirmation that they are authorised to register the organization and agree to the Privacy Policy. The registration screen's checkbox sends it. The server does not store it separately, because the organization's creation time is when it was given, and it cannot be changed afterwards. Any other field, including `status`, is a 400.
 
 Returns the organization with `status: "In Review"`.
 
@@ -99,7 +99,7 @@ The caller's organization, or 404 until one is registered. The screen shows the 
 
 ### `PATCH /orgs/me`
 
-Send only the fields to change. `brand_name`, `representative_name`, `members_affected` (resets it to 0), `website`, `kebele` and `woreda` accept `null` to clear. `status`, `representative_user` and the verification fields are not accepted.
+Send only the fields to change. `brand_name`, `members_affected` (resets it to 0), `website`, `kebele` and `woreda` accept `null` to clear. `representative_name` can be changed but not cleared. `status`, `representative_user` and the verification fields are not accepted.
 
 - A `Suspended` organization is read-only: 403.
 - Changing `legal_name`, `org_type` or `registration_number` on an `Active` organization sets it back to `In Review` with a `status_reason` naming what changed, and the profile is blocked again. Tell the user before they save. Contact and address edits do not change the status.
@@ -216,7 +216,7 @@ Sign-up payload for an organization. The same fields as any sign-up, with `submi
 
 - `submitter_type` is `NGO`, `FPO` or `Cooperative`. `fayda_id` is required, as for an Individual Farmer: 16 digits, and one account per Fayda ID.
 - The profile is keyed by that Fayda ID, and `GET /auth/me` returns it as `fayda_id` (and in `identities`) for `type` `NGO`, `FPO` or `Cooperative`, before and after the organization is registered.
-- `POST /orgs` keeps the Fayda key, so the organization's registration number lives on the organization, not on the profile. The account's name stays the representative's: `representative_name` defaults to it.
+- `POST /orgs` keeps the Fayda key, so the organization's registration number lives on the organization, not on the profile. The representative's name is sent as `representative_name`, which is required, so the account's name is not assumed to be it.
 - A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, with no Fayda ID, blocked until an administrator verifies it), but it creates no organization record. The registration screen does not send one. The user still completes `POST /orgs`, with the same registration number.
 - `GET /orgs/me` is the endpoint that returns the signed-in representative's organization. It identifies them from the bearer token, so it takes no id.
 

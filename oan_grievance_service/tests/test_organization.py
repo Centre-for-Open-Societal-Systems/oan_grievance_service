@@ -50,6 +50,7 @@ def _payload(**overrides) -> dict:
 		"legal_name": "Selam Farmers Cooperative Union",
 		"org_type": "FPO",
 		"entity_type": "Cooperative Union",
+		"representative_name": "Almaz Bekele",
 		"registration_number": f"REG-{frappe.generate_hash(length=8).upper()}",
 		"contact_email": "office@selam-coop.example.com",
 		"contact_phone": "+251911" + "".join(random.choices("0123456789", k=6)),
@@ -236,10 +237,30 @@ class TestRegistration(OrganizationTestCase):
 
 		data = resolve_user_profile_hook(frappe.get_doc("User", self.other_rep))[1]
 		self.assertEqual(data["organization"]["members_affected"], 30)
-		self.assertEqual(
-			data["organization"]["representative_name"],
-			frappe.db.get_value("User", self.other_rep, "full_name"),
-		)
+		self.assertEqual(data["organization"]["representative_name"], "Almaz Bekele")
+
+	def test_representative_name_is_required_and_cannot_be_cleared(self):
+		frappe.set_user(self.rep)
+		for bad in (None, "", "   ", "x" * 141):
+			payload = _payload(representative_name=bad)
+			result = register_organization(**payload)
+			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=repr(bad))
+			self.assertIn("representative_name", result["details"])
+		missing = _payload()
+		del missing["representative_name"]
+		result = register_organization(**missing)
+		self.assertEqual(result["code"], "VALIDATION_ERROR")
+		self.assertEqual(result["details"]["representative_name"], "Representative name is required.")
+		self.assertFalse(frappe.db.exists(service.DOCTYPE, {"representative_user": self.rep}))
+
+		self.assertEqual(register_organization(**_payload())["status"], "success")
+		for bad in (None, "", "   "):
+			result = update_my_organization(representative_name=bad)
+			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=repr(bad))
+			self.assertIn("representative_name", result["details"])
+		changed = update_my_organization(representative_name="Hana Tesfaye")
+		self.assertEqual(changed["data"]["representative_name"], "Hana Tesfaye")
+		self.assertEqual(update_my_organization(kebele="02")["data"]["representative_name"], "Hana Tesfaye")
 
 	def test_a_bare_website_is_taken_as_https(self):
 		frappe.set_user(self.rep)
@@ -825,7 +846,12 @@ class TestSignUpThenCompleteRegistration(FrappeTestCase):
 		self.assertEqual(get_my_organization()["code"], "NOT_FOUND")
 
 		created = register_organization(
-			**_payload(org_type="NGO", entity_type="Local NGO", legal_name="Abay Water Trust")
+			**_payload(
+				org_type="NGO",
+				entity_type="Local NGO",
+				legal_name="Abay Water Trust",
+				representative_name="Registration Fields Farmer",
+			)
 		)
 		self.assertEqual(created["status"], "success", msg=created)
 		org = created["data"]

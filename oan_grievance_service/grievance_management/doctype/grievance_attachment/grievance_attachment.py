@@ -114,6 +114,8 @@ class GrievanceAttachment(Document):
 		this point leaves a File row without an object; that window is core's own,
 		the same one every File delete has, and deleting the right File is the fix.
 		"""
+		if self.flags.keep_file:
+			return  # the caller removes the File once its own delete can no longer be refused
 		if self.file and frappe.db.exists("File", self.file):
 			frappe.delete_doc("File", self.file, force=True, ignore_permissions=True)
 

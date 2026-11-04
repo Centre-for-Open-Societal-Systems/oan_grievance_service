@@ -20,7 +20,6 @@ change applies to cases that start, resume or re-arm after it, and leaves armed 
 
 import frappe
 from frappe import N_, _
-from frappe.utils import get_datetime
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -30,6 +29,7 @@ from oan_auth_service.api.utils import (
 	require_permission,
 	require_role,
 	success_response,
+	to_tz_aware_iso,
 	validate_request,
 )
 from pydantic import BaseModel, Field
@@ -136,8 +136,8 @@ class ListSlaConfigurations(PageParams, Body):
 
 
 def _text(modified) -> str | None:
-	"""`modified` as the ISO-8601 text the other admin endpoints return."""
-	return get_datetime(modified).isoformat() if modified else None
+	"""`modified` as the ISO-8601 UTC text the other endpoints return."""
+	return to_tz_aware_iso(modified)
 
 
 def _policy_data() -> dict:
