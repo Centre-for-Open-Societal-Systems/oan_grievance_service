@@ -9,6 +9,10 @@ service must not depend on the handler layer, so they are here and the API impor
 
 import frappe
 
+from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
+	is_in_area_subtree,
+)
+
 
 def get_ancestors(area_id_or_path):
 	"""Fetch ancestor chain from root down to the specified node."""
@@ -84,25 +88,47 @@ def format_administrative_location(hierarchy_or_area_id: dict | str | None) -> s
 
 
 def match_administrative_area(
-	region: str | None, woreda: str | None = None, kebele: str | None = None
+	region: str | None, woreda: str | None = None, street_address: str | None = None
 ) -> str | None:
-	"""The deepest Grievance Administrative Area whose names match, walking region, woreda, kebele.
+	"""The deepest active Grievance Administrative Area whose names match, walking region, woreda, kebele.
 
 	Each level is looked up under the node matched above it, so a woreda name shared by two
-	regions resolves to the right one. The walk stops at the first level with no match, and
-	no region match returns None.
+	regions resolves to the right one. The kebele is whichever comma-separated part of
+	`street_address` names one ("Kebele 01, House 23"). The walk stops at the first level with
+	no match or more than one, such as a woreda name repeated in two zones of a region, and no
+	region match returns None.
 	"""
+	kebeles = [part.strip() for part in (street_address or "").split(",") if part.strip()]
 	node = None
-	for level, name in (("Region", region), ("Woreda", woreda), ("Kebele", kebele)):
-		if not name:
+	for level, names in (("Region", [region]), ("Woreda", [woreda]), ("Kebele", kebeles)):
+		if not any(names):
 			break
-		filters = {"area_name": name, "level_name": level}
+		filters = {"area_name": ["in", names], "level_name": level, "is_active": 1}
 		if node:
 			filters.update(lft=[">", node.lft], rgt=["<", node.rgt])
-		found = frappe.db.get_value(
-			"Grievance Administrative Area", filters, ["name", "lft", "rgt"], as_dict=True
+		found = frappe.get_all(
+			"Grievance Administrative Area", filters=filters, fields=["name", "lft", "rgt"], limit=2
 		)
-		if not found:
+		if len(found) != 1:
 			break
-		node = found
+		node = found[0]
 	return node.name if node else None
+
+
+def refreshed_administrative_area(profile: dict, matched: str | None) -> str | None:
+	"""The area a submitter profile should hold once its provider address has matched `matched`.
+
+	`administrative_area` is the source of truth for where the submitter is; `locality` and
+	`administrative_unit` are text as given. An area the old address matched came from the
+	provider, so it follows the provider, down to clearing. Any other area was chosen by the
+	submitter: it stays on no match, or when it sits inside the new match.
+	"""
+	current = profile.get("administrative_area")
+	if not current or current == matched:
+		return matched
+	old_match = match_administrative_area(
+		profile.get("region"), profile.get("locality"), profile.get("street_address")
+	)
+	if current != old_match and (not matched or is_in_area_subtree(current, matched)):
+		return current
+	return matched
