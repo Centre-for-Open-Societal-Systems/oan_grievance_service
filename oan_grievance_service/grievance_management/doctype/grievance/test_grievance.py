@@ -5,7 +5,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.api.v1 import grievance as grievance_api
 from oan_grievance_service.api.v1.grievance import (
 	CLIENT_IMMUTABLE_FIELDS,
 	_resolve_submitter_identity,
@@ -13,15 +12,14 @@ from oan_grievance_service.api.v1.grievance import (
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	validate_submission_payload,
 )
-from oan_grievance_service.permissions import grievance_query_conditions, has_grievance_permission
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import routing, ticket_number
 from oan_grievance_service.tests.fixtures import (
 	a_grievance,
 	a_grievance_type,
 	a_leaf_area,
-	a_staffed_desk,
 	discard_grievance,
+	post_grievance,
 )
 
 
@@ -416,7 +414,7 @@ class TestGrievance(FrappeTestCase):
 		import uuid
 
 		u = str(uuid.uuid4())
-		res = grievance_api.submit(
+		res = post_grievance(
 			client_submission_uuid=u,
 			consent_given=1,
 			submitter_type="Individual Farmer",
@@ -441,7 +439,7 @@ class TestGrievance(FrappeTestCase):
 		import uuid
 
 		u = str(uuid.uuid4())
-		res = grievance_api.submit(
+		res = post_grievance(
 			client_submission_uuid=u,
 			consent_given=1,
 			submitter_type="Individual Farmer",
@@ -482,7 +480,7 @@ class TestGrievance(FrappeTestCase):
 
 	def test_submit_without_consent_is_refused(self):
 		kwargs = self._filing_kwargs(consent_given=0)
-		res = grievance_api.submit(**kwargs)
+		res = post_grievance(**kwargs)
 		self.assertEqual(res["status"], "error")
 		self.assertFalse(
 			frappe.db.exists("Grievance", {"client_submission_uuid": kwargs["client_submission_uuid"]})
@@ -490,11 +488,11 @@ class TestGrievance(FrappeTestCase):
 
 	def test_submit_with_a_used_client_submission_uuid_is_refused(self):
 		kwargs = self._filing_kwargs()
-		first = grievance_api.submit(**kwargs)
+		first = post_grievance(**kwargs)
 		self.assertEqual(first["status"], "success")
 		self.addCleanup(discard_grievance, ticket_number.normalize(first["data"]["ticket_number"]))
 
-		second = grievance_api.submit(**kwargs)
+		second = post_grievance(**kwargs)
 		self.assertEqual(second["status"], "error")
 		# The error envelope rolls the request back, which in a test also discards the
 		# first filing, so a row count cannot show the refusal; its reason can.
@@ -504,7 +502,7 @@ class TestGrievance(FrappeTestCase):
 		)
 
 	def test_submit_without_permission_to_contact_drops_the_contact_details(self):
-		res = grievance_api.submit(
+		res = post_grievance(
 			**self._filing_kwargs(contact_email="tesfaye@example.com", can_request_more_info=False)
 		)
 		self.assertEqual(res["status"], "success")
