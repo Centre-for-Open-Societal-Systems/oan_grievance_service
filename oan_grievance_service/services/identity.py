@@ -8,7 +8,7 @@ from frappe import _
 SCHEME_FAYDA = "fayda"
 SCHEME_ORG = "org"
 SCHEME_PHONE = "phone"
-# Server-assigned to a Keycloak development agent with no phone or Fayda ID; never chosen by a client.
+# Server-assigned fallback for a staff type (user_fallback) with no phone or Fayda ID; never chosen by a client.
 SCHEME_USER = "user"
 
 # Fields every submitter needs regardless of type (profile registration, not grievance).
@@ -29,6 +29,9 @@ class IdentityRule:
 	required: tuple
 	"""Fields that must be present before the profile can be saved."""
 
+	user_fallback: bool = False
+	"""Last resort when no scheme above resolves: key the profile on the account (staff types only)."""
+
 
 SUBMITTER_TYPE_RULES = {
 	"Individual Farmer": IdentityRule(
@@ -38,6 +41,7 @@ SUBMITTER_TYPE_RULES = {
 	"Development Agent": IdentityRule(
 		schemes=(SCHEME_FAYDA, SCHEME_PHONE),
 		required=COMMON_REQUIRED,
+		user_fallback=True,
 	),
 	"Cooperative": IdentityRule(
 		schemes=(SCHEME_ORG, SCHEME_FAYDA),

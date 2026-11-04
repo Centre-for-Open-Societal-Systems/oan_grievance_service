@@ -53,6 +53,11 @@ class GrievanceSubmitterProfile(Document):
 
 		required = rule.required
 		if self.identity_scheme == identity.SCHEME_USER:
+			if not rule.user_fallback:
+				frappe.throw(
+					_("A {0} cannot be keyed on a user account.").format(self.submitter_type),
+					title=_("Invalid Identity Scheme"),
+				)
 			# Anchored to the account, so a phone number is neither the key nor mandatory.
 			required = tuple(field for field in required if field != "contact_mobile")
 

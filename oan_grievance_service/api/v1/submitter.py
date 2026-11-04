@@ -34,6 +34,7 @@ from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
 	SCHEME_ORG,
 	SCHEME_USER,
+	SUBMITTER_TYPE_RULES,
 	derive_dedupe_key,
 	validate_mobile,
 )
@@ -179,7 +180,8 @@ def _create_or_update_submitter_profile(
 		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 	)
-	if not derived_key and mobile_optional and user_doc:
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
+	if not derived_key and mobile_optional and user_doc and rule and rule.user_fallback:
 		derived_key = build_dedupe_key(SCHEME_USER, user_doc.name)
 	if not derived_key:
 		frappe.throw(
