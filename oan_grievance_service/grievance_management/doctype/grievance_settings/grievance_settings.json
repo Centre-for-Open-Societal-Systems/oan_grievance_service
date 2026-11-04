@@ -68,7 +68,8 @@
  "sort_order": "DESC",
  "states": [],
  "field_order": [
-  "auto_routing_enabled"
+  "auto_routing_enabled",
+  "ask_before_filing_duplicate"
  ],
  "fields": [
   {
@@ -77,6 +78,13 @@
    "fieldname": "auto_routing_enabled",
    "fieldtype": "Check",
    "label": "Route Cases to Matching Officers"
+  },
+  {
+   "default": "0",
+   "description": "When ticked, a web portal submitter who files a grievance similar to one of their own from the last 24 hours is asked whether it is a new grievance (the API answers 409 POSSIBLE_DUPLICATE until the request is sent again with confirm_new). Tick only once the web client handles that answer. Cases are flagged for officer review either way.",
+   "fieldname": "ask_before_filing_duplicate",
+   "fieldtype": "Check",
+   "label": "Ask Before Filing a Similar Grievance"
   }
  ]
 }

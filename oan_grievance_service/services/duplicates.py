@@ -71,6 +71,16 @@ PROMPT_WINDOW_HOURS = 24
 INTERACTIVE_CHANNELS = ("Web Portal",)
 
 
+def prompt_enabled():
+	"""Whether a web farmer is asked before a similar grievance is filed.
+
+	Off by default: the question is answered with a 409 the web client must understand, so it
+	is switched on in Grievance Settings once the client sends `confirm_new`. Flagging for an
+	officer does not depend on it.
+	"""
+	return bool(frappe.db.get_single_value("Grievance Settings", "ask_before_filing_duplicate"))
+
+
 def _homophone_folds():
 	"""Ge'ez letters that sound alike and are used interchangeably, folded onto one form.
 
@@ -214,6 +224,25 @@ def flag_possible_duplicates(grievance):
 	return rows
 
 
+def flag_without_failing(grievance):
+	"""Flag a grievance that is already filed, without ever losing the filing.
+
+	Flagging only advises an officer. A fault in the scoring or in writing a review row must
+	not roll back the farmer's grievance, so it is undone to a savepoint and logged instead.
+	"""
+	save_point = "flag_possible_duplicates"
+	frappe.db.savepoint(save_point)
+	try:
+		return flag_possible_duplicates(grievance)
+	except Exception:
+		frappe.db.rollback(save_point=save_point)
+		frappe.log_error(
+			title=f"Failed to flag possible duplicates for grievance: {grievance.name}",
+			message=frappe.get_traceback(),
+		)
+		return []
+
+
 def pending_reviews(grievance_name):
 	"""The rows awaiting an officer's ruling on a grievance, best match first."""
 	return frappe.get_all(
@@ -243,12 +272,30 @@ def assert_not_duplicate(grievance):
 
 
 def validate_main_ticket(grievance, main_name):
+	"""The main ticket must be a live or resolved case of the same submitter.
+
+	The same states and the same submitter as the candidates the system flags. The farmer is
+	told "all further handling will happen on the main ticket" and sees its number, so it
+	must be a ticket that is still handled and is theirs, never another farmer's.
+	"""
 	if main_name == grievance.name:
 		frappe.throw(_("A ticket cannot be a duplicate of itself."), title=_("Invalid Main Ticket"))
-	main_state = frappe.db.get_value("Grievance", main_name, "workflow_state")
-	if main_state == C.STATE_DUPLICATE:
+	main = frappe.db.get_value("Grievance", main_name, ["workflow_state", "submitter"], as_dict=True)
+	if main.workflow_state == C.STATE_DUPLICATE:
 		frappe.throw(
 			_("The main ticket is itself a duplicate. Choose the ticket it points to."),
+			title=_("Invalid Main Ticket"),
+		)
+	if main.workflow_state not in CANDIDATE_STATES:
+		frappe.throw(
+			_(
+				"The main ticket is {0}. A duplicate can only point to a ticket that is still open or resolved."
+			).format(_(main.workflow_state)),
+			title=_("Invalid Main Ticket"),
+		)
+	if not grievance.submitter or main.submitter != grievance.submitter:
+		frappe.throw(
+			_("The main ticket must belong to the same submitter as this ticket."),
 			title=_("Invalid Main Ticket"),
 		)
 
@@ -303,6 +350,23 @@ def confirm(grievance, main_name=None, note=None):
 	row.save(ignore_permissions=True)
 
 	main_ticket = frappe.db.get_value("Grievance", main_name, "ticket_number")
+	# The other flags are moot now: the ticket is a duplicate of the one the officer chose.
+	for other in pending:
+		if other is review:
+			continue
+		superseded = frappe.get_doc("Grievance Duplicate", other.name)
+		superseded.update(
+			{
+				"is_dismissed": 1,
+				"decided_by": user,
+				"decided_at": now,
+				"decision_note": _("Superseded: confirmed as a duplicate of {0}.").format(
+					tn.display(main_ticket)
+				),
+			}
+		)
+		superseded.save(ignore_permissions=True)
+
 	entry = GrievanceTimeline.record(
 		grievance=grievance.name,
 		entry_type="status_change",
@@ -320,6 +384,7 @@ def confirm(grievance, main_name=None, note=None):
 
 def dismiss(grievance, note=None):
 	"""An officer rules the flag is wrong. The ticket carries on as a normal one."""
+	assert_not_duplicate(grievance)
 	pending = pending_reviews(grievance.name)
 	if not pending:
 		frappe.throw(

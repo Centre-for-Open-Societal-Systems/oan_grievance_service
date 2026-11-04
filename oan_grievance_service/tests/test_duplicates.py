@@ -5,12 +5,14 @@
 and the dashboard counts that include them."""
 
 import random
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1 import change_request, grievance
 from oan_grievance_service.api.v1._options import get_status_summary, public_status
+from oan_grievance_service.patches import dismiss_legacy_duplicate_flags
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard_rollup, duplicates, identity
 from oan_grievance_service.services import ticket_number as tn
@@ -138,7 +140,7 @@ class TestDuplicateFlow(FrappeTestCase):
 		self.assertEqual(len(duplicates.flag_possible_duplicates(dup)), 1)
 
 	def test_only_live_or_resolved_tickets_are_candidates(self):
-		anchor = self._case(submitter=self.other_farmer)
+		anchor = self._case(description=CANAL)
 		for state in (C.STATE_CLOSED, C.STATE_REJECTED):
 			self._case(workflow_state=state)
 		self._case(workflow_state=C.STATE_DUPLICATE, duplicate_of=anchor.name)
@@ -238,6 +240,88 @@ class TestDuplicateFlow(FrappeTestCase):
 		self.assertEqual(itself["code"], "VALIDATION_ERROR", msg=itself)
 		self.assertEqual(chained["code"], "VALIDATION_ERROR", msg=chained)
 		self.assertEqual(frappe.db.get_value("Grievance", third.name, "status"), C.STATE_SUBMITTED)
+
+	def test_the_main_ticket_must_be_the_same_farmers(self):
+		theirs = self._case(submitter=self.other_farmer)
+		dup = self._case()
+		with _keep_transaction():
+			result = grievance.confirm_duplicate(ticket_number=dup.name, main_ticket=theirs.name)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertEqual(frappe.db.get_value("Grievance", dup.name, "status"), C.STATE_SUBMITTED)
+		self.assertIsNone(frappe.db.get_value("Grievance", dup.name, "duplicate_of"))
+
+	def test_an_anonymous_ticket_has_no_farmer_to_share_a_main_ticket_with(self):
+		anonymous = self._case(submitter=None)
+		other = self._case(submitter=None)
+		with _keep_transaction():
+			result = grievance.confirm_duplicate(ticket_number=anonymous.name, main_ticket=other.name)
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_the_main_ticket_cannot_be_closed_or_rejected(self):
+		dup = self._case()
+		for state in (C.STATE_CLOSED, C.STATE_REJECTED):
+			finished = self._case(workflow_state=state)
+			with _keep_transaction():
+				result = grievance.confirm_duplicate(ticket_number=dup.name, main_ticket=finished.name)
+			self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(state, result))
+		self.assertEqual(frappe.db.get_value("Grievance", dup.name, "status"), C.STATE_SUBMITTED)
+
+	def test_a_resolved_ticket_may_be_the_main_ticket(self):
+		resolved = self._case(workflow_state=C.STATE_RESOLVED)
+		dup = self._case()
+		result = grievance.confirm_duplicate(ticket_number=dup.name, main_ticket=resolved.name)
+		self.assertEqual(result["status"], "success", msg=result)
+
+	def test_confirming_closes_the_other_pending_flags(self):
+		first, second = self._case(), self._case()
+		dup = self._case()
+		duplicates.flag_possible_duplicates(dup)
+		self.assertEqual(len(duplicates.pending_reviews(dup.name)), 2)
+
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		self.assertEqual(duplicates.pending_reviews(dup.name), [])
+		confirmed = frappe.get_doc("Grievance Duplicate", {"grievance": dup.name, "is_confirmed": 1})
+		self.assertEqual(confirmed.duplicate_of, first.name)
+		left = frappe.get_doc("Grievance Duplicate", {"grievance": dup.name, "duplicate_of": second.name})
+		self.assertEqual((left.is_confirmed, left.is_dismissed), (0, 1))
+		self.assertIn("Superseded", left.decision_note)
+		self.assertEqual(left.decided_by, "Administrator")
+
+	def test_a_confirmed_duplicate_cannot_be_dismissed(self):
+		_main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+		notes = frappe.db.count("Grievance Timeline", {"grievance": dup.name})
+
+		with _keep_transaction():
+			result = grievance.dismiss_duplicate(ticket_number=dup.name, note="Changed my mind")
+
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.assertEqual(frappe.db.count("Grievance Timeline", {"grievance": dup.name}), notes)
+		row = frappe.get_doc("Grievance Duplicate", {"grievance": dup.name})
+		self.assertEqual((row.is_confirmed, row.is_dismissed), (1, 0))
+
+	def test_unreviewed_flags_of_the_old_detector_are_dismissed_by_the_patch(self):
+		main, dup = self._pair()
+		kept = self._case()
+		legacy = {"doctype": "Grievance Duplicate", "detected_at": frappe.utils.now_datetime()}
+		legacy["detection_method"] = "Identity + Type + Time Proximity"
+		old = frappe.get_doc({**legacy, "grievance": dup.name, "duplicate_of": main.name}).insert()
+		confirmed = frappe.get_doc(
+			{**legacy, "grievance": kept.name, "duplicate_of": main.name, "is_confirmed": 1}
+		).insert()
+		new = duplicates.flag_possible_duplicates(dup)
+		self.assertEqual(new, [], "the pair is already recorded by the old detector")
+		self.assertEqual(len(duplicates.pending_reviews(dup.name)), 1)
+
+		dismiss_legacy_duplicate_flags.execute()
+
+		self.assertEqual(duplicates.pending_reviews(dup.name), [])
+		old.reload()
+		confirmed.reload()
+		self.assertEqual((old.is_dismissed, old.is_confirmed), (1, 0))
+		self.assertEqual((confirmed.is_dismissed, confirmed.is_confirmed), (0, 1))
 
 	def test_confirming_needs_a_main_ticket_when_nothing_was_flagged(self):
 		lone = self._case()
@@ -341,10 +425,13 @@ class TestAskBeforeFiling(FrappeTestCase):
 		self.category = a_service_category()
 		self.type = a_grievance_type()
 		self.area = a_leaf_area()
+		self.asking_was = frappe.db.get_single_value("Grievance Settings", "ask_before_filing_duplicate")
+		frappe.db.set_single_value("Grievance Settings", "ask_before_filing_duplicate", 1)
 		frappe.clear_messages()
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
+		frappe.db.set_single_value("Grievance Settings", "ask_before_filing_duplicate", self.asking_was or 0)
 		for name in frappe.get_all("Grievance", filters={"submitter": self.farmer}, pluck="name"):
 			discard_grievance(name)
 		frappe.delete_doc("Grievance Submitter Profile", self.farmer, force=True, ignore_permissions=True)
@@ -387,12 +474,49 @@ class TestAskBeforeFiling(FrappeTestCase):
 		self.assertEqual(len(self._filed()), 2)
 		self.assertEqual(len(duplicates.pending_reviews(self._filed()[-1])), 1)
 
+	def test_the_question_is_off_until_the_setting_is_turned_on(self):
+		frappe.db.set_single_value("Grievance Settings", "ask_before_filing_duplicate", 0)
+		self._file()
+		result = self._file()
+
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertEqual(len(self._filed()), 2)
+		self.assertEqual(
+			len(duplicates.pending_reviews(self._filed()[-1])), 1, "an officer is still told about it"
+		)
+
 	def test_a_one_way_channel_is_never_asked_but_is_flagged(self):
 		self._file()
 		result = self._file(submission_channel="IVR Helpline")
 
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(len(self._filed()), 2)
+
+	def test_filing_a_repeat_flags_it_against_the_first_for_an_officer(self):
+		first = self._file(submission_channel="IVR Helpline")
+		second = self._file(submission_channel="IVR Helpline")
+
+		earlier, later = self._filed()
+		(review,) = duplicates.pending_reviews(later)
+		self.assertEqual((review.duplicate_of, review.match_level), (earlier, "High"))
+		self.assertEqual(duplicates.pending_reviews(earlier), [])
+		self.assertEqual(second["data"]["status"], C.STATE_SUBMITTED, "the ticket is untouched")
+		flag = second["data"]["current_state"]["possible_duplicate"]
+		self.assertEqual(flag["ticket_number"], first["data"]["ticket_number"])
+
+	def test_a_fault_in_flagging_does_not_lose_the_grievance(self):
+		self._file()
+		with (
+			patch.object(duplicates, "flag_possible_duplicates", side_effect=RuntimeError("boom")),
+			patch.object(frappe, "log_error") as log_error,
+		):
+			result = self._file(submission_channel="IVR Helpline")
+
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertEqual(len(self._filed()), 2)
+		self.assertEqual(duplicates.pending_reviews(self._filed()[-1]), [])
+		titles = [call.kwargs["title"] for call in log_error.call_args_list]
+		self.assertEqual(sum("possible duplicates" in title for title in titles), 1, titles)
 
 	def test_a_ticket_older_than_a_day_is_left_to_the_officers_flag(self):
 		self._file()

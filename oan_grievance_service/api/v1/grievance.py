@@ -1076,7 +1076,7 @@ def submit(**kwargs):
 
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
 	# Flags only; an officer rules on it. The submitter is told nothing until then.
-	duplicates.flag_possible_duplicates(doc)
+	duplicates.flag_without_failing(doc)
 	routing.enqueue_routing(doc.name)
 
 	return success_response(
@@ -1098,10 +1098,15 @@ def submit(**kwargs):
 def _similar_recent_grievances(doc, confirmed):
 	"""The farmer's similar grievances of the last day, when they should be asked first.
 
-	Asked only on an interactive channel and only once: a farmer who has said this one is new
-	is not asked again. Other channels cannot answer, so they file and are flagged instead.
+	Asked only when Grievance Settings turns the question on, on an interactive channel, and
+	only once: a farmer who has said this one is new is not asked again. Other channels cannot
+	answer, so they file and are flagged instead.
 	"""
-	if confirmed or doc.submission_channel not in duplicates.INTERACTIVE_CHANNELS:
+	if (
+		confirmed
+		or doc.submission_channel not in duplicates.INTERACTIVE_CHANNELS
+		or not duplicates.prompt_enabled()
+	):
 		return []
 	return [
 		{

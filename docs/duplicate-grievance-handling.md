@@ -6,14 +6,18 @@ read-only. Code: `services/duplicates.py`. Algorithm background: `GRIEVANCE_SIMI
 
 ## Flow
 
-0. **Ask first (web portal only).** Before a grievance is filed, `POST /v1/grievances` checks the
+0. **Ask first (web portal only, off by default).** When `Ask Before Filing a Similar Grievance`
+   is ticked in Grievance Settings, before a grievance is filed, `POST /v1/grievances` checks the
    submitter's grievances of the last 24 hours with the same score (below). If one is similar it
    files nothing and answers `409 POSSIBLE_DUPLICATE` with `details.possible_duplicates`. The client
    shows them and asks whether this is a new grievance; sending the same request again with
    `confirm_new: 1` files it. IVR and SMS are one way, so nobody could answer: they are never asked
-   and are only flagged in the next steps.
+   and are only flagged in the next steps. The setting stays unticked until the web client handles
+   the 409 and sends `confirm_new`; until then a farmer is never refused, and the next steps still
+   flag the repeat for an officer.
 1. A grievance is filed. Straight after the insert, `duplicates.flag_possible_duplicates` compares
-   it with the same submitter's earlier grievances.
+   it with the same submitter's earlier grievances. Flagging only advises an officer, so a fault in
+   it is logged (Error Log) and undone to a savepoint; it never loses the farmer's grievance.
 2. Each earlier ticket that scores at or above the threshold becomes a `Grievance Duplicate` row
    awaiting review (best three at most). The ticket itself is untouched and the submitter is told
    nothing.
@@ -21,8 +25,14 @@ read-only. Code: `services/duplicates.py`. Algorithm background: `GRIEVANCE_SIMI
    the list, then rules:
    - `POST /v1/grievances/{ticket}/duplicate/confirm` sets `duplicate_of`, takes the workflow
      action `Confirm Duplicate`, adds the public timeline message and marks the row confirmed.
+     The ticket's other pending flags are dismissed as superseded.
    - `POST /v1/grievances/{ticket}/duplicate/dismiss` marks the rows dismissed and adds an internal
      note. The ticket stays a normal one.
+
+The main ticket must be the same submitter's and still open or resolved (Submitted, Assigned,
+Reopened, In Progress, More Info Needed or Resolved): never Closed, Rejected or itself a duplicate,
+and never another farmer's, because the farmer is shown its number. The Grievance controller checks
+the same rule on every save. `dismiss` is refused on a ticket that is already a duplicate.
 
 A confirmed duplicate cannot be undone: `Duplicate` has no outgoing workflow transition, so it is
 terminal and the Grievance controller refuses every save.
@@ -73,6 +83,13 @@ algorithms document).
 - Dashboard: a `duplicates` KPI, `Duplicate` in the status distribution, and the duplicate count
   inside Total and every other count. `dup_pending` (awaiting duplicate review) no longer counts a
   dismissed flag.
+
+## Migration
+
+`add_duplicate_status` re-seeds the workflow. `dismiss_legacy_duplicate_flags` dismisses the
+unreviewed rows the earlier same-type-within-7-days detector left (method `Identity + Type + Time
+Proximity`, score 1.0, no match level), so they do not appear as pending reviews under the new rule.
+Confirmed legacy rows are kept.
 
 ## Not done yet
 
