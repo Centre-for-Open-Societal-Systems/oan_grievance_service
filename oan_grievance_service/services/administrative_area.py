@@ -81,3 +81,28 @@ def format_administrative_location(hierarchy_or_area_id: dict | str | None) -> s
 		if name and name not in parts:
 			parts.append(name)
 	return ", ".join(parts) if parts else None
+
+
+def match_administrative_area(
+	region: str | None, woreda: str | None = None, kebele: str | None = None
+) -> str | None:
+	"""The deepest Grievance Administrative Area whose names match, walking region, woreda, kebele.
+
+	Each level is looked up under the node matched above it, so a woreda name shared by two
+	regions resolves to the right one. The walk stops at the first level with no match, and
+	no region match returns None.
+	"""
+	node = None
+	for level, name in (("Region", region), ("Woreda", woreda), ("Kebele", kebele)):
+		if not name:
+			break
+		filters = {"area_name": name, "level_name": level}
+		if node:
+			filters.update(lft=[">", node.lft], rgt=["<", node.rgt])
+		found = frappe.db.get_value(
+			"Grievance Administrative Area", filters, ["name", "lft", "rgt"], as_dict=True
+		)
+		if not found:
+			break
+		node = found
+	return node.name if node else None
