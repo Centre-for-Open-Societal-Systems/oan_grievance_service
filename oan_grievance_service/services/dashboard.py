@@ -306,7 +306,7 @@ def _region_names():
 
 
 def build_kpis(ctx):
-	"""Total / Awaiting Action / Resolved / Escalated cards with their deltas."""
+	"""Total / Awaiting Action / Resolved / Escalated / Duplicates cards with their deltas."""
 	by_status = _by_status(_snapshot(ctx, ("status",)))
 	escalated = _total(
 		[r for r in _snapshot(ctx, ("status", "escalated")) if r.escalated and r.status in sla.open_states()],
@@ -337,6 +337,7 @@ def build_kpis(ctx):
 			"compare": "this_week_resolved",
 		},
 		{"metric": "escalated", "value": int(escalated)},
+		{"metric": "duplicates", "value": by_status[C.STATE_DUPLICATE]},
 	]
 
 

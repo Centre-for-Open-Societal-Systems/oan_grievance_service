@@ -147,7 +147,7 @@ def _grievances():
 def live_states():
 	"""Every state a chart counts, in lifecycle order. A case in a retired state is left out
 	of every chart, so they all add up to the same total."""
-	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED)
+	return (*sla.open_states(), *C.RESOLVED_STATES, C.STATE_REJECTED, C.STATE_DUPLICATE)
 
 
 def _woreda(query):
@@ -265,7 +265,7 @@ def _snapshot_query(now):
 		frappe.qb.from_(duplicate)
 		.select(duplicate.grievance)
 		.distinct()
-		.where(duplicate.is_confirmed == 0)
+		.where((duplicate.is_confirmed == 0) & (duplicate.is_dismissed == 0))
 		.as_("d")
 	)
 	open_states = list(sla.open_states())

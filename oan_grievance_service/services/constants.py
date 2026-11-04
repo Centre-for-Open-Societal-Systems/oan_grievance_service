@@ -25,6 +25,9 @@ STATE_MORE_INFO_NEEDED = "More Info Needed"
 STATE_RESOLVED = "Resolved"
 STATE_CLOSED = "Closed"
 STATE_REJECTED = "Rejected"
+# An officer-confirmed copy of another ticket. Terminal and read-only: the main ticket is where
+# the case is worked (services/duplicates.py).
+STATE_DUPLICATE = "Duplicate"
 
 
 # Organisation (NGO / FPO / Cooperative) verification lifecycle. Held on Grievance

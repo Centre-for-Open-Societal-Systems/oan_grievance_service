@@ -74,16 +74,17 @@ most 15 minutes.
 
 ## Definitions
 
-| Term            | Meaning                                                                      |
-| --------------- | ---------------------------------------------------------------------------- |
-| Total           | Every grievance                                                              |
-| Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)           |
-| Open            | Awaiting Action + More Info Needed (waiting on them)                         |
-| Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either        |
-| Escalated       | Open cases with the `escalated` flag; `escalated_at` is the first escalation |
-| At risk         | Open, clock running, due within 24 hours                                     |
-| Breached        | Open, clock running, past `sla_due_date`                                     |
-| On time         | Resolved at or before `sla_due_date`; cases without an SLA count as neither  |
+| Term            | Meaning                                                                       |
+| --------------- | ----------------------------------------------------------------------------- |
+| Total           | Every grievance                                                               |
+| Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)            |
+| Open            | Awaiting Action + More Info Needed (waiting on them)                          |
+| Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either         |
+| Escalated       | Open cases with the `escalated` flag; `escalated_at` is the first escalation  |
+| Duplicates      | Cases an officer confirmed as duplicates (status `Duplicate`); still in Total |
+| At risk         | Open, clock running, due within 24 hours                                      |
+| Breached        | Open, clock running, past `sla_due_date`                                      |
+| On time         | Resolved at or before `sla_due_date`; cases without an SLA count as neither   |
 
 ## Endpoints
 

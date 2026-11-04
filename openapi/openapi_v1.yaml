@@ -1295,6 +1295,135 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/DecideDeferralRequest'
+  /api/v1/grievances/{ticket_number}/duplicate/confirm:
+    post:
+      tags:
+      - Grievances Core
+      summary: Confirm a grievance as a duplicate of its main ticket
+      description: 'An officer rules the case is a duplicate of `main_ticket`.
+
+
+        The main ticket defaults to the best match the system flagged. The case moves to
+
+        Duplicate, a message says all further handling happens on the main ticket, and the
+
+        case becomes read-only. It cannot be undone.'
+      operationId: post_api_v1_grievances_ticket_number_duplicate_confirm
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.confirm_duplicate
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmDuplicateRequest'
+  /api/v1/grievances/{ticket_number}/duplicate/dismiss:
+    post:
+      tags:
+      - Grievances Core
+      summary: Rule that a flagged grievance is not a duplicate
+      description: An officer rules the flag is wrong. The case stays a normal one.
+      operationId: post_api_v1_grievances_ticket_number_duplicate_dismiss
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: ticket_number
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)
+      x-legacy-rpc-method: oan_grievance_service.api.v1.grievance.dismiss_duplicate
+      x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DismissDuplicateRequest'
   /api/v1/grievances/{ticket_number}/response-templates:
     get:
       tags:
@@ -10546,6 +10675,13 @@ components:
           type: string
           default: null
           nullable: true
+        confirm_new:
+          anyOf:
+          - type: boolean
+          - type: integer
+          - type: string
+          default: 0
+          description: Send 1 after being told a similar grievance exists, to file this one anyway
         files:
           type: array
           items: *id001
@@ -10735,6 +10871,30 @@ components:
           nullable: true
       required:
       - decision
+      type: object
+    ConfirmDuplicateRequest:
+      additionalProperties: true
+      properties:
+        main_ticket:
+          minLength: 1
+          type: string
+          default: null
+          description: The main ticket. Defaults to the best flagged match
+          nullable: true
+        note:
+          maxLength: 1000
+          type: string
+          default: null
+          nullable: true
+      type: object
+    DismissDuplicateRequest:
+      additionalProperties: true
+      properties:
+        note:
+          maxLength: 1000
+          type: string
+          default: null
+          nullable: true
       type: object
     SubmitDocumentsRequest:
       additionalProperties: true

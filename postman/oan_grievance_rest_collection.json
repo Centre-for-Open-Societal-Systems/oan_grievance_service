@@ -6513,6 +6513,106 @@
             "description": "Download one grievance, with its timeline, laid out as the SOW Annexure complaint form.\n\n`format` is `pdf` (default) or `csv`. The role check (the Grievance `export` permission)\nand the case check are made here, in that order, and the file holds only what the caller\nmay already read on the case: staff get internal notes and officer names, a submitter the\npublic record, and an anonymous submitter's identity stays sealed. Every attempt, allowed,\nrefused or failed, is written to the access audit trail.\n\nThe body is the file itself, not the JSON envelope; errors use the envelope."
           },
           "response": []
+        },
+        {
+          "name": "Confirm a grievance as a duplicate of its main ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/duplicate/confirm",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "duplicate",
+                "confirm"
+              ]
+            },
+            "description": "An officer rules the case is a duplicate of `main_ticket`.\n\nThe main ticket defaults to the best match the system flagged. The case moves to\nDuplicate, a message says all further handling happens on the main ticket, and the\ncase becomes read-only. It cannot be undone.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"main_ticket\": \"Sample value\",\n  \"note\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Rule that a flagged grievance is not a duplicate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievances/{{ticket_number}}/duplicate/dismiss",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievances",
+                "{{ticket_number}}",
+                "duplicate",
+                "dismiss"
+              ]
+            },
+            "description": "An officer rules the flag is wrong. The case stays a normal one.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"note\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
         }
       ]
     },
