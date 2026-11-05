@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.v1.auth import get_me
 
 from oan_grievance_service.api.v1 import submitter
-from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity, submit
+from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
 from oan_grievance_service.api.v1.organization import (
 	get_my_organization,
 	get_organization,
@@ -23,6 +23,7 @@ from oan_grievance_service.api.v1.organization import (
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import organization as service
+from oan_grievance_service.tests.fixtures import post_grievance
 from oan_grievance_service.tests.test_registration_submitter_fields import (
 	_register,
 	_user_for,
@@ -618,13 +619,12 @@ class TestFilingRights(OrganizationTestCase):
 	def test_submit_by_a_representative_of_an_unverified_organization_is_refused(self):
 		self.register()
 		uuid = frappe.generate_hash(length=32)
-		frappe.set_user(self.rep)
-		result = submit(
+		result = post_grievance(
+			user=self.rep,
 			client_submission_uuid=uuid,
 			consent_given=1,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
 		)
-		frappe.set_user("Administrator")
 		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 		self.assertFalse(frappe.db.exists("Grievance", {"client_submission_uuid": uuid}))
 

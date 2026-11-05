@@ -4,7 +4,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1 import grievance as grievance_api
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
 from oan_grievance_service.api.v1.category_assignment import create_assignment
 from oan_grievance_service.api.v1.taxonomy import (
@@ -29,7 +28,13 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
-from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_submitter_type, discard_grievance
+from oan_grievance_service.tests.fixtures import (
+	a_grievance,
+	a_leaf_area,
+	a_submitter_type,
+	discard_grievance,
+	post_grievance,
+)
 from oan_grievance_service.tests.test_category_assignment import (
 	_department,
 	_keep_transaction,
@@ -415,7 +420,7 @@ class TestTaxonomy(FrappeTestCase):
 		self._category()
 		update_service_category(CATEGORY, is_default=True)
 		catch_all = get_fallback_type(CATEGORY)
-		saved = grievance_api.submit(
+		saved = post_grievance(
 			submitter_type=a_submitter_type(),
 			submitter_name="Test Submitter",
 			contact_mobile="+251911234567",

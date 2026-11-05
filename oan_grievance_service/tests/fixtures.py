@@ -8,6 +8,8 @@ leaf Administrative Area, a category and a type. Building that chain inline in
 every test file is how fixtures drift, so it is built once here.
 """
 
+import json
+
 import frappe
 from frappe.utils import now_datetime
 
@@ -400,3 +402,20 @@ def a_staffed_desk(case, category, department=None):
 		frappe.delete_doc("User", officer, force=True, ignore_permissions=True)
 
 	case.addCleanup(remove)
+
+
+def post_grievance(user="Administrator", **payload):
+	"""File a grievance the way a client does: POST /api/v1/grievances.
+
+	The request goes through the JWT middleware and Frappe's router, so the decorators on
+	`submit` see a real request. Returns the JSON envelope. The session user is restored.
+	"""
+	from oan_auth_service.testing import api_request
+	from oan_auth_service.tests.utils import configured_keys
+
+	from oan_grievance_service.api.router import ensure_routes_registered
+
+	ensure_routes_registered()
+	with configured_keys():
+		response = api_request(frappe.api.handle, "POST", "/api/v1/grievances", json=payload, user=user)
+	return json.loads(response.get_data(as_text=True))

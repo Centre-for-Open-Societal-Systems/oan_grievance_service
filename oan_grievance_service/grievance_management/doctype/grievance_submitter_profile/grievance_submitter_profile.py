@@ -51,7 +51,17 @@ class GrievanceSubmitterProfile(Document):
 				title=_("Unknown Submitter Type"),
 			)
 
-		missing = [field for field in rule.required if not (self.get(field) or "").strip()]
+		required = rule.required
+		if self.identity_scheme == identity.SCHEME_USER:
+			if not rule.user_fallback:
+				frappe.throw(
+					_("A {0} cannot be keyed on a user account.").format(self.submitter_type),
+					title=_("Invalid Identity Scheme"),
+				)
+			# Anchored to the account, so a phone number is neither the key nor mandatory.
+			required = tuple(field for field in required if field != "contact_mobile")
+
+		missing = [field for field in required if not (self.get(field) or "").strip()]
 		if missing:
 			labels = [frappe.unscrub(field) for field in missing]
 			frappe.throw(
@@ -76,9 +86,9 @@ class GrievanceSubmitterProfile(Document):
 			old_key = self.get_doc_before_save().dedupe_key
 			old_scheme, _old_value = split_dedupe_key(old_key)
 
-			# If the profile was previously anchored to phone, and contact_mobile changed,
-			# sync dedupe_key to the new contact_mobile unless an explicit new key (e.g. Fayda) was provided.
-			if old_scheme == identity.SCHEME_PHONE:
+			# If the profile was previously anchored to phone or a user account, and contact_mobile
+			# changed, sync dedupe_key to the new contact_mobile unless an explicit new key (e.g. Fayda) was provided.
+			if old_scheme in (identity.SCHEME_PHONE, identity.SCHEME_USER):
 				if (
 					key == old_key
 					and self.contact_mobile
@@ -87,11 +97,11 @@ class GrievanceSubmitterProfile(Document):
 					key = build_dedupe_key(identity.SCHEME_PHONE, self.contact_mobile)
 
 			if old_key != key:
-				# Phone-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
+				# Phone- and user-anchored identities are allowed to update phone number or upgrade to verified ID (Fayda / Org).
 				# Verified identities (Fayda / Org) are immutable, except that the
 				# organization service may re-anchor an org key when its owner corrects
 				# the registration number.
-				if old_scheme != identity.SCHEME_PHONE and not (
+				if old_scheme not in (identity.SCHEME_PHONE, identity.SCHEME_USER) and not (
 					self.flags.org_identity_sync and old_scheme == identity.SCHEME_ORG
 				):
 					frappe.throw(
@@ -105,6 +115,17 @@ class GrievanceSubmitterProfile(Document):
 			frappe.throw(
 				_("A Submitter Profile must have a valid dedupe_key or contact_mobile."),
 				title=_("No Identity"),
+			)
+
+		# A user key is the profile's own account and nothing else, so no one can claim another's.
+		# Only a new key is checked, so a profile whose key went stale can still be saved.
+		scheme, value = split_dedupe_key(key)
+		before = self.get_doc_before_save()
+		key_is_new = not before or before.dedupe_key != key
+		if key_is_new and scheme == identity.SCHEME_USER and (not value or value != (self.user or "")):
+			frappe.throw(
+				_("A user identity key must match the profile's own user account."),
+				title=_("Invalid Identity Scheme"),
 			)
 
 		# If dedupe_key changed, ensure it does not conflict with another existing profile
@@ -125,7 +146,7 @@ class GrievanceSubmitterProfile(Document):
 
 	@property
 	def identity_scheme(self):
-		"""Which scheme the party was resolved by: 'fayda', 'org' or 'phone'."""
+		"""Which scheme the party was resolved by: 'fayda', 'org', 'phone' or 'user'."""
 		return split_dedupe_key(self.dedupe_key)[0]
 
 	@property
@@ -148,7 +169,7 @@ def split_dedupe_key(key):
 
 def build_dedupe_key(scheme, value):
 	"""The one place a key is composed, so intake and this controller cannot drift."""
-	valid_schemes = (identity.SCHEME_FAYDA, identity.SCHEME_ORG, identity.SCHEME_PHONE)
+	valid_schemes = (identity.SCHEME_FAYDA, identity.SCHEME_ORG, identity.SCHEME_PHONE, identity.SCHEME_USER)
 	if scheme not in valid_schemes:
 		frappe.throw(_("Unknown identity scheme {0}.").format(scheme))
 	return f"{scheme}:{(value or '').strip()}"

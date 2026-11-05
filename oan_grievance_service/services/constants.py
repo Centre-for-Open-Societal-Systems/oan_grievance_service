@@ -43,6 +43,9 @@ ORG_TYPES = ("NGO", "FPO", "Cooperative")
 # sla.awaiting_action_states() read them from the Grievance Workflow.
 RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
 
+# How long a client may reuse an answer from a reference-data endpoint.
+REFERENCE_CACHE_SECONDS = 300
+
 # `level_name` of the Grievance Administrative Area levels the dashboards count by.
 AREA_LEVEL_COUNTRY = "Country"
 AREA_LEVEL_REGION = "Region"

@@ -71,6 +71,9 @@ _CLEAR_LOOKUP_CACHE = {
 	"after_delete": "oan_grievance_service.api.v1._options.clear_reference_cache",
 }
 doc_events = {
+	"User": {
+		"after_rename": "oan_grievance_service.services.identity.rekey_user_profile",
+	},
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
 		# The charts read the rollups, so a case filed or moved refreshes them at once.

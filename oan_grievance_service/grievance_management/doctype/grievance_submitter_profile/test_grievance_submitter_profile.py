@@ -170,6 +170,82 @@ class TestSubmitterProfile(FrappeTestCase):
 				"Grievance Submitter Profile", profile.name, force=True, ignore_permissions=True
 			)
 
+	def _user_keyed_profile(self, submitter_type="Development Agent", dedupe_key=None, user=None):
+		"""A profile anchored on its own user account, with no phone number."""
+		if user is None:
+			user = (
+				frappe.get_doc(
+					{
+						"doctype": "User",
+						"email": f"test_agent_{frappe.generate_hash(length=6)}@example.com",
+						"first_name": "Agent",
+						"send_welcome_email": 0,
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_type": submitter_type,
+				"submitter_name": "Agent Keyed On User",
+				"user": user,
+				"dedupe_key": dedupe_key or f"user:{user}",
+			}
+		)
+		return user, profile
+
+	def test_user_keyed_profile_upgrades_to_phone_and_to_fayda(self):
+		import random
+
+		user, profile = self._user_keyed_profile()
+		profile.insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc,
+			"Grievance Submitter Profile",
+			profile.name,
+			force=True,
+			ignore_permissions=True,
+		)
+		self.assertEqual(profile.identity_scheme, "user")
+
+		phone = f"+25191{random.randint(1000000, 9999999)}"
+		profile.contact_mobile = phone
+		profile.dedupe_key = f"phone:{phone}"
+		profile.save(ignore_permissions=True)
+		profile.reload()
+		self.assertEqual(profile.dedupe_key, f"phone:{phone}")
+
+		# Back to a user key for the second upgrade path.
+		profile.db_set("dedupe_key", f"user:{user}")
+		profile.reload()
+		fayda = _random_fayda()
+		profile.dedupe_key = f"fayda:{fayda}"
+		profile.save(ignore_permissions=True)
+		profile.reload()
+		self.assertEqual(profile.dedupe_key, f"fayda:{fayda}")
+
+	def test_user_key_must_be_the_profiles_own_account(self):
+		user, _profile = self._user_keyed_profile()
+		for key in ("user:", "user:someone.else@example.com"):
+			with self.subTest(key=key):
+				_user, profile = self._user_keyed_profile(dedupe_key=key, user=user)
+				with self.assertRaises(frappe.ValidationError):
+					profile.insert(ignore_permissions=True)
+
+	def test_user_key_is_refused_for_a_type_without_the_fallback(self):
+		_user, profile = self._user_keyed_profile(submitter_type="Individual Farmer")
+		profile.contact_mobile = "+251911000123"
+		with self.assertRaises(frappe.ValidationError):
+			profile.insert(ignore_permissions=True)
+
+	def test_a_client_cannot_supply_a_user_key(self):
+		from oan_grievance_service.services.identity import derive_dedupe_key
+
+		with self.assertRaises(frappe.ValidationError):
+			derive_dedupe_key("Development Agent", dedupe_key="user:other.agent@example.com")
+
 	def test_register_submitter_creates_individual_farmer_profile_unblocked(self):
 		import random
 

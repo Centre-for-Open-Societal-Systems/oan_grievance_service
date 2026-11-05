@@ -8,6 +8,8 @@ from frappe import _
 SCHEME_FAYDA = "fayda"
 SCHEME_ORG = "org"
 SCHEME_PHONE = "phone"
+# Server-assigned fallback for a staff type (user_fallback) with no phone or Fayda ID; never chosen by a client.
+SCHEME_USER = "user"
 
 # Fields every submitter needs regardless of type (profile registration, not grievance).
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
@@ -27,6 +29,9 @@ class IdentityRule:
 	required: tuple
 	"""Fields that must be present before the profile can be saved."""
 
+	user_fallback: bool = False
+	"""Last resort when no scheme above resolves: key the profile on the account (staff types only)."""
+
 
 SUBMITTER_TYPE_RULES = {
 	"Individual Farmer": IdentityRule(
@@ -36,6 +41,7 @@ SUBMITTER_TYPE_RULES = {
 	"Development Agent": IdentityRule(
 		schemes=(SCHEME_FAYDA, SCHEME_PHONE),
 		required=COMMON_REQUIRED,
+		user_fallback=True,
 	),
 	"Cooperative": IdentityRule(
 		schemes=(SCHEME_ORG, SCHEME_FAYDA),
@@ -176,11 +182,19 @@ def derive_dedupe_key(
 	if raw_key:
 		if ":" in raw_key:
 			scheme, _sep, value = raw_key.partition(":")
+			scheme, value = scheme.strip().lower(), value.strip()
+			if scheme not in allowed_schemes:
+				frappe.throw(
+					_("A {0} dedupe key must use one of these identity schemes: {1}.").format(
+						submitter_type, ", ".join(allowed_schemes)
+					),
+					title=_("Invalid Identity Scheme"),
+				)
 			if scheme == SCHEME_FAYDA and value:
 				_validate_fayda_id(value)
 			elif scheme == SCHEME_ORG and value:
 				_validate_registration_number(value)
-			return raw_key
+			return f"{scheme}:{value}"
 		default_scheme = allowed_schemes[0] if allowed_schemes else SCHEME_PHONE
 		return f"{default_scheme}:{raw_key}"
 
@@ -294,3 +308,16 @@ def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
 		"phone_number": nat,
 		"can_request_more_info": can_contact,
 	}
+
+
+def rekey_user_profile(doc, method, old, new, merge=False):
+	"""Move a user-keyed profile to the renamed User, so the old name stays free for a new account."""
+	if merge:
+		return
+	frappe.db.set_value(
+		"Grievance Submitter Profile",
+		{"dedupe_key": f"{SCHEME_USER}:{old}"},
+		"dedupe_key",
+		f"{SCHEME_USER}:{new}",
+		update_modified=False,
+	)
