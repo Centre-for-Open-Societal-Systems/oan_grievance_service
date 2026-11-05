@@ -182,7 +182,7 @@ class Grievance(Document):
 		if not self.administrative_area and self.submission_channel == C.CHANNEL_IVR:
 			waived.append("administrative_area")
 
-		fields = [f for f in map(self.meta.get_field, waived) if f and f.reqd]
+		fields = [f for f in (self.meta.get_field(name) for name in waived) if f and f.reqd]
 		for field in fields:
 			field.reqd = 0
 		try:
