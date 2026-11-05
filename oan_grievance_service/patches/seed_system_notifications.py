@@ -9,7 +9,12 @@ def execute():
 	from frappe.translate import clear_cache
 
 	from oan_grievance_service.services.notifications import template_context
-	from oan_grievance_service.setup.install import seed_notifications
+	from oan_grievance_service.setup.install import seed_notifications, seed_recipient_custom_field
+
+	# Patches run before after_migrate, so on an existing site the Notification custom
+	# fields (grievance_recipient_type, grievance_role_level) may not exist yet.
+	seed_recipient_custom_field()
+	frappe.clear_cache(doctype="Notification")
 
 	seed_notifications()
 
