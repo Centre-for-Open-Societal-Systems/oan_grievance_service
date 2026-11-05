@@ -10,8 +10,6 @@ SCHEME_ORG = "org"
 SCHEME_PHONE = "phone"
 # Server-assigned fallback for a staff type (user_fallback) with no phone or Fayda ID; never chosen by a client.
 SCHEME_USER = "user"
-# The schemes a client may name in a dedupe key.
-CLIENT_SCHEMES = (SCHEME_FAYDA, SCHEME_ORG, SCHEME_PHONE)
 
 # Fields every submitter needs regardless of type (profile registration, not grievance).
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
@@ -185,10 +183,10 @@ def derive_dedupe_key(
 		if ":" in raw_key:
 			scheme, _sep, value = raw_key.partition(":")
 			scheme, value = scheme.strip().lower(), value.strip()
-			if scheme not in CLIENT_SCHEMES:
+			if scheme not in allowed_schemes:
 				frappe.throw(
-					_("A dedupe key must use one of these identity schemes: {0}.").format(
-						", ".join(CLIENT_SCHEMES)
+					_("A {0} dedupe key must use one of these identity schemes: {1}.").format(
+						submitter_type, ", ".join(allowed_schemes)
 					),
 					title=_("Invalid Identity Scheme"),
 				)
@@ -310,3 +308,16 @@ def mask_contact(doc: object, show_identity: bool = True) -> dict[str, object]:
 		"phone_number": nat,
 		"can_request_more_info": can_contact,
 	}
+
+
+def rekey_user_profile(doc, method, old, new, merge=False):
+	"""Move a user-keyed profile to the renamed User, so the old name stays free for a new account."""
+	if merge:
+		return
+	frappe.db.set_value(
+		"Grievance Submitter Profile",
+		{"dedupe_key": f"{SCHEME_USER}:{old}"},
+		"dedupe_key",
+		f"{SCHEME_USER}:{new}",
+		update_modified=False,
+	)

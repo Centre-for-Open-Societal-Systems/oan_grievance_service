@@ -63,10 +63,13 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 			split_dedupe_key,
 		)
-		from oan_grievance_service.services.identity import SCHEME_FAYDA, mask_contact
+		from oan_grievance_service.services.identity import SCHEME_FAYDA, SCHEME_USER, mask_contact
 
 		scheme, ident_val = split_dedupe_key(profile.get("dedupe_key"))
-		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
+		# A user key is an internal login id, so it is never shown.
+		identities = (
+			[{"scheme": scheme, "value": ident_val}] if scheme and ident_val and scheme != SCHEME_USER else []
+		)
 		contact = mask_contact(profile, show_identity=True)
 
 		# An NGO, FPO or cooperative representative also gets the organization itself: the

@@ -29,6 +29,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_submitter_prof
 	build_dedupe_key,
 	split_dedupe_key,
 )
+from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import STAFF_ROLES
 from oan_grievance_service.services.identity import (
 	SCHEME_FAYDA,
@@ -205,12 +206,31 @@ def _create_or_update_submitter_profile(
 		admin_unit = str(admin_unit).strip()
 
 	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": derived_key}, "name")
-	if not existing_name and user_doc:
-		existing_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_doc.name}, "name")
+	if user_doc:
+		own = frappe.db.get_value(
+			"Grievance Submitter Profile", {"user": user_doc.name}, ["name", "dedupe_key"], as_dict=True
+		)
+		# A user-keyed profile holds this account's history, so it cannot move to another's key.
+		if (
+			own
+			and existing_name
+			and own.name != existing_name
+			and split_dedupe_key(own.dedupe_key)[0] == SCHEME_USER
+		):
+			frappe.throw(
+				_(
+					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
+				).format(derived_key),
+				frappe.DuplicateEntryError,
+				title=_("Already Registered"),
+			)
+		existing_name = existing_name or (own and own.name)
 
 	if existing_name:
 		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
-		if user_doc and profile.user and profile.user != user_doc.name:
+		# A user key with no user is someone's old account, not one for whoever takes that name.
+		orphaned = not profile.user and split_dedupe_key(profile.dedupe_key)[0] == SCHEME_USER
+		if user_doc and (orphaned or (profile.user and profile.user != user_doc.name)):
 			frappe.throw(
 				_(
 					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
@@ -233,7 +253,8 @@ def _create_or_update_submitter_profile(
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
 		has_explicit_id = bool(fayda_id or national_id or registration_number or org_number or dedupe_key)
-		# Nor does a user key ever replace a phone or verified key.
+		# Nor does a user key ever replace a phone or verified key, so a farmer promoted to
+		# Development Agent through a phone-less login keeps their phone key.
 		keep_key = old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id
 		if not keep_key and split_dedupe_key(derived_key)[0] != SCHEME_USER:
 			profile.dedupe_key = derived_key
@@ -276,7 +297,7 @@ def _create_or_update_submitter_profile(
 	allow_guest=True,
 	summary="Dropdown options and reference data for submitters",
 	tier="public-reference",
-	cache_seconds=300,  # reference data; clients may reuse an answer for 5 minutes
+	cache_seconds=C.REFERENCE_CACHE_SECONDS,
 )
 # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
@@ -394,7 +415,9 @@ def register_submitter(
 	)
 
 	scheme, ident_val = split_dedupe_key(profile.dedupe_key)
-	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
+	# A user key is an internal login id, so it is never shown.
+	is_user_key = scheme == SCHEME_USER
+	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val and not is_user_key else []
 
 	from oan_grievance_service.services.identity import mask_contact
 
@@ -409,7 +432,7 @@ def register_submitter(
 		"country_code": contact["country_code"],
 		"phone_number": contact["phone_number"],
 		"contact_email": contact["contact_email"],
-		"dedupe_key": profile.dedupe_key,
+		"dedupe_key": None if is_user_key else profile.dedupe_key,
 		"identities": identities,
 		"administrative_area": profile.administrative_area,
 		"administrative_unit": profile.administrative_unit,

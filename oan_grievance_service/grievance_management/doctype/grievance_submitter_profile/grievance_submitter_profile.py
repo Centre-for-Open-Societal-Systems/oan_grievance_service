@@ -86,9 +86,9 @@ class GrievanceSubmitterProfile(Document):
 			old_key = self.get_doc_before_save().dedupe_key
 			old_scheme, _old_value = split_dedupe_key(old_key)
 
-			# If the profile was previously anchored to phone, and contact_mobile changed,
-			# sync dedupe_key to the new contact_mobile unless an explicit new key (e.g. Fayda) was provided.
-			if old_scheme == identity.SCHEME_PHONE:
+			# If the profile was previously anchored to phone or a user account, and contact_mobile
+			# changed, sync dedupe_key to the new contact_mobile unless an explicit new key (e.g. Fayda) was provided.
+			if old_scheme in (identity.SCHEME_PHONE, identity.SCHEME_USER):
 				if (
 					key == old_key
 					and self.contact_mobile
@@ -118,8 +118,7 @@ class GrievanceSubmitterProfile(Document):
 			)
 
 		# A user key is the profile's own account and nothing else, so no one can claim another's.
-		# Only a new key is checked: renaming the User leaves the stored key behind, and that
-		# must not stop the profile from being saved.
+		# Only a new key is checked, so a profile whose key went stale can still be saved.
 		scheme, value = split_dedupe_key(key)
 		before = self.get_doc_before_save()
 		key_is_new = not before or before.dedupe_key != key
