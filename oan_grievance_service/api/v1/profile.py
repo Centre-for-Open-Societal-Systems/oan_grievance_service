@@ -10,6 +10,10 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.administrative_area import (
+	match_administrative_area,
+	refreshed_administrative_area,
+)
 from oan_grievance_service.services.constants import ORG_STATUS_ACTIVE, ORG_TYPES
 
 # Submitter Profile fields the identity provider supplies (the "Identity provider details" section).
@@ -369,10 +373,9 @@ def _identity_fields(principal: dict, login_option: str) -> dict:
 		"postal_code": text(address.get("postal_code")),
 		"country": text(address.get("country")),
 	}
-	# The provider's region name is matched to ours; no match leaves the area unset.
-	area = region and frappe.db.get_value(
-		"Grievance Administrative Area", {"area_name": region, "level_name": "Region"}, "name"
-	)
+	# The provider's names are matched to ours, region then woreda (`locality`) then kebele
+	# (from `street_address`); the deepest unambiguous match is the area, and none leaves it out.
+	area = match_administrative_area(region, fields["locality"], fields["street_address"])
 	if area:
 		fields["administrative_area"] = area
 	return fields
@@ -380,8 +383,13 @@ def _identity_fields(principal: dict, login_option: str) -> dict:
 
 def _refresh_identity(profile_name: str, identity: dict) -> bool:
 	"""Write the identity provider's details onto the profile. True if any value changed."""
-	fields = {k: v for k, v in identity.items() if k in IDENTITY_PROFILE_FIELDS or k == "administrative_area"}
-	current = frappe.db.get_value("Grievance Submitter Profile", profile_name, list(fields), as_dict=True)
+	fields = {k: v for k, v in identity.items() if k in IDENTITY_PROFILE_FIELDS}
+	current = frappe.db.get_value(
+		"Grievance Submitter Profile", profile_name, [*fields, "administrative_area"], as_dict=True
+	)
+	fields["administrative_area"] = refreshed_administrative_area(
+		current, identity.get("administrative_area")
+	)
 	changes = {k: v for k, v in fields.items() if (current.get(k) or None) != v}
 	if not changes:
 		return False
