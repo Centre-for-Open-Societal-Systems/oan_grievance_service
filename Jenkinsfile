@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     options {
-        // Six Deployments are updated together; two overlapping runs of the same branch would fight over them.
+        // Ten Deployments are updated together; two overlapping runs of the same branch would fight over them.
         disableConcurrentBuilds()
         // Heavy build (frappe_docker layered image, node + bench build for 3 apps)
         timeout(time: 90, unit: 'MINUTES')
@@ -14,14 +14,18 @@ pipeline {
         IMAGE_REGISTRY    = '379220350808.dkr.ecr.ap-south-1.amazonaws.com'   // matches image_registry in inventory/group_vars/all/main.yml
         IMAGE_NAME        = 'oan-frappe'   // matches frappe_image_repo; must exist as an ECR repository first
         RKE2_NODE         = '13.233.56.204'
-        // All six Deployments run the SAME oan-frappe image with different commands:
+        // All ten Deployments run the SAME oan-frappe image with different commands:
         //   backend      -> gunicorn frappe.app:application
         //   frontend     -> nginx-entrypoint.sh
         //   scheduler    -> bench schedule
         //   websocket    -> node apps/frappe/socketio.js
         //   worker-long  -> bench worker --queue long
         //   worker-short -> bench worker --queue short,default
-        DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short'
+        //   worker-grievance-routing | -sla | -scan | -notifications
+        //                -> bench worker --queue grievance_<name>
+        //                   (queues are declared in common_site_config.json "workers";
+        //                    each must exist as a Deployment in the namespace before a build runs)
+        DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short worker-grievance-routing worker-grievance-sla worker-grievance-scan worker-grievance-notifications'
         // frappe_docker build definition. Pin to a tag or commit here for reproducible builds.
         FRAPPE_DOCKER_REF = 'main'
         // Run `bench migrate` in the backend pod after the new image has rolled out.
@@ -148,7 +152,7 @@ pipeline {
                     keyFileVariable: 'SSH_KEY',
                     usernameVariable: 'SSH_USER'
                 )]) {
-                    // Sets all six Deployments to the immutable build tag (no dependence on
+                    // Sets all ten Deployments to the immutable build tag (no dependence on
                     // imagePullPolicy or a floating tag). If anything fails, only the Deployments
                     // already updated by this run are rolled back.
                     sh '''
