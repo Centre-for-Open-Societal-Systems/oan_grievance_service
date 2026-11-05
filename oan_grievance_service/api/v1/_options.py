@@ -188,7 +188,9 @@ def get_role_levels() -> list[dict]:
 #
 # `workflow_states` are the engine states that count toward the card. `All` is
 # every grievance. `officer_only` cards (Assigned) appear for staff
-# only; for submitters those states roll into In Progress. Terminal is read
+# only; for submitters those states roll into In Progress. A card with `rolls_into` has no
+# KPI of its own: its states are counted and filtered under the card it names, while the
+# case still shows its own status (a submitter must see More Info Needed). Terminal is read
 # only from the active Workflow (no transition leaving the state) — there is
 # no per-card default.
 _STATUS_CARDS = (
@@ -227,6 +229,13 @@ _STATUS_CARDS = (
 		"label": "More Info Needed",
 		"workflow_states": (C.STATE_MORE_INFO_NEEDED,),
 		"officer_only": False,
+		"rolls_into": "In Progress",
+	},
+	{
+		"status": "Duplicate",
+		"label": "Duplicates",
+		"workflow_states": (C.STATE_DUPLICATE,),
+		"officer_only": False,
 	},
 	{
 		"status": "Rejected",
@@ -250,6 +259,16 @@ _STATUS_CARDS = (
 
 _CARD_BY_STATUS = {card["status"]: card for card in _STATUS_CARDS}
 
+
+def _card_states(status: str) -> tuple[str, ...]:
+	"""The workflow states a card counts: its own, and those of the cards rolled into it."""
+	states = list(_CARD_BY_STATUS[status]["workflow_states"])
+	for card in _STATUS_CARDS:
+		if card.get("rolls_into") == status:
+			states.extend(card["workflow_states"])
+	return tuple(states)
+
+
 # Lower-cased, punctuation-stripped keys the list filter and the cards accept.
 _STATUS_ALIASES = {
 	"all": "All",
@@ -259,6 +278,7 @@ _STATUS_ALIASES = {
 	"in progress": "In Progress",
 	"more info needed": "More Info Needed",
 	"rejected": "Rejected",
+	"duplicates": "Duplicate",
 	"resolved": "Resolved",
 	"closed": "Closed",
 }
@@ -327,7 +347,7 @@ def _status_cards() -> list[dict]:
 	cards = []
 	order = 0
 	for card in _STATUS_CARDS:
-		if card["officer_only"] and not include_officer_cards:
+		if (card["officer_only"] and not include_officer_cards) or card.get("rolls_into"):
 			continue
 		order += 1
 		is_terminal = _is_terminal(card["workflow_states"], terminals)
@@ -382,7 +402,7 @@ def expand_status_filter(values: list[str]) -> list[str] | None:
 		if canonical == "All":
 			return None
 		if canonical:
-			selected.extend(_CARD_BY_STATUS[canonical]["workflow_states"])
+			selected.extend(_card_states(canonical))
 			if canonical == "In Progress" and not include_officer_cards:
 				for card in _STATUS_CARDS:
 					if card["officer_only"]:
@@ -424,17 +444,16 @@ def get_status_summary() -> list[dict]:
 	for card in _STATUS_CARDS:
 		if card["status"] not in visible_statuses:
 			continue
-		mapped.update(card["workflow_states"])
+		mapped.update(_card_states(card["status"]))
 	unmapped = sum(total for status, total in counts.items() if status not in mapped)
 	all_count = sum(counts.values())
 
 	cards = []
 	for card in visible:
-		spec = _CARD_BY_STATUS[card["status"]]
 		if card["status"] == "All":
 			count = all_count
 		else:
-			count = sum(counts.get(state, 0) for state in spec["workflow_states"])
+			count = sum(counts.get(state, 0) for state in _card_states(card["status"]))
 			if card["status"] == "In Progress":
 				count += unmapped
 		card["count"] = count

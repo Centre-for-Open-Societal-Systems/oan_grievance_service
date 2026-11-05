@@ -13,8 +13,12 @@
   "col_dup",
   "detection_method",
   "similarity_score",
+  "match_level",
   "is_confirmed",
-  "confirmed_by",
+  "is_dismissed",
+  "decided_by",
+  "decided_at",
+  "decision_note",
   "sec_just",
   "submitter_justification"
  ],
@@ -50,12 +54,19 @@
    "fieldname": "detection_method",
    "fieldtype": "Select",
    "label": "Detection Method",
-   "options": "Identity + Type + Time Proximity\nManual"
+   "options": "Identity + Type + Time Proximity\nSame Submitter Similarity\nManual"
   },
   {
+   "description": "Weighted blend of description, category and type similarity, 0 to 1",
    "fieldname": "similarity_score",
    "fieldtype": "Float",
    "label": "Similarity Score"
+  },
+  {
+   "fieldname": "match_level",
+   "fieldtype": "Select",
+   "label": "Match Level",
+   "options": "\nHigh\nMedium"
   },
   {
    "default": "0",
@@ -64,10 +75,29 @@
    "label": "Confirmed Duplicate"
   },
   {
-   "fieldname": "confirmed_by",
+   "default": "0",
+   "description": "An officer ruled this is not a duplicate. A row neither confirmed nor dismissed is awaiting review.",
+   "fieldname": "is_dismissed",
+   "fieldtype": "Check",
+   "label": "Dismissed"
+  },
+  {
+   "fieldname": "decided_by",
    "fieldtype": "Link",
-   "label": "Confirmed By",
-   "options": "User"
+   "label": "Decided By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decided_at",
+   "fieldtype": "Datetime",
+   "label": "Decided At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note"
   },
   {
    "fieldname": "sec_just",
@@ -84,7 +114,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-07 10:00:05.000000",
+ "modified": "2026-11-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Duplicate",

@@ -5,10 +5,19 @@
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import flt
 
 
 class GrievanceSettings(Document):
-	pass
+	def validate(self):
+		from oan_grievance_service.services import duplicates
+
+		duplicates.validate_tuning(
+			flt(self.duplicate_weight_category),
+			flt(self.duplicate_weight_type),
+			flt(self.duplicate_threshold),
+			flt(self.duplicate_high_threshold),
+		)
 
 
 def auto_routing_enabled() -> bool:

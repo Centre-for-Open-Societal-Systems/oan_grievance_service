@@ -68,7 +68,13 @@
  "sort_order": "DESC",
  "states": [],
  "field_order": [
-  "auto_routing_enabled"
+  "auto_routing_enabled",
+  "sec_duplicates",
+  "ask_before_filing_duplicate",
+  "duplicate_weight_category",
+  "duplicate_weight_type",
+  "duplicate_threshold",
+  "duplicate_high_threshold"
  ],
  "fields": [
   {
@@ -77,6 +83,51 @@
    "fieldname": "auto_routing_enabled",
    "fieldtype": "Check",
    "label": "Route Cases to Matching Officers"
+  },
+  {
+   "description": "A new grievance is compared with the same submitter's earlier ones. Each pair scores description similarity (weight = 1 minus the category and type weights) plus the category and type weights when those match. Tune the values below from the confirm and dismiss rulings officers record.",
+   "fieldname": "sec_duplicates",
+   "fieldtype": "Section Break",
+   "label": "Duplicate Detection"
+  },
+  {
+   "default": "0",
+   "description": "When ticked, a web portal submitter who files a grievance similar to one of their own from the last 24 hours is asked whether it is a new grievance (the API answers 409 POSSIBLE_DUPLICATE until the request is sent again with confirm_new). Tick only once the web client handles that answer. Cases are flagged for officer review either way.",
+   "fieldname": "ask_before_filing_duplicate",
+   "fieldtype": "Check",
+   "label": "Ask Before Filing a Similar Grievance"
+  },
+  {
+   "default": "0.1",
+   "description": "Score added when both grievances have the same service category.",
+   "fieldname": "duplicate_weight_category",
+   "fieldtype": "Float",
+   "label": "Same Category Weight",
+   "precision": "2"
+  },
+  {
+   "default": "0.2",
+   "description": "Score added when both grievances have the same grievance type.",
+   "fieldname": "duplicate_weight_type",
+   "fieldtype": "Float",
+   "label": "Same Type Weight",
+   "precision": "2"
+  },
+  {
+   "default": "0.65",
+   "description": "A pair scoring at least this is flagged for officer review. The category and type weights together must stay below it, or matching labels alone would flag a grievance.",
+   "fieldname": "duplicate_threshold",
+   "fieldtype": "Float",
+   "label": "Flag Threshold",
+   "precision": "2"
+  },
+  {
+   "default": "0.85",
+   "description": "A flagged pair scoring at least this is shown to officers as a High match, otherwise Medium.",
+   "fieldname": "duplicate_high_threshold",
+   "fieldtype": "Float",
+   "label": "High Match Threshold",
+   "precision": "2"
   }
  ]
 }

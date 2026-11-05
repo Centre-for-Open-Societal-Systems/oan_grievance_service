@@ -24,7 +24,7 @@ request                        services/dashboard.get_chart()
       -> rows from the rollups only
 ```
 
-- **Grievance Stat Daily** holds counts per `stat_date, region, service_category, assigned_dept`:
+- **Grievance Stat Daily** holds counts per `stat_date, region, service_category, assigned_dept, assigned_to` (the assignee is what lets an officer's dashboard count their own cases):
   filed, resolved (split on time / after SLA), resolution hours, rejected, feedback and
   satisfied feedback (`satisfaction_rating` 4 or 5, given on confirming the resolution, so
   dated by `resolved_at`), and `escalated_count`: of the cases filed that day, how many have
@@ -35,13 +35,21 @@ request                        services/dashboard.get_chart()
   escalated or first answered in them (a later reply on an already answered case changes
   nothing). Only those days are rebuilt, newest first and at most 31 a run, so the work follows
   the days touched, not the age of the case; the nightly run rebuilds every day and absorbs
-  the rest.
+  the rest. A row carries the assignee as of its last rebuild, so a case moved to another
+  assignee has its filing day rebuilt too. No write path records the move itself (routing and
+  the SLA sweep use `db_set`), so the refresh reads what each leaves behind: an escalation or
+  assignment entry on the timeline, a move to Assigned in the status history, a Version that
+  names `assigned_to`. A move none of them shows waits for the nightly rebuild.
 - **Grievance Stat Snapshot** holds how many cases stood in each status on a day, by the same
   dimensions plus `escalated`, `has_desk` (the case is not on the Unrouted desk and has a
   department, a routing rule or an officer; behind the coverage axis), `sla_state` (ok / at_risk / breached / paused / no_sla),
   cases awaiting duplicate review, and the oldest open, non-escalated filing date. Today's rows
   are replaced on every refresh; earlier days are kept, because a past day's status counts
-  cannot be rebuilt from current data.
+  cannot be rebuilt from current data. Today's rows are also split by assignee. When a day
+  ends its rows are folded to one per group without it, so the history is as small as it was
+  before the assignee existed: split by assignee it would be about as many rows as there are
+  cases, every day, for good. The rows add up the same, so nothing but an officer's own cases
+  reads differently (see the officer view).
 - Only counts, sums and minimums are stored. Rates and averages are worked out when a chart is
   read, so every filter combination is exact.
 - **Grievance Stat Area** holds how many cases stand in each region and woreda, by service
@@ -74,24 +82,25 @@ most 15 minutes.
 
 ## Definitions
 
-| Term            | Meaning                                                                      |
-| --------------- | ---------------------------------------------------------------------------- |
-| Total           | Every grievance                                                              |
-| Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)           |
-| Open            | Awaiting Action + More Info Needed (waiting on them)                         |
-| Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either        |
-| Escalated       | Open cases with the `escalated` flag; `escalated_at` is the first escalation |
-| At risk         | Open, clock running, due within 24 hours                                     |
-| Breached        | Open, clock running, past `sla_due_date`                                     |
-| On time         | Resolved at or before `sla_due_date`; cases without an SLA count as neither  |
+| Term            | Meaning                                                                       |
+| --------------- | ----------------------------------------------------------------------------- |
+| Total           | Every grievance                                                               |
+| Awaiting Action | Submitted + Assigned + In Progress (an officer owes the next move)            |
+| Open            | Awaiting Action + More Info Needed (waiting on them)                          |
+| Resolved        | Resolved + Closed; `resolved_at` is when the case last reached either         |
+| Escalated       | Open cases with the `escalated` flag; `escalated_at` is the first escalation  |
+| Duplicates      | Cases an officer confirmed as duplicates (status `Duplicate`); still in Total |
+| At risk         | Open, clock running, due within 24 hours                                      |
+| Breached        | Open, clock running, past `sla_due_date`                                      |
+| On time         | Resolved at or before `sla_due_date`; cases without an SLA count as neither   |
 
 ## Endpoints
 
-| Route                           | Access                      | Returns                                                             |
-| ------------------------------- | --------------------------- | ------------------------------------------------------------------- |
-| `GET /api/v1/charts/<chart_id>` | Dashboard Reader            | one chart; public charts only; counts, never case detail            |
-| `GET /api/v1/charts?charts=...` | Grievance Admin             | several charts per call, admin-only charts and live detail          |
-| `GET /api/v1/charts?charts=...` | Grievance Officer (JWT too) | the public charts, narrowed to the caller's RBAC desks; counts only |
+| Route                           | Access                      | Returns                                                        |
+| ------------------------------- | --------------------------- | -------------------------------------------------------------- |
+| `GET /api/v1/charts/<chart_id>` | Dashboard Reader            | one chart; public charts only; counts, never case detail       |
+| `GET /api/v1/charts?charts=...` | Grievance Admin             | several charts per call, admin-only charts and live detail     |
+| `GET /api/v1/charts?charts=...` | Grievance Officer (JWT too) | the public charts, narrowed to the caller's cases; counts only |
 
 All return the standard envelope with `meta.as_of`. Filters: `region` (P-codes),
 `service_category` (alias `category`), `from` / `to`, `month`, `as_of_month` (only
@@ -112,22 +121,46 @@ revoke by regenerating the key on the user.
 
 `GET /api/v1/charts` is the JWT route behind the gateway. A `Grievance Officer` calling it gets the
 public charts (an admin-only chart id is a 404), computed from the same rollups, definitions and
-refresh as everything above, but only over the cases inside their active RBAC desks
-(`services.dashboard.caller_scope`). Grievance Admin, System Manager and Administrator are
-unscoped. A request without a valid bearer token is 401; a submitter or a Dashboard Reader is 403.
+refresh as everything above, but only over the cases they can read (`services.dashboard.caller_scope`).
+Grievance Admin, System Manager and Administrator are unscoped. A request without a valid bearer
+token is 401; a submitter or a Dashboard Reader is 403.
+
+What an officer reads is what their case list shows (`permissions.grievance_query_conditions`):
+
+- **Every Grievance Officer, whatever their rung**: the cases assigned to them or to anyone who
+  reports to them, directly or not. A Nodal Officer (L1) reads their own cases, a Senior Nodal
+  Officer (L2) theirs and their Nodal Officers'.
+- **The top rung (Category Admin) also reads their desks**: every case inside each desk. A case
+  that is both on the desk and assigned to them counts once.
+- A Review Officer reads the desks they are placed on, as their case list does, and no assigned
+  cases unless they also hold the Grievance Officer role.
+
+Before this, only the top rung read anything: an officer below it had no desk to read and saw
+zeros while their case list showed cases.
 
 A desk is an area, a department and a category, all optional. The desks are alternatives; within
-one desk every part must match. The rollups are grouped by region, category and department
-(Grievance Stat Area also by woreda), so the scope is exact down to region level, and down to woreda
-level for `grvByAdminLevel`, and errs towards showing less:
+one desk every part must match. The rollups are grouped by region, category, department and
+assignee (Grievance Stat Area also by woreda), so a desk is exact down to region level, and down to
+woreda level for `grvByAdminLevel`, and errs towards showing less:
 
 - A desk's area counts as the Regions inside it. A desk on a Zone or a Woreda has no Region
   inside it and counts as the Woredas inside it, for `grvByAdminLevel` only: the other charts
   read the daily table, which has no woreda, so there such a desk contributes nothing. A desk
   below Woreda level (a Kebele) contributes nothing anywhere, rather than its whole woreda.
 - A desk narrowed by grievance type or service provider contributes nothing.
-- A case an officer holds only through their reporting chain is not counted.
-- An officer on no usable desk reads zeros.
+- A case waiting on the officer's ruling on a change request is not counted.
+- An officer with no usable desk and no assigned case reads zeros.
+- `grvByAdminLevel` shows an officer's assigned cases at the widest level of the places they are
+  put on, and the levels below it, never the country row for an officer placed on a Region. A
+  placement with no area covers every region, as a desk with none does, so it is the widest. An
+  officer placed nowhere reads Woreda counts only.
+- An officer's own cases are today's. A past day's snapshot is not split by assignee, so a
+  chart that reads one (a past month's resolution rate and coverage, `as_of_month`) has nothing
+  to read for an officer who has no desk and returns no data (`null`, or `unavailable`), not
+  zero. A Category Admin reads the desk's cases for a past day, which leaves out cases
+  assigned to them outside it.
+- After the migrate that adds the assignee, the rollups are rebuilt inside the migrate, so
+  officers read their cases as soon as it ends.
 
 ### Cases by administrative level (STG-471)
 
