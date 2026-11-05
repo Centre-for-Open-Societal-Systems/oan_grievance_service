@@ -51,6 +51,7 @@ def file_from_ivr(
 	country_code: str | None = None,
 	call_id: str | None = None,
 	description: str | None = None,
+	uploads: list[dict] | None = None,
 ):
 	"""File a grievance for an IVR caller from nothing but their number.
 
@@ -61,11 +62,13 @@ def file_from_ivr(
 	IVR platform sends one.
 
 	`call_id` makes a retried webhook file once: a second delivery returns the case the
-	first one made. Returns `(grievance, submission)`, the timeline entry this call wrote, or None
-	for a replayed delivery.
+	first one made. `uploads` are the call's files, already checked by `prepare_uploads`, and
+	are stored on the opening timeline entry. Returns `(grievance, submission, attachments)`:
+	the timeline entry this call wrote and the files stored, or None and [] for a replayed delivery.
 	"""
 	from oan_auth_service.api.utils import assemble_phone_number
 
+	from oan_grievance_service.api.v1.attachment import store_uploads
 	from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
 		get_default_category,
 	)
@@ -79,7 +82,7 @@ def file_from_ivr(
 	submission_uuid = f"ivr:{call_id}" if call_id else frappe.generate_hash(length=32)
 	existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
 	if existing:
-		return frappe.get_doc("Grievance", existing), None
+		return frappe.get_doc("Grievance", existing), None, []
 
 	category = get_default_category()
 	if not category:
@@ -112,8 +115,9 @@ def file_from_ivr(
 	)
 	doc.insert(ignore_permissions=True)
 	submission = record_submission(doc)
+	attachments = store_uploads(doc, uploads, timeline_entry=submission.name) if uploads else []
 	dispatch_filed(doc)
-	return doc, submission
+	return doc, submission, attachments
 
 
 def _caller_profile(mobile: str):

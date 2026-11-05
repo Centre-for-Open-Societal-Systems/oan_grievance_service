@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from oan_grievance_service.api.v1._options import public_status
 from oan_grievance_service.api.v1._schemas import Text
+from oan_grievance_service.api.v1.attachment import prepare_uploads
 from oan_grievance_service.api.v1.grievance import _current_state, _timeline_event_with
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import intake
@@ -56,14 +57,20 @@ class IvrGrievanceRequest(BaseModel):
 @handle_api_errors
 @require_role(IVR_ROLES)
 def ivr_grievance(**kwargs):
-	"""Files the call under the default category and type, on the IVR Helpline channel, for an
+	"""Send JSON, or multipart/form-data to attach the call's audio (MP3, up to 10 MB).
+
+	Files the call under the default category and type, on the IVR Helpline channel, for an
 	Individual Farmer profile made from the number (an existing one is reused). Fayda ID, area
 	and every other detail are left empty."""
-	doc, submission = intake.file_from_ivr(
+	# Checked before anything is filed, so a bad file refuses the call instead of leaving
+	# a case without its recording.
+	uploads = prepare_uploads(None)
+	doc, submission, attachments = intake.file_from_ivr(
 		kwargs["phone_number"],
 		country_code=kwargs.get("country_code"),
 		call_id=kwargs.get("call_id"),
 		description=kwargs.get("description"),
+		uploads=uploads,
 	)
 
 	created = submission is not None
@@ -72,10 +79,11 @@ def ivr_grievance(**kwargs):
 		"status": public_status(doc.status),
 		"submitter": doc.submitter,
 		"created": created,
+		"attachments": attachments,
 		"current_state": _current_state(doc),
 	}
 	if created:
-		data["timeline_event"] = _timeline_event_with(submission, doc, [])
+		data["timeline_event"] = _timeline_event_with(submission, doc, attachments)
 	return success_response(
 		data=data,
 		message=_("Grievance submitted successfully") if created else _("Grievance already submitted"),

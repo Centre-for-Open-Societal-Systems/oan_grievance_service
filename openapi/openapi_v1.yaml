@@ -7741,8 +7741,10 @@ paths:
       tags:
       - Webhooks
       summary: File a grievance for an IVR caller from their phone number
-      description: 'Files the call under the default category and type, on the IVR Helpline channel, for
-        an
+      description: 'Send JSON, or multipart/form-data to attach the call''s audio (MP3, up to 10 MB).
+
+
+        Files the call under the default category and type, on the IVR Helpline channel, for an
 
         Individual Farmer profile made from the number (an existing one is reused). Fayda ID, area
 
@@ -7793,6 +7795,9 @@ paths:
         required: true
         content:
           application/json:
+            schema:
+              $ref: '#/components/schemas/IvrGrievanceRequest'
+          multipart/form-data:
             schema:
               $ref: '#/components/schemas/IvrGrievanceRequest'
 components:
@@ -8337,6 +8342,11 @@ components:
         created:
           type: boolean
           description: False when the call id was already filed and nothing new was made
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: The call's audio, stored with the case
         current_state:
           $ref: '#/components/schemas/GrievanceCurrentState'
         timeline_event:
@@ -11864,6 +11874,10 @@ components:
           default: null
           description: What the caller said, when the platform has it; a fixed note is filed otherwise
           nullable: true
+        files:
+          type: array
+          items: *id001
+          description: Files, sent as multipart/form-data
       required:
       - phone_number
       type: object

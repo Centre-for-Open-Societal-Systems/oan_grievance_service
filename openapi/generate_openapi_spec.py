@@ -536,6 +536,7 @@ data(
 			"status": S(example="Submitted"),
 			"submitter": S(description="The caller's Submitter Profile"),
 			"created": B(description="False when the call id was already filed and nothing new was made"),
+			"attachments": ARR(REF("AttachmentItem"), description="The call's audio, stored with the case"),
 			"current_state": REF("GrievanceCurrentState"),
 			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
 		},
@@ -1580,6 +1581,7 @@ MULTIPART_REQUESTS = {
 	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
 	"PostMessageRequest": ("application/json", "multipart/form-data"),
 	"SubmitGrievanceRequest": ("application/json", "multipart/form-data"),
+	"IvrGrievanceRequest": ("application/json", "multipart/form-data"),
 }
 
 
