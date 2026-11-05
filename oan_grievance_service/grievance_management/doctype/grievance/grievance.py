@@ -191,8 +191,24 @@ class Grievance(Document):
 			self.guard_filed_fields()
 			self.guard_requestable_fields()
 		self.validate_classification_is_active()
+		self.validate_duplicate_link()
 		self.guard_assignee_has_desk()
 		self.record_the_workflow_move()
+
+	def validate_duplicate_link(self):
+		"""A Duplicate points at a main ticket that is a different, live case, never a chain."""
+		if self.workflow_state != C.STATE_DUPLICATE:
+			return
+		if not self.duplicate_of:
+			frappe.throw(
+				_("A duplicate must name its main ticket."),
+				frappe.ValidationError,
+				title=_("Main Ticket Required"),
+			)
+		if self.has_value_changed("workflow_state") or self.has_value_changed("duplicate_of"):
+			from oan_grievance_service.services import duplicates
+
+			duplicates.validate_main_ticket(self, self.duplicate_of)
 
 	def guard_assignee_has_desk(self):
 		"""A case goes only to an officer who sits on an active desk. Anyone else would own

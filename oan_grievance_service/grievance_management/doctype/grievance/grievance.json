@@ -65,7 +65,9 @@
   "col_closure",
   "satisfaction_rating",
   "satisfaction_comments",
-  "closure_reason"
+  "closure_reason",
+  "sec_duplicate",
+  "duplicate_of"
  ],
  "fields": [
   {
@@ -85,7 +87,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Submitted\nAssigned\nReopened\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected",
+   "options": "Submitted\nAssigned\nReopened\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected\nDuplicate",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
@@ -481,6 +483,22 @@
    "fieldtype": "Small Text",
    "label": "Closure Reason",
    "read_only": 1
+  },
+  {
+   "depends_on": "duplicate_of",
+   "fieldname": "sec_duplicate",
+   "fieldtype": "Section Break",
+   "label": "Duplicate"
+  },
+  {
+   "description": "The main ticket, set when an officer confirms this one as a duplicate. All further handling happens there.",
+   "fieldname": "duplicate_of",
+   "fieldtype": "Link",
+   "label": "Duplicate Of",
+   "no_copy": 1,
+   "options": "Grievance",
+   "read_only": 1,
+   "search_index": 1
   }
  ],
  "grid_page_length": 50,
@@ -488,7 +506,7 @@
  "is_submittable": 0,
  "links": [],
  "max_attachments": 5,
- "modified": "2026-10-23 16:00:00.000000",
+ "modified": "2026-11-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance",

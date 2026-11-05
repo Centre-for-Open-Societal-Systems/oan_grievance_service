@@ -14,6 +14,7 @@ from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
 	SafeEmail,
+	error_response,
 	handle_api_errors,
 	page_meta,
 	parse_multi_value,
@@ -59,6 +60,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 )
 from oan_grievance_service.services import (
 	audit,
+	duplicates,
 	identity,
 	lifecycle,
 	organization,
@@ -107,6 +109,10 @@ class SubmitGrievanceRequest(GrievanceSubmissionPayload):
 	consent_given: int | bool = 1
 	client_submission_uuid: str | None = None
 	client_uuid: str | None = None
+	confirm_new: bool | int | str = Field(
+		0,
+		description="Send 1 after being told a similar grievance exists, to file this one anyway",
+	)
 
 
 class ListGrievancesRequest(PageParams):
@@ -290,6 +296,23 @@ class DeferSLARequest(BaseModel):
 	reason: Text = Field(..., min_length=20, max_length=1000)
 
 
+class ConfirmDuplicateRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	main_ticket: str | None = Field(
+		None, min_length=1, description="The main ticket. Defaults to the best flagged match"
+	)
+	note: Text | None = Field(None, max_length=1000)
+
+
+class DismissDuplicateRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	ticket_number: str | None = None
+	note: Text | None = Field(None, max_length=1000)
+
+
 STAFF_ROLES = C.STAFF_ROLES
 
 # Columns the server derives on submission. Accepting any of these from the caller
@@ -380,39 +403,6 @@ def _resolve_submitter_identity(kwargs):
 		}
 	)
 	return identity
-
-
-def detect_duplicates(grievance, window_days=7):
-	"""Match on submitter identity, grievance type and time proximity."""
-	if not grievance.submitter:
-		return []
-
-	candidates = frappe.get_all(
-		"Grievance",
-		filters={
-			"name": ["!=", grievance.name],
-			"submitter": grievance.submitter,
-			"grievance_type": grievance.grievance_type,
-			"creation": [">=", frappe.utils.add_days(now_datetime(), -window_days)],
-		},
-		pluck="name",
-	)
-
-	rows = []
-	for candidate in candidates:
-		rows.append(
-			frappe.get_doc(
-				{
-					"doctype": "Grievance Duplicate",
-					"grievance": grievance.name,
-					"duplicate_of": candidate,
-					"detected_at": now_datetime(),
-					"detection_method": "Identity + Type + Time Proximity",
-					"similarity_score": 1.0,
-				}
-			).insert(ignore_permissions=True)
-		)
-	return rows
 
 
 def _resolve_area_filter_identifiers(identifier: str, level_hint: str | None = None) -> list[str]:
@@ -686,6 +676,7 @@ def list_grievances(
 		"ticket_number",
 		"status",
 		"escalated",
+		"duplicate_of",
 		"submission_channel",
 		"submitter",
 		"submitter_name",
@@ -753,8 +744,11 @@ def list_grievances(
 	assignee_names = _officer_names(item.get("assigned_to") for item in items) if is_staff else {}
 	timer_cache = {}
 	officer_may_act = permissions.officer_write_check() if is_staff else None
+	flagged = _flagged_duplicates(items) if is_staff else {}
 	for item in items:
 		item["escalated"] = bool(item.get("escalated"))
+		item["possible_duplicate_of"] = flagged.get(item["name"])
+		item["duplicate_of"] = tn.display(item["duplicate_of"]) if item.get("duplicate_of") else None
 		deadline = sla.deadline_view(item, timer_cache)
 		item["due_date"] = to_tz_aware_iso(deadline["due_date"])
 		item["due_kind"] = deadline["due_kind"]
@@ -808,6 +802,21 @@ def list_grievances(
 	return _grievance_page(items, page, effective_limit, total_count)
 
 
+def _flagged_duplicates(items):
+	"""{name: ticket of its best flagged match} for the listed cases still awaiting a ruling."""
+	names = [item["name"] for item in items if item.get("status") != C.STATE_DUPLICATE]
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Grievance Duplicate",
+		filters={"grievance": ["in", names], "is_confirmed": 0, "is_dismissed": 0},
+		fields=["grievance", "duplicate_of"],
+		order_by="similarity_score asc, name desc",
+	)
+	# Worst first, so the best match is the one left standing.
+	return {row.grievance: tn.display(row.duplicate_of) for row in rows}
+
+
 def _grievance_page(items, page, page_size, total_count):
 	"""The list endpoint's envelope, shared by the normal and the short-circuit path."""
 	meta = page_meta(total_count, page, page_size)
@@ -853,7 +862,7 @@ def _get_available_actions_for_user(doc):
 	for act in actions:
 		if act == "Reject" and not is_staff:
 			continue
-		if act == "Assign":
+		if act in ("Assign", duplicates.ACTION_CONFIRM):
 			continue
 		result.append(
 			{
@@ -886,6 +895,39 @@ def _assignee_name(doc):
 	return _officer_names([doc.assigned_to]).get(doc.assigned_to)
 
 
+def _possible_duplicate(doc):
+	"""What an officer needs to rule on a flag: the best match and how it compares.
+
+	None for a submitter, for a case nobody flagged and for one already ruled on. The main
+	ticket's own details are left out when the officer cannot read it.
+	"""
+	if doc.workflow_state == C.STATE_DUPLICATE or not permissions.is_staff(frappe.session.user):
+		return None
+	pending = duplicates.pending_reviews(doc.name)
+	if not pending:
+		return None
+	best = pending[0]
+	view = {
+		"ticket_number": tn.display(best.duplicate_of),
+		"match_level": best.match_level,
+		"can_review": permissions.has_grievance_permission(doc, "write"),
+	}
+	main = frappe.get_doc("Grievance", best.duplicate_of)
+	if permissions.has_grievance_permission(main, "read"):
+		view.update(
+			{
+				"status": public_status(main.status),
+				"service_category": main.service_category,
+				"grievance_type": main.grievance_type,
+				"description": main.description,
+				"same_submitter": bool(doc.submitter) and main.submitter == doc.submitter,
+				"same_category": main.service_category == doc.service_category,
+				"same_type": main.grievance_type == doc.grievance_type,
+			}
+		)
+	return view
+
+
 def _current_state(doc, extra=None):
 	"""The `current_state` block every mutating endpoint echoes back.
 
@@ -904,6 +946,8 @@ def _current_state(doc, extra=None):
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
 		"can_request_more_info": identity.is_reachable(doc),
+		"duplicate_of": tn.display(doc.duplicate_of) if doc.duplicate_of else None,
+		"possible_duplicate": _possible_duplicate(doc),
 	}
 	if extra:
 		state.update(extra)
@@ -1000,6 +1044,14 @@ def submit(**kwargs):
 		doc.contact_mobile = identity.validate_mobile(doc.contact_mobile)
 
 	validate_submission_payload(doc.as_dict())
+	repeats = _similar_recent_grievances(doc, confirmed=_parse_flag(kwargs.get("confirm_new")))
+	if repeats:
+		frappe.response["http_status_code"] = 409
+		return error_response(
+			message=_("You already have a similar grievance. Is this a new one?"),
+			code="POSSIBLE_DUPLICATE",
+			details={"possible_duplicates": repeats},
+		)
 	# Checked before the insert, so a bad file refuses the filing instead of leaving a
 	# case without its evidence.
 	prepared = prepare_uploads(None)
@@ -1023,8 +1075,8 @@ def submit(**kwargs):
 	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
 
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
-	if detect_duplicates(doc):
-		notifications.queue(doc, C.EVENT_DUPLICATE_DETECTED)
+	# Flags only; an officer rules on it. The submitter is told nothing until then.
+	duplicates.flag_without_failing(doc)
 	routing.enqueue_routing(doc.name)
 
 	return success_response(
@@ -1041,6 +1093,33 @@ def submit(**kwargs):
 		},
 		message=_("Grievance submitted successfully"),
 	)
+
+
+def _similar_recent_grievances(doc, confirmed):
+	"""The farmer's similar grievances of the last day, when they should be asked first.
+
+	Asked only when Grievance Settings turns the question on, on an interactive channel, and
+	only once: a farmer who has said this one is new is not asked again. Other channels cannot
+	answer, so they file and are flagged instead.
+	"""
+	if (
+		confirmed
+		or doc.submission_channel not in duplicates.INTERACTIVE_CHANNELS
+		or not duplicates.prompt_enabled()
+	):
+		return []
+	return [
+		{
+			"ticket_number": tn.display(row["name"]),
+			"status": public_status(row["status"]),
+			"service_category": row["service_category"],
+			"grievance_type": row["grievance_type"],
+			"description": (row["description"] or "")[:200],
+			"submitted_on": to_tz_aware_iso(row["creation"]),
+			"match_level": row["match_level"],
+		}
+		for row in duplicates.likely_repeats(doc)
+	]
 
 
 def resolve_timeline_author(
@@ -1343,6 +1422,13 @@ def action(
 	from oan_grievance_service.api.v1.attachment import prepare_uploads, store_uploads
 
 	prepared = prepare_uploads(doc.name)
+
+	if matching_action == duplicates.ACTION_CONFIRM:
+		frappe.throw(
+			_("Use the duplicate endpoints to confirm a duplicate; they name the main ticket."),
+			frappe.ValidationError,
+			title=_("Action Not Permitted"),
+		)
 
 	if matching_action == "Assign":
 		frappe.throw(
@@ -1834,6 +1920,7 @@ def message(
 	if is_internal is None and kwargs.get("type") in ("note", "internal", "internal_note"):
 		internal = True
 	doc = _load(ticket_number, ptype="write")
+	duplicates.assert_not_duplicate(doc)
 	user = frappe.session.user
 	is_staff = permissions.is_staff(user)
 	if internal and not is_staff:
@@ -2060,6 +2147,68 @@ def decide_deferral(ticket_number: str, decision: str, note: str | None = None, 
 		frappe.throw(_("No pending deferral request found for this grievance."), frappe.DoesNotExistError)
 
 	return cr_decide(name=request_name, decision=decision, note=note)
+
+
+@route(
+	"/<ticket_number>/duplicate/confirm",
+	methods=("POST",),
+	summary="Confirm a grievance as a duplicate of its main ticket",
+	tier="officer-core",
+)
+@validate_request(ConfirmDuplicateRequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def confirm_duplicate(ticket_number: str, main_ticket: str | None = None, note: str | None = None, **kwargs):
+	"""An officer rules the case is a duplicate of `main_ticket`.
+
+	The main ticket defaults to the best match the system flagged. The case moves to
+	Duplicate, a message says all further handling happens on the main ticket, and the
+	case becomes read-only. It cannot be undone.
+	"""
+	doc = _load(ticket_number, ptype="write")
+	main_name = _load(main_ticket).name if main_ticket else None
+	_history, entry = duplicates.confirm(doc, main_name, note)
+	doc.reload()
+	frappe.publish_realtime(
+		"timeline_updated",
+		{"grievance": doc.name, "ticket_number": doc.ticket_number},
+		room=f"doc:Grievance:{doc.name}",
+		after_commit=True,
+	)
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"status": public_status(doc.status),
+			"duplicate_of": tn.display(doc.duplicate_of),
+			"current_state": _current_state(doc),
+			"timeline_event": _timeline_event_with(entry, doc, []),
+		},
+		message=_("Grievance marked as a duplicate"),
+	)
+
+
+@route(
+	"/<ticket_number>/duplicate/dismiss",
+	methods=("POST",),
+	summary="Rule that a flagged grievance is not a duplicate",
+	tier="officer-core",
+)
+@validate_request(DismissDuplicateRequest)
+@handle_api_errors
+@require_role(STAFF_ROLES)
+def dismiss_duplicate(ticket_number: str, note: str | None = None, **kwargs):
+	"""An officer rules the flag is wrong. The case stays a normal one."""
+	doc = _load(ticket_number, ptype="write")
+	entry = duplicates.dismiss(doc, note)
+	return success_response(
+		data={
+			"ticket_number": tn.display(doc.ticket_number),
+			"status": public_status(doc.status),
+			"current_state": _current_state(doc),
+			"timeline_event": _timeline_event_with(entry, doc, []),
+		},
+		message=_("Grievance kept as a normal case"),
+	)
 
 
 @route(

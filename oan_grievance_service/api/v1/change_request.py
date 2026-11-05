@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import DecisionRequest
 from oan_grievance_service.permissions import is_unrestricted
+from oan_grievance_service.services import duplicates
 from oan_grievance_service.services import ticket_number as tn
 
 DOCTYPE = "Grievance Change Request"
@@ -47,6 +48,7 @@ class DecideChangeRequest(DecisionRequest):
 
 def raise_change_request(grievance, subject, changes, reason=None):
 	"""Insert a request for `changes` ({fieldname: new_value} or list of dicts) on a loaded grievance."""
+	duplicates.assert_not_duplicate(grievance)
 	if isinstance(changes, dict):
 		change_rows = [{"fieldname": f, "new_value": v} for f, v in changes.items()]
 	else:

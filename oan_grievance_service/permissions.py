@@ -106,14 +106,17 @@ def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
 
 
-def officer_case_scopes(user):
+def officer_case_scopes(user, scopes=None):
 	"""The desks through which an officer reads cases they are not assigned.
 
 	Only the top rung (category admin) reads a whole desk's cases. Every other officer reads
 	the cases assigned to them and to their reports, and nothing else.
+
+	`scopes` is the user's `active_scopes`, for a caller that has them already.
 	"""
 	top = top_rung()
-	return [scope for scope in active_scopes(user) if top and scope.get("role_level") == top]
+	scopes = active_scopes(user) if scopes is None else scopes
+	return [scope for scope in scopes if top and scope.get("role_level") == top]
 
 
 def _scope_clauses(scopes):
@@ -254,6 +257,21 @@ def grievance_query_conditions(user=None):
 	return "(" + " or ".join(clauses) + ")"
 
 
+def _moved_by(grievance, user) -> bool:
+	"""Whether `user` raised or ruled on an approved change request on the case.
+
+	A reassignment takes the case out of the requester's reporting chain, so the answer to
+	their next request for it would be Forbidden. Reading it stays open to them; it is left
+	out of `grievance_query_conditions`, so the case still drops out of their queue.
+	"""
+	return any(
+		frappe.db.exists(
+			"Grievance Change Request", {"grievance": grievance, "status": "Approved", field: user}
+		)
+		for field in ("requested_by", "decided_by")
+	)
+
+
 def has_grievance_permission(doc, ptype="read", user=None):
 	"""Per-document check. Mirrors the list conditions for a single record."""
 	user = user or frappe.session.user
@@ -291,6 +309,9 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		"Grievance Change Request",
 		{"grievance": doc.get("name"), "status": "Pending", "pending_with": user},
 	):
+		return True
+
+	if ptype == "read" and _moved_by(doc.get("name"), user):
 		return True
 
 	# A category admin's desk grants visibility; editing still needs the case assigned.
