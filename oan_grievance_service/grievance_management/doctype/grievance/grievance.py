@@ -170,16 +170,26 @@ class Grievance(Document):
 		self.ticket_number = self.name
 
 	def _validate_mandatory(self):
+		"""Waive the columns a case may be filed without.
+
+		A contact number is optional on any channel. The administrative area is optional
+		only on the IVR helpline, where a caller's number is all the platform has; every
+		other channel asks for the place the grievance is about.
+		"""
+		waived = []
 		if not self.contact_mobile:
-			field = self.meta.get_field("contact_mobile")
-			if field and field.reqd:
-				field.reqd = 0
-				try:
-					super()._validate_mandatory()
-				finally:
-					field.reqd = 1
-				return
-		super()._validate_mandatory()
+			waived.append("contact_mobile")
+		if not self.administrative_area and self.submission_channel == C.CHANNEL_IVR:
+			waived.append("administrative_area")
+
+		fields = [f for f in map(self.meta.get_field, waived) if f and f.reqd]
+		for field in fields:
+			field.reqd = 0
+		try:
+			super()._validate_mandatory()
+		finally:
+			for field in fields:
+				field.reqd = 1
 
 	def validate(self):
 		self.keep_status_in_step_with_the_workflow()

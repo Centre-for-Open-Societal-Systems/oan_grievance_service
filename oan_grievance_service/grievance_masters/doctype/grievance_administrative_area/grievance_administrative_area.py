@@ -75,6 +75,14 @@ class GrievanceAdministrativeArea(NestedSet):
 				title=_("Invalid Ticket Code"),
 			)
 
+		if self.ticket_code == ticket_number.UNLOCATED_REGION:
+			frappe.throw(
+				_("Ticket Code {0} is reserved for grievances filed with no administrative area.").format(
+					frappe.bold(self.ticket_code)
+				),
+				title=_("Reserved Ticket Code"),
+			)
+
 		clash = frappe.db.get_value(
 			"Grievance Administrative Area",
 			{

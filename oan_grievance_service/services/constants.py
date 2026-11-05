@@ -130,10 +130,22 @@ ROLE_ASSISTED_SUBMITTER = "Grievance Assisted Submitter"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
+# The IVR platform: a machine user that authenticates with its Frappe API key and secret
+# and may file grievances for callers through the IVR webhook, and nothing else.
+ROLE_IVR_INTEGRATION = "Grievance IVR Integration"
 # Oversight: reads grievances, officer statistics and the administration data, and
 # changes nothing. It holds read-only DocPerms and is never listed on a mutating
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
+
+# The submission channel (Grievance Submission Type) of the IVR helpline, and what the webhook
+# files a call under when the platform sends no more than the caller's number.
+CHANNEL_IVR = "IVR Helpline"
+IVR_CALLER_NAME = "IVR Caller"
+IVR_DEFAULT_DESCRIPTION = (
+	"Grievance registered through the IVR helpline. The caller gave no details; "
+	"an officer will contact them on the phone number they called from."
+)
 
 # Accounts the officer API never manages, whatever their other roles.
 PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})

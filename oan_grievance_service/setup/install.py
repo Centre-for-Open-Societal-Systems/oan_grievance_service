@@ -32,6 +32,7 @@ ROLES = [
 	("Grievance Admin", 0),
 	(C.ROLE_ASSISTED_SUBMITTER, 0),
 	("Grievance Dashboard Reader", 0),
+	(C.ROLE_IVR_INTEGRATION, 0),
 	(C.ROLE_REVIEW_OFFICER, 0),
 	(C.ROLE_DESK_HEAD, 0),
 ]

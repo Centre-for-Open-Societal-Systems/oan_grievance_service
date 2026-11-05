@@ -1,0 +1,143 @@
+"""Filing a grievance: what follows the insert, and the intake that needs only a phone number.
+
+`record_submission` and `dispatch_filed` are the two halves every channel shares around
+`doc.insert` (the first timeline entry; then notification, duplicate flagging and routing).
+`file_from_ivr` is the IVR webhook's whole filing: the caller's profile, the case and what follows.
+"""
+
+import frappe
+from frappe import _
+from frappe.utils import now_datetime
+
+from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+	build_dedupe_key,
+)
+from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
+	GrievanceTimeline,
+)
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import duplicates, identity, notifications, routing
+
+PROFILE = "Grievance Submitter Profile"
+
+
+def record_submission(doc):
+	"""The timeline entry that opens a filed case, written by whoever filed it."""
+	submitter_user = frappe.db.get_value(PROFILE, doc.submitter, "user") if doc.submitter else None
+	return GrievanceTimeline.record(
+		grievance=doc.name,
+		entry_type="submission",
+		is_internal=False,
+		body=(doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})",
+		author_user=doc.assisted_by_officer
+		or submitter_user
+		or (frappe.session.user if frappe.session.user != "Guest" else None),
+		author_type="submitter",
+		ref_doctype="Grievance",
+		ref_docname=doc.name,
+	)
+
+
+def dispatch_filed(doc):
+	"""Tell the submitter, flag look-alikes and queue routing, once the case is in."""
+	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
+	# Flags only; an officer rules on it. The submitter is told nothing until then.
+	duplicates.flag_without_failing(doc)
+	routing.enqueue_routing(doc.name)
+
+
+def file_from_ivr(
+	phone_number: str,
+	country_code: str | None = None,
+	call_id: str | None = None,
+	description: str | None = None,
+):
+	"""File a grievance for an IVR caller from nothing but their number.
+
+	The caller gets an Individual Farmer profile on first contact, keyed on the phone
+	number; a later call from the same number files under the same profile. Fayda ID,
+	area and every other detail stay empty until the farmer or an officer supplies them.
+	The category and type are the default ones; the message is a fixed note unless the
+	IVR platform sends one.
+
+	`call_id` makes a retried webhook file once: a second delivery returns the case the
+	first one made. Returns `(grievance, submission)`, the timeline entry this call wrote, or None
+	for a replayed delivery.
+	"""
+	from oan_auth_service.api.utils import assemble_phone_number
+
+	from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
+		get_default_category,
+	)
+	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+		get_fallback_type,
+	)
+
+	mobile = identity.validate_mobile(assemble_phone_number(phone_number, country_code=country_code))
+
+	# Namespaced so a call id can never collide with another channel's submission uuid.
+	submission_uuid = f"ivr:{call_id}" if call_id else frappe.generate_hash(length=32)
+	existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
+	if existing:
+		return frappe.get_doc("Grievance", existing), None
+
+	category = get_default_category()
+	if not category:
+		frappe.throw(
+			_("No default service category is set, so an IVR grievance cannot be classified."),
+			title=_("Default Category Missing"),
+		)
+
+	profile = _caller_profile(mobile)
+	if profile.is_blocked or not profile.active:
+		frappe.throw(_("This submitter profile cannot file new grievances."), title=_("Submitter Blocked"))
+
+	doc = frappe.new_doc("Grievance")
+	doc.update(
+		{
+			"client_submission_uuid": submission_uuid,
+			"submission_channel": C.CHANNEL_IVR,
+			"consent_given": 1,
+			"consent_recorded_at": now_datetime(),
+			"service_category": category,
+			"grievance_type": get_fallback_type(category),
+			"description": (description or "").strip() or C.IVR_DEFAULT_DESCRIPTION,
+			"submitter": profile.name,
+			"submitter_type": profile.submitter_type,
+			"submitter_name": profile.submitter_name,
+			"contact_mobile": profile.contact_mobile,
+			"contact_email": profile.contact_email,
+			"assisted_by_officer": frappe.session.user,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	submission = record_submission(doc)
+	dispatch_filed(doc)
+	return doc, submission
+
+
+def _caller_profile(mobile: str):
+	"""The Individual Farmer profile of this number, created with the caller's number alone.
+
+	An existing profile is found by its phone key, or by the number on a profile keyed on a
+	Fayda ID, so a farmer who registered with eSignet is not given a second profile.
+	"""
+	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
+
+	filters = {"dedupe_key": build_dedupe_key(identity.SCHEME_PHONE, mobile)}
+	name = frappe.db.get_value(PROFILE, filters, "name") or frappe.db.get_value(
+		PROFILE, {"contact_mobile": mobile, "submitter_type": "Individual Farmer"}, "name"
+	)
+	if not name:
+		try:
+			return _create_or_update_submitter_profile(
+				user=None,
+				submitter_type="Individual Farmer",
+				submitter_name=C.IVR_CALLER_NAME,
+				contact_mobile=mobile,
+				submission_channel=C.CHANNEL_IVR,
+			)
+		except frappe.DuplicateEntryError:
+			# A second call from the same number landed between the lookup and the insert.
+			name = frappe.db.get_value(PROFILE, filters, "name")
+	return frappe.get_doc(PROFILE, name)

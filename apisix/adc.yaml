@@ -474,6 +474,33 @@ services:
         redis_port: 6379
         allow_degradation: true
         group: oan-grievance:citizen-intake:bearer
+  - name: oan-grievance-ivr-webhooks-frappe-token-post
+    description: Inbound IVR webhook, sent with a Frappe API key and secret; APISIX has no consumer for
+      it, so it limits by address.
+    labels:
+      app: oan-grievance
+      tier: ivr-webhooks
+      auth: frappe-token
+    uris:
+    - /v1/webhooks/ivr/grievances
+    methods:
+    - POST
+    plugins:
+      limit-count:
+        rules:
+        - count: 120
+          time_window: 60
+          key: $remote_addr:min
+        - count: 3000
+          time_window: 3600
+          key: $remote_addr:hour
+        rejected_code: 429
+        show_limit_quota_header: true
+        policy: redis
+        redis_host: redis
+        redis_port: 6379
+        allow_degradation: true
+        group: oan-grievance:ivr-webhooks:frappe-token
   - name: oan-grievance-officer-core-bearer-delete
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -758,6 +785,8 @@ services:
     - /v1/sla-policy/*
     - /v1/submitters
     - /v1/submitters/*
+    - /v1/webhooks
+    - /v1/webhooks/*
     methods:
     - OPTIONS
 - name: oan-grievance-realtime-v1

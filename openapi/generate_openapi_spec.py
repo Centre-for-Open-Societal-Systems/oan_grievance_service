@@ -529,6 +529,22 @@ data(
 )
 
 data(
+	"IvrGrievanceResultData",
+	OBJ(
+		{
+			"ticket_number": S(example="Z-0AB-0001-0", description="Formatted ticket number"),
+			"status": S(example="Submitted"),
+			"submitter": S(description="The caller's Submitter Profile"),
+			"created": B(description="False when the call id was already filed and nothing new was made"),
+			"current_state": REF("GrievanceCurrentState"),
+			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
+		},
+		required=["ticket_number", "status", "submitter", "created"],
+		description="Ticket of the grievance filed for an IVR call",
+	),
+)
+
+data(
 	"GrievanceListItem",
 	OBJ(
 		{
@@ -1282,6 +1298,9 @@ ENVELOPES = {
 	"GrievanceSubmitResultResponse": make_envelope(
 		"GrievanceSubmitResultData", description="Grievance submission outcome response"
 	),
+	"IvrGrievanceResultResponse": make_envelope(
+		"IvrGrievanceResultData", description="IVR grievance filing outcome response"
+	),
 	"GrievanceListResponse": make_envelope(
 		"GrievanceListData", description="Paginated grievance list response"
 	),
@@ -1585,6 +1604,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.sla_settings",
 		"oan_grievance_service.api.v1.submitter",
 		"oan_grievance_service.api.v1.taxonomy",
+		"oan_grievance_service.api.v1.webhooks",
 	]
 	for mod_name in api_modules:
 		try:
@@ -1617,6 +1637,8 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"
+	if path.startswith("/api/v1/webhooks"):
+		return "Webhooks"
 	if "/change-requests" in path or path.startswith("/api/v1/change-requests"):
 		return "Change Requests"
 	if "/attachments" in path or path.startswith("/api/v1/attachments"):
@@ -1645,6 +1667,7 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"get_area_ancestors": "AreaAncestorsResponse",
 		"list_grievances": "GrievanceListResponse",
 		"submit": "GrievanceSubmitResultResponse",
+		"ivr_grievance": "IvrGrievanceResultResponse",
 		"action": "GrievanceActionResultResponse",
 		"timeline": "GrievanceTimelineResponse",
 		"response_templates": "ResponseTemplatesResponse",
@@ -1902,7 +1925,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			op["x-legacy-rpc-method"] = legacy_target
 			if route_info.get("tier"):
 				op["x-gateway-tier"] = route_info["tier"]
-			if func_name.startswith("get_public_chart_"):
+			if func_name.startswith("get_public_chart_") or func_name == "ivr_grievance":
 				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
 			else:
 				op["security"] = [] if allow_guest else [{"BearerAuth": []}]
@@ -1992,6 +2015,10 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				"name": "Dashboard Charts",
 				"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
 			},
+			{
+				"name": "Webhooks",
+				"description": "Inbound calls from partner platforms, sent with a Frappe API key and secret",
+			},
 		],
 		"paths": paths,
 		"components": {
@@ -2006,7 +2033,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					"type": "apiKey",
 					"in": "header",
 					"name": "Authorization",
-					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
+					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader (charts) or Grievance IVR Integration (IVR webhook), sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
 				},
 			},
 			"schemas": components_schemas,
