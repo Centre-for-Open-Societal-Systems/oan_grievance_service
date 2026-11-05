@@ -1,7 +1,8 @@
 """Inbound webhooks from the platforms that feed the grievance service.
 
-The IVR platform authenticates with the Frappe API key and secret of a user holding
-Grievance IVR Integration (`Authorization: token <api_key>:<api_secret>`).
+Frappe sees the gateway, not the platform: the IVR platform authenticates to APISIX with a
+gateway key, and APISIX calls here with the Frappe API key and secret of a user holding
+Grievance IVR Integration (`Authorization: token <api_key>:<api_secret>`). See apisix/README.md.
 """
 
 from frappe import _

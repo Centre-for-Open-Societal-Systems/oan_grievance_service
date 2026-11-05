@@ -99,6 +99,22 @@ exclusively: it adds `jwt-auth` on bearer routes, keys limits by token, and emit
 `oan-auth-jwt-issuer` consumer (`gateway_apisix.jwt_issuer_consumer`, needs
 `OAN_AUTH_JWT_PUBLIC_KEY`, the PEM, and `OAN_JWT_ISSUER`), which refuses IAM tokens.
 
+## IVR webhook credentials
+
+`POST /v1/webhooks/ivr/grievances` is called with a key of the gateway's own, not a Frappe
+one. The gateway (`key-auth` on the `oan-grievance-ivr-platform` consumer) checks the
+`apikey` header, removes it, and calls Frappe with the API key and secret of the
+`Grievance IVR Integration` user, so the IVR platform never holds the Frappe secret and is
+cut off by deleting its consumer key, with no Frappe change.
+
+| Secret                        | Where it lives                                                                             | Value                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| IVR gateway key               | ADC: `OAN_GRIEVANCE_IVR_GATEWAY_KEY`. Helm: Secret `oan-grievance-ivr-platform`, key `key` | Random string you generate and give to the IVR platform                           |
+| Frappe token for the IVR user | ADC: `OAN_GRIEVANCE_IVR_FRAPPE_TOKEN`. Helm: `ivr.frappeToken`                             | `<api_key>:<api_secret>` generated on the Frappe user (API Access, Generate Keys) |
+
+Helm renders `ivr.frappeToken` into the route, so supply it from a secret store in
+oan-helm, not from Git.
+
 ## Known limits
 
 - Rate limits are per client address. Users behind one NAT or proxy share a bucket, and

@@ -949,7 +949,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-ivr-webhooks-frappe-token-post
+  - name: oan-grievance-ivr-webhooks-custom-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -984,6 +984,9 @@ spec:
         regex_uri:
         - ^/(v[0-9]+)/(.*)
         - /api/$1/$2
+        headers:
+          set:
+            Authorization: token {{ .Values.ivr.frappeToken }}
     - name: limit-count
       enable: true
       config:
@@ -1000,7 +1003,18 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:ivr-webhooks:frappe-token
+        group: oan-grievance:ivr-webhooks:custom
+    - name: key-auth
+      enable: true
+      config:
+        header: apikey
+        hide_credentials: true
+    - name: consumer-restriction
+      enable: true
+      config:
+        type: consumer_name
+        whitelist:
+        - '{{ .Release.Namespace }}_oan-grievance-ivr-platform'
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}

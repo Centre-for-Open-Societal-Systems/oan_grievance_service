@@ -1570,6 +1570,9 @@ QP["DashboardCharts"] = [
 # The OAN dashboards read the public charts as a Frappe user holding Grievance
 # Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
 PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
+# The IVR platform calls the gateway with its own key; the gateway adds the Frappe API
+# key and secret of the Grievance IVR Integration user, which the platform never holds.
+IVR_WEBHOOK_SECURITY = [{"GatewayKeyAuth": []}]
 
 
 # ---------------------------------------------------------------------------
@@ -1927,8 +1930,10 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 			op["x-legacy-rpc-method"] = legacy_target
 			if route_info.get("tier"):
 				op["x-gateway-tier"] = route_info["tier"]
-			if func_name.startswith("get_public_chart_") or func_name == "ivr_grievance":
+			if func_name.startswith("get_public_chart_"):
 				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
+			elif func_name == "ivr_grievance":
+				op["security"] = copy.deepcopy(IVR_WEBHOOK_SECURITY)
 			else:
 				op["security"] = [] if allow_guest else [{"BearerAuth": []}]
 
@@ -2035,7 +2040,13 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					"type": "apiKey",
 					"in": "header",
 					"name": "Authorization",
-					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader (charts) or Grievance IVR Integration (IVR webhook), sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
+					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
+				},
+				"GatewayKeyAuth": {
+					"type": "apiKey",
+					"in": "header",
+					"name": "apikey",
+					"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance IVR Integration user with that user's own API key and secret, which the platform never holds.",
 				},
 			},
 			"schemas": components_schemas,

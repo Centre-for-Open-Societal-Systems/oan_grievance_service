@@ -7790,7 +7790,7 @@ paths:
       x-legacy-rpc-method: oan_grievance_service.api.v1.webhooks.ivr_grievance
       x-gateway-tier: ivr-webhooks
       security:
-      - FrappeTokenAuth: []
+      - GatewayKeyAuth: []
       requestBody:
         required: true
         content:
@@ -7811,9 +7811,16 @@ components:
       type: apiKey
       in: header
       name: Authorization
-      description: Frappe API key and secret of a user holding Grievance Dashboard Reader (charts) or
-        Grievance IVR Integration (IVR webhook), sent as `token <api_key>:<api_secret>`. Generated on
-        that user in the desk and checked by the platform; the gateway passes the header through.
+      description: Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token
+        <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway
+        passes the header through.
+    GatewayKeyAuth:
+      type: apiKey
+      in: header
+      name: apikey
+      description: 'The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks
+        it, removes it, and calls Frappe as the Grievance IVR Integration user with that user''s own API
+        key and secret, which the platform never holds.'
   schemas:
     ApiMeta:
       type: object

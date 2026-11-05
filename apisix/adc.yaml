@@ -474,13 +474,13 @@ services:
         redis_port: 6379
         allow_degradation: true
         group: oan-grievance:citizen-intake:bearer
-  - name: oan-grievance-ivr-webhooks-frappe-token-post
-    description: Inbound IVR webhook, sent with a Frappe API key and secret; APISIX has no consumer for
-      it, so it limits by address.
+  - name: oan-grievance-ivr-webhooks-custom-post
+    description: Inbound IVR webhook, called with the gateway key of the IVR platform consumer; limited
+      by address.
     labels:
       app: oan-grievance
       tier: ivr-webhooks
-      auth: frappe-token
+      auth: custom
     uris:
     - /v1/webhooks/ivr/grievances
     methods:
@@ -500,7 +500,21 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:ivr-webhooks:frappe-token
+        group: oan-grievance:ivr-webhooks:custom
+      key-auth:
+        header: apikey
+        hide_credentials: true
+      consumer-restriction:
+        type: consumer_name
+        whitelist:
+        - oan-grievance-ivr-platform
+      proxy-rewrite:
+        regex_uri:
+        - ^/(v[0-9]+)/(.*)
+        - /api/$1/$2
+        headers:
+          set:
+            Authorization: token ${OAN_GRIEVANCE_IVR_FRAPPE_TOKEN}
   - name: oan-grievance-officer-core-bearer-delete
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -928,3 +942,10 @@ services:
             Authorization: Bearer ${cookie_X-Access-Token}
           remove:
           - Cookie
+consumers:
+- username: oan-grievance-ivr-platform
+  labels:
+    app: oan-grievance
+  plugins:
+    key-auth:
+      key: ${OAN_GRIEVANCE_IVR_GATEWAY_KEY}
