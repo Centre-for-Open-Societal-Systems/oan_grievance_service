@@ -33,6 +33,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle
+from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import ticket_number as tn
 
 ACTION_CONFIRM = "Confirm Duplicate"
@@ -296,7 +297,7 @@ def flag_without_failing(grievance):
 		return flag_possible_duplicates(grievance)
 	except Exception:
 		frappe.db.rollback(save_point=save_point)
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to flag possible duplicates for grievance: {grievance.name}",
 			message=frappe.get_traceback(),
 		)

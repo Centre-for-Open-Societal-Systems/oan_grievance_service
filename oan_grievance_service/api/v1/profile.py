@@ -10,6 +10,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services.administrative_area import (
 	match_administrative_area,
 	refreshed_administrative_area,
@@ -331,9 +332,9 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False
@@ -355,9 +356,9 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False

@@ -41,6 +41,7 @@ from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datet
 from pypika.terms import ExistsCriterion, LiteralValue
 
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import sla
 
 DAILY = "Grievance Stat Daily"
@@ -413,7 +414,7 @@ def _request_safely(full=False):
 	try:
 		_request(full)
 	except Exception:
-		frappe.log_error(title="Dashboard rollup refresh was not requested")
+		oplog.log_error(title="Dashboard rollup refresh was not requested")
 
 
 def _kick():

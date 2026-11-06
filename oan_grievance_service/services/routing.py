@@ -13,6 +13,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 	GrievanceRoleLevel,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import sla
 
 UNBOUNDED = 999999999
@@ -469,7 +470,7 @@ def enqueue_routing(grievance_name: str) -> None:
 			enqueue_after_commit=True,
 		)
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to enqueue routing for grievance: {grievance_name}",
 			message=frappe.get_traceback(),
 		)
@@ -502,7 +503,7 @@ def drain_routing_queue(limit: int = 50) -> int:
 			if apply_routing(doc):
 				routed_count += 1
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Scheduled queue routing failed for {name}",
 				message=frappe.get_traceback(),
 			)

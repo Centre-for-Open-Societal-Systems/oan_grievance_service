@@ -45,6 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard
+from oan_grievance_service.services import operational_log as oplog
 
 route = prefixed("/api/v1")
 
@@ -265,7 +266,7 @@ def get_charts(charts: str | None = None, **kwargs):
 			if result.get("unavailable"):
 				unavailable[chart_id] = result["unavailable"]
 		except Exception:
-			frappe.log_error(title=f"Dashboard chart {chart_id} failed")
+			oplog.log_error(title=f"Dashboard chart {chart_id} failed")
 			data[chart_id] = None
 			errors[chart_id] = _("This chart could not be built")
 

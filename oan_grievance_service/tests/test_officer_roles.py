@@ -684,15 +684,19 @@ class TestPasswordResets(RoleCase):
 		frappe.set_user(caller)
 		with (
 			mock.patch("oan_grievance_service.api.v1.officer.check_rate_limit") as limit,
-			mock.patch("oan_grievance_service.api.v1.officer.frappe.logger") as logger,
+			mock.patch("oan_grievance_service.api.v1.officer.oplog.security_event") as event,
 		):
 			result = reset_temporary_password(reviewer["name"], temporary_password="Another123")
 		self.assertEqual(result["status"], "success", msg=result)
 		limit.assert_called_once_with(f"rl:officer_temporary_password:{caller}", limit=10, window=300)
-		logged = logger.return_value.info.call_args.args[0]
-		self.assertIn(f"by={caller}", logged)
-		self.assertIn(f"for={reviewer['name']}", logged)
-		self.assertIn("role=Reviewer", logged)
+		event.assert_called_once()
+		self.assertEqual(event.call_args.args[0], "temporary_password_reissued")
+		logged = event.call_args.kwargs
+		self.assertEqual(logged["user"], caller)
+		self.assertEqual(logged["target_user"], reviewer["name"])
+		self.assertEqual(logged["target_role"], "Reviewer")
+		# The password is never an argument of the event.
+		self.assertNotIn("Another123", repr(event.call_args))
 
 
 class TestPermissions(RoleCase):

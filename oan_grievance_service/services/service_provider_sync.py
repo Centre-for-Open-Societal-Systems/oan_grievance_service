@@ -30,6 +30,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_source.grievance_service_provider_source import (
 	DOCTYPE as SOURCE,
 )
+from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services.resolvers import resolve_administrative_area
 from oan_grievance_service.services.service_provider_adapters import SourceError, get_adapter
 
@@ -107,7 +108,7 @@ def enqueue_quietly(source_name: str, reason: str, after_commit: bool = False) -
 	except SyncInProgress:
 		return False
 	except Exception:
-		frappe.log_error(title=f"oan_grievance_service: {reason} provider sync not queued: {source_name}")
+		oplog.log_error(title=f"oan_grievance_service: {reason} provider sync not queued: {source_name}")
 		return False
 
 
@@ -140,7 +141,7 @@ def run_sync(source_name: str) -> dict:
 			counts, errors = _apply(source, rows, warnings)
 	except Exception:
 		frappe.db.rollback(save_point=savepoint)
-		frappe.log_error(title="oan_grievance_service: service provider sync failed")
+		oplog.log_error(title="oan_grievance_service: service provider sync failed")
 		return _record(source, STATUS_FAILED, _("Unexpected error; see the Error Log. Nothing was changed."))
 
 	status = STATUS_PARTIAL if errors else STATUS_SUCCESS

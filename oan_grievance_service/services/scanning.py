@@ -64,6 +64,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	MAX_SIZE_BYTES,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import operational_log as oplog
 
 CLAMAV_DEFAULT_PORT = 3310
 CLAMAV_TIMEOUT_SECONDS = 30
@@ -236,7 +237,7 @@ def strip_location_metadata(content: bytes, mime: str) -> bytes:
 		# A file Pillow cannot parse is not one we should be re-encoding. Leave it
 		# for the malware scan to judge rather than silently passing it through
 		# half-processed.
-		frappe.log_error(title="Attachment metadata strip failed")
+		oplog.log_error(title="Attachment metadata strip failed")
 		return content
 
 
@@ -342,7 +343,7 @@ def enqueue_scan_attachment(name: str) -> None:
 			deduplicate=True,
 		)
 	except Exception:
-		frappe.log_error(title=f"Failed to enqueue scan for attachment: {name}")
+		oplog.log_error(title=f"Failed to enqueue scan for attachment: {name}")
 
 
 def enqueue_scan_attachments(names: list[str]) -> None:
@@ -414,7 +415,7 @@ def scan_pending(limit: int = 50) -> int:
 		# without charging every waiting row a retry.
 		waiting = frappe.db.count("Grievance Attachment", {"scan_status": SCAN_PENDING})
 		if waiting:
-			frappe.log_error(
+			oplog.log_error(
 				title="Attachment scan sweep skipped: scanner unreachable",
 				message=f"{waiting} attachment(s) are waiting for a scan. No retry was charged.",
 			)
@@ -431,7 +432,7 @@ def scan_pending(limit: int = 50) -> int:
 		try:
 			scan_attachment(name)
 		except Exception:
-			frappe.log_error(title=f"Attachment scan failed: {name}")
+			oplog.log_error(title=f"Attachment scan failed: {name}")
 	return len(pending)
 
 
@@ -494,7 +495,7 @@ def _defer(name: str, attempts: int, detail: str) -> str:
 	"""
 	attempts += 1
 	if attempts >= MAX_SCAN_ATTEMPTS:
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Attachment scan gave up: {name}",
 			message=f"{attempts} attempts, last: {detail}",
 		)
@@ -563,7 +564,7 @@ def _discard_infected(name: str, file_name: str | None, checksum: str | None) ->
 			fields=["name", "attached_to_doctype", "attached_to_name"],
 		)
 		if sharers:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Infected bytes still on disk: {name}",
 				message="These File records share the infected object's content hash and were not "
 				"removed because they belong to another record:\n"

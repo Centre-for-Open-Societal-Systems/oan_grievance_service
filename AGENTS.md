@@ -33,6 +33,7 @@ oan_grievance_service/
 │   │   ├── routing.py              # RBAC & area-aware auto-assignment
 │   │   ├── sla.py                  # SLA calculation & milestone tracking
 │   │   ├── lifecycle.py            # Status transitions & workflow execution
+│   │   ├── operational_log.py      # Structured JSON logging, correlation ids & PII masking
 │   │   ├── notification.py         # Multi-channel notification dispatcher
 │   │   ├── ticket_number.py        # Canonical ticket format generator/parser
 │   │   └── virus_scanner.py        # ClamAV scan pipeline
@@ -118,6 +119,7 @@ Whenever you add, modify, or deprecate an API endpoint:
   frappe.throw(_("Service category '{0}' does not exist.").format(name), frappe.ValidationError)
   ```
 - **No Console/Debug Artifacts**: No `print()`, `console.log`, or `debugger` statements in committed code.
+- **Logging**: Go through `services/operational_log.py` (see [docs/operational-logging.md](docs/operational-logging.md)): `oplog.log_error` instead of `frappe.log_error`, and `oplog.info`, `sla_event`, `escalation_event` or `security_event` for events. Never log a request body, header, whole document or `frappe.form_dict`, and never a submitter's name, phone, email or ID; pick the identifying fields. Do not add a second logger or log file.
 - **Child Tables**: Reset child table rows idiomatically via `doc.set("child_table_field", [])` before repopulating.
 - **In-Memory Document Sync**: When using `self.db_set("field", value, update_modified=False)`, synchronize the in-memory attribute (`self.field = value`) to avoid stale state in ORM instances.
 - **Deterministic Sorting**: Always add a unique secondary tie-breaker for paginated queries (e.g., `order_by="modified desc, name desc"`).
