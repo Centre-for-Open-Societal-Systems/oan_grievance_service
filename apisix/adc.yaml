@@ -507,14 +507,14 @@ services:
       consumer-restriction:
         type: consumer_name
         whitelist:
-        - oan-grievance-ivr-platform
+        - oan-ivr-vendor
       proxy-rewrite:
         regex_uri:
         - ^/(v[0-9]+)/(.*)
         - /api/$1/$2
         headers:
           set:
-            Authorization: token ${OAN_GRIEVANCE_IVR_FRAPPE_TOKEN}
+            Authorization: $env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION
   - name: oan-grievance-officer-core-bearer-delete
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -943,9 +943,9 @@ services:
           remove:
           - Cookie
 consumers:
-- username: oan-grievance-ivr-platform
+- username: oan-ivr-vendor
   labels:
     app: oan-grievance
   plugins:
     key-auth:
-      key: ${OAN_GRIEVANCE_IVR_GATEWAY_KEY}
+      key: $env://OAN_IVR_VENDOR_KEY

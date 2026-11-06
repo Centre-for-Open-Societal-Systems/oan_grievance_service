@@ -200,7 +200,6 @@ HELM_VALUES = {
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST": ".Values.socket.serviceName",
 	"OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST": ".Values.web.externalHosts",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST": ".Values.socket.externalHosts",
-	"OAN_GRIEVANCE_IVR_FRAPPE_TOKEN": ".Values.ivr.frappeToken",
 	"FRAPPE_SITE_NAME": ".Values.siteName",
 	"WEB_PORT": ".Values.web.port",
 	"SOCKET_PORT": ".Values.socket.port",
@@ -208,7 +207,6 @@ HELM_VALUES = {
 HELM_REQUIRED = {
 	"OAN_GRIEVANCE_UPSTREAM_HOST",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST",
-	"OAN_GRIEVANCE_IVR_FRAPPE_TOKEN",
 	"FRAPPE_SITE_NAME",
 	"APISIX_REDIS_HOST",
 }
@@ -227,11 +225,12 @@ HELM_BACKENDS = {
 }
 
 
-# The IVR webhook is called with a key of the gateway's own. The gateway checks it and calls
-# Frappe with the API key and secret of the Grievance IVR Integration user, so the platform
-# never holds the Frappe secret and can be cut off at the gateway alone.
+# The IVR webhook is called with the IVR vendor's gateway key, the same key it uses for A2C.
+# The gateway checks it and calls Frappe with the API key and secret of the Grievance IVR
+# Integration user, which APISIX reads from its environment, so the vendor never holds the
+# Frappe secret and can be cut off at the gateway alone.
 IVR_ROUTE = f"{APP}-ivr-webhooks-custom-post"
-IVR_CONSUMER = f"{APP}-ivr-platform"
+IVR_FRAPPE_AUTHORIZATION = "$env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION"
 
 
 def add_ivr_webhook_auth(doc):
@@ -239,20 +238,15 @@ def add_ivr_webhook_auth(doc):
 	route = next(r for r in service["routes"] if r["name"] == IVR_ROUTE)
 	# A route's proxy-rewrite replaces the service's whole, so the /v1 -> /api/v1 rewrite is repeated.
 	rewrite = copy.deepcopy(service["plugins"]["proxy-rewrite"])
-	rewrite["headers"] = {"set": {"Authorization": "token ${OAN_GRIEVANCE_IVR_FRAPPE_TOKEN}"}}
+	rewrite["headers"] = {"set": {"Authorization": IVR_FRAPPE_AUTHORIZATION}}
 	route["plugins"].update(
 		{
 			"key-auth": {"header": "apikey", "hide_credentials": True},
-			"consumer-restriction": {"type": "consumer_name", "whitelist": [IVR_CONSUMER]},
+			"consumer-restriction": {"type": "consumer_name", "whitelist": [gw.IVR_VENDOR_CONSUMER]},
 			"proxy-rewrite": rewrite,
 		}
 	)
-	consumer = {
-		"username": IVR_CONSUMER,
-		"labels": {"app": APP},
-		"plugins": {"key-auth": {"key": "${OAN_GRIEVANCE_IVR_GATEWAY_KEY}"}},
-	}
-	doc["consumers"] = [*doc.get("consumers", []), consumer]
+	doc["consumers"] = [*doc.get("consumers", []), gw.shared_consumer(gw.IVR_VENDOR_CONSUMER, APP)]
 
 
 def main():

@@ -5,13 +5,13 @@
 apiVersion: apisix.apache.org/v2
 kind: ApisixRoute
 metadata:
-  name: oan-grievance-service-v1
+  name: service-v1
   labels:
     app: oan-grievance
 spec:
   ingressClassName: {{ .Values.ingressClassName | quote }}
   http:
-  - name: oan-grievance-auth-admin-bearer-delete
+  - name: auth-admin-bearer-delete
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -73,7 +73,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-admin-bearer-get
+  - name: auth-admin-bearer-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -137,7 +137,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-admin-bearer-patch
+  - name: auth-admin-bearer-patch
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -197,7 +197,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-admin-bearer-post
+  - name: auth-admin-bearer-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -260,7 +260,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-admin-bearer-put
+  - name: auth-admin-bearer-put
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -320,7 +320,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-credentials-public-post
+  - name: auth-credentials-public-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -387,7 +387,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-public-read-public-get
+  - name: auth-public-read-public-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -450,7 +450,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-session-bearer-delete
+  - name: auth-session-bearer-delete
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -511,7 +511,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-session-bearer-get
+  - name: auth-session-bearer-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -573,7 +573,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-session-bearer-patch
+  - name: auth-session-bearer-patch
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -634,7 +634,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-auth-session-public-post
+  - name: auth-session-public-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -695,7 +695,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-citizen-intake-bearer-delete
+  - name: citizen-intake-bearer-delete
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -755,7 +755,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-citizen-intake-bearer-get
+  - name: citizen-intake-bearer-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -820,7 +820,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-citizen-intake-bearer-patch
+  - name: citizen-intake-bearer-patch
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -880,7 +880,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-citizen-intake-bearer-post
+  - name: citizen-intake-bearer-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -949,7 +949,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-ivr-webhooks-custom-post
+  - name: ivr-webhooks-custom-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -986,7 +986,7 @@ spec:
         - /api/$1/$2
         headers:
           set:
-            Authorization: token {{ .Values.ivr.frappeToken }}
+            Authorization: $env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION
     - name: limit-count
       enable: true
       config:
@@ -1014,7 +1014,7 @@ spec:
       config:
         type: consumer_name
         whitelist:
-        - '{{ .Release.Namespace }}_oan-grievance-ivr-platform'
+        - '{{ required "sharedConsumerNamespace is required" .Values.sharedConsumerNamespace }}_oan-ivr-vendor'
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1023,7 +1023,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-officer-core-bearer-delete
+  - name: officer-core-bearer-delete
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1086,7 +1086,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-officer-core-bearer-get
+  - name: officer-core-bearer-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1176,7 +1176,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-officer-core-bearer-patch
+  - name: officer-core-bearer-patch
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1244,7 +1244,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-officer-core-bearer-post
+  - name: officer-core-bearer-post
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1319,7 +1319,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-public-dashboards-frappe-token-get
+  - name: public-dashboards-frappe-token-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1395,7 +1395,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-public-reference-public-get
+  - name: public-reference-public-get
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1459,7 +1459,7 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
-  - name: oan-grievance-cors-preflight
+  - name: cors-preflight
     match:
 {{- if .Values.hosts }}
       hosts:
@@ -1547,13 +1547,13 @@ spec:
 apiVersion: apisix.apache.org/v2
 kind: ApisixRoute
 metadata:
-  name: oan-grievance-realtime-v1
+  name: realtime-v1
   labels:
     app: oan-grievance
 spec:
   ingressClassName: {{ .Values.ingressClassName | quote }}
   http:
-  - name: oan-grievance-realtime-socket-io-bearer
+  - name: realtime-socket-io-bearer
     priority: 10
     websocket: true
     match:
@@ -1606,7 +1606,7 @@ spec:
     - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
 {{- end }}
-  - name: oan-grievance-realtime-socket-io-cookie-local
+  - name: realtime-socket-io-cookie-local
     priority: 0
     websocket: true
     match:
@@ -1673,7 +1673,7 @@ spec:
     - serviceName: {{ required "socket.serviceName is required" .Values.socket.serviceName | quote }}
       servicePort: {{ .Values.socket.port }}
 {{- end }}
-  - name: oan-grievance-realtime-socket-io-cookie-iam
+  - name: realtime-socket-io-cookie-iam
     priority: 0
     websocket: true
     match:

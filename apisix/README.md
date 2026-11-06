@@ -102,18 +102,21 @@ exclusively: it adds `jwt-auth` on bearer routes, keys limits by token, and emit
 ## IVR webhook credentials
 
 `POST /v1/webhooks/ivr/grievances` is called with a key of the gateway's own, not a Frappe
-one. The gateway (`key-auth` on the `oan-grievance-ivr-platform` consumer) checks the
-`apikey` header, removes it, and calls Frappe with the API key and secret of the
-`Grievance IVR Integration` user, so the IVR platform never holds the Frappe secret and is
-cut off by deleting its consumer key, with no Frappe change.
+one. The IVR vendor also calls A2C, so it has one consumer, `oan-ivr-vendor`, shared by
+both apps (`gateway_apisix.SHARED_CONSUMERS`). The gateway (`key-auth`) checks the `apikey`
+header, removes it, and calls Frappe with the API key and secret of the
+`Grievance IVR Integration` user, so the vendor never holds the Frappe secret and is cut
+off by deleting its consumer key, with no Frappe change.
 
-| Secret                        | Where it lives                                                                             | Value                                                                             |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| IVR gateway key               | ADC: `OAN_GRIEVANCE_IVR_GATEWAY_KEY`. Helm: Secret `oan-grievance-ivr-platform`, key `key` | Random string you generate and give to the IVR platform                           |
-| Frappe token for the IVR user | ADC: `OAN_GRIEVANCE_IVR_FRAPPE_TOKEN`. Helm: `ivr.frappeToken`                             | `<api_key>:<api_secret>` generated on the Frappe user (API Access, Generate Keys) |
+| Secret                        | Where it lives                                                                                                                                                                                               | Value                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| IVR vendor gateway key        | APISIX environment `OAN_IVR_VENDOR_KEY` (ADC). Helm: the `oan-ivr-vendor` ApisixConsumer of the APISIX release (oan-helm `apisix.yaml`, `extraDeploy`), Secret `oan-ivr-vendor`, key `key`, in its namespace | Random string you generate and give to the IVR vendor. The same key for A2C             |
+| Frappe token for the IVR user | APISIX environment `OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION`. Helm: set from a Secret through `extraEnvVars` in oan-helm `apisix.yaml`                                                                        | `token <api_key>:<api_secret>` generated on the Frappe user (API Access, Generate Keys) |
 
-Helm renders `ivr.frappeToken` into the route, so supply it from a secret store in
-oan-helm, not from Git.
+The route reads the token as `$env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION`, so it is
+never written into the route, etcd or the Helm release. The chart does not create the
+consumer: it only whitelists `<sharedConsumerNamespace>_oan-ivr-vendor`, so set
+`sharedConsumerNamespace` to the namespace of the APISIX release.
 
 ## Known limits
 
