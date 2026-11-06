@@ -475,8 +475,8 @@ services:
         allow_degradation: true
         group: oan-grievance:citizen-intake:bearer
   - name: oan-grievance-ivr-webhooks-custom-post
-    description: Inbound IVR webhook, called with the gateway key of the IVR platform consumer; limited
-      by address.
+    description: Inbound IVR webhook, called with the gateway key of the IVR platform consumer; not rate
+      limited.
     labels:
       app: oan-grievance
       tier: ivr-webhooks
@@ -486,21 +486,6 @@ services:
     methods:
     - POST
     plugins:
-      limit-count:
-        rules:
-        - count: 120
-          time_window: 60
-          key: $remote_addr:min
-        - count: 3000
-          time_window: 3600
-          key: $remote_addr:hour
-        rejected_code: 429
-        show_limit_quota_header: true
-        policy: redis
-        redis_host: redis
-        redis_port: 6379
-        allow_degradation: true
-        group: oan-grievance:ivr-webhooks:custom
       key-auth:
         header: apikey
         hide_credentials: true
@@ -799,8 +784,6 @@ services:
     - /v1/sla-policy/*
     - /v1/submitters
     - /v1/submitters/*
-    - /v1/webhooks
-    - /v1/webhooks/*
     methods:
     - OPTIONS
 - name: oan-grievance-realtime-v1

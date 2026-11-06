@@ -123,7 +123,7 @@ TIERS = {
 		"minute": 120,
 		"hour": 3000,
 		"policy": "redis",
-		"note": "Inbound IVR webhook, called with the gateway key of the IVR platform consumer; limited by address.",
+		"note": "Inbound IVR webhook, called with the gateway key of the IVR platform consumer; not rate limited.",
 	},
 	"officer-core": {
 		"limit_by": "consumer",
@@ -239,6 +239,8 @@ def add_ivr_webhook_auth(doc):
 	# A route's proxy-rewrite replaces the service's whole, so the /v1 -> /api/v1 rewrite is repeated.
 	rewrite = copy.deepcopy(service["plugins"]["proxy-rewrite"])
 	rewrite["headers"] = {"set": {"Authorization": IVR_FRAPPE_AUTHORIZATION}}
+	# The one caller is the IVR vendor, already limited by its gateway key, so no rate limit.
+	route["plugins"].pop("limit-count", None)
 	route["plugins"].update(
 		{
 			"key-auth": {"header": "apikey", "hide_credentials": True},
@@ -246,6 +248,9 @@ def add_ivr_webhook_auth(doc):
 			"proxy-rewrite": rewrite,
 		}
 	)
+	# The vendor is a server, so its path needs no CORS preflight route.
+	preflight = next(r for r in service["routes"] if r["name"] == f"{APP}-cors-preflight")
+	preflight["uris"] = [u for u in preflight["uris"] if u not in ("/v1/webhooks", "/v1/webhooks/*")]
 	doc["consumers"] = [*doc.get("consumers", []), gw.shared_consumer(gw.IVR_VENDOR_CONSUMER, APP)]
 
 

@@ -987,23 +987,6 @@ spec:
         headers:
           set:
             Authorization: $env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION
-    - name: limit-count
-      enable: true
-      config:
-        rules:
-        - count: 120
-          time_window: 60
-          key: $remote_addr:min
-        - count: 3000
-          time_window: 3600
-          key: $remote_addr:hour
-        rejected_code: 429
-        show_limit_quota_header: true
-        policy: redis
-        redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
-        redis_port: 6379
-        allow_degradation: true
-        group: oan-grievance:ivr-webhooks:custom
     - name: key-auth
       enable: true
       config:
@@ -1508,8 +1491,6 @@ spec:
       - /v1/sla-policy/*
       - /v1/submitters
       - /v1/submitters/*
-      - /v1/webhooks
-      - /v1/webhooks/*
       methods:
       - OPTIONS
     plugins:
