@@ -690,7 +690,9 @@ class TestPasswordResets(RoleCase):
 		self.assertEqual(result["status"], "success", msg=result)
 		limit.assert_called_once_with(f"rl:officer_temporary_password:{caller}", limit=10, window=300)
 		event.assert_called_once()
-		self.assertEqual(event.call_args.args[0], "temporary_password_reissued")
+		# No level argument: the event takes the default of a security event, WARNING, which a
+		# raised `grievance_log_level` does not hide.
+		self.assertEqual(event.call_args.args, ("temporary_password_reissued",))
 		logged = event.call_args.kwargs
 		self.assertEqual(logged["user"], caller)
 		self.assertEqual(logged["target_user"], reviewer["name"])

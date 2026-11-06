@@ -382,7 +382,11 @@ def on_status_change(grievance, to_state, from_state=None):
 
 	resume_clock(grievance)
 	if category == STOPPED:
-		if grievance.sla_due_date:
+		# Only the move that stops the clock is an outcome. Resolved to Closed (a manual close or
+		# the auto-close two days later) moves between Stopped states, and judging it again
+		# would count a case that met its deadline as breached once the auto-close ran late.
+		entered_stopped = not (from_state and sla_category_of(from_state) == STOPPED)
+		if entered_stopped and grievance.sla_due_date:
 			# Whether the case met its deadline is judged here, once, after any hold is banked.
 			oplog.sla_event(
 				"clock_stopped",

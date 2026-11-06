@@ -123,6 +123,65 @@ class TestMasking(FrappeTestCase):
 		for secret in (JWT, REFRESH, PASSWORD, EMAIL, PHONE, FAYDA):
 			self.assertNotIn(secret, text)
 
+	def test_ordinary_words_are_not_taken_for_credentials(self):
+		for text in (
+			"Invalid token provided",
+			"Basic settings are missing for this category",
+			"The bearer of this notice must attend",
+			"token expired - please sign in again",
+			"Missing bearer credentials in request",
+		):
+			with self.subTest(text=text):
+				self.assertEqual(oplog.scrub_text(text), text)
+
+	def test_credentials_are_found_by_their_shape(self):
+		opaque = "AbCdEf0123456789xyzXYZ-_.~+/=abc"
+		for text, secret in (
+			(f"Authorization: Bearer {opaque}", opaque),
+			(f"authorization=Bearer {opaque}", opaque),
+			(f"'Authorization': 'Bearer {opaque}'", opaque),
+			('{"Authorization": "token key123:secret456"}', "secret456"),
+			("Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA"),
+			(f"sent Bearer {opaque} to the gateway", opaque),
+			(f"jwt {JWT}", "c2lnbmF0dXJlLXBhcnQ"),
+		):
+			with self.subTest(text=text):
+				clean = oplog.scrub_text(text)
+				self.assertNotIn(secret, clean)
+				self.assertIn(oplog.REDACTED, clean)
+
+	def test_phone_numbers_are_found_whatever_their_spacing(self):
+		for number in (
+			"+251 911 234 567",
+			"+251-911-234-567",
+			"+251911234567",
+			"0911 223 344",
+			"0911-223-344",
+			"0911223344",
+			"251911223344",
+			"+1 415 555 0132",
+			"+44 20 7946 0958",
+		):
+			with self.subTest(number=number):
+				clean = oplog.scrub_text(f"call {number} now")
+				self.assertEqual(clean[:5], "call ")
+				self.assertRegex(clean, r"^call \*\*\*\d\d now$")
+
+	def test_a_fayda_id_is_masked_but_other_long_numbers_are_not(self):
+		self.assertEqual(oplog.scrub_text(f"id {FAYDA}"), "id ***56")
+		for text in (
+			"epoch 1730000000",
+			"epoch ms 1730000000000",
+			"order 123456789012",
+			"ticket 012345678 and 300100200",
+			"took 1234567890 ns",
+			"at 2026-11-06 10:15:00",
+			"v1.2.3 build 20261106",
+			"range 0-9999999999 allowed",
+		):
+			with self.subTest(text=text):
+				self.assertEqual(oplog.scrub_text(text), text)
+
 	def test_a_ticket_number_is_not_mistaken_for_a_phone_number(self):
 		self.assertEqual(oplog.scrub_text("ticket 300100200 and 3001002A0"), "ticket 300100200 and 3001002A0")
 
@@ -132,8 +191,20 @@ class TestMasking(FrappeTestCase):
 
 	def test_long_text_is_cut(self):
 		clean = oplog.scrub_text("x" * 5000)
-		self.assertLess(len(clean), 2100)
-		self.assertTrue(clean.endswith("[truncated]"))
+		# The marker counts toward the limit, so a column of that width is never overrun.
+		self.assertEqual(len(clean), 2000)
+		self.assertTrue(clean.endswith(oplog.TRUNCATED_END))
+		self.assertTrue(clean.startswith("xxx"))
+
+	def test_a_cut_can_keep_the_end_instead(self):
+		clean = oplog.scrub_text("a" * 100 + "THE END", 50, keep="tail")
+		self.assertEqual(len(clean), 50)
+		self.assertTrue(clean.startswith(oplog.TRUNCATED_START))
+		self.assertTrue(clean.endswith("THE END"))
+
+	def test_a_limit_smaller_than_the_marker_still_holds(self):
+		self.assertLessEqual(len(oplog.scrub_text("x" * 100, 5)), 5)
+		self.assertLessEqual(len(oplog.scrub_text("x" * 100, 5, keep="tail")), 5)
 
 	def test_redact_by_key_covers_credentials_and_personal_fields(self):
 		out = oplog.redact(
@@ -378,6 +449,40 @@ class TestRequestLogging(LogCase):
 			rl.end(Response("", status=200), request)
 		self.assertEqual(captured.events, [])
 
+	def test_a_request_that_failed_before_begin_is_still_logged_and_given_an_id(self):
+		"""CSRF, session and maintenance-mode failures happen before before_request hooks."""
+		request = make_test_request("/api/v1/grievances", headers={"X-Request-Id": "trace-early-123"})
+		self._reset_request_state()  # `begin` never ran
+		response = Response(
+			json.dumps({"exc_type": "CSRFTokenError"}), status=400, content_type="application/json"
+		)
+		with CapturedLog() as captured:
+			rl.end(response, request)
+
+		self.assertEqual(response.headers["X-Request-Id"], "trace-early-123")
+		(line,) = captured.named("http.request")
+		self.assertEqual(line["correlation_id"], "trace-early-123")
+		self.assertEqual(line["status"], 400)
+		self.assertEqual(line["error_code"], "CSRFTokenError")
+		self.assertNotIn("duration_ms", line)
+		self.assertNotIn("slow", line)
+
+	def test_a_request_that_failed_before_a_session_existed_is_logged(self):
+		request = make_test_request("/api/v1/grievances")
+		self._reset_request_state()
+		response = Response("{}", status=503, content_type="application/json")
+		saved = (frappe.local.session, frappe.local.request_ip)
+		frappe.local.session = frappe.local.request_ip = None
+		try:
+			with CapturedLog() as captured:
+				rl.end(response, request)
+		finally:
+			frappe.local.session, frappe.local.request_ip = saved
+		(line,) = captured.named("http.request")
+		self.assertEqual(line["status"], 503)
+		self.assertNotIn("user", line)
+		self.assertTrue(uuid.UUID(response.headers["X-Request-Id"]))
+
 	def test_a_logging_fault_does_not_break_the_request(self):
 		request = make_test_request("/api/v1/grievances")
 		with mock.patch.object(oplog, "get_logger", side_effect=RuntimeError("disk full")):
@@ -495,6 +600,14 @@ class TestAuthenticationFailures(LogCase):
 		self.assertEqual(denied["user_ref"], oplog.user_ref(EMAIL))
 		self.assertNoLeak(captured.text)
 
+	def test_a_privileged_action_survives_a_raised_log_level(self):
+		"""`grievance_log_level: WARNING` hides INFO chatter, not the record of a password reissue."""
+		with CapturedLog(level=logging.WARNING) as captured:
+			oplog.security_event("temporary_password_reissued", user="admin@example.com", target_user=EMAIL)
+		(event,) = captured.named("security.temporary_password_reissued")
+		self.assertEqual(event["level"], "WARNING")
+		self.assertEqual(event["target_user_ref"], oplog.user_ref(EMAIL))
+
 	def test_the_password_reset_event_carries_no_password(self):
 		with CapturedLog() as captured:
 			oplog.security_event(
@@ -542,6 +655,102 @@ class TestErrorLogging(LogCase):
 		self.assertNoLeak(message)
 		self.assertNoLeak(captured.text)
 
+	def test_the_exception_message_survives_a_long_traceback(self):
+		"""A traceback ends with its message, so a cut must drop the start, not the end."""
+		frappe.local.request_id = "trace-abc-12345"
+		long_tb = ("  File x, line 1, in frame\n      local = 1\n" * 4000) + "ValueError: the real message"
+		with (
+			mock.patch.object(frappe, "get_traceback", side_effect=lambda with_context=False: long_tb),
+			mock.patch.object(frappe, "log_error") as stored,
+			CapturedLog() as captured,
+		):
+			oplog.log_error(title="t")
+
+		message = stored.call_args.kwargs["message"]
+		self.assertTrue(message.startswith("correlation_id: trace-abc-12345\n"))
+		self.assertTrue(message.endswith("ValueError: the real message"))
+		self.assertLessEqual(len(message), oplog.ERROR_LOG_LIMIT + 100)
+
+		(line,) = captured.named("error")
+		self.assertEqual(line["summary"], "ValueError: the real message")
+		self.assertTrue(line["detail"].endswith("ValueError: the real message"))
+		self.assertGreater(len(line["detail"]), oplog.MAX_FIELD_TEXT)
+		self.assertLessEqual(len(line["detail"]), oplog.ERROR_DETAIL_LIMIT)
+
+	def test_a_long_explicit_message_also_keeps_its_end(self):
+		with mock.patch.object(frappe, "log_error") as stored, CapturedLog() as captured:
+			oplog.log_error(title="t", message="start\n" + "x" * 50_000 + "\nFINAL LINE")
+		self.assertTrue(stored.call_args.kwargs["message"].endswith("FINAL LINE"))
+		self.assertEqual(captured.named("error")[0]["summary"], "FINAL LINE")
+
+	def test_the_title_always_fits_the_error_log_column(self):
+		for title in ("x" * 140, "x" * 141, "x" * 500, "Failed for " + "ticket-" * 40):
+			with self.subTest(length=len(title)):
+				with mock.patch.object(frappe, "log_error") as stored, CapturedLog() as captured:
+					oplog.log_error(title=title, message="m")
+				stored_title = stored.call_args.kwargs["title"]
+				self.assertLessEqual(len(stored_title), 140)
+				self.assertLessEqual(len(captured.named("error")[0]["title"]), 140)
+		self.assertEqual(stored_title.count("truncated"), 1)
+
+	def test_a_title_with_a_line_break_is_one_line(self):
+		"""`frappe.log_error` takes a title containing one to be a swapped traceback."""
+		with mock.patch.object(frappe, "log_error") as stored, CapturedLog():
+			oplog.log_error(title="first\nsecond", message="m")
+		self.assertEqual(stored.call_args.kwargs["title"], "first second")
+
+	def test_a_title_overflow_cannot_hide_the_original_error(self):
+		"""The real Error Log raises on a 141-character title; ours is never that long."""
+		try:
+			raise ValueError("the original failure")
+		except ValueError:
+			with CapturedLog() as captured:
+				oplog.log_error(title="y" * 600)
+		self.assertEqual(captured.named("error")[0]["exception"], "ValueError")
+
+	def test_the_variables_of_each_frame_are_kept_and_scrubbed(self):
+		"""With no message `frappe.log_error` stores the traceback with each frame's variables."""
+
+		def handler(submitter_name, contact_email, description, password, count, case):
+			ticket = "3001002A0"
+			raise RuntimeError(f"cannot file {ticket}")
+
+		try:
+			handler(
+				NAME,
+				EMAIL,
+				"my neighbour took my land",
+				PASSWORD,
+				3,
+				{"contact_mobile": PHONE, "fayda_id": FAYDA, "status": "Open"},
+			)
+		except RuntimeError:
+			with mock.patch.object(frappe, "log_error") as stored, CapturedLog() as captured:
+				oplog.log_error(title="Filing failed")
+
+		message = stored.call_args.kwargs["message"]
+		# The context an operator relied on is there ...
+		self.assertIn("count = 3", message)
+		self.assertIn("ticket = '3001002A0'", message)
+		self.assertIn("RuntimeError: cannot file 3001002A0", message)
+		self.assertIn("'status': 'Open'", message)
+		# ... and nothing personal or secret with it.
+		self.assertIn("submitter_name = [MASKED]", message)
+		self.assertIn("description = [MASKED]", message)
+		self.assertIn("password = ", message)
+		for secret in (NAME, "my neighbour took my land", PASSWORD, PHONE, FAYDA, EMAIL):
+			self.assertNotIn(secret, message)
+		self.assertNoLeak(captured.text)
+
+	def test_with_no_message_the_traceback_is_asked_for_with_its_variables(self):
+		with (
+			mock.patch.object(frappe, "get_traceback", return_value="Traceback\nValueError: x") as tb,
+			mock.patch.object(frappe, "log_error"),
+			CapturedLog(),
+		):
+			oplog.log_error(title="t")
+		self.assertIn(mock.call(with_context=True), tb.call_args_list)
+
 	def test_an_explicit_message_is_scrubbed_too(self):
 		with mock.patch.object(frappe, "log_error") as stored, CapturedLog() as captured:
 			oplog.log_error(title="t", message=f"user {EMAIL} token={JWT}", defer_insert=True)
@@ -550,13 +759,15 @@ class TestErrorLogging(LogCase):
 		self.assertNoLeak(captured.text)
 
 	def test_a_failing_error_log_still_writes_the_line(self):
+		# It is called from `except` blocks: a failing Error Log insert must not replace the
+		# error being handled, so it is noted on the line instead of raised.
 		with (
 			mock.patch.object(frappe, "log_error", side_effect=RuntimeError("db down")),
 			CapturedLog() as captured,
 		):
-			with self.assertRaises(RuntimeError):
-				oplog.log_error(title="t", message="m")
-		self.assertEqual(len(captured.named("error")), 1)
+			oplog.log_error(title="t", message="m")
+		(line,) = captured.named("error")
+		self.assertTrue(line["error_log_failed"])
 
 	def test_api_errors_use_the_correlation_id_set_before_authentication(self):
 		from oan_auth_service.api.utils import handle_api_errors
@@ -676,6 +887,54 @@ class TestSlaAndEscalationEvents(LogCase):
 		self.assertTrue(stopped["breached"])
 		self.assertNoLeak(captured.text)
 
+	def test_the_clock_is_judged_once_when_a_case_is_resolved_and_not_again_when_it_closes(self):
+		"""Resolved on time, then auto-closed late: the second move is not an outcome."""
+		now = frappe.utils.now_datetime()
+		case = _case(on_hold_since=None, sla_due_date=frappe.utils.add_days(now, 2))
+		with CapturedLog() as captured, mock.patch.object(sla, "sla_category_of") as category:
+			# Day 5 of 7: resolved in time.
+			category.side_effect = lambda state: {"In Progress": sla.RUNNING}.get(state, sla.STOPPED)
+			sla.on_status_change(case, "Resolved", from_state="In Progress")
+			# Day 9: the auto-close moves it between Stopped states, after the deadline.
+			case.sla_due_date = frappe.utils.add_days(now, -2)
+			sla.on_status_change(case, "Closed", from_state="Resolved")
+		(stopped,) = captured.named("sla.clock_stopped")
+		self.assertEqual(stopped["state"], "Resolved")
+		self.assertFalse(stopped["breached"])
+
+	def test_a_reopened_case_is_judged_again_on_its_new_window(self):
+		now = frappe.utils.now_datetime()
+		case = _case(on_hold_since=None, sla_due_date=frappe.utils.add_days(now, 2))
+		with CapturedLog() as captured, mock.patch.object(sla, "sla_category_of") as category:
+			category.side_effect = (
+				lambda state: sla.RUNNING if state in ("In Progress", "Reopened") else sla.STOPPED
+			)
+			sla.on_status_change(case, "Resolved", from_state="In Progress")
+			with mock.patch.object(sla, "reset_clock"):
+				sla.on_status_change(case, "Reopened", from_state="Resolved")
+			sla.on_status_change(case, "Resolved", from_state="Reopened")
+		self.assertEqual(len(captured.named("sla.clock_stopped")), 2)
+
+	def test_users_that_mask_alike_are_told_apart_by_their_refs(self):
+		first, second = "anna.one@example.com", "anna.two@example.com"
+		self.assertEqual(oplog.mask_user(first), oplog.mask_user(second))
+		with CapturedLog() as captured:
+			oplog.escalation_event("escalated", _case(assigned_to=second), from_user=first, to_user=second)
+		(line,) = captured.events
+		self.assertEqual(line["from_user"], line["to_user"])
+		self.assertEqual(line["from_user_ref"], oplog.user_ref(first))
+		self.assertEqual(line["to_user_ref"], oplog.user_ref(second))
+		self.assertEqual(line["assigned_to_ref"], oplog.user_ref(second))
+		self.assertNotEqual(line["from_user_ref"], line["to_user_ref"])
+		self.assertNotIn("anna.one", captured.text)
+
+	def test_an_explicit_ref_is_not_overwritten_or_doubled(self):
+		with CapturedLog() as captured:
+			oplog.info("x.y", user="a@example.com", user_ref="mine-1234567", empty_user=None, target_user="")
+		(line,) = captured.events
+		self.assertEqual(line["user_ref"], "mine-1234567")
+		self.assertNotIn("target_user_ref", line)
+
 	def test_a_failed_escalation_is_an_error_event_with_the_sweep_id(self):
 		with (
 			CapturedLog() as captured,
@@ -751,13 +1010,8 @@ class TestLoggerConfiguration(FrappeTestCase):
 			logger.removeHandler(handler)
 		logger._oan_configured = False
 		try:
-			with mock.patch.dict(
-				frappe.local.conf,
-				{
-					"grievance_log_level": "debug",
-					"grievance_log_max_bytes": 12345,
-					"grievance_log_backup_count": 3,
-				},
+			with self._process_conf(
+				grievance_log_level="debug", grievance_log_max_bytes=123456, grievance_log_backup_count=3
 			):
 				fresh = oplog.get_logger()
 			self.assertIs(fresh, logger)
@@ -766,7 +1020,7 @@ class TestLoggerConfiguration(FrappeTestCase):
 			for handler in fresh.handlers:
 				self.assertIsInstance(handler.formatter, oplog.JsonFormatter)
 				if hasattr(handler, "maxBytes"):
-					self.assertEqual(handler.maxBytes, 12345)
+					self.assertEqual(handler.maxBytes, 123456)
 					self.assertEqual(handler.backupCount, 3)
 			# Asking again does not stack a second set of handlers.
 			count = len(fresh.handlers)
@@ -784,12 +1038,99 @@ class TestLoggerConfiguration(FrappeTestCase):
 			else:
 				frappe.loggers.pop(key, None)
 
+	@staticmethod
+	def _process_conf(**values):
+		"""Stand in for the bench-wide (common_site_config.json) settings."""
+		return mock.patch.object(
+			oplog, "_process_conf", side_effect=lambda name, default: values.get(name, default)
+		)
+
 	def test_the_level_defaults_to_info_and_ignores_nonsense(self):
 		self.assertEqual(oplog._level_from_conf(), logging.INFO)
-		with mock.patch.dict(frappe.local.conf, {"grievance_log_level": "loud"}):
+		with self._process_conf(grievance_log_level="loud"):
 			self.assertEqual(oplog._level_from_conf(), logging.INFO)
-		with mock.patch.dict(frappe.local.conf, {"grievance_log_level": "warning"}):
+		with self._process_conf(grievance_log_level=" warning "):
 			self.assertEqual(oplog._level_from_conf(), logging.WARNING)
+
+	def test_only_the_four_documented_levels_are_accepted(self):
+		for name, expected in (
+			("DEBUG", logging.DEBUG),
+			("info", logging.INFO),
+			("Warning", logging.WARNING),
+			("ERROR", logging.ERROR),
+			# NOTSET would silently drop INFO events; CRITICAL would drop every warning and error.
+			("NOTSET", logging.INFO),
+			("CRITICAL", logging.INFO),
+			("0", logging.INFO),
+			(10, logging.INFO),
+		):
+			with self.subTest(level=name), self._process_conf(grievance_log_level=name):
+				self.assertEqual(oplog._level_from_conf(), expected)
+
+	def test_bad_size_settings_fall_back_instead_of_disabling_the_log(self):
+		for value in ("lots", -5, 0, 10, None, [], 1.5e3):
+			with self.subTest(value=value), self._process_conf(grievance_log_max_bytes=value):
+				self.assertGreaterEqual(
+					oplog._int_conf("grievance_log_max_bytes", oplog.DEFAULT_MAX_BYTES, oplog.MIN_MAX_BYTES),
+					oplog.MIN_MAX_BYTES,
+				)
+		with self._process_conf(grievance_log_backup_count=0):
+			self.assertEqual(oplog._int_conf("grievance_log_backup_count", 10, 1), 10)
+
+	def test_process_wide_settings_ignore_the_current_sites_config(self):
+		# One file serves every site, so the first site to log must not set its level for all.
+		with mock.patch.dict(
+			frappe.local.conf, {"grievance_log_level": "ERROR", "grievance_log_max_bytes": 99999}
+		):
+			self.assertEqual(oplog._level_from_conf(), logging.INFO)
+			self.assertEqual(oplog._process_conf("grievance_log_max_bytes", "default"), "default")
+
+	def test_the_slow_threshold_is_per_site_and_survives_bad_values(self):
+		with mock.patch.dict(frappe.local.conf, {"grievance_slow_request_ms": 750}):
+			self.assertEqual(oplog.slow_request_ms(), 750)
+		for bad in ("soon", -1, 0, [], {}):
+			with (
+				self.subTest(bad=bad),
+				mock.patch.dict(frappe.local.conf, {"grievance_slow_request_ms": bad}),
+			):
+				self.assertEqual(oplog.slow_request_ms(), oplog.DEFAULT_SLOW_REQUEST_MS)
+
+	def test_two_threads_configure_one_set_of_handlers(self):
+		import threading
+
+		key = oplog._LOGGER_KEY
+		logger = logging.getLogger(key)
+		saved = (list(logger.handlers), logger.level, logger.__dict__.get("_oan_configured"))
+		saved_registry = frappe.loggers.pop(key, None)
+		for handler in saved[0]:
+			logger.removeHandler(handler)
+		logger._oan_configured = False
+		try:
+			barrier = threading.Barrier(8)
+
+			def configure():
+				barrier.wait()
+				oplog.get_logger()
+
+			threads = [threading.Thread(target=configure) for _ in range(8)]
+			for thread in threads:
+				thread.start()
+			for thread in threads:
+				thread.join()
+			# Frappe's own logger adds two handlers on a bench with site logs and one without.
+			self.assertEqual(len(logger.handlers), 1)
+		finally:
+			for handler in list(logger.handlers):
+				logger.removeHandler(handler)
+				handler.close()
+			for handler in saved[0]:
+				logger.addHandler(handler)
+			logger.setLevel(saved[1])
+			logger._oan_configured = saved[2]
+			if saved_registry is not None:
+				frappe.loggers[key] = saved_registry
+			else:
+				frappe.loggers.pop(key, None)
 
 	def test_a_line_is_one_json_object(self):
 		formatter = oplog.JsonFormatter()

@@ -3,8 +3,8 @@
 Two Frappe hooks (see hooks.py):
 
 `begin` is a `before_request` hook. Frappe runs those before it authenticates, so a
-request that is refused at the door still has a correlation id, a start time, and a
-place in the log. It adopts a plain `X-Request-Id` from the caller (the gateway or a
+request the auth layer refuses still has a correlation id, a start time, and a place in
+the log. It adopts a plain `X-Request-Id` from the caller (the gateway or a
 client tracing its own call) and otherwise mints one. oan_auth_service's envelope
 helpers read the same `frappe.local.request_id`, so the id here is the `request_id` in
 the response body and the `X-Request-Id` response header.
@@ -12,6 +12,12 @@ the response body and the `X-Request-Id` response header.
 `end` is an `after_request` hook. Frappe runs those in a `finally`, so it sees every
 outcome: handled envelopes, auth refusals and the framework's own error pages. It
 writes one `http.request` event and, for 401, 403 and 429, a `security.*` event.
+
+Frappe starts the session (`HTTPRequest()`) before it runs `before_request` hooks, and
+maintenance mode stops a request before them too. A CSRF or session failure, or a site in
+maintenance, therefore never reaches `begin`. `end` still runs for it: it adopts or mints the
+id there, returns it in the header, and logs the request without a duration (nothing started
+the clock), so those requests are not invisible.
 
 What is logged, and what is not: method, scrubbed path, status, duration, sizes, the
 masked user and client address, a trimmed user agent, the *names* of the parameters and
@@ -71,21 +77,32 @@ def begin() -> None:
 
 def end(response=None, request=None) -> None:
 	"""`after_request`: return the id to the caller and log how the request went."""
-	started = getattr(frappe.local, "oan_request_started", None)
-	if started is None or response is None or request is None:
+	if response is None or request is None:
 		return
 	try:
+		if not in_scope(request.path):
+			return
+		started = getattr(frappe.local, "oan_request_started", None)
+		# `begin` did not run: the request failed before before_request hooks (see above).
+		oplog.ensure_correlation_id(request.headers.get(CORRELATION_HEADER))
 		cid = oplog.correlation_id()
 		if cid and CORRELATION_HEADER not in response.headers:
 			response.headers[CORRELATION_HEADER] = cid
-		_log(request, response, round((time.perf_counter() - started) * 1000, 1))
+		duration_ms = None if started is None else round((time.perf_counter() - started) * 1000, 1)
+		_log(request, response, duration_ms)
 	except Exception:
 		pass
 
 
-def _log(request, response, duration_ms: float) -> None:
+def _session_user() -> str | None:
+	"""The session's user, or None when the request failed before a session was set up."""
+	session = getattr(frappe.local, "session", None)
+	return getattr(session, "user", None) if session else None
+
+
+def _log(request, response, duration_ms: float | None) -> None:
 	status = response.status_code
-	slow = duration_ms >= float(oplog._conf("grievance_slow_request_ms", oplog.DEFAULT_SLOW_REQUEST_MS))
+	slow = duration_ms is not None and duration_ms >= oplog.slow_request_ms()
 
 	if status >= 500:
 		level = logging.ERROR
@@ -105,7 +122,7 @@ def _log(request, response, duration_ms: float) -> None:
 		return
 	error_code = _error_code(response) if status >= 400 else None
 
-	user = getattr(frappe.session, "user", None)
+	user = _session_user()
 	fields = {
 		"method": request.method,
 		"path": oplog.scrub_path(request.path),
@@ -148,7 +165,7 @@ def _log_security(request, status: int, error_code: str | None) -> None:
 		user_agent=_user_agent(request),
 		attempted_user=attempted,
 		attempted_user_ref=oplog.user_ref(attempted),
-		user_ref=oplog.user_ref(getattr(frappe.session, "user", None)) if status != 401 else None,
+		user_ref=oplog.user_ref(_session_user()) if status != 401 else None,
 	)
 
 

@@ -44,8 +44,13 @@ jq -r 'select(.event == "security.auth_failure") | .attempted_user_ref // empty'
 
 ## Correlation id
 
-`api/request_logging.begin` is a `before_request` hook. Frappe runs those before it authenticates,
-so even a request refused at the door has an id.
+`api/request_logging.begin` is a `before_request` hook. Frappe runs those before the auth hooks, so a
+request the auth layer refuses has an id.
+
+Frappe starts the session before it runs `before_request` hooks, and maintenance mode stops a request
+before them too. A CSRF or session failure, or a site in maintenance, never reaches `begin`. The
+`after_request` hook (`end`) still runs for it: it adopts or mints the id there, returns it in the
+header, and logs the request **without `duration_ms`** (nothing started the clock).
 
 - A caller's `X-Request-Id` is adopted when it is 8 to 64 characters of letters, digits and
   `. _ : -`. Anything else (a space, a quote, a line break, too long) is replaced, because an id is
@@ -61,21 +66,21 @@ gateway's own log and this one share ids end to end.
 
 ## Events
 
-| Event                                                      | Level   | When                                                                                                    |
-| ---------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| `http.request`                                             | by code | Every request under `/api/v1/`, `/api/method/oan_*`, `/api/resource/Grievance`. See levels below.       |
-| `security.auth_failure`                                    | WARNING | Response 401. Carries the auth scheme tried and, for a sign-in, the masked account.                     |
-| `security.permission_denied`                               | WARNING | Response 403.                                                                                           |
-| `security.rate_limited`                                    | WARNING | Response 429.                                                                                           |
-| `security.temporary_password_reissued`                     | INFO    | An admin issued an officer a temporary password. No password is logged.                                 |
-| `error`                                                    | ERROR   | Every `operational_log.log_error`: title, exception type, scrubbed traceback.                           |
-| `sla.clock_started` / `clock_recalculated` / `clock_reset` | INFO    | The SLA window was stamped, moved by a category change, or restarted.                                   |
-| `sla.clock_paused` / `clock_resumed` / `clock_stopped`     | INFO    | A hold began or ended; the case reached a stopped state (`breached` says whether it was late).          |
-| `sla.reminder_sent`                                        | INFO    | The 50% or 80% reminder was queued.                                                                     |
-| `sla.state_timer_expired`                                  | INFO    | A case sat in a state longer than its timer allows (`action` is Escalate or Auto Close).                |
-| `escalation.escalated`                                     | INFO    | A case moved up a rung: `rung`, `from_user`, `to_user`, `escalated_at`, `next_escalation_at`, `reason`. |
-| `escalation.no_higher_authority`                           | WARNING | A case breached and nobody sits above its assignee.                                                     |
-| `job.started` / `job.finished` / `job.failed`              | INFO    | The hourly SLA sweeps, with `duration_ms` and `processed`.                                              |
+| Event                                                      | Level   | When                                                                                                                                          |
+| ---------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `http.request`                                             | by code | Every request under `/api/v1/`, `/api/method/oan_*`, `/api/resource/Grievance`. See levels below.                                             |
+| `security.auth_failure`                                    | WARNING | Response 401. Carries the auth scheme tried and, for a sign-in, the masked account.                                                           |
+| `security.permission_denied`                               | WARNING | Response 403.                                                                                                                                 |
+| `security.rate_limited`                                    | WARNING | Response 429.                                                                                                                                 |
+| `security.temporary_password_reissued`                     | WARNING | An admin issued an officer a temporary password. No password is logged. WARNING so a raised level keeps it.                                   |
+| `error`                                                    | ERROR   | Every `operational_log.log_error`: `title`, `exception`, `summary` (last line), `detail` (tail).                                              |
+| `sla.clock_started` / `clock_recalculated` / `clock_reset` | INFO    | The SLA window was stamped, moved by a category change, or restarted.                                                                         |
+| `sla.clock_paused` / `clock_resumed` / `clock_stopped`     | INFO    | A hold began or ended; the case _entered_ a stopped state (`breached` says whether it was late). Once: Resolved to Closed does not repeat it. |
+| `sla.reminder_sent`                                        | INFO    | The 50% or 80% reminder was queued.                                                                                                           |
+| `sla.state_timer_expired`                                  | INFO    | A case sat in a state longer than its timer allows (`action` is Escalate or Auto Close).                                                      |
+| `escalation.escalated`                                     | INFO    | A case moved up a rung: `rung`, `from_user`, `to_user`, `escalated_at`, `next_escalation_at`, `reason`.                                       |
+| `escalation.no_higher_authority`                           | WARNING | A case breached and nobody sits above its assignee.                                                                                           |
+| `job.started` / `job.finished` / `job.failed`              | INFO    | The hourly SLA sweeps, with `duration_ms` and `processed`.                                                                                    |
 
 `http.request` is INFO for 2xx and 3xx, WARNING for 4xx and for any request slower than
 `grievance_slow_request_ms`, ERROR for 5xx. The two uptime endpoints (`/grievances/health`, `/ping`)
@@ -83,6 +88,15 @@ are DEBUG when they succeed, so a monitor polling every few seconds does not fil
 
 A rung with nobody on it, a failed escalation, a failed sweep item and the other existing failure
 paths are `error` events with the title they always had, and also Error Log rows.
+
+**Error rows and lines.** `log_error` is called from `except` blocks, so it never raises: if the Error
+Log insert fails, the line says `error_log_failed` instead. The title is cut to the 140 characters the
+column holds, marker included. With no message the row holds what `frappe.log_error` would have stored,
+the traceback _with each frame's variables_, scrubbed: variables named for a credential or a personal
+field (`submitter_name`, `contact_email`, `description`, `password`...) are blanked, as are personal keys
+inside a dict dump. When text is too long the **end** is kept (the exception message is a traceback's last
+line): up to 30,000 characters in the row, and in the line the last line as `summary` plus up to 4,000
+characters of the plain traceback as `detail`.
 
 ## What is never logged
 
@@ -110,9 +124,21 @@ What is logged is masked:
 the site's `encryption_key` (the database name if a site has none). It is stable (the same account gives the same ref, so failed sign-ins can be
 counted per account) and cannot be reversed or computed for a known address without the key.
 
-Free text (exception messages, tracebacks, paths) goes through `scrub_text`, which removes JWTs,
-`Bearer`/`Basic`/`token` credentials, `password=...`-style pairs, emails, and long digit runs. A
-nine-character ticket number is left alone.
+Every user field gets its ref automatically: `assigned_to`, `from_user`, `to_user`, `target_user`, `user`,
+`attempted_user` and the rest of the user keys are written masked, with `<field>_ref` beside them. Two
+officers who mask alike (`a***@example.com`) have different refs, so you can tell who a case moved between.
+
+Free text (exception messages, tracebacks, paths) goes through `scrub_text`, which finds things by
+their shape:
+
+- **Credentials:** a JWT; an `Authorization` header or dict key with its value (`Bearer`, `Basic` or
+  `token` scheme); a long opaque `Bearer <token>`; and `password=...`-style pairs for password, secret,
+  token, api key, OTP and similar names. The plain words _token_, _basic_ and _bearer_ in a sentence
+  ("Invalid token provided") are left alone.
+- **Emails.**
+- **Phone numbers:** Ethiopian mobiles (`0911223344`, `+251911223344`), an international number with a
+  `+` (spaced, dashed or run together), a national number written in groups (`0911 223 344`), and a
+  16-digit Fayda id. Epoch times, other long ids, dates and a nine-character ticket number are left alone.
 
 Identifying a case by `grievance` and `ticket_number` is intentional: neither is personal data. A
 case's own `submitter_name`, `contact_mobile` and `contact_email` are never passed to a log call.
@@ -140,7 +166,7 @@ redacted by key name and pattern, which is a safety net, not a licence.
 
 A sweep or other background entry point is wrapped with `@oplog.logged_job("name")`.
 
-## Configuration (site_config.json or common_site_config.json)
+## Configuration
 
 | Key                          | Default  | Meaning                                                                     |
 | ---------------------------- | -------- | --------------------------------------------------------------------------- |
@@ -149,10 +175,20 @@ A sweep or other background entry point is wrapped with `@oplog.logged_job("name
 | `grievance_log_backup_count` | 10       | Rotated files kept (about 110 MB at the defaults).                          |
 | `grievance_slow_request_ms`  | 2000     | A request at least this slow is logged as slow, at WARNING.                 |
 
+The first three apply to the one log file every site on the bench shares, so they are read from
+**`common_site_config.json`**, once per process; a value in one site's `site_config.json` is ignored,
+because otherwise whichever site logged first would set them for all. `grievance_slow_request_ms` is
+per site (`site_config.json` or the common file). A level other than `DEBUG`, `INFO`, `WARNING` or `ERROR`
+(`NOTSET`, `CRITICAL`, a typo) falls back to `INFO`, and a size or count that is not a sensible number
+falls back to its default. Setup is thread-safe: concurrent first requests configure one set of handlers.
+
+`WARNING` is the highest level that is sensible: security events and the password-reissue record are
+WARNING, and `ERROR` hides them.
+
 Frappe rotates by size, not by age, so retention is "the last N files". For a time-based policy, ship the
 files with logrotate, or set `FRAPPE_STREAM_LOGGING=1` and let the container runtime and log collector
-own rotation and retention. The level and file settings are read when the process first logs; restart
-workers to change them.
+own rotation and retention. The settings are read when the process first logs; restart workers to
+change them.
 
 The log is a single file for the bench, not one per site; every line has `site`.
 
@@ -170,6 +206,8 @@ JSON document.
   would let `security.auth_failure` carry it.
 - Every refusal still writes an Error Log row in `oan_auth_service` (a database write an
   unauthenticated caller can trigger at will).
+- A request that fails before `before_request` hooks run (CSRF, session errors, maintenance mode) is
+  logged and given an id by the `after_request` hook, but has no `duration_ms`.
 - A 500 raised outside `handle_api_errors` is logged by Frappe in the Error Log without the correlation
   id; the matching `http.request` line (status 500) carries it, and the two can be paired by time and path.
 - `oan_auth_service` and the desk write their own logs in their own format.
