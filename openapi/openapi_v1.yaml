@@ -38,6 +38,8 @@ tags:
 - name: Dashboard Charts
   description: Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing
     and at least every 15 minutes, for the OAN programme dashboards
+- name: Webhooks
+  description: Inbound calls from partner platforms, sent with a Frappe API key and secret
 paths:
   /api/v1/grievances/health:
     get:
@@ -7734,6 +7736,70 @@ paths:
       x-gateway-tier: officer-core
       security:
       - BearerAuth: []
+  /api/v1/webhooks/ivr/grievances:
+    post:
+      tags:
+      - Webhooks
+      summary: File a grievance for an IVR caller from their phone number
+      description: 'Send JSON, or multipart/form-data to attach the call''s audio (MP3, up to 10 MB).
+
+
+        Files the call under the default category and type, on the IVR Helpline channel, for an
+
+        Individual Farmer profile made from the number (an existing one is reused). Fayda ID, area
+
+        and every other detail are left empty.'
+      operationId: post_api_v1_webhooks_ivr_grievances
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IvrGrievanceResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.webhooks.ivr_grievance
+      x-gateway-tier: ivr-webhooks
+      security:
+      - GatewayKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IvrGrievanceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/IvrGrievanceRequest'
 components:
   securitySchemes:
     BearerAuth:
@@ -7748,6 +7814,13 @@ components:
       description: Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token
         <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway
         passes the header through.
+    GatewayKeyAuth:
+      type: apiKey
+      in: header
+      name: apikey
+      description: 'The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks
+        it, removes it, and calls Frappe as the Grievance Submitter user with that user''s own API key
+        and secret, which the platform never holds.'
   schemas:
     ApiMeta:
       type: object
@@ -8260,6 +8333,38 @@ components:
       - ticket_number
       - status
       description: Acknowledgement outcome and ticket identifier returned on submission
+    IvrGrievanceResultData:
+      type: object
+      properties:
+        ticket_number:
+          type: string
+          example: Z-0AB-0001-0
+          description: Formatted ticket number
+        status:
+          type: string
+          example: Submitted
+        submitter:
+          type: string
+          description: The caller's Submitter Profile
+        created:
+          type: boolean
+          description: False when the call id was already filed and nothing new was made
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentItem'
+          description: The call's audio, stored with the case
+        current_state:
+          $ref: '#/components/schemas/GrievanceCurrentState'
+        timeline_event:
+          $ref: '#/components/schemas/TimelineEventItem'
+          nullable: true
+      required:
+      - ticket_number
+      - status
+      - submitter
+      - created
+      description: Ticket of the grievance filed for an IVR call
     GrievanceListItem:
       type: object
       properties:
@@ -11749,6 +11854,44 @@ components:
         is_active:
           type: boolean
       type: object
+    IvrGrievanceRequest:
+      additionalProperties: false
+      description: 'A call, as the IVR platform reports it: the caller''s number and, optionally, more.'
+      properties:
+        phone_number:
+          description: 'The caller''s number: international (+251911223344) or, with a country_code, national'
+          maxLength: 20
+          minLength: 1
+          type: string
+        country_code:
+          maxLength: 6
+          type: string
+          default: null
+          nullable: true
+        call_id:
+          maxLength: 100
+          type: string
+          default: null
+          description: The platform's id for the call; a retried delivery with the same id files nothing
+            new
+          nullable: true
+        description:
+          maxLength: 2000
+          type: string
+          default: null
+          description: What the caller said, when the platform has it; a fixed note is filed otherwise
+          nullable: true
+        consent_given:
+          default: true
+          description: Whether the caller consented; recorded as given when omitted
+          type: boolean
+        files:
+          type: array
+          items: *id001
+          description: Files, sent as multipart/form-data
+      required:
+      - phone_number
+      type: object
     HealthResponse:
       type: object
       properties:
@@ -11974,6 +12117,31 @@ components:
       - status
       - data
       description: Grievance submission outcome response
+    IvrGrievanceResultResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/IvrGrievanceResultData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: IVR grievance filing outcome response
     GrievanceListResponse:
       type: object
       properties:

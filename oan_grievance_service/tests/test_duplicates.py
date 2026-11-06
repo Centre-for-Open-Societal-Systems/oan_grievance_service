@@ -632,6 +632,10 @@ class TestAskBeforeFiling(FrappeTestCase):
 			"Grievance", filters={"submitter": self.farmer}, order_by="creation asc, name asc", pluck="name"
 		)
 
+	def _run_flagging(self):
+		"""Run the after-commit flagging job for the newest filing, as the queue would."""
+		duplicates.flag_grievance_job(self._filed()[-1])
+
 	def test_a_similar_grievance_of_the_last_day_is_asked_about_not_filed(self):
 		self._file()
 		result = self._file()
@@ -649,6 +653,7 @@ class TestAskBeforeFiling(FrappeTestCase):
 
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(len(self._filed()), 2)
+		self._run_flagging()
 		self.assertEqual(len(duplicates.pending_reviews(self._filed()[-1])), 1)
 
 	def test_the_question_is_off_until_the_setting_is_turned_on(self):
@@ -658,6 +663,7 @@ class TestAskBeforeFiling(FrappeTestCase):
 
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(len(self._filed()), 2)
+		self._run_flagging()
 		self.assertEqual(
 			len(duplicates.pending_reviews(self._filed()[-1])), 1, "an officer is still told about it"
 		)
@@ -673,12 +679,13 @@ class TestAskBeforeFiling(FrappeTestCase):
 		first = self._file(submission_channel="IVR Helpline")
 		second = self._file(submission_channel="IVR Helpline")
 
+		self._run_flagging()
 		earlier, later = self._filed()
 		(review,) = duplicates.pending_reviews(later)
 		self.assertEqual((review.duplicate_of, review.match_level), (earlier, "High"))
 		self.assertEqual(duplicates.pending_reviews(earlier), [])
 		self.assertEqual(second["data"]["status"], C.STATE_SUBMITTED, "the ticket is untouched")
-		flag = second["data"]["current_state"]["possible_duplicate"]
+		flag = grievance._current_state(frappe.get_doc("Grievance", later))["possible_duplicate"]
 		self.assertEqual(flag["ticket_number"], first["data"]["ticket_number"])
 
 	def test_a_fault_in_flagging_does_not_lose_the_grievance(self):
@@ -688,6 +695,7 @@ class TestAskBeforeFiling(FrappeTestCase):
 			patch.object(frappe, "log_error") as log_error,
 		):
 			result = self._file(submission_channel="IVR Helpline")
+			self._run_flagging()
 
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertEqual(len(self._filed()), 2)

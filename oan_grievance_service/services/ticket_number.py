@@ -65,6 +65,13 @@ AREA_DOCTYPE = "Grievance Administrative Area"
 CATEGORY_DOCTYPE = "Grievance Service Category"
 REGION_LEVEL = "Region"
 
+# Region character of a case filed with no administrative area (an IVR call that gave none).
+# No region may take it as its Ticket Code; the last character of the alphabet is the one
+# the seeded regions are furthest from. The Administrative Area table holds it as a row
+# (UNLOCATED_AREA_CODE, a top-level "Other" node), so every ticket character is listed there.
+UNLOCATED_REGION = ALPHABET[-1]
+UNLOCATED_AREA_CODE = "UNLOCATED"
+
 
 # --------------------------------------------------------------------------
 # Base32
@@ -180,8 +187,11 @@ def region_segment(area_name: str | None) -> str:
 	Deliberately strict. There are only 14 regions and they are seeded on
 	install, so a missing character means the masters are misconfigured — and a
 	ticket issued under a guessed region would be wrong for the life of the
-	case.
+	case. A case filed with no area at all is not that: it takes UNLOCATED_REGION,
+	and an area that was named but does not resolve still fails.
 	"""
+	if not area_name:
+		return UNLOCATED_REGION
 	region = region_of(area_name)
 	if not region:
 		frappe.throw(

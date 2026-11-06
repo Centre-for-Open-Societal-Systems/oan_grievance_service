@@ -62,6 +62,7 @@ from oan_grievance_service.services import (
 	audit,
 	duplicates,
 	identity,
+	intake,
 	lifecycle,
 	organization,
 	response_body,
@@ -973,7 +974,6 @@ def submit(**kwargs):
 	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
 		get_fallback_type,
 	)
-	from oan_grievance_service.services import notifications
 
 	client_submission_uuid = (
 		kwargs.get("client_submission_uuid") or kwargs.get("client_uuid") or frappe.generate_hash(length=32)
@@ -1057,27 +1057,9 @@ def submit(**kwargs):
 	prepared = prepare_uploads(None)
 	doc.insert(ignore_permissions=True)
 
-	submitter_user = (
-		frappe.db.get_value("Grievance Submitter Profile", doc.submitter, "user") if doc.submitter else None
-	)
-	submission = GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="submission",
-		is_internal=False,
-		body=(doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})",
-		author_user=doc.assisted_by_officer
-		or submitter_user
-		or (frappe.session.user if frappe.session.user != "Guest" else None),
-		author_type="submitter",
-		ref_doctype="Grievance",
-		ref_docname=doc.name,
-	)
+	submission = intake.record_submission(doc)
 	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
-
-	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
-	# Flags only; an officer rules on it. The submitter is told nothing until then.
-	duplicates.flag_without_failing(doc)
-	routing.enqueue_routing(doc.name)
+	intake.dispatch_filed(doc)
 
 	return success_response(
 		data={

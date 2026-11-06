@@ -8494,6 +8494,60 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "File a grievance for an IVR caller from their phone number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "Files the call under the default category and type, on the IVR Helpline channel, for an\nIndividual Farmer profile made from the number (an existing one is reused). Fayda ID, area\nand every other detail are left empty.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"call_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }
