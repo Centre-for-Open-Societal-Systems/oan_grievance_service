@@ -182,6 +182,84 @@ class TestMasking(FrappeTestCase):
 			with self.subTest(text=text):
 				self.assertEqual(oplog.scrub_text(text), text)
 
+	def test_scrubbing_stays_fast_on_long_unbroken_input(self):
+		"""A traceback lists every local variable, so a log call can be handed a huge string.
+
+		These patterns were quadratic in the length of a run of letters (`x` * 32,000 took
+		seconds, `token_` * 5,000 longer); a log line must never cost that.
+		"""
+		import time
+
+		size = 300_000
+		hostile = {
+			"letters": "x" * size,
+			"digits": "7" * size,
+			"token_": "token_" * (size // 6),
+			"email_": "email_" * (size // 6),
+			"address-ish": "a.b-c" * (size // 5),
+			"eyJ": "eyJabcde." * (size // 9),
+			"plus": "+1 " * (size // 3),
+			"quotes": "'password' " * (size // 11),
+		}
+		for label, text in hostile.items():
+			for name, call in (
+				("scrub_text", lambda t: oplog.scrub_text(t)),
+				("scrub_text tail", lambda t: oplog.scrub_text(t, keep="tail")),
+				("scrub_traceback", lambda t: oplog.scrub_traceback("      local = '" + t + "'")),
+				("email", lambda t: oplog._EMAIL.sub("", t)),
+				("secret pair", lambda t: oplog._SECRET_PAIR.sub("", t)),
+				("pii pair", lambda t: oplog._PII_PAIR.sub("", t)),
+			):
+				with self.subTest(input=label, scrubber=name):
+					started = time.perf_counter()
+					call(text)
+					# Linear takes a few hundredths of a second; the quadratic form took minutes.
+					self.assertLess(time.perf_counter() - started, 3.0)
+
+	def test_only_a_bounded_amount_is_scanned_and_the_end_is_what_is_kept(self):
+		text = "noise\n" * 500_000 + "ValueError: the real message"
+		clean = oplog.scrub_traceback(text)
+		self.assertTrue(clean.endswith("ValueError: the real message"))
+		self.assertLessEqual(len(clean), oplog.ERROR_LOG_LIMIT)
+		head = oplog.scrub_text("start " + "y" * 1_000_000, 100)
+		self.assertTrue(head.startswith("start yyy"))
+		self.assertEqual(len(head), 100)
+
+	def test_emails_are_still_masked_after_the_anchoring(self):
+		for text, expected in (
+			("jane.doe@example.com", "j***@example.com"),
+			("mail <jane.doe@example.com>", "mail <j***@example.com>"),
+			("user=jane@x.org;", "user=j***@x.org;"),
+			('{"email": "a.b+tag@sub.example.co.uk"}', '{"email": "a***@sub.example.co.uk"}'),
+			("a@b.co and c@d.io", "a***@b.co and c***@d.io"),
+			("(x_y-z@mail.example.org)", "(x***@mail.example.org)"),
+		):
+			with self.subTest(text=text):
+				self.assertEqual(oplog.scrub_text(text), expected)
+
+	def test_secret_names_are_still_found_with_prefixes_and_quotes(self):
+		for text in (
+			"new_password=hunter2xx",
+			"old_password: hunter2xx",
+			'"refresh_token": "hunter2xx"',
+			"{'api_key': 'hunter2xx'}",
+			"user_token=hunter2xx&x=1",
+			"client_secret = hunter2xx",
+			"pwd=hunter2xx",
+			"otp: hunter2xx",
+		):
+			with self.subTest(text=text):
+				clean = oplog.scrub_text(text)
+				self.assertNotIn("hunter2xx", clean)
+				self.assertIn(oplog.REDACTED, clean)
+
+	def test_personal_keys_are_still_found_in_a_dict_dump(self):
+		line = "      case = {'contact_email': 'jane@x.org', 'submitter_name': 'Abebe', 'mobile_no': '0911', 'id': 7}"
+		clean = oplog.scrub_traceback(line)
+		self.assertNotIn("Abebe", clean)
+		self.assertNotIn("jane@x.org", clean)
+		self.assertIn("'id': 7", clean)
+
 	def test_a_ticket_number_is_not_mistaken_for_a_phone_number(self):
 		self.assertEqual(oplog.scrub_text("ticket 300100200 and 3001002A0"), "ticket 300100200 and 3001002A0")
 
@@ -708,24 +786,38 @@ class TestErrorLogging(LogCase):
 				oplog.log_error(title="y" * 600)
 		self.assertEqual(captured.named("error")[0]["exception"], "ValueError")
 
-	def test_the_variables_of_each_frame_are_kept_and_scrubbed(self):
-		"""With no message `frappe.log_error` stores the traceback with each frame's variables."""
+	@staticmethod
+	def _failed_filing():
+		"""Raise from a frame that holds credentials and personal data in its variables."""
 
 		def handler(submitter_name, contact_email, description, password, count, case):
 			ticket = "3001002A0"
 			raise RuntimeError(f"cannot file {ticket}")
 
+		handler(
+			NAME,
+			EMAIL,
+			"my neighbour took my land",
+			PASSWORD,
+			3,
+			{"contact_mobile": PHONE, "fayda_id": FAYDA, "status": "Open"},
+		)
+
+	def test_the_variables_of_each_frame_are_kept_and_scrubbed(self):
+		"""With no message `frappe.log_error` stores the traceback with each frame's variables.
+
+		Whether Frappe includes them is its decision: from 16.55 `get_traceback(with_context=True)`
+		leaves them out unless the site is in developer mode, and CI's fresh site is not. The test
+		turns developer mode on so it exercises the scrubbing on every Frappe version.
+		"""
 		try:
-			handler(
-				NAME,
-				EMAIL,
-				"my neighbour took my land",
-				PASSWORD,
-				3,
-				{"contact_mobile": PHONE, "fayda_id": FAYDA, "status": "Open"},
-			)
+			self._failed_filing()
 		except RuntimeError:
-			with mock.patch.object(frappe, "log_error") as stored, CapturedLog() as captured:
+			with (
+				mock.patch.dict(frappe.local.conf, {"developer_mode": 1}),
+				mock.patch.object(frappe, "log_error") as stored,
+				CapturedLog() as captured,
+			):
 				oplog.log_error(title="Filing failed")
 
 		message = stored.call_args.kwargs["message"]
@@ -740,6 +832,32 @@ class TestErrorLogging(LogCase):
 		self.assertIn("password = ", message)
 		for secret in (NAME, "my neighbour took my land", PASSWORD, PHONE, FAYDA, EMAIL):
 			self.assertNotIn(secret, message)
+		self.assertNoLeak(captured.text)
+
+	def test_the_row_is_complete_when_frappe_leaves_the_variables_out(self):
+		"""Frappe 16.55+ outside developer mode: no variables, but the same row otherwise."""
+		real = frappe.get_traceback
+		try:
+			self._failed_filing()
+		except RuntimeError:
+			with (
+				mock.patch.object(
+					frappe, "get_traceback", side_effect=lambda with_context=False: real(False)
+				),
+				mock.patch.object(frappe, "log_error") as stored,
+				CapturedLog() as captured,
+			):
+				frappe.local.request_id = "trace-abc-12345"
+				oplog.log_error(title="Filing failed")
+
+		message = stored.call_args.kwargs["message"]
+		self.assertTrue(message.startswith("correlation_id: trace-abc-12345\n"))
+		self.assertIn("RuntimeError: cannot file 3001002A0", message)
+		self.assertNotIn("count = ", message)
+		for secret in (NAME, "my neighbour took my land", PASSWORD, PHONE, FAYDA, EMAIL):
+			self.assertNotIn(secret, message)
+		(line,) = captured.named("error")
+		self.assertEqual(line["summary"], "RuntimeError: cannot file 3001002A0")
 		self.assertNoLeak(captured.text)
 
 	def test_with_no_message_the_traceback_is_asked_for_with_its_variables(self):

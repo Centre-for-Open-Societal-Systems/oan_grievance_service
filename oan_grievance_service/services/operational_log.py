@@ -259,9 +259,13 @@ _AUTH_HEADER = re.compile(
 )
 _BEARER_OPAQUE = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=\-]{20,}")
 _SECRET_PAIR = re.compile(
+	# The key must start where a name starts (the lookbehind) and its affixes are bounded. An
+	# unanchored `[a-z_]*` before the keyword is tried from every position in a long run of
+	# letters, which takes seconds on a 30,000-character local variable.
 	r"""(?ix)
-	(["']?\b(?:[a-z_]*(?:password|passwd|secret|token|api_key|apikey|authorization|credential)[a-z_]*
-		|pwd|sid|otp|csrf_token)\b["']?\s*[:=]\s*)
+	(["']?(?<![A-Za-z0-9_])
+	(?:[a-z_]{0,40}(?:password|passwd|secret|token|api_key|apikey|authorization|credential)[a-z_]{0,40}
+		|pwd|sid|otp|csrf_token)(?![A-Za-z0-9_])["']?\s*[:=]\s*)
 	("[^"]*"|'[^']*'|[^\s,;&})\]]+)
 	"""
 )
@@ -269,12 +273,17 @@ _SECRET_PAIR = re.compile(
 # tracebacks only: in prose, "description: too short" is not data worth hiding.
 _PII_PAIR = re.compile(
 	r"""(?ix)
-	(["']?\b[a-z_]*(?:email|mobile|phone|msisdn|submitter_name|full_name|first_name|last_name
-		|middle_name|surname|fayda|national_id|address|description|complaint)[a-z_]*\b["']?\s*[:=]\s*)
+	(["']?(?<![A-Za-z0-9_])
+	[a-z_]{0,40}(?:email|mobile|phone|msisdn|submitter_name|full_name|first_name|last_name
+		|middle_name|surname|fayda|national_id|address|description|complaint)[a-z_]{0,40}
+	(?![A-Za-z0-9_])["']?\s*[:=]\s*)
 	("[^"]*"|'[^']*'|[^\s,;&})\]]+)
 	"""
 )
-_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# Starts only at the beginning of a run of address characters, and the local part is at most
+# 64 characters (the standard limit). Without the lookbehind the match is retried from every
+# position of a long run of letters or digits, which is quadratic.
+_EMAIL = re.compile(r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,255}\.[A-Za-z]{2,}")
 # Phone numbers have a shape too, so a timestamp or an id is not mistaken for one:
 #   Ethiopian mobiles, 0911223344 or +251911223344 (a 10-digit 09/07 or 251 + 9 prefix);
 #   Fayda ids, exactly 16 digits;
@@ -309,6 +318,24 @@ def _cut(value: str, limit: int, keep: str) -> str:
 	return marker + value[-room:] if keep == "tail" else value[:room] + marker
 
 
+# Only this many times the limit is ever scanned. The patterns below are linear, but a
+# traceback listing every local variable of a request can be megabytes, and what is cut away
+# afterwards need not be read at all.
+SCAN_FACTOR = 4
+
+
+def _precap(value: str, limit: int, keep: str) -> str:
+	"""`value` reduced to the part that can survive a cut to `limit`, plus a margin."""
+	room = max(limit, 1) * SCAN_FACTOR
+	if len(value) <= room:
+		return value
+	if keep == "tail":
+		value = value[-room:]
+		# The first line is probably cut mid-way; half of a token is not worth scanning.
+		return value.split("\n", 1)[1] if "\n" in value else value
+	return value[:room]
+
+
 def scrub_text(text, limit: int = MAX_TEXT, keep: str = "head") -> str:
 	"""Remove credentials and personal data from free text, then cap its length.
 
@@ -319,7 +346,7 @@ def scrub_text(text, limit: int = MAX_TEXT, keep: str = "head") -> str:
 	"""
 	if text is None:
 		return ""
-	value = str(text)
+	value = _precap(str(text), limit, keep)
 	value = _JWT.sub(REDACTED, value)
 	value = _AUTH_HEADER.sub(lambda m: f"{m.group(1)}{REDACTED}", value)
 	value = _BEARER_OPAQUE.sub(f"Bearer {REDACTED}", value)
@@ -337,7 +364,7 @@ def scrub_traceback(text, limit: int = ERROR_LOG_LIMIT) -> str:
 	a dict or document dump. The end is kept when it is cut: that is the exception message.
 	"""
 	lines = []
-	for line in str(text or "").split("\n"):
+	for line in _precap(str(text or ""), limit, "tail").split("\n"):
 		match = _LOCAL_VAR.match(line)
 		if match:
 			prefix, name = match.group(0), match.group(2)

@@ -98,6 +98,16 @@ inside a dict dump. When text is too long the **end** is kept (the exception mes
 line): up to 30,000 characters in the row, and in the line the last line as `summary` plus up to 4,000
 characters of the plain traceback as `detail`.
 
+Whether the variables are there at all is Frappe's decision, not this module's. From Frappe 16.55,
+`get_traceback(with_context=True)` leaves them out unless the site is in `developer_mode`, so a production
+site's rows hold the plain traceback (still scrubbed, with the correlation id). Older versions always
+include them. Either way, what Frappe returns is scrubbed before it is stored.
+
+Scrubbing runs in time linear in the text. At most four times the limit is scanned (a traceback with a
+large local variable can be megabytes), every pattern starts only at the beginning of a name or a run of
+address characters, and its prefixes and suffixes are bounded. An earlier form was quadratic in the
+length of a run of letters and took seconds on a 30,000-character string.
+
 ## What is never logged
 
 - Request or response **bodies**. Only the _names_ of the fields sent (`param_names`) and the byte sizes.
