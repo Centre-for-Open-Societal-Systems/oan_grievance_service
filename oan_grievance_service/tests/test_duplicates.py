@@ -10,6 +10,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from oan_grievance_service import permissions
 from oan_grievance_service.api.v1 import attachment, change_request, grievance
 from oan_grievance_service.api.v1._options import get_status_summary, public_status
 from oan_grievance_service.patches import dismiss_legacy_duplicate_flags
@@ -21,7 +22,6 @@ from oan_grievance_service.tests.fixtures import (
 	a_grievance_type,
 	a_leaf_area,
 	a_service_category,
-	a_user_with_role,
 	discard_grievance,
 )
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
@@ -507,12 +507,11 @@ class TestDuplicateFlow(FrappeTestCase):
 	def test_a_submitter_opening_their_flagged_ticket_does_not_see_the_flag(self):
 		_main, dup = self._pair()
 		duplicates.flag_possible_duplicates(dup)
-		farmer_user = a_user_with_role(C.ROLE_SUBMITTER, "farmer")
-		self.addCleanup(frappe.delete_doc, "User", farmer_user, force=True, ignore_permissions=True)
-		frappe.db.set_value("Grievance", dup.name, "owner", farmer_user, update_modified=False)
 
-		frappe.set_user(farmer_user)
-		result = grievance.timeline(dup.ticket_number or dup.name)
+		# Seen as a non-staff caller, without a new User: the suite creates enough users to
+		# reach Frappe's user-creation throttle (60 an hour), and one more fails later tests.
+		with patch.object(permissions, "is_staff", return_value=False):
+			result = grievance.timeline(dup.ticket_number or dup.name)
 
 		self.assertEqual(result["status"], "success", msg=result)
 		self.assertIsNone(result["data"]["possible_duplicate"], "the flag is for officers only")
