@@ -38,11 +38,12 @@ def record_submission(doc):
 	)
 
 
-def dispatch_filed(doc):
+def dispatch_filed(doc, flag_duplicates=True):
 	"""Tell the submitter, flag look-alikes and queue routing, once the case is in."""
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
 	# Flags only; an officer rules on it. The submitter is told nothing until then.
-	duplicates.flag_without_failing(doc)
+	if flag_duplicates:
+		duplicates.enqueue_flagging(doc.name)
 	routing.enqueue_routing(doc.name)
 
 
@@ -52,6 +53,7 @@ def file_from_ivr(
 	call_id: str | None = None,
 	description: str | None = None,
 	uploads: list[dict] | None = None,
+	consent_given: bool = True,
 ):
 	"""File a grievance for an IVR caller from nothing but their number.
 
@@ -59,7 +61,7 @@ def file_from_ivr(
 	number; a later call from the same number files under the same profile. Fayda ID,
 	area and every other detail stay empty until the farmer or an officer supplies them.
 	The category and type are the default ones; the message is a fixed note unless the
-	IVR platform sends one.
+	IVR platform sends one. Consent is recorded as given unless the platform says otherwise.
 
 	`call_id` makes a retried webhook file once: a second delivery returns the case the
 	first one made. `uploads` are the call's files, already checked by `prepare_uploads`, and
@@ -80,9 +82,6 @@ def file_from_ivr(
 
 	# Namespaced so a call id can never collide with another channel's submission uuid.
 	submission_uuid = f"ivr:{call_id}" if call_id else frappe.generate_hash(length=32)
-	existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
-	if existing:
-		return frappe.get_doc("Grievance", existing), None, []
 
 	category = get_default_category()
 	if not category:
@@ -100,8 +99,8 @@ def file_from_ivr(
 		{
 			"client_submission_uuid": submission_uuid,
 			"submission_channel": C.CHANNEL_IVR,
-			"consent_given": 1,
-			"consent_recorded_at": now_datetime(),
+			"consent_given": 1 if consent_given else 0,
+			"consent_recorded_at": now_datetime() if consent_given else None,
 			"service_category": category,
 			"grievance_type": get_fallback_type(category),
 			"description": (description or "").strip() or C.IVR_DEFAULT_DESCRIPTION,
@@ -110,13 +109,22 @@ def file_from_ivr(
 			"submitter_name": profile.submitter_name,
 			"contact_mobile": profile.contact_mobile,
 			"contact_email": profile.contact_email,
-			"assisted_by_officer": frappe.session.user,
 		}
 	)
-	doc.insert(ignore_permissions=True)
+	try:
+		doc.insert(ignore_permissions=True)
+	except frappe.DuplicateEntryError:
+		# The unique client_submission_uuid is the replay check: this call id is already filed.
+		frappe.db.rollback()
+		existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
+		if not existing:
+			raise
+		return frappe.get_doc("Grievance", existing), None, []
 	submission = record_submission(doc)
 	attachments = store_uploads(doc, uploads, timeline_entry=submission.name) if uploads else []
-	dispatch_filed(doc)
+	# Every call without a description carries the same note, so look-alike scoring would
+	# flag each repeat call from one number.
+	dispatch_filed(doc, flag_duplicates=bool((description or "").strip()))
 	return doc, submission, attachments
 
 
@@ -130,7 +138,12 @@ def _caller_profile(mobile: str):
 
 	filters = {"dedupe_key": build_dedupe_key(identity.SCHEME_PHONE, mobile)}
 	name = frappe.db.get_value(PROFILE, filters, "name") or frappe.db.get_value(
-		PROFILE, {"contact_mobile": mobile, "submitter_type": "Individual Farmer"}, "name"
+		PROFILE,
+		{"contact_mobile": mobile, "submitter_type": "Individual Farmer"},
+		"name",
+		# A usable profile wins over a blocked one, but a number whose only profile is blocked
+		# stays blocked instead of being handed a fresh profile.
+		order_by="active desc, is_blocked asc, creation asc, name asc",
 	)
 	if not name:
 		try:

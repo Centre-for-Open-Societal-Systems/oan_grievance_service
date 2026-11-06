@@ -67,8 +67,10 @@ REGION_LEVEL = "Region"
 
 # Region character of a case filed with no administrative area (an IVR call that gave none).
 # No region may take it as its Ticket Code; the last character of the alphabet is the one
-# the seeded regions are furthest from.
+# the seeded regions are furthest from. The Administrative Area table holds it as a row
+# (UNLOCATED_AREA_CODE, a top-level "Other" node), so every ticket character is listed there.
 UNLOCATED_REGION = ALPHABET[-1]
+UNLOCATED_AREA_CODE = "UNLOCATED"
 
 
 # --------------------------------------------------------------------------

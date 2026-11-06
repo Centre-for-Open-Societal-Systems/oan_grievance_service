@@ -10,6 +10,8 @@ UNROUTED_OFFICER = "unrouted@grievance.local"
 # others. Each must be declared under "workers" in common_site_config.json, or
 # frappe.enqueue rejects it.
 QUEUE_ROUTING = "grievance_routing"
+# Frappe's built-in short queue: flagging runs in seconds and needs no worker of its own.
+QUEUE_DUPLICATES = "short"
 QUEUE_SLA = "grievance_sla"
 QUEUE_SCAN = "grievance_scan"
 QUEUE_NOTIFICATIONS = "grievance_notifications"
@@ -130,9 +132,6 @@ ROLE_ASSISTED_SUBMITTER = "Grievance Assisted Submitter"
 # The OAN dashboards: a machine user that authenticates with its Frappe API key and
 # secret and may read the public charts only.
 ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
-# The IVR platform: a machine user that authenticates with its Frappe API key and secret
-# and may file grievances for callers through the IVR webhook, and nothing else.
-ROLE_IVR_INTEGRATION = "Grievance IVR Integration"
 # Oversight: reads grievances, officer statistics and the administration data, and
 # changes nothing. It holds read-only DocPerms and is never listed on a mutating
 # endpoint's require_role.

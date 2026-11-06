@@ -105,7 +105,7 @@ exclusively: it adds `jwt-auth` on bearer routes, keys limits by token, and emit
 one. The IVR vendor also calls A2C, so it has one consumer, `oan-ivr-vendor`, shared by
 both apps (`gateway_apisix.SHARED_CONSUMERS`). The gateway (`key-auth`) checks the `apikey`
 header, removes it, and calls Frappe with the API key and secret of the
-`Grievance IVR Integration` user, so the vendor never holds the Frappe secret and is cut
+`Grievance Submitter` user, so the vendor never holds the Frappe secret and is cut
 off by deleting its consumer key, with no Frappe change.
 
 | Secret                        | Where it lives                                                                                                                                                                                               | Value                                                                                   |

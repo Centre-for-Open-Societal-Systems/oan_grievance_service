@@ -2,7 +2,7 @@
 
 Frappe sees the gateway, not the platform: the IVR platform authenticates to APISIX with a
 gateway key, and APISIX calls here with the Frappe API key and secret of a user holding
-Grievance IVR Integration (`Authorization: token <api_key>:<api_secret>`). See apisix/README.md.
+Grievance Submitter (`Authorization: token <api_key>:<api_secret>`). See apisix/README.md.
 """
 
 from frappe import _
@@ -20,7 +20,7 @@ from oan_grievance_service.services import ticket_number as tn
 
 route = prefixed("/api/v1")
 
-IVR_ROLES = [C.ROLE_IVR_INTEGRATION, C.ROLE_ADMIN, "System Manager", "Administrator"]
+IVR_ROLES = [C.ROLE_SUBMITTER, C.ROLE_ADMIN, "System Manager", "Administrator"]
 
 
 class IvrGrievanceRequest(BaseModel):
@@ -43,6 +43,9 @@ class IvrGrievanceRequest(BaseModel):
 		None,
 		max_length=2000,
 		description="What the caller said, when the platform has it; a fixed note is filed otherwise",
+	)
+	consent_given: bool = Field(
+		True, description="Whether the caller consented; recorded as given when omitted"
 	)
 
 
@@ -72,6 +75,7 @@ def ivr_grievance(**kwargs):
 		call_id=kwargs.get("call_id"),
 		description=kwargs.get("description"),
 		uploads=uploads,
+		consent_given=kwargs.get("consent_given", True),
 	)
 
 	created = submission is not None

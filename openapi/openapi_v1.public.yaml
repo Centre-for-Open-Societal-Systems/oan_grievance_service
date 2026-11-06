@@ -7616,8 +7616,8 @@ components:
       in: header
       name: apikey
       description: 'The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks
-        it, removes it, and calls Frappe as the Grievance IVR Integration user with that user''s own API
-        key and secret, which the platform never holds.'
+        it, removes it, and calls Frappe as the Grievance Submitter user with that user''s own API key
+        and secret, which the platform never holds.'
   schemas:
     ApiMeta:
       type: object
@@ -11688,6 +11688,10 @@ components:
           default: null
           description: What the caller said, when the platform has it; a fixed note is filed otherwise
           nullable: true
+        consent_given:
+          default: true
+          description: Whether the caller consented; recorded as given when omitted
+          type: boolean
         files:
           type: array
           items:

@@ -1571,7 +1571,7 @@ QP["DashboardCharts"] = [
 # Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
 PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
 # The IVR platform calls the gateway with its own key; the gateway adds the Frappe API
-# key and secret of the Grievance IVR Integration user, which the platform never holds.
+# key and secret of the Grievance Submitter user, which the platform never holds.
 IVR_WEBHOOK_SECURITY = [{"GatewayKeyAuth": []}]
 
 
@@ -2046,7 +2046,7 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					"type": "apiKey",
 					"in": "header",
 					"name": "apikey",
-					"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance IVR Integration user with that user's own API key and secret, which the platform never holds.",
+					"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance Submitter user with that user's own API key and secret, which the platform never holds.",
 				},
 			},
 			"schemas": components_schemas,
