@@ -85,10 +85,12 @@ cooperative names can cross the threshold on a description similarity of about 0
   `Grievance Officer` and `Grievance Admin`.
 - The generic `/action` endpoint refuses `Confirm Duplicate` and does not list it, because only the
   duplicate endpoints name the main ticket.
-- Comments (`/message`) and change requests (defer SLA, reassign, reclassify) are refused on a
-  duplicate. The farmer sees the `Duplicate` status and the timeline message.
+- Comments (`/message`), attachment uploads and change requests (defer SLA, reassign, reclassify)
+  are refused on a duplicate; removing evidence was already refused on a stopped case. The farmer sees the `Duplicate` status and the timeline message.
 - Status cards: `Duplicate` (labelled Duplicates) is new, `In Progress` counts In Progress and
   More Info Needed together, and `All` includes duplicates. A farmer still sees the status `More Info Needed` on the case itself, because that is the cue to reply.
+- Ticket export: the Closure section treats the move into Duplicate as the closure, with the
+  remarks starting "Duplicate of" the main ticket.
 - Dashboard: a `duplicates` KPI, `Duplicate` in the status distribution, and the duplicate count
   inside Total and every other count. `dup_pending` (awaiting duplicate review) no longer counts a
   dismissed flag.
