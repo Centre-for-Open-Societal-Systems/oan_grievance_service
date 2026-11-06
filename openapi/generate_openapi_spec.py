@@ -529,6 +529,23 @@ data(
 )
 
 data(
+	"IvrGrievanceResultData",
+	OBJ(
+		{
+			"ticket_number": S(example="Z-0AB-0001-0", description="Formatted ticket number"),
+			"status": S(example="Submitted"),
+			"submitter": S(description="The caller's Submitter Profile"),
+			"created": B(description="False when the call id was already filed and nothing new was made"),
+			"attachments": ARR(REF("AttachmentItem"), description="The call's audio, stored with the case"),
+			"current_state": REF("GrievanceCurrentState"),
+			"timeline_event": {**REF("TimelineEventItem"), "nullable": True},
+		},
+		required=["ticket_number", "status", "submitter", "created"],
+		description="Ticket of the grievance filed for an IVR call",
+	),
+)
+
+data(
 	"GrievanceListItem",
 	OBJ(
 		{
@@ -1282,6 +1299,9 @@ ENVELOPES = {
 	"GrievanceSubmitResultResponse": make_envelope(
 		"GrievanceSubmitResultData", description="Grievance submission outcome response"
 	),
+	"IvrGrievanceResultResponse": make_envelope(
+		"IvrGrievanceResultData", description="IVR grievance filing outcome response"
+	),
 	"GrievanceListResponse": make_envelope(
 		"GrievanceListData", description="Paginated grievance list response"
 	),
@@ -1550,6 +1570,9 @@ QP["DashboardCharts"] = [
 # The OAN dashboards read the public charts as a Frappe user holding Grievance
 # Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
 PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
+# The IVR platform calls the gateway with its own key; the gateway adds the Frappe API
+# key and secret of the Grievance Submitter user, which the platform never holds.
+IVR_WEBHOOK_SECURITY = [{"GatewayKeyAuth": []}]
 
 
 # ---------------------------------------------------------------------------
@@ -1561,6 +1584,7 @@ MULTIPART_REQUESTS = {
 	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
 	"PostMessageRequest": ("application/json", "multipart/form-data"),
 	"SubmitGrievanceRequest": ("application/json", "multipart/form-data"),
+	"IvrGrievanceRequest": ("application/json", "multipart/form-data"),
 }
 
 
@@ -1585,6 +1609,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.sla_settings",
 		"oan_grievance_service.api.v1.submitter",
 		"oan_grievance_service.api.v1.taxonomy",
+		"oan_grievance_service.api.v1.webhooks",
 	]
 	for mod_name in api_modules:
 		try:
@@ -1617,6 +1642,8 @@ def _determine_tag(path: str, func_name: str) -> str:
 		return "Administration"
 	if path.startswith("/api/v1/charts"):
 		return "Dashboard Charts"
+	if path.startswith("/api/v1/webhooks"):
+		return "Webhooks"
 	if "/change-requests" in path or path.startswith("/api/v1/change-requests"):
 		return "Change Requests"
 	if "/attachments" in path or path.startswith("/api/v1/attachments"):
@@ -1645,6 +1672,7 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"get_area_ancestors": "AreaAncestorsResponse",
 		"list_grievances": "GrievanceListResponse",
 		"submit": "GrievanceSubmitResultResponse",
+		"ivr_grievance": "IvrGrievanceResultResponse",
 		"action": "GrievanceActionResultResponse",
 		"timeline": "GrievanceTimelineResponse",
 		"response_templates": "ResponseTemplatesResponse",
@@ -1904,6 +1932,8 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				op["x-gateway-tier"] = route_info["tier"]
 			if func_name.startswith("get_public_chart_"):
 				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
+			elif func_name == "ivr_grievance":
+				op["security"] = copy.deepcopy(IVR_WEBHOOK_SECURITY)
 			else:
 				op["security"] = [] if allow_guest else [{"BearerAuth": []}]
 
@@ -1992,6 +2022,10 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 				"name": "Dashboard Charts",
 				"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
 			},
+			{
+				"name": "Webhooks",
+				"description": "Inbound calls from partner platforms, sent with a Frappe API key and secret",
+			},
 		],
 		"paths": paths,
 		"components": {
@@ -2007,6 +2041,12 @@ def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 					"in": "header",
 					"name": "Authorization",
 					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
+				},
+				"GatewayKeyAuth": {
+					"type": "apiKey",
+					"in": "header",
+					"name": "apikey",
+					"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance Submitter user with that user's own API key and secret, which the platform never holds.",
 				},
 			},
 			"schemas": components_schemas,

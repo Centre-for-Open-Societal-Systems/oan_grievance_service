@@ -176,7 +176,7 @@ def _pdf_html(form):
 		if kind == "static":
 			return f'<p class="text">{esc(item["text"])}</p>'
 		if kind == "checks":
-			label = f'{esc(item["label"])}:' if item["show_label"] else ""
+			label = f"{esc(item['label'])}:" if item["show_label"] else ""
 			if item["stacked"]:
 				head = f'<p class="line">{label}</p>' if label else ""
 				return head + "".join(f'<p class="opt">{option(o)}</p>' for o in item["options"])
@@ -233,8 +233,8 @@ def _pdf_html(form):
 	footer = " &middot; ".join(f"{esc(label)}: {esc(value)}" for label, value in form["footer"])
 	return (
 		f'<!doctype html><html lang="{esc(form.get("lang") or "en")}"><head><meta charset="utf-8">'
-		f'<title>{esc(form["title"])}</title>'
+		f"<title>{esc(form['title'])}</title>"
 		f"<style>{_PDF_STYLE}</style></head><body>"
-		f"{letterhead}<h1>{esc(form['title'])}</h1><table class=\"meta\">{meta}</table>{sections}{appendix}"
+		f'{letterhead}<h1>{esc(form["title"])}</h1><table class="meta">{meta}</table>{sections}{appendix}'
 		f'<p class="footer">{footer}</p></body></html>'
 	)

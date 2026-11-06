@@ -285,6 +285,28 @@ def flag_possible_duplicates(grievance):
 	return rows
 
 
+def enqueue_flagging(grievance_name: str) -> None:
+	"""Flag look-alikes after the filing commits, so scoring never delays the submitter."""
+	try:
+		frappe.enqueue(
+			"oan_grievance_service.services.duplicates.flag_grievance_job",
+			queue=C.QUEUE_DUPLICATES,
+			grievance_name=grievance_name,
+			enqueue_after_commit=True,
+		)
+	except Exception:
+		oplog.log_error(
+			title=f"Failed to enqueue duplicate flagging for grievance: {grievance_name}",
+			message=frappe.get_traceback(),
+		)
+
+
+def flag_grievance_job(grievance_name: str) -> None:
+	if not frappe.db.exists("Grievance", grievance_name):
+		return
+	flag_without_failing(frappe.get_doc("Grievance", grievance_name))
+
+
 def flag_without_failing(grievance):
 	"""Flag a grievance that is already filed, without ever losing the filing.
 

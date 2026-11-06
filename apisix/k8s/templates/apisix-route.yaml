@@ -949,6 +949,63 @@ spec:
     - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
       servicePort: {{ .Values.web.port }}
 {{- end }}
+  - name: ivr-webhooks-custom-post
+    match:
+{{- if .Values.hosts }}
+      hosts:
+{{- range .Values.hosts }}
+      - {{ . | quote }}
+{{- end }}
+{{- end }}
+      paths:
+      - /v1/webhooks/ivr/grievances
+      methods:
+      - POST
+    plugins:
+    - name: cors
+      enable: true
+      config:
+        allow_origins: https://cors-by-regex-only.invalid
+        allow_origins_by_regex:
+{{- range .Values.corsOriginRegexes }}
+        - {{ printf "^(?:%s)$" . | quote }}
+{{- end }}
+        allow_methods: GET,POST,PATCH,DELETE,OPTIONS
+        allow_headers: Authorization,Content-Type,X-Request-Id,X-CSRF-Token
+        allow_credential: false
+        max_age: 3600
+    - name: client-control
+      enable: true
+      config:
+        max_body_size: 15728640
+    - name: proxy-rewrite
+      enable: true
+      config:
+        regex_uri:
+        - ^/(v[0-9]+)/(.*)
+        - /api/$1/$2
+        headers:
+          set:
+            Authorization: $env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION
+    - name: key-auth
+      enable: true
+      config:
+        header: apikey
+        hide_credentials: true
+    - name: consumer-restriction
+      enable: true
+      config:
+        type: consumer_name
+        whitelist:
+        - '{{ required "sharedConsumerNamespace is required" .Values.sharedConsumerNamespace }}_oan-ivr-vendor'
+{{- if .Values.web.externalHosts }}
+    upstreams:
+    - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+{{- else }}
+    backends:
+    - serviceName: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
+      servicePort: {{ .Values.web.port }}
+{{- end }}
   - name: officer-core-bearer-delete
     match:
 {{- if .Values.hosts }}
