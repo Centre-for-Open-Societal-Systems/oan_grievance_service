@@ -22,10 +22,12 @@ until they replace it through `POST /api/v1/auth/password/initial`. The mechanis
 oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
+import logging
 from typing import Literal
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -44,7 +46,6 @@ from pydantic_core import InitErrorDetails, PydanticCustomError
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, PersonName, blank_to_none
 from oan_grievance_service.permissions import is_unrestricted
 from oan_grievance_service.services import officer as service
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES, ROLE_DESK_HEAD
 
 DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
@@ -512,8 +513,9 @@ def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
 	# `grievance_log_level` to hide INFO chatter still keeps it. The officer is an email
 	# address, so the event carries it masked, with a `_ref` added for matching it to other
 	# events. The password itself is never passed.
-	oplog.security_event(
-		"temporary_password_reissued",
+	oplog.emit(
+		"security.temporary_password_reissued",
+		logging.WARNING,
 		user=frappe.session.user,
 		target_user=officer,
 		target_role=found["role"],

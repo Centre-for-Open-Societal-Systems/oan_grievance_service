@@ -8,6 +8,7 @@ department's desks too, read-only and scoped to them, and is never assigned a ca
 """
 
 import json
+import logging
 from unittest import mock
 
 import frappe
@@ -684,15 +685,14 @@ class TestPasswordResets(RoleCase):
 		frappe.set_user(caller)
 		with (
 			mock.patch("oan_grievance_service.api.v1.officer.check_rate_limit") as limit,
-			mock.patch("oan_grievance_service.api.v1.officer.oplog.security_event") as event,
+			mock.patch("oan_grievance_service.api.v1.officer.oplog.emit") as event,
 		):
 			result = reset_temporary_password(reviewer["name"], temporary_password="Another123")
 		self.assertEqual(result["status"], "success", msg=result)
 		limit.assert_called_once_with(f"rl:officer_temporary_password:{caller}", limit=10, window=300)
 		event.assert_called_once()
-		# No level argument: the event takes the default of a security event, WARNING, which a
-		# raised `grievance_log_level` does not hide.
-		self.assertEqual(event.call_args.args, ("temporary_password_reissued",))
+		# A privileged action, so WARNING: a site that hides INFO chatter still keeps it.
+		self.assertEqual(event.call_args.args, ("security.temporary_password_reissued", logging.WARNING))
 		logged = event.call_args.kwargs
 		self.assertEqual(logged["user"], caller)
 		self.assertEqual(logged["target_user"], reviewer["name"])

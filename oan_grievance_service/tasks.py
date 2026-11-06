@@ -6,6 +6,7 @@ batch must finish inside 30 minutes, so each job filters on an indexed column an
 
 import frappe
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
@@ -15,7 +16,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle, notifications, sla
-from oan_grievance_service.services import operational_log as oplog
+from oan_grievance_service.services.grievance_log import grievance_fields, logged_job
 
 
 def open_grievances_with_sla(extra_filters=None):
@@ -54,7 +55,7 @@ def open_grievances_with_sla(extra_filters=None):
 	)
 
 
-@oplog.logged_job("sla_reminders")
+@logged_job("sla_reminders")
 def send_sla_reminders():
 	"""Reminders to the assigned officer at 50% and 80% of the window."""
 	sent = 0
@@ -70,19 +71,29 @@ def send_sla_reminders():
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_80)
 			notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
 			grievance.db_set("reminder_80_sent", 1, update_modified=False)
-			oplog.sla_event("reminder_sent", grievance, threshold_percent=80, consumed_percent=percent)
+			oplog.emit(
+				"sla.reminder_sent",
+				**grievance_fields(grievance),
+				threshold_percent=80,
+				consumed_percent=percent,
+			)
 			sent += 1
 		elif percent >= 50 and not row.reminder_50_sent:
 			grievance = frappe.get_doc("Grievance", row.name)
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_50)
 			grievance.db_set("reminder_50_sent", 1, update_modified=False)
-			oplog.sla_event("reminder_sent", grievance, threshold_percent=50, consumed_percent=percent)
+			oplog.emit(
+				"sla.reminder_sent",
+				**grievance_fields(grievance),
+				threshold_percent=50,
+				consumed_percent=percent,
+			)
 			sent += 1
 
 	return sent
 
 
-@oplog.logged_job("sla_escalation")
+@logged_job("sla_escalation")
 def escalate_breached():
 	"""Hand every overdue case one rung up the chain.
 
@@ -125,7 +136,7 @@ def escalate_breached():
 DEFAULT_CHANGE_REQUEST_HOURS = 24
 
 
-@oplog.logged_job("change_request_forwarding")
+@logged_job("change_request_forwarding")
 def forward_stale_change_requests():
 	"""Hand every change request nobody has acted on one step up the hierarchy.
 
@@ -162,7 +173,7 @@ def forward_stale_change_requests():
 	return forwarded
 
 
-@oplog.logged_job("state_timers")
+@logged_job("state_timers")
 def expire_state_timers():
 	"""Act on every case that has sat in its current state longer than its timer allows.
 
@@ -192,7 +203,7 @@ def expire_state_timers():
 			if not timer:
 				continue
 
-			oplog.sla_event("state_timer_expired", grievance, state=state, action=timer[1])
+			oplog.emit("sla.state_timer_expired", **grievance_fields(grievance), state=state, action=timer[1])
 			if timer[1] == "Escalate":
 				sla.escalate(grievance, reason=f"No action while {state}")
 				continue

@@ -32,6 +32,7 @@ from typing import Annotated, Literal
 import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
+from oan_auth_service.api import operational_log as oplog
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	check_rate_limit,
@@ -45,7 +46,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import dashboard
-from oan_grievance_service.services import operational_log as oplog
 
 route = prefixed("/api/v1")
 

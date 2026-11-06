@@ -23,6 +23,7 @@ from contextlib import contextmanager
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.grievance_service_provider import (
 	DOCTYPE as PROVIDER,
@@ -30,7 +31,6 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.
 from oan_grievance_service.grievance_masters.doctype.grievance_service_provider_source.grievance_service_provider_source import (
 	DOCTYPE as SOURCE,
 )
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services.resolvers import resolve_administrative_area
 from oan_grievance_service.services.service_provider_adapters import SourceError, get_adapter
 

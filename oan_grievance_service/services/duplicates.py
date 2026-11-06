@@ -27,13 +27,13 @@ from typing import NamedTuple
 import frappe
 from frappe import _
 from frappe.utils import add_to_date, flt, now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import lifecycle
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import ticket_number as tn
 
 ACTION_CONFIRM = "Confirm Duplicate"

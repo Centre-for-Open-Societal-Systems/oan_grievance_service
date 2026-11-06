@@ -2,6 +2,7 @@
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1.organization import OrganizationRecord, organization_record
@@ -10,7 +11,6 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services.administrative_area import (
 	match_administrative_area,
 	refreshed_administrative_area,

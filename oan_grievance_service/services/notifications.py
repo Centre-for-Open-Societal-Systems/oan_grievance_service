@@ -32,9 +32,9 @@ from frappe.core.doctype.sms_settings.sms_settings import _send_sms
 from frappe.email.doctype.notification.notification import get_context
 from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import ticket_number as tn
 
 RECIPIENT_SUBMITTER = "Submitter"

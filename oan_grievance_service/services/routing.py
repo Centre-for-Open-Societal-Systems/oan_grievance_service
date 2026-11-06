@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import frappe
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	get_area_bounds,
@@ -13,7 +14,6 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 	GrievanceRoleLevel,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import operational_log as oplog
 from oan_grievance_service.services import sla
 
 UNBOUNDED = 999999999

@@ -57,6 +57,7 @@ from dataclasses import dataclass
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	ALLOWED_MIME_TYPES,
@@ -64,7 +65,6 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	MAX_SIZE_BYTES,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import operational_log as oplog
 
 CLAMAV_DEFAULT_PORT = 3310
 CLAMAV_TIMEOUT_SECONDS = 30

@@ -26,6 +26,7 @@ from datetime import timedelta
 import frappe
 from frappe.model.workflow import get_workflow
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
@@ -42,7 +43,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.griev
 	auto_escalation_threshold,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import operational_log as oplog
+from oan_grievance_service.services.grievance_log import grievance_fields
 
 CLOCK_START_ASSIGNMENT = "assignment"
 CLOCK_START_CREATION = "creation"
@@ -198,9 +199,9 @@ def start_clock(grievance):
 		update_modified=False,
 	)
 	arm_escalation(grievance, policy=policy)
-	oplog.sla_event(
-		"clock_started",
-		grievance,
+	oplog.emit(
+		"sla.clock_started",
+		**grievance_fields(grievance),
 		sla_days=policy.sla_days,
 		started_at=started,
 		next_escalation_at=grievance.get("next_escalation_at"),
@@ -235,9 +236,9 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 
 	grievance.db_set(updates, update_modified=False)
 	arm_escalation(grievance, policy=policy)
-	oplog.sla_event(
-		"clock_recalculated",
-		grievance,
+	oplog.emit(
+		"sla.clock_recalculated",
+		**grievance_fields(grievance),
 		previous_category=old_category,
 		new_category=cat,
 		sla_days=policy.sla_days,
@@ -268,7 +269,7 @@ def reset_clock(grievance):
 	for k, v in updates.items():
 		setattr(grievance, k, v)
 	arm_escalation(grievance, policy=policy)
-	oplog.sla_event("clock_reset", grievance, sla_days=updates["sla_days"])
+	oplog.emit("sla.clock_reset", **grievance_fields(grievance), sla_days=updates["sla_days"])
 
 
 def arm_escalation(grievance, policy=None):
@@ -377,7 +378,7 @@ def on_status_change(grievance, to_state, from_state=None):
 	if category == PAUSED:
 		if grievance.sla_due_date and not grievance.on_hold_since:
 			grievance.db_set("on_hold_since", now_datetime(), update_modified=False)
-			oplog.sla_event("clock_paused", grievance, state=to_state)
+			oplog.emit("sla.clock_paused", **grievance_fields(grievance), state=to_state)
 		return
 
 	resume_clock(grievance)
@@ -388,9 +389,9 @@ def on_status_change(grievance, to_state, from_state=None):
 		entered_stopped = not (from_state and sla_category_of(from_state) == STOPPED)
 		if entered_stopped and grievance.sla_due_date:
 			# Whether the case met its deadline is judged here, once, after any hold is banked.
-			oplog.sla_event(
-				"clock_stopped",
-				grievance,
+			oplog.emit(
+				"sla.clock_stopped",
+				**grievance_fields(grievance),
 				state=to_state,
 				breached=get_datetime(grievance.sla_due_date) < now_datetime(),
 			)
@@ -527,7 +528,7 @@ def resume_clock(grievance):
 			)
 
 	grievance.db_set(updates, update_modified=False)
-	oplog.sla_event("clock_resumed", grievance, held_seconds=held)
+	oplog.emit("sla.clock_resumed", **grievance_fields(grievance), held_seconds=held)
 	return held
 
 
@@ -659,10 +660,10 @@ def escalate(grievance, reason=None, reassign=True):
 			author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 		)
 
-		oplog.escalation_event(
-			"no_higher_authority",
-			grievance,
+		oplog.emit(
+			"escalation.no_higher_authority",
 			logging.WARNING,
+			**grievance_fields(grievance),
 			reason=reason,
 			escalated_at=grievance.get("escalated_at"),
 			notified=bool(notify and grievance.assigned_to),
@@ -700,9 +701,9 @@ def escalate(grievance, reason=None, reassign=True):
 		author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 	)
 
-	oplog.escalation_event(
-		"escalated",
-		grievance,
+	oplog.emit(
+		"escalation.escalated",
+		**grievance_fields(grievance),
 		reason=reason,
 		rung=level_role,
 		from_user=previous_assignee,

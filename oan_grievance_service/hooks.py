@@ -19,16 +19,7 @@ add_to_apps_screen = [
 ]
 
 # Register Werkzeug REST routes for Frappe API Map
-# Frappe runs before_request hooks ahead of the auth hooks and after_request hooks in a
-# `finally`, so a request the auth layer refuses still gets a correlation id and a log line.
-# The id is set first so everything after it, route registration included, can use it.
-# A request that fails earlier still (CSRF, session, maintenance mode) never reaches
-# before_request; after_request logs it and gives it an id, but it has no duration.
-before_request = [
-	"oan_grievance_service.api.request_logging.begin",
-	"oan_grievance_service.api.router.ensure_routes_registered",
-]
-after_request = ["oan_grievance_service.api.request_logging.end"]
+before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
 
 # Installation
 # ------------------

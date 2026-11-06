@@ -9,8 +9,7 @@ import time
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
-
-from oan_grievance_service.services import operational_log as oplog
+from oan_auth_service.api import operational_log as oplog
 
 ACTION_VIEW_DETAIL = "view_detail"
 ACTION_VIEW_LIST = "view_list"
