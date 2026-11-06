@@ -21,6 +21,7 @@ from oan_grievance_service.tests.fixtures import (
 	a_grievance_type,
 	a_leaf_area,
 	a_service_category,
+	a_user_with_role,
 	discard_grievance,
 )
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
@@ -478,6 +479,49 @@ class TestDuplicateFlow(FrappeTestCase):
 		closure = sections_of(ticket_export.build_form(frappe.get_doc("Grievance", dup.name)))[12]
 
 		self.assertNotIn("Reopened", dict(closure["checks"])["Final Status"])
+
+	def test_opening_a_flagged_ticket_shows_the_flag(self):
+		main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+
+		opened = grievance.timeline(dup.ticket_number or dup.name)["data"]
+
+		flag = opened["possible_duplicate"]
+		self.assertEqual(flag["ticket_number"], tn.display(main.name), msg=opened.get("possible_duplicate"))
+		self.assertEqual(flag["match_level"], "High")
+		self.assertTrue(flag["can_review"])
+		self.assertEqual(flag["description"], main.description)
+		self.assertIsNone(opened["duplicate_of"])
+
+	def test_opening_a_confirmed_duplicate_names_its_main_ticket(self):
+		main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		opened = grievance.timeline(dup.ticket_number or dup.name)["data"]
+
+		self.assertEqual(opened["status"], C.STATE_DUPLICATE)
+		self.assertEqual(opened["duplicate_of"], tn.display(main.name))
+		self.assertIsNone(opened["possible_duplicate"], "a ruled ticket is no longer flagged")
+
+	def test_a_submitter_opening_their_flagged_ticket_does_not_see_the_flag(self):
+		_main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+		farmer_user = a_user_with_role(C.ROLE_SUBMITTER, "farmer")
+		self.addCleanup(frappe.delete_doc, "User", farmer_user, force=True, ignore_permissions=True)
+		frappe.db.set_value("Grievance", dup.name, "owner", farmer_user, update_modified=False)
+
+		frappe.set_user(farmer_user)
+		result = grievance.timeline(dup.ticket_number or dup.name)
+
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertIsNone(result["data"]["possible_duplicate"], "the flag is for officers only")
+
+	def test_opening_an_unflagged_ticket_shows_no_flag(self):
+		lone = self._case()
+		opened = grievance.timeline(lone.ticket_number or lone.name)["data"]
+		self.assertIsNone(opened["possible_duplicate"])
+		self.assertIsNone(opened["duplicate_of"])
 
 	def test_unreviewed_flags_of_the_old_detector_are_dismissed_by_the_patch(self):
 		main, dup = self._pair()
