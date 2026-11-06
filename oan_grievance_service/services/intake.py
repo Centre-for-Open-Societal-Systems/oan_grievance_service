@@ -83,6 +83,11 @@ def file_from_ivr(
 	# Namespaced so a call id can never collide with another channel's submission uuid.
 	submission_uuid = f"ivr:{call_id}" if call_id else frappe.generate_hash(length=32)
 
+	if call_id:
+		existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
+		if existing:
+			return frappe.get_doc("Grievance", existing), None, []
+
 	category = get_default_category()
 	if not category:
 		frappe.throw(
@@ -113,9 +118,11 @@ def file_from_ivr(
 	)
 	try:
 		doc.insert(ignore_permissions=True)
-	except frappe.DuplicateEntryError:
-		# The unique client_submission_uuid is the replay check: this call id is already filed.
+	except frappe.UniqueValidationError:
+		# A delivery of this call id landed between the lookup and the insert; the unique
+		# client_submission_uuid refused the second row.
 		frappe.db.rollback()
+		frappe.clear_messages()
 		existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
 		if not existing:
 			raise
@@ -154,7 +161,8 @@ def _caller_profile(mobile: str):
 				contact_mobile=mobile,
 				submission_channel=C.CHANNEL_IVR,
 			)
-		except frappe.DuplicateEntryError:
+		except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
 			# A second call from the same number landed between the lookup and the insert.
+			frappe.clear_messages()
 			name = frappe.db.get_value(PROFILE, filters, "name")
 	return frappe.get_doc(PROFILE, name)
