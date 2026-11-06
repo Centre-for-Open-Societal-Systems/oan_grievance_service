@@ -450,10 +450,34 @@ class TestDuplicateFlow(FrappeTestCase):
 
 		self.assertIsNone(closure["note"], "a duplicate is not left as never closed")
 		self.assertTrue(rows["Closure Date"])
-		self.assertEqual(rows["Closure Remarks"], f"Duplicate of {tn.display(main.name)}. Same delivery.")
+		self.assertEqual(
+			rows["Closure Remarks"],
+			f"Duplicate of {tn.display(main.name)}. Same delivery.",
+		)
 		self.assertEqual(rows["Current Status"], C.STATE_DUPLICATE)
 		(closed,) = table_of(closure, "Closure History")["rows"]
 		self.assertEqual(closed[1:3], [duplicates.ACTION_CONFIRM, C.STATE_DUPLICATE])
+
+	def test_a_reopened_case_confirmed_as_a_duplicate_is_not_exported_as_reopened(self):
+		_main, dup = self._pair()
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": dup.name,
+				"from_status": C.STATE_RESOLVED,
+				"to_status": C.STATE_REOPENED,
+				"action": "Reopen",
+				"reason": "The fertilizer still has not arrived.",
+				"changed_by": "Administrator",
+				"timestamp": frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-1),
+			}
+		).insert(ignore_permissions=True)
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		closure = sections_of(ticket_export.build_form(frappe.get_doc("Grievance", dup.name)))[12]
+
+		self.assertNotIn("Reopened", dict(closure["checks"])["Final Status"])
 
 	def test_unreviewed_flags_of_the_old_detector_are_dismissed_by_the_patch(self):
 		main, dup = self._pair()
