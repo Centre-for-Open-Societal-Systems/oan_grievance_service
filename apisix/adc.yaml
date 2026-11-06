@@ -474,6 +474,32 @@ services:
         redis_port: 6379
         allow_degradation: true
         group: oan-grievance:citizen-intake:bearer
+  - name: oan-grievance-ivr-webhooks-custom-post
+    description: Inbound IVR webhook, called with the gateway key of the IVR platform consumer; not rate
+      limited.
+    labels:
+      app: oan-grievance
+      tier: ivr-webhooks
+      auth: custom
+    uris:
+    - /v1/webhooks/ivr/grievances
+    methods:
+    - POST
+    plugins:
+      key-auth:
+        header: apikey
+        hide_credentials: true
+      consumer-restriction:
+        type: consumer_name
+        whitelist:
+        - oan-ivr-vendor
+      proxy-rewrite:
+        regex_uri:
+        - ^/(v[0-9]+)/(.*)
+        - /api/$1/$2
+        headers:
+          set:
+            Authorization: $env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION
   - name: oan-grievance-officer-core-bearer-delete
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -899,3 +925,10 @@ services:
             Authorization: Bearer ${cookie_X-Access-Token}
           remove:
           - Cookie
+consumers:
+- username: oan-ivr-vendor
+  labels:
+    app: oan-grievance
+  plugins:
+    key-auth:
+      key: $env://OAN_IVR_VENDOR_KEY

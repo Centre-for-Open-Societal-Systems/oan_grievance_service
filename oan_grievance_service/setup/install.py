@@ -15,6 +15,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	save_sla_configuration,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import ticket_number
 from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
@@ -580,6 +581,7 @@ def seed_all():
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
+		"unlocated_area": seed_unlocated_area(),
 		"holiday_list": seed_holiday_list(),
 		"sla_configurations": seed_sla_configurations(),
 	}
@@ -724,6 +726,27 @@ def seed_region_ticket_codes():
 		frappe.db.set_value("Grievance Administrative Area", name, "ticket_code", ticket_code)
 		made.append(f"{official_code}={ticket_code}")
 	return made
+
+
+def seed_unlocated_area():
+	"""The row that stands for the ticket character of a case filed with no area.
+
+	A top-level "Other" node, so it never appears among the Regions an area picker lists.
+	Runs after the tree seed, which is skipped once any area exists.
+	"""
+	if frappe.db.exists("Grievance Administrative Area", {"code": ticket_number.UNLOCATED_AREA_CODE}):
+		return []
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Administrative Area",
+			"area_name": "Unlocated",
+			"code": ticket_number.UNLOCATED_AREA_CODE,
+			"level_name": "Other",
+			"ticket_code": ticket_number.UNLOCATED_REGION,
+			"is_active": 1,
+		}
+	).insert(ignore_permissions=True)
+	return [ticket_number.UNLOCATED_AREA_CODE]
 
 
 def seed_roles():

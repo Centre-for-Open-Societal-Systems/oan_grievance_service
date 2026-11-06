@@ -1,0 +1,465 @@
+{
+  "info": {
+    "_postman_id": "f9bbc07b-59fe-4d39-8116-b24ba6fcfdee",
+    "name": "OAN Grievance - IVR webhook",
+    "description": "Calls `POST /v1/webhooks/ivr/grievances`, the endpoint the IVR vendor uses to file a grievance from a caller's phone number. Auth is a gateway key, not a Frappe login: APISIX checks `apikey` against the `oan-ivr-vendor` consumer, removes it and calls Frappe with its own token, so this collection never holds a Frappe secret. Fill `ivr_vendor_key` locally (the value of OAN_IVR_VENDOR_KEY); it is empty here. To run straight against Frappe without the gateway, also set frappe_authorization and use a site host with /api as base_url (for example http://mysite.localhost:8000/api). Run in order: the replay request reuses the call id and ticket of the first one. Run with: newman run postman/oan_grievance_ivr_collection.json --env-var base_url=<gateway url> --env-var ivr_vendor_key=<key> --folder 'File and replay'",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "description": "APISIX gateway URL; the /v1 prefix is added by the requests"
+    },
+    {
+      "key": "ivr_vendor_key",
+      "value": "",
+      "description": "Secret. Fill locally; never commit a value"
+    },
+    {
+      "key": "frappe_authorization",
+      "value": "",
+      "description": "Secret, optional. `token <api_key>:<api_secret>` for runs straight against Frappe without APISIX. Leave empty through the gateway"
+    },
+    {
+      "key": "ivr_phone_number",
+      "value": "912345678",
+      "description": "Nine digits after the country code"
+    },
+    {
+      "key": "ivr_country_code",
+      "value": "+251"
+    },
+    {
+      "key": "ivr_call_id",
+      "value": "postman-call-001",
+      "description": "Change it to file a new case; reuse it to test a replay"
+    },
+    {
+      "key": "ivr_audio_call_id",
+      "value": "postman-call-audio-001"
+    },
+    {
+      "key": "ticket_number",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "File and replay",
+      "item": [
+        {
+          "name": "File a grievance from a phone number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('Success envelope', () => pm.expect(d.status).to.eql('success'));",
+                  "pm.test('Filed as a new case', () => pm.expect(d.data.created).to.eql(true));",
+                  "pm.test('Has a ticket number and a timeline event', () => {",
+                  "    pm.expect(d.data.ticket_number).to.be.a('string').and.not.empty;",
+                  "    pm.expect(d.data).to.have.property('timeline_event');",
+                  "});",
+                  "pm.collectionVariables.set('ticket_number', d.data.ticket_number);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "Files the call under the default category and type, channel IVR Helpline, for an Individual Farmer profile made from the number (an existing one is reused). `description` is optional; without it the case gets a fixed note and skips duplicate flagging.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"{{ivr_call_id}}\",\n  \"description\": \"My maize crop was damaged and the input dealer has not replaced the seed.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Replay the same call id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('Not filed again', () => pm.expect(d.data.created).to.eql(false));",
+                  "pm.test('Returns the first call\\'s ticket', () => pm.expect(d.data.ticket_number).to.eql(pm.collectionVariables.get('ticket_number')));",
+                  "pm.test('Writes no new timeline event', () => pm.expect(d.data).to.not.have.property('timeline_event'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "The vendor retried the webhook. The same `call_id` returns the first call's ticket with `created: false` and stores nothing again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"{{ivr_call_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "File without a description or call id",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('Success envelope', () => pm.expect(d.status).to.eql('success'));",
+                  "pm.test('Filed as a new case', () => pm.expect(d.data.created).to.eql(true));",
+                  "pm.test('Has a ticket number and a timeline event', () => {",
+                  "    pm.expect(d.data.ticket_number).to.be.a('string').and.not.empty;",
+                  "    pm.expect(d.data).to.have.property('timeline_event');",
+                  "});",
+                  "pm.collectionVariables.set('ticket_number', d.data.ticket_number);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "Only the number is required. A fixed default note is used, no call id means no replay protection, and duplicate flagging is skipped.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "File a grievance with the call's audio (multipart)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json();",
+                  "pm.test('Filed with the recording attached', () => {",
+                  "    pm.expect(d.data.created).to.eql(true);",
+                  "    pm.expect(d.data.attachments).to.be.an('array').with.lengthOf(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "Same call as a JSON request, with the recording as an MP3 file part. The file is checked before anything is filed, so a bad file refuses the call and no case is made. Pick an .mp3 on the `file` row before sending (up to 10 MB).",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "phone_number",
+                  "value": "{{ivr_phone_number}}",
+                  "type": "text"
+                },
+                {
+                  "key": "country_code",
+                  "value": "{{ivr_country_code}}",
+                  "type": "text"
+                },
+                {
+                  "key": "call_id",
+                  "value": "{{ivr_audio_call_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Rejected requests",
+      "item": [
+        {
+          "name": "Missing gateway key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "No `apikey` header. The gateway answers before Frappe is reached.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid phone number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refused with a client error', () => pm.expect(pm.response.code).to.be.within(400, 422));",
+                  "pm.test('Error envelope', () => pm.expect(pm.response.json().status).to.not.eql('success'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "A number that is not a valid Ethiopian mobile is refused and nothing is filed.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone_number\": \"123\",\n  \"country_code\": \"{{ivr_country_code}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Missing phone number",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refused with a client error', () => pm.expect(pm.response.code).to.be.within(400, 422));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "apikey",
+                "value": "{{ivr_vendor_key}}",
+                "description": "Gateway key of the oan-ivr-vendor consumer. APISIX checks it, removes it and adds the Frappe token."
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/webhooks/ivr/grievances",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "webhooks",
+                "ivr",
+                "grievances"
+              ]
+            },
+            "description": "`phone_number` is the only required field.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"postman-missing-phone\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Local runs without APISIX: set frappe_authorization to `token <api_key>:<api_secret>` of the IVR user.",
+          "// Through the gateway leave it empty; APISIX removes `apikey` and adds this header itself.",
+          "const auth = pm.variables.get('frappe_authorization');",
+          "if (auth && pm.info.requestName !== 'Missing gateway key') {",
+          "    pm.request.headers.upsert({ key: 'Authorization', value: auth });",
+          "}"
+        ]
+      }
+    }
+  ]
+}

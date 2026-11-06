@@ -10,6 +10,8 @@ UNROUTED_OFFICER = "unrouted@grievance.local"
 # others. Each must be declared under "workers" in common_site_config.json, or
 # frappe.enqueue rejects it.
 QUEUE_ROUTING = "grievance_routing"
+# Frappe's built-in short queue: flagging runs in seconds and needs no worker of its own.
+QUEUE_DUPLICATES = "short"
 QUEUE_SLA = "grievance_sla"
 QUEUE_SCAN = "grievance_scan"
 QUEUE_NOTIFICATIONS = "grievance_notifications"
@@ -134,6 +136,15 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # changes nothing. It holds read-only DocPerms and is never listed on a mutating
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
+
+# The submission channel (Grievance Submission Type) of the IVR helpline, and what the webhook
+# files a call under when the platform sends no more than the caller's number.
+CHANNEL_IVR = "IVR Helpline"
+IVR_CALLER_NAME = "IVR Caller"
+IVR_DEFAULT_DESCRIPTION = (
+	"Grievance registered through the IVR helpline. The caller gave no details; "
+	"an officer will contact them on the phone number they called from."
+)
 
 # Accounts the officer API never manages, whatever their other roles.
 PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})

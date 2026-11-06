@@ -1521,8 +1521,7 @@ class TestPdfEngine(FrappeTestCase):
 
 	def test_importing_the_module_does_not_load_weasyprint(self):
 		code = (
-			"import sys; import oan_grievance_service.services.pdf_engine; "
-			"print('weasyprint' in sys.modules)"
+			"import sys; import oan_grievance_service.services.pdf_engine; print('weasyprint' in sys.modules)"
 		)
 		result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
 		self.assertEqual(result.stdout.strip().splitlines()[-1:], ["False"], msg=result.stderr[-500:])
