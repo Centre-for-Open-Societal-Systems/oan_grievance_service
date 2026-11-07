@@ -1826,6 +1826,10 @@ def timeline(
 			},
 			"available_actions": _get_available_actions_for_user(doc),
 			"can_request_more_info": contact["can_request_more_info"],
+			# Opening a case is this call, so it carries the duplicate flag an officer rules on
+			# (staff only) and, once confirmed, the main ticket, as `current_state` does.
+			"duplicate_of": tn.display(doc.duplicate_of) if doc.duplicate_of else None,
+			"possible_duplicate": _possible_duplicate(doc),
 			"attachments": attachments,
 			"timeline": entries,
 			"has_more": has_more,

@@ -12,13 +12,14 @@ are read from what the workflow does leave behind:
 - decision: the Resolve, Partially Resolve and Reject moves, with their two-part reason;
 - response: the public messages and department responses on the timeline;
 - appeal: reopens, escalations and satisfaction feedback;
-- closure: the moves into Closed or Rejected.
+- closure: the moves into Closed, Rejected or Duplicate.
 """
 
 from frappe import _
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import response_body
+from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.services.ticket_form_blocks import (
 	_checks,
 	_field,
@@ -36,7 +37,8 @@ ACTION_REOPEN = "Reopen"
 ACTION_START_WORK = "In Progress"
 ACTION_ASK_INFO = "Request More Info"
 ACTION_REPLY = "Submitter Reply"
-CLOSING_STATES = (C.STATE_CLOSED, C.STATE_REJECTED)
+# A confirmed duplicate is closed out too: all further handling happens on its main ticket.
+CLOSING_STATES = (C.STATE_CLOSED, C.STATE_REJECTED, C.STATE_DUPLICATE)
 
 # Timeline entries that are part of the conversation with the complainant.
 CONVERSATION_ENTRY_TYPES = ("response", "message")
@@ -358,7 +360,20 @@ SETTLING_ACTIONS = (
 	"Auto Close",
 	"Reject",
 	"Refer Onward",
+	# A reopened or referred case can still be confirmed as a duplicate, which settles it.
+	"Confirm Duplicate",
 )
+
+
+def _closure_remarks(doc, closing):
+	"""The reason recorded with the closing move; a duplicate's names its main ticket first."""
+	if not closing:
+		return ""
+	remarks = closing.reason or doc.closure_reason
+	if closing.to_status == C.STATE_DUPLICATE and doc.duplicate_of:
+		main = _("Duplicate of {0}.").format(tn.display(doc.duplicate_of))
+		return f"{main} {remarks}" if remarks else main
+	return remarks
 
 
 def _closure(s):
@@ -385,10 +400,11 @@ def _closure(s):
 					(_("Reopened"), last == ACTION_REOPEN),
 				],
 			),
-			# The boxes have none for Rejected or In Progress, so the plain status is kept for the data.
+			# The boxes have none for Rejected, Duplicate or In Progress, so the plain status is
+			# kept for the data.
 			_field(_("Current Status"), doc.status, pdf=False),
 			_field(_("Closure Date"), _when(closing.timestamp) if closing else ""),
-			_field(_("Closure Remarks"), (closing.reason or doc.closure_reason) if closing else ""),
+			_field(_("Closure Remarks"), _closure_remarks(doc, closing)),
 			_field(_("Closed By"), s.person(closing.changed_by, closing.is_automated) if closing else ""),
 			_field(_("Resolved At"), _when(doc.resolved_at), pdf=False),
 			_field(

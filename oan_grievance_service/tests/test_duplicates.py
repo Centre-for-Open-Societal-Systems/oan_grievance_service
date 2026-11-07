@@ -10,11 +10,12 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1 import change_request, grievance
+from oan_grievance_service import permissions
+from oan_grievance_service.api.v1 import attachment, change_request, grievance
 from oan_grievance_service.api.v1._options import get_status_summary, public_status
 from oan_grievance_service.patches import dismiss_legacy_duplicate_flags
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import dashboard_rollup, duplicates, identity
+from oan_grievance_service.services import dashboard_rollup, duplicates, identity, ticket_export
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import (
 	a_grievance,
@@ -24,6 +25,7 @@ from oan_grievance_service.tests.fixtures import (
 	discard_grievance,
 )
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
+from oan_grievance_service.tests.test_ticket_export import rows_of, sections_of, table_of
 
 FERTILIZER = "Fertilizer allocated for the season has not reached the kebele store."
 CANAL = "My irrigation canal is blocked by silt and the water cannot reach my plot at all."
@@ -429,6 +431,96 @@ class TestDuplicateFlow(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Grievance Timeline", {"grievance": dup.name}), notes)
 		row = frappe.get_doc("Grievance Duplicate", {"grievance": dup.name})
 		self.assertEqual((row.is_confirmed, row.is_dismissed), (1, 0))
+
+	def test_no_evidence_can_be_added_to_a_confirmed_duplicate(self):
+		_main, dup = self._pair()
+		self.assertEqual(attachment._case_for_write(dup.name).name, dup.name)
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		with self.assertRaises(frappe.ValidationError):
+			attachment._case_for_write(dup.name)
+
+	def test_the_ticket_export_shows_a_duplicate_closed_on_its_main_ticket(self):
+		main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name, note="Same delivery.")
+
+		closure = sections_of(ticket_export.build_form(frappe.get_doc("Grievance", dup.name)))[12]
+		rows = rows_of(closure)
+
+		self.assertIsNone(closure["note"], "a duplicate is not left as never closed")
+		self.assertTrue(rows["Closure Date"])
+		self.assertEqual(
+			rows["Closure Remarks"],
+			f"Duplicate of {tn.display(main.name)}. Same delivery.",
+		)
+		self.assertEqual(rows["Current Status"], C.STATE_DUPLICATE)
+		(closed,) = table_of(closure, "Closure History")["rows"]
+		self.assertEqual(closed[1:3], [duplicates.ACTION_CONFIRM, C.STATE_DUPLICATE])
+
+	def test_a_reopened_case_confirmed_as_a_duplicate_is_not_exported_as_reopened(self):
+		_main, dup = self._pair()
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Status History",
+				"grievance": dup.name,
+				"from_status": C.STATE_RESOLVED,
+				"to_status": C.STATE_REOPENED,
+				"action": "Reopen",
+				"reason": "The fertilizer still has not arrived.",
+				"changed_by": "Administrator",
+				"timestamp": frappe.utils.add_to_date(frappe.utils.now_datetime(), hours=-1),
+			}
+		).insert(ignore_permissions=True)
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		closure = sections_of(ticket_export.build_form(frappe.get_doc("Grievance", dup.name)))[12]
+
+		self.assertNotIn("Reopened", dict(closure["checks"])["Final Status"])
+
+	def test_opening_a_flagged_ticket_shows_the_flag(self):
+		main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+
+		opened = grievance.timeline(dup.ticket_number or dup.name)["data"]
+
+		flag = opened["possible_duplicate"]
+		self.assertEqual(flag["ticket_number"], tn.display(main.name), msg=opened.get("possible_duplicate"))
+		self.assertEqual(flag["match_level"], "High")
+		self.assertTrue(flag["can_review"])
+		self.assertEqual(flag["description"], main.description)
+		self.assertIsNone(opened["duplicate_of"])
+
+	def test_opening_a_confirmed_duplicate_names_its_main_ticket(self):
+		main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+		grievance.confirm_duplicate(ticket_number=dup.name)
+
+		opened = grievance.timeline(dup.ticket_number or dup.name)["data"]
+
+		self.assertEqual(opened["status"], C.STATE_DUPLICATE)
+		self.assertEqual(opened["duplicate_of"], tn.display(main.name))
+		self.assertIsNone(opened["possible_duplicate"], "a ruled ticket is no longer flagged")
+
+	def test_a_submitter_opening_their_flagged_ticket_does_not_see_the_flag(self):
+		_main, dup = self._pair()
+		duplicates.flag_possible_duplicates(dup)
+
+		# Seen as a non-staff caller, without a new User: the suite creates enough users to
+		# reach Frappe's user-creation throttle (60 an hour), and one more fails later tests.
+		with patch.object(permissions, "is_staff", return_value=False):
+			result = grievance.timeline(dup.ticket_number or dup.name)
+
+		self.assertEqual(result["status"], "success", msg=result)
+		self.assertIsNone(result["data"]["possible_duplicate"], "the flag is for officers only")
+
+	def test_opening_an_unflagged_ticket_shows_no_flag(self):
+		lone = self._case()
+		opened = grievance.timeline(lone.ticket_number or lone.name)["data"]
+		self.assertIsNone(opened["possible_duplicate"])
+		self.assertIsNone(opened["duplicate_of"])
 
 	def test_unreviewed_flags_of_the_old_detector_are_dismissed_by_the_patch(self):
 		main, dup = self._pair()

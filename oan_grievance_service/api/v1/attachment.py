@@ -568,9 +568,13 @@ def _case_for_read(grievance):
 
 def _case_for_write(grievance):
 	from oan_grievance_service.permissions import has_grievance_permission
+	from oan_grievance_service.services import duplicates
 
 	doc = _case_for_read(grievance)
 	if not has_grievance_permission(doc, "write"):
 		audit.log_denied(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.name)
 		frappe.throw(_("You cannot add evidence to this grievance."), frappe.PermissionError)
+	# An officer keeps write access on a finished case, but a confirmed duplicate is
+	# read-only: its evidence belongs on the main ticket.
+	duplicates.assert_not_duplicate(doc)
 	return doc
