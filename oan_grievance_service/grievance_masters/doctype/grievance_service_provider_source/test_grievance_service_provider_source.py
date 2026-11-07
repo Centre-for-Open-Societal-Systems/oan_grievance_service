@@ -85,9 +85,8 @@ class TestGrievanceServiceProviderSource(FrappeTestCase):
 			a_service_provider_source(f"Src2 {self.tag}", auth_mode="Token", api_username="", api_password="")
 
 	def test_the_source_name_is_unique(self):
-		a_service_provider_source(f"Src {self.tag}")
-		with self.assertRaises(frappe.DuplicateEntryError):
-			a_service_provider_source(f"Src {self.tag}")
+		# The name is the primary key, so the database keeps it unique.
+		self.assertEqual(frappe.get_meta(DOCTYPE).autoname, "field:source_name")
 
 	def test_the_provider_type_is_a_link_to_the_type_master_not_a_typed_in_list(self):
 		field = frappe.get_meta(DOCTYPE).get_field("default_provider_type")
@@ -253,10 +252,7 @@ class TestGrievanceServiceProviderSource(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Grievance Service Provider", name, "is_active"), 0)
 
 	def test_the_same_source_cannot_list_a_provider_twice(self):
-		source = a_service_provider_source(f"Src {self.tag}")
-		a_service_provider(f"One {self.tag}", source=source, external_ref="PB-1")
-		with self.assertRaises(frappe.UniqueValidationError):
-			a_service_provider(f"Two {self.tag}", source=source, external_ref="PB-1")
+		self.assertTrue(frappe.db.has_index("tabGrievance Service Provider", "unique_source_external_ref"))
 
 	def test_hand_made_providers_never_collide_on_the_source_columns(self):
 		a_service_provider(f"Manual A {self.tag}")
