@@ -419,3 +419,23 @@ def post_grievance(user="Administrator", **payload):
 	with configured_keys():
 		response = api_request(frappe.api.handle, "POST", "/api/v1/grievances", json=payload, user=user)
 	return json.loads(response.get_data(as_text=True))
+
+
+def create_officer_with_login(**fields):
+	"""POST /officers for an email that has a login, made first when it is missing.
+
+	Officers can only be made from an existing login. `temporary_password` is not a field of
+	the endpoint any more; when given, it is set on the new login, as an admin would.
+	"""
+	from oan_grievance_service.api.v1.officer import create_officer
+	from oan_grievance_service.services import account
+
+	password = fields.pop("temporary_password", None)
+	email = (fields.get("email") or "").strip().lower()
+	if "@" in email and not frappe.db.exists("User", email):
+		frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
+		).insert(ignore_permissions=True)
+		if password and password.strip():
+			account.issue_temporary_password(email, password)
+	return create_officer(**fields)

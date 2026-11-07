@@ -18,7 +18,6 @@ from oan_grievance_service.api.v1.category_assignment import (
 	update_assignment,
 )
 from oan_grievance_service.api.v1.officer import (
-	create_officer,
 	get_officer,
 	list_officers,
 	reset_temporary_password,
@@ -29,6 +28,7 @@ from oan_grievance_service.api.v1.response_config import create_response_templat
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.setup.install import ROLES
 from oan_grievance_service.tests.fixtures import a_grievance, discard_grievance
+from oan_grievance_service.tests.fixtures import create_officer_with_login as create_officer
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
 	_department,
