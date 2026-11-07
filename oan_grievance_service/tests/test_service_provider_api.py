@@ -55,7 +55,6 @@ class TestServiceProviderApi(FrappeTestCase):
 		cls.branch = a_service_provider(
 			f"{t} Branch",
 			provider_type="Bank",
-			parent_provider=cls.national,
 			administrative_area=cls.woreda,
 		)
 		cls.sibling = a_service_provider(
@@ -121,9 +120,6 @@ class TestServiceProviderApi(FrappeTestCase):
 	def test_search_matches_the_registration_number(self):
 		self.assertEqual(self._ids(search=f"reg-{self.tag}"), [self.local])
 
-	def test_search_matches_the_parent_name_so_a_head_office_finds_its_branches(self):
-		self.assertEqual(set(self._ids(search=f"{self.tag} National Bank")), {self.national, self.branch})
-
 	def test_search_treats_like_wildcards_as_text(self):
 		self.assertEqual(self._search(search="%%")["pagination"]["total_count"], 0)
 		self.assertEqual(self._search(search="__")["pagination"]["total_count"], 0)
@@ -168,13 +164,12 @@ class TestServiceProviderApi(FrappeTestCase):
 
 	# --- response shape and paging ----------------------------------------------------------
 
-	def test_items_carry_the_parent_and_a_root_to_leaf_area_label(self):
+	def test_items_carry_a_root_to_leaf_area_label(self):
 		by_id = {item["id"]: item for item in self._search(search=self.tag)["items"]}
 
 		store = by_id[self.store]
 		self.assertEqual(store["name"], f"{self.tag} Kebele Store")
 		self.assertEqual(store["type"], "Input Store")
-		self.assertIsNone(store["parent"])
 		self.assertIsNone(store["registration_number"])
 		self.assertEqual(
 			store["area"],
@@ -185,9 +180,6 @@ class TestServiceProviderApi(FrappeTestCase):
 					f"{n} {self.tag}" for n in ("Region A", "Zone A", "Woreda 1", "Kebele 1")
 				),
 			},
-		)
-		self.assertEqual(
-			by_id[self.branch]["parent"], {"id": self.national, "name": f"{self.tag} National Bank"}
 		)
 		self.assertEqual(by_id[self.local]["registration_number"], f"REG-{self.tag}")
 		self.assertIsNone(by_id[self.national]["area"])
@@ -291,7 +283,6 @@ class TestServiceProviderApi(FrappeTestCase):
 	def test_lookup_returns_an_active_provider_with_its_status(self):
 		data = get_service_provider(self.branch)["data"]
 		self.assertIs(data["is_active"], True)
-		self.assertEqual(data["parent"]["id"], self.national)
 
 	def test_lookup_of_an_unknown_provider_is_not_found(self):
 		result = self._error(get_service_provider, "SP-99999")
