@@ -32,6 +32,7 @@ from frappe.core.doctype.sms_settings.sms_settings import _send_sms
 from frappe.email.doctype.notification.notification import get_context
 from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
@@ -564,7 +565,7 @@ def resolve_recipient(grievance, recipient_role, override=None, role_level=None)
 	# recipient means no assignment covers this case's department and area. The
 	# notification is dropped either way; without this it is dropped invisibly.
 	target_label = role_level or recipient_role
-	frappe.log_error(
+	oplog.log_error(
 		title=f"Grievance notification recipient unresolved: {target_label}",
 		message=(
 			f"No recipient could be resolved for role '{target_label}' on grievance "
@@ -722,7 +723,7 @@ def queue(grievance, event_code, recipient_override=None):
 				enqueue_after_commit=True,
 			)
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Failed to enqueue notifications for grievance: {grievance.name}",
 				message=frappe.get_traceback(),
 			)
@@ -947,7 +948,7 @@ def dispatch_queued(limit=100, grievance=None):
 				# Never silently mark an undelivered row as Sent.
 				raise ValueError(f"No delivery path for channel {row.channel}")
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title="Grievance notification dispatch failed",
 				message=frappe.get_traceback(),
 			)

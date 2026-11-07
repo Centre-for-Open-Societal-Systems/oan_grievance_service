@@ -27,6 +27,7 @@ from typing import NamedTuple
 import frappe
 from frappe import _
 from frappe.utils import add_to_date, flt, now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -294,7 +295,7 @@ def enqueue_flagging(grievance_name: str) -> None:
 			enqueue_after_commit=True,
 		)
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to enqueue duplicate flagging for grievance: {grievance_name}",
 			message=frappe.get_traceback(),
 		)
@@ -318,7 +319,7 @@ def flag_without_failing(grievance):
 		return flag_possible_duplicates(grievance)
 	except Exception:
 		frappe.db.rollback(save_point=save_point)
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to flag possible duplicates for grievance: {grievance.name}",
 			message=frappe.get_traceback(),
 		)

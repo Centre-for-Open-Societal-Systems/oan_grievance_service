@@ -2,6 +2,7 @@
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1.organization import OrganizationRecord, organization_record
@@ -331,9 +332,9 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False
@@ -355,9 +356,9 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False
