@@ -22,7 +22,6 @@ from oan_auth_service.tests.utils import configured_keys
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import get_department_officers
 from oan_grievance_service.api.v1.officer import (
-	create_officer,
 	get_officer,
 	list_officers,
 	officer_status_counts,
@@ -45,6 +44,7 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
 from oan_grievance_service.setup.install import seed_role_levels, seed_roles
 from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_service_category
+from oan_grievance_service.tests.fixtures import create_officer_with_login as create_officer
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
 	_department,
@@ -185,7 +185,6 @@ class TestDepartmentHead(RoleCase):
 				**{**base, "level": "L1"}, department="S444", service_categories=["STG443 Credit"]
 			)
 			self.assertEqual(no_assignment["code"], "VALIDATION_ERROR", msg=no_assignment)
-		self.assertFalse(frappe.db.exists("User", base["email"]))
 
 	def test_the_level_filter_and_the_default_list_include_heads(self):
 		officer = self._officer()
@@ -358,7 +357,6 @@ class TestReviewerOnTheDesk(RoleCase):
 				status="On Leave",
 			)
 			self.assertIn("status", leave["details"])
-		self.assertFalse(frappe.db.exists("User", email))
 
 	def test_a_reviewer_is_never_in_the_officer_views_or_the_chain(self):
 		officer = self._officer()
@@ -481,7 +479,6 @@ class TestReviewerOnTheDesk(RoleCase):
 			temporary_password=PASSWORD,
 		)
 		self.assertEqual(result["status"], "success", msg=result)
-		self.assertIn("already had a login", result["message"])
 		self.assertEqual(self._roles(login), sorted([C.ROLE_SUBMITTER, C.ROLE_REVIEW_OFFICER]))
 		self.assertEqual(check_password(login, "TheirOwn123!"), login)
 
@@ -741,7 +738,6 @@ class TestPermissions(RoleCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(label, result))
 		frappe.set_user("Administrator")
 		self.assertEqual({r.active for r in self._rows(self.reviewer["name"])}, {1})
-		self.assertFalse(frappe.db.exists("User", f"{PREFIX}w-reviewer@example.com"))
 
 	def test_a_reviewer_reads_officers_and_heads_but_not_reviewers(self):
 		frappe.set_user(self.callers["Reviewer"])

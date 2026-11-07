@@ -34,11 +34,6 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_provider.
 route = prefixed("/api/v1/service-providers")
 
 
-class ServiceProviderParent(BaseModel):
-	id: str
-	name: str
-
-
 class ServiceProviderArea(BaseModel):
 	id: str
 	name: str
@@ -49,7 +44,6 @@ class ServiceProviderItem(BaseModel):
 	id: str = Field(description="Provider ID, such as SP-00042. Store this on the grievance.")
 	name: str
 	type: str
-	parent: ServiceProviderParent | None = None
 	area: ServiceProviderArea | None = Field(default=None, description="Empty for a nationwide provider")
 	registration_number: str | None = None
 	external_ref: str | None = Field(
@@ -80,7 +74,7 @@ class ListServiceProviders(PageParams, Body):
 	search: str | None = Field(
 		default=None,
 		max_length=100,
-		description="Case-insensitive match on name, registration number or parent name. "
+		description="Case-insensitive match on name, registration number. "
 		f"At least {MIN_SEARCH_LENGTH} characters when set.",
 	)
 	provider_type: str | None = Field(
@@ -118,7 +112,7 @@ class ServiceProviderRef(Body):
 @api_doc(
 	summary="Search service providers",
 	description="Active providers for the grievance form's dropdown. search matches the provider's name, "
-	+ "registration number and parent name. area keeps providers inside that area or above it, plus "
+	+ "registration number. area keeps providers inside that area or above it, plus "
 	+ "nationwide providers. Names that start with the search text come first, then the most local area.",
 	tags=["Service Providers"],
 	response_model=ServiceProviderListData,

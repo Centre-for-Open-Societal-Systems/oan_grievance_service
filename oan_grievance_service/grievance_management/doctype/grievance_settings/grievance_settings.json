@@ -69,6 +69,9 @@
  "states": [],
  "field_order": [
   "auto_routing_enabled",
+  "sec_escalation",
+  "auto_escalation_enabled",
+  "change_request_hours",
   "sec_duplicates",
   "ask_before_filing_duplicate",
   "duplicate_weight_category",
@@ -83,6 +86,26 @@
    "fieldname": "auto_routing_enabled",
    "fieldtype": "Check",
    "label": "Route Cases to Matching Officers"
+  },
+  {
+   "description": "Cases and change requests move up the chain when their deadline passes.",
+   "fieldname": "sec_escalation",
+   "fieldtype": "Section Break",
+   "label": "Escalation"
+  },
+  {
+   "default": "1",
+   "description": "Untick to stop automatic escalation of overdue cases site-wide. Each SLA Configuration can also switch it off for its own category.",
+   "fieldname": "auto_escalation_enabled",
+   "fieldtype": "Check",
+   "label": "Escalate Overdue Cases Automatically"
+  },
+  {
+   "default": "24",
+   "description": "Hours an unanswered change request waits with an approver before it moves one rung up. A rung's own escalation hours take precedence.",
+   "fieldname": "change_request_hours",
+   "fieldtype": "Int",
+   "label": "Change Request Wait (Hours)"
   },
   {
    "description": "A new grievance is compared with the same submitter's earlier ones. Each pair scores description similarity (weight = 1 minus the category and type weights) plus the category and type weights when those match. Tune the values below from the confirm and dismiss rulings officers record.",

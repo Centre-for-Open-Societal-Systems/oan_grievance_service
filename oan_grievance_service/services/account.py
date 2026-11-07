@@ -32,17 +32,6 @@ def assert_manageable(user_id: str) -> None:
 		)
 
 
-def new_or_existing_user(email: str):
-	"""The User with this email, created without a role or a welcome email when it is new."""
-	if frappe.db.exists("User", email):
-		return frappe.get_doc("User", email)
-	user = frappe.get_doc(
-		{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
-	)
-	user.insert(ignore_permissions=True)
-	return user
-
-
 def write_user(user, fields: dict, role: str) -> None:
 	"""Set the person-level fields that were given and make sure the User holds `role`."""
 	if "full_name" in fields:
