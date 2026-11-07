@@ -153,6 +153,8 @@ def _caller_profile(mobile: str):
 		order_by="active desc, is_blocked asc, creation asc, name asc",
 	)
 	if not name:
+		save_point = "ivr_caller_profile"
+		frappe.db.savepoint(save_point)
 		try:
 			return _create_or_update_submitter_profile(
 				user=None,
@@ -163,6 +165,7 @@ def _caller_profile(mobile: str):
 			)
 		except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
 			# A second call from the same number landed between the lookup and the insert.
+			frappe.db.rollback(save_point=save_point)
 			frappe.clear_messages()
 			name = frappe.db.get_value(PROFILE, filters, "name")
 	return frappe.get_doc(PROFILE, name)
