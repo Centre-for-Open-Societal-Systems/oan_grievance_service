@@ -71,6 +71,7 @@ def file_from_ivr(
 	from oan_auth_service.api.utils import assemble_phone_number
 
 	from oan_grievance_service.api.v1.attachment import store_uploads
+	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
 	from oan_grievance_service.grievance_masters.doctype.grievance_service_category.grievance_service_category import (
 		get_default_category,
 	)
@@ -95,8 +96,8 @@ def file_from_ivr(
 			title=_("Default Category Missing"),
 		)
 
-	profile = _caller_profile(mobile)
-	if profile.is_blocked or not profile.active:
+	profile = _find_caller_profile(mobile)
+	if profile and (profile.is_blocked or not profile.active):
 		frappe.throw(_("This submitter profile cannot file new grievances."), title=_("Submitter Blocked"))
 
 	doc = frappe.new_doc("Grievance")
@@ -127,6 +128,26 @@ def file_from_ivr(
 		if not existing:
 			raise
 		return frappe.get_doc("Grievance", existing), None, []
+	if not profile:
+		# Made after the grievance, so the rollback below undoes only the profile insert.
+		save_point = "ivr_caller_profile"
+		frappe.db.savepoint(save_point)
+		try:
+			profile = _create_or_update_submitter_profile(
+				user=None,
+				submitter_type="Individual Farmer",
+				submitter_name=C.IVR_CALLER_NAME,
+				contact_mobile=mobile,
+				submission_channel=C.CHANNEL_IVR,
+			)
+		except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
+			# A parallel first call from this number made the profile; use it.
+			frappe.db.rollback(save_point=save_point)
+			frappe.clear_messages()
+			profile = _find_caller_profile(mobile)
+			if not profile:
+				raise
+		doc.db_set("submitter", profile.name, update_modified=False)
 	submission = record_submission(doc)
 	attachments = store_uploads(doc, uploads, timeline_entry=submission.name) if uploads else []
 	# Every call without a description carries the same note, so look-alike scoring would
@@ -135,14 +156,12 @@ def file_from_ivr(
 	return doc, submission, attachments
 
 
-def _caller_profile(mobile: str):
-	"""The Individual Farmer profile of this number, created with the caller's number alone.
+def _find_caller_profile(mobile: str):
+	"""The Individual Farmer profile of this number, or None on a first call.
 
 	An existing profile is found by its phone key, or by the number on a profile keyed on a
 	Fayda ID, so a farmer who registered with eSignet is not given a second profile.
 	"""
-	from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
-
 	filters = {"dedupe_key": build_dedupe_key(identity.SCHEME_PHONE, mobile)}
 	name = frappe.db.get_value(PROFILE, filters, "name") or frappe.db.get_value(
 		PROFILE,
@@ -152,20 +171,4 @@ def _caller_profile(mobile: str):
 		# stays blocked instead of being handed a fresh profile.
 		order_by="active desc, is_blocked asc, creation asc, name asc",
 	)
-	if not name:
-		save_point = "ivr_caller_profile"
-		frappe.db.savepoint(save_point)
-		try:
-			return _create_or_update_submitter_profile(
-				user=None,
-				submitter_type="Individual Farmer",
-				submitter_name=C.IVR_CALLER_NAME,
-				contact_mobile=mobile,
-				submission_channel=C.CHANNEL_IVR,
-			)
-		except (frappe.DuplicateEntryError, frappe.UniqueValidationError):
-			# A second call from the same number landed between the lookup and the insert.
-			frappe.db.rollback(save_point=save_point)
-			frappe.clear_messages()
-			name = frappe.db.get_value(PROFILE, filters, "name")
-	return frappe.get_doc(PROFILE, name)
+	return frappe.get_doc(PROFILE, name) if name else None
