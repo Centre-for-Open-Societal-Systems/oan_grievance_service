@@ -106,18 +106,19 @@ def create(
 	System Manager or Administrator, who are never managed here.
 	"""
 	_assert_status(role, status)
-	existing = role_of(email)
+	user_id = _login_user(email)
+	existing = role_of(user_id) if user_id else None
 	if existing:
 		message = (
 			_("{0} is already an officer.") if existing == DEFAULT_ROLE else _("{0} is already a reviewer.")
 		)
 		frappe.throw(message.format(email), frappe.ValidationError)
-	if not frappe.db.exists("User", email):
+	if not user_id:
 		frappe.throw(
 			_("{0} has no login. Create the user first, then add them here.").format(email),
 			frappe.DoesNotExistError,
 		)
-	account.assert_manageable(email)
+	account.assert_manageable(user_id)
 	placement = _placement(role, level, status)
 	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
@@ -134,7 +135,7 @@ def create(
 		if is_head and role == DEFAULT_ROLE:
 			_assert_head_free(department, desks)
 
-	user = frappe.get_doc("User", email)
+	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
@@ -373,6 +374,16 @@ def _officer_query(*, role, level, department, service_category, region, q):
 			match = match | getattr(user, LOGIN_EMAIL_FIELD).like(like)
 		query = query.where(match)
 	return query
+
+
+def _login_user(email: str) -> str | None:
+	"""The User id of the login that signs in with `email`: its login email, else its id."""
+	email = email.strip()
+	if _has_login_email():
+		found = frappe.db.get_value("User", {LOGIN_EMAIL_FIELD: email}, "name")
+		if found:
+			return found
+	return email if frappe.db.exists("User", email) else None
 
 
 def _has_login_email() -> bool:
@@ -734,7 +745,7 @@ def scope_create(caller: str, fields: dict) -> dict:
 		frappe.throw(_("A desk head can only create L1 and L2 officers."), frappe.PermissionError)
 	if fields.get("create_department"):
 		frappe.throw(_("A desk head cannot create departments."), frappe.PermissionError)
-	_assert_not_admin(fields["email"])
+	_assert_not_admin(_login_user(fields["email"]) or fields["email"])
 	records = _narrow(_head_records(caller), fields.get("department"), fields.get("service_categories"))
 	return {
 		**fields,
