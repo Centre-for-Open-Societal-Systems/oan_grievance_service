@@ -54,7 +54,6 @@ class RegisterSubmitterRequest(BaseModel):
 	contact_mobile: str | None = Field(default=None, description="Contact mobile number")
 	country_code: str | None = Field(default=None, description="Country phone code prefix (e.g. +251)")
 	phone_number: str | None = Field(default=None, description="National phone number")
-	phone: str | None = Field(default=None, description="Phone number alias")
 	contact_email: SafeEmail | None = Field(default=None, description="Contact email address")
 	administrative_area: str | None = Field(default=None, description="Administrative area Link")
 	administrative_unit: str | None = Field(default=None, description="Administrative unit / woreda / branch")
@@ -62,12 +61,9 @@ class RegisterSubmitterRequest(BaseModel):
 	fayda_id: str | None = Field(
 		default=None, title=N_("Fayda ID"), description="Fayda National ID (16 digits)"
 	)
-	national_id: str | None = Field(default=None, title=N_("National ID"), description="National ID alias")
 	registration_number: str | None = Field(
 		default=None, description="Official organization registration/certificate number"
 	)
-	org_number: str | None = Field(default=None, description="Organization number alias")
-	farmer_id: str | None = Field(default=None, title=N_("Farmer ID"), description="Farmer ID alias")
 	dedupe_key: str | None = Field(default=None, description="Explicit dedupe key")
 	submission_channel: str | None = Field(
 		default=None,
@@ -99,10 +95,7 @@ def _create_or_update_submitter_profile(
 	administrative_unit: str | None = None,
 	preferred_language: str | None = None,
 	fayda_id: str | None = None,
-	national_id: str | None = None,
 	registration_number: str | None = None,
-	org_number: str | None = None,
-	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 	submission_channel: str | None = None,
 	*,
@@ -141,7 +134,7 @@ def _create_or_update_submitter_profile(
 	if not submitter_name:
 		frappe.throw(_("Submitter Name is required."), frappe.ValidationError, title=_("Missing Name"))
 
-	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	incoming_phone = contact_mobile or kwargs.get("phone_number")
 	country_code = kwargs.get("country_code")
 	if incoming_phone:
 		from oan_auth_service.api.utils import assemble_phone_number
@@ -175,10 +168,7 @@ def _create_or_update_submitter_profile(
 		submitter_type=submitter_type,
 		mobile=contact_mobile,
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=org_number,
-		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 	)
 	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
@@ -195,13 +185,13 @@ def _create_or_update_submitter_profile(
 	is_blocked = 0 if is_farmer else 1
 	blocked_reason = None if is_farmer else _("Pending admin verification for non-farmer submitter type.")
 
-	admin_area = administrative_area or kwargs.get("region")
+	admin_area = administrative_area
 	if admin_area and frappe.db.exists("Grievance Administrative Area", admin_area):
 		admin_area = str(admin_area).strip()
 	else:
 		admin_area = None
 
-	admin_unit = administrative_unit or kwargs.get("woreda")
+	admin_unit = administrative_unit
 	if admin_unit:
 		admin_unit = str(admin_unit).strip()
 
@@ -252,7 +242,7 @@ def _create_or_update_submitter_profile(
 
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
-		has_explicit_id = bool(fayda_id or national_id or registration_number or org_number or dedupe_key)
+		has_explicit_id = bool(fayda_id or registration_number or dedupe_key)
 		# Nor does a user key ever replace a phone or verified key, so a farmer promoted to
 		# Development Agent through a phone-less login keeps their phone key.
 		keep_key = old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id
@@ -365,16 +355,12 @@ def register_submitter(
 	contact_mobile: str | None = None,
 	country_code: str | None = None,
 	phone_number: str | None = None,
-	phone: str | None = None,
 	contact_email: str | None = None,
 	administrative_area: str | None = None,
 	administrative_unit: str | None = None,
 	preferred_language: str | None = None,
 	fayda_id: str | None = None,
-	national_id: str | None = None,
 	registration_number: str | None = None,
-	org_number: str | None = None,
-	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 	submission_channel: str | None = None,
 	**kwargs,
@@ -399,16 +385,12 @@ def register_submitter(
 		contact_mobile=contact_mobile,
 		country_code=country_code,
 		phone_number=phone_number,
-		phone=phone,
 		contact_email=contact_email,
 		administrative_area=administrative_area,
 		administrative_unit=administrative_unit,
 		preferred_language=preferred_language,
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=org_number,
-		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 		submission_channel=submission_channel,
 		**kwargs,
