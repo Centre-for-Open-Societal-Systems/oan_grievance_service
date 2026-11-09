@@ -148,7 +148,6 @@ class CreateOfficer(Body):
 
 	full_name: PersonName = Field(min_length=1)
 	email: NonBlank
-	temporary_password: str | None = Field(default=None, max_length=128)
 	role: Role = "Officer"
 	designation: NonBlank | None = None
 	level: Level | None = None
@@ -165,7 +164,6 @@ class CreateOfficer(Body):
 
 	_email = field_validator("email")(normalize_email)
 	_blank = field_validator(
-		"temporary_password",
 		"phone",
 		"region",
 		"reports_to",
@@ -174,7 +172,6 @@ class CreateOfficer(Body):
 		"department",
 		mode="before",
 	)(blank_to_none)
-	_temporary_password = field_validator("temporary_password")(validate_temporary_password)
 
 	@model_validator(mode="after")
 	def _fields_follow_role(self):
@@ -398,18 +395,15 @@ def get_officer(officer: str, **kwargs):
 	+ "assignment for the department (or with no department). For an L3 a missing "
 	+ "category assignment is created with the head on it, and with create_department (default "
 	+ "false) the department is created too, refused when it already exists. reports_to is an L2 officer and is only for "
-	+ "an L1. The login is created when the email is new. An existing login keeps its own "
-	+ "roles and is given the officer or review role; a System Manager or Administrator is "
-	+ "never managed here. temporary_password is optional: when provided, the account holder signs in with it "
-	+ "only to replace it through /api/v1/auth/password/initial. When omitted, they log in with Keycloak. It is applied to a new login "
-	+ "only. An email that already has a login keeps its own password and the message says so.",
+	+ "an L1. The email must already have a login; an unknown email is a 404. The login keeps its own "
+	+ "password and roles and is given the officer or review role; a System Manager or Administrator "
+	+ "is never managed here.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
 def create_officer(
 	full_name: str,
 	email: str,
-	temporary_password: str | None = None,
 	role: str = "Officer",
 	designation: str | None = None,
 	level: str | None = None,
@@ -435,7 +429,6 @@ def create_officer(
 			"department": department,
 			"email": email,
 			"service_categories": service_categories,
-			"temporary_password": temporary_password,
 			"phone": phone,
 			"region": region,
 			"status": status,
@@ -445,16 +438,8 @@ def create_officer(
 	if is_unrestricted(caller) and role == "Officer" and level != "L3":
 		if not service_categories:
 			field_errors(CreateOfficer, {"service_categories": "Required for an L1 or L2 officer"})
-	user_id, password_status = service.create(**fields)
-	if password_status is False:
-		message = _("{0} created. {1} already had a login, so their existing password is unchanged.").format(
-			role, user_id
-		)
-	elif password_status is None:
-		message = _("{0} created. They can log in with Keycloak.").format(role)
-	else:
-		message = _("{0} created").format(role)
-	return success_response(data={"officer": service.record(user_id)}, message=message)
+	user_id = service.create(**fields)
+	return success_response(data={"officer": service.record(user_id)}, message=_("{0} created").format(role))
 
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer", tier="officer-core")

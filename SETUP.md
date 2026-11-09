@@ -252,9 +252,6 @@ bench --site grievance.localhost set-config jwt_private_keys '{"v1": "keys/jwt_v
 bench --site grievance.localhost set-config jwt_current_kid "v1"
 ```
 
-The old shared-secret key `jwt_secrets` is no longer read. A site that still has only
-that key cannot issue tokens.
-
 3. Set the registration roles. Without `jwt_self_registerable_roles`, guest
    self-registration is refused.
 
@@ -263,8 +260,7 @@ bench --site grievance.localhost set-config jwt_default_registration_role "Griev
 bench --site grievance.localhost set-config jwt_self_registerable_roles '["Grievance Submitter"]' --parse
 ```
 
-Leave `jwt_enforce_https` unset locally, because the dev server serves plain HTTP. See
-[section 4.3](#43-site-configuration-keys) for every other key, and
+See [section 4.3](#43-site-configuration-keys) for every other key, and
 [`site_config.example.json`](site_config.example.json) for a full template.
 
 4. Install `oan_auth_service` first, then `oan_grievance_service`, and run migrations:
@@ -369,29 +365,32 @@ numbers, booleans, lists and objects.
 
 **Optional, `oan_auth_service`**
 
-| Key                                 | Default   | Effect                                                    |
-| ----------------------------------- | --------- | --------------------------------------------------------- |
-| `jwt_issuer`                        | site name | `iss` claim. Keep distinct per environment                |
-| `jwt_access_token_ttl`              | `900`     | Access token lifetime in seconds                          |
-| `jwt_refresh_token_ttl`             | `2592000` | Refresh token lifetime in seconds                         |
-| `jwt_refresh_token_ttl_remember_me` | `7776000` | Refresh token lifetime with "remember me"                 |
-| `jwt_enforce_https`                 | `false`   | Refuse auth calls over plain HTTP. Set `true` outside dev |
-| `password_reset_otp_ttl`            | `600`     | Password reset code lifetime in seconds                   |
-| `password_reset_otp_length`         | `6`       | Digits in the password reset code                         |
-| `password_reset_otp_max_attempts`   | `5`       | Wrong guesses before the code is burned                   |
-| `iam_base_url`                      | unset     | OpenG2P IAM base URL. Unset disables delegated login      |
-| `iam_application`                   | unset     | IAM client whose roles are granted. Required with IAM     |
-| `iam_auth_cookie_prefix`            | empty     | Prefix on IAM auth cookie names                           |
-| `iam_allow_insecure_http`           | `false`   | Allow an `http://` `iam_base_url`. Local testing only     |
+| Key                                 | Default   | Effect                                                |
+| ----------------------------------- | --------- | ----------------------------------------------------- |
+| `jwt_issuer`                        | site name | `iss` claim. Keep distinct per environment            |
+| `jwt_access_token_ttl`              | `900`     | Access token lifetime in seconds                      |
+| `jwt_refresh_token_ttl`             | `2592000` | Refresh token lifetime in seconds                     |
+| `jwt_refresh_token_ttl_remember_me` | `7776000` | Refresh token lifetime with "remember me"             |
+| `password_reset_otp_ttl`            | `600`     | Password reset code lifetime in seconds               |
+| `password_reset_otp_length`         | `6`       | Digits in the password reset code                     |
+| `password_reset_otp_max_attempts`   | `5`       | Wrong guesses before the code is burned               |
+| `iam_base_url`                      | unset     | OpenG2P IAM base URL. Unset disables delegated login  |
+| `iam_application`                   | unset     | IAM client whose roles are granted. Required with IAM |
+| `iam_auth_cookie_prefix`            | empty     | Prefix on IAM auth cookie names                       |
+| `iam_allow_insecure_http`           | `false`   | Allow an `http://` `iam_base_url`. Local testing only |
+
+The token lifetime, password reset and registration role settings can also be set on
+**OAN Auth Settings** in Desk. A filled field there wins; a blank field uses the key above.
 
 **Optional, `oan_grievance_service`**
 
-| Key                                 | Default | Effect                                                      |
-| ----------------------------------- | ------- | ----------------------------------------------------------- |
-| `grievance_clamav_host`             | unset   | ClamAV daemon host. **Unset disables scanning.**            |
-| `grievance_clamav_port`             | `3310`  | ClamAV daemon port                                          |
-| `grievance_auto_escalation_enabled` | `true`  | Set `false` to stop automatic escalation site-wide          |
-| `grievance_change_request_hours`    | `24`    | Hours before an unanswered change request moves one rung up |
+| Key                     | Default | Effect                                           |
+| ----------------------- | ------- | ------------------------------------------------ |
+| `grievance_clamav_host` | unset   | ClamAV daemon host. **Unset disables scanning.** |
+| `grievance_clamav_port` | `3310`  | ClamAV daemon port                               |
+
+Automatic escalation and the change-request wait are no longer site config keys. Set them on
+**Grievance Settings**. `migrate` carries over any value already in `site_config.json`.
 
 The maximum deferral is no longer a site config key. Set it on the **Grievance Deferral
 Policy** doctype. `grievance_max_deferral_days` is ignored.
@@ -619,7 +618,7 @@ before go-live.
 Docker Desktop is not running. Start it and wait for the engine.
 
 **`No jwt_private_keys in site_config.json`**
-The site has no RSA signing key, or still uses the retired `jwt_secrets`. Redo step 3.10.
+The site has no RSA signing key. Redo step 3.10.
 
 **`DuplicateEntryError` on `Grievance Service Category` during `migrate`**
 The app version predates the seeder fix that matches seeded categories by `code`.

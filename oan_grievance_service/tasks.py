@@ -10,6 +10,7 @@ from frappe.utils import now_datetime
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
 )
+from oan_grievance_service.grievance_management.doctype.grievance_settings import grievance_settings
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
@@ -89,7 +90,7 @@ def escalate_breached():
 	"""
 	# Site-wide stop, one read per run. Per-category is the `auto_escalate` tick on the
 	# SLA configuration, which works by leaving `next_escalation_at` unarmed.
-	if frappe.conf.get("grievance_auto_escalation_enabled") is False:
+	if not grievance_settings.auto_escalation_enabled():
 		return 0
 
 	due_now = frappe.get_all(
@@ -116,10 +117,6 @@ def escalate_breached():
 	return escalated
 
 
-# How long a change request waits on someone whose rung sets no hours of its own.
-DEFAULT_CHANGE_REQUEST_HOURS = 24
-
-
 def forward_stale_change_requests():
 	"""Hand every change request nobody has acted on one step up the hierarchy.
 
@@ -134,7 +131,7 @@ def forward_stale_change_requests():
 		fields=["name", "pending_with", "pending_since"],
 	)
 	hours_by_level = {rung.name: rung.escalation_hours for rung in GrievanceRoleLevel.get_chain()}
-	default_hours = frappe.conf.get("grievance_change_request_hours") or DEFAULT_CHANGE_REQUEST_HOURS
+	default_hours = grievance_settings.change_request_hours()
 
 	forwarded = 0
 	for row in pending:

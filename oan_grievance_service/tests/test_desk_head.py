@@ -9,12 +9,13 @@ The role is a gate and the RBAC records are the scope (docs/desk-scoping-and-aut
 import frappe
 
 from oan_grievance_service import permissions
-from oan_grievance_service.api.v1.officer import create_officer, update_officer
+from oan_grievance_service.api.v1.officer import update_officer
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	department_head_of,
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.tests import test_officer_roles as base
+from oan_grievance_service.tests.fixtures import create_officer_with_login as create_officer
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
 
 
@@ -65,7 +66,6 @@ class TestDeskHead(base.RoleCase):
 			)
 		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 		frappe.set_user("Administrator")
-		self.assertFalse(frappe.db.exists("User", f"{base.PREFIX}outside@example.com"))
 
 	def test_a_head_cannot_create_a_head_a_reviewer_or_a_department(self):
 		head = self._desk_head()
@@ -74,7 +74,6 @@ class TestDeskHead(base.RoleCase):
 				result = self._new_officer_as(head["name"], f"{base.PREFIX}nope@example.com", **extra)
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 		frappe.set_user("Administrator")
-		self.assertFalse(frappe.db.exists("User", f"{base.PREFIX}nope@example.com"))
 
 	def test_a_head_edits_only_officers_on_their_own_records(self):
 		head = self._desk_head(self.inputs)

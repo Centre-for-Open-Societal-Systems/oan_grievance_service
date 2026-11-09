@@ -5111,12 +5111,9 @@ paths:
         category must already have a category assignment for the department (or with no department). For
         an L3 a missing category assignment is created with the head on it, and with create_department
         (default false) the department is created too, refused when it already exists. reports_to is an
-        L2 officer and is only for an L1. The login is created when the email is new. An existing login
-        keeps its own roles and is given the officer or review role; a System Manager or Administrator
-        is never managed here. temporary_password is optional: when provided, the account holder signs
-        in with it only to replace it through /api/v1/auth/password/initial. When omitted, they log in
-        with Keycloak. It is applied to a new login only. An email that already has a login keeps its
-        own password and the message says so.'
+        L2 officer and is only for an L1. The email must already have a login; an unknown email is a 404.
+        The login keeps its own password and roles and is given the officer or review role; a System Manager
+        or Administrator is never managed here.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -6265,8 +6262,8 @@ paths:
       - Service Providers
       summary: Search service providers
       description: Active providers for the grievance form's dropdown. search matches the provider's name,
-        registration number and parent name. area keeps providers inside that area or above it, plus nationwide
-        providers. Names that start with the search text come first, then the most local area.
+        registration number. area keeps providers inside that area or above it, plus nationwide providers.
+        Names that start with the search text come first, then the most local area.
       operationId: get_api_v1_service_providers
       responses:
         '200':
@@ -6331,8 +6328,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Case-insensitive match on name, registration number or parent name. At least 2 characters
-          when set.
+        description: Case-insensitive match on name, registration number. At least 2 characters when set.
       - name: provider_type
         in: query
         required: false
@@ -10171,11 +10167,6 @@ components:
           type: string
         type:
           type: string
-        parent:
-          allOf:
-          - $ref: '#/components/schemas/ServiceProviderParent'
-          default: null
-          nullable: true
         area:
           allOf:
           - $ref: '#/components/schemas/ServiceProviderArea'
@@ -10206,16 +10197,6 @@ components:
       - name
       - type
       type: object
-    ServiceProviderParent:
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-      required:
-      - id
-      - name
-      type: object
     ServiceProviderListData:
       properties:
         items:
@@ -10238,11 +10219,6 @@ components:
           type: string
         type:
           type: string
-        parent:
-          allOf:
-          - $ref: '#/components/schemas/ServiceProviderParent'
-          default: null
-          nullable: true
         area:
           allOf:
           - $ref: '#/components/schemas/ServiceProviderArea'
@@ -11195,11 +11171,6 @@ components:
         email:
           minLength: 1
           type: string
-        temporary_password:
-          maxLength: 128
-          type: string
-          default: null
-          nullable: true
         role:
           default: Officer
           enum:
@@ -11868,12 +11839,19 @@ components:
           type: string
           default: null
           nullable: true
-        call_id:
+        external_ref_id:
           maxLength: 100
           type: string
           default: null
           description: The platform's id for the call; a retried delivery with the same id files nothing
             new
+          nullable: true
+        timestamp:
+          format: date-time
+          type: string
+          default: null
+          description: When the platform says the call happened (ISO 8601); a time in the future is read
+            as now
           nullable: true
         description:
           maxLength: 2000

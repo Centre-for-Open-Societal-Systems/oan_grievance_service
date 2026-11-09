@@ -509,7 +509,21 @@
                   "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
                   "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
                   "pm.collectionVariables.set(\"department\", \"E2E Dept \" + rand);",
-                  "pm.collectionVariables.set(\"dept_head_email\", \"e2e.depthead.\" + rand + \"@example.com\");"
+                  "var email = pm.collectionVariables.get(\"dept_head_email\") || pm.environment.get(\"dept_head_email\");",
+                  "if (!email) { throw new Error(\"Set dept_head_email to an existing Keycloak login (department head).\"); }",
+                  "pm.collectionVariables.set(\"dept_head_email\", email);",
+                  "// Officers are staffed from existing logins only. A login staffed by an earlier run is reused.",
+                  "pm.sendRequest({",
+                  "    url: pm.collectionVariables.get(\"base_url\") + \"/v1/officers/\" + encodeURIComponent(email),",
+                  "    method: \"GET\",",
+                  "    header: { Authorization: \"Bearer \" + pm.collectionVariables.get(\"admin_access_token\") }",
+                  "}, function (err, res) {",
+                  "    if (!err && res.code === 200) {",
+                  "        var officer = res.json().data.officer;",
+                  "        pm.collectionVariables.set(\"department\", officer.department);",
+                  "        pm.execution.skipRequest();",
+                  "    }",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -545,10 +559,10 @@
                 "officers"
               ]
             },
-            "description": "E2E: create an L3 department head with create_department=true, which creates the Grievance Department master the L1 officer and category assignment below need (admin only).",
+            "description": "E2E: staff an existing login (dept_head_email) as an L3 department head with create_department=true, which creates the Grievance Department the L1 officer and category assignment below need (admin only). Skipped when an earlier run already staffed them; their department is reused.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"E2E Category Admin\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\",\n  \"create_department\": true\n}"
+              "raw": "{\n  \"full_name\": \"E2E Category Admin\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"create_department\": true\n}"
             },
             "auth": {
               "type": "bearer",
@@ -571,8 +585,21 @@
               "script": {
                 "exec": [
                   "pm.collectionVariables.set(\"access_token\", pm.collectionVariables.get(\"admin_access_token\"));",
-                  "var rand = Date.now().toString().slice(-6) + Math.floor(100 + Math.random() * 900);",
-                  "pm.collectionVariables.set(\"officer_email\", \"e2e.officer.\" + rand + \"@example.com\");"
+                  "var email = pm.collectionVariables.get(\"officer_email\") || pm.environment.get(\"officer_email\");",
+                  "if (!email) { throw new Error(\"Set officer_email to an existing Keycloak login (L1 officer).\"); }",
+                  "pm.collectionVariables.set(\"officer_email\", email);",
+                  "// Officers are staffed from existing logins only. A login staffed by an earlier run is reused.",
+                  "pm.sendRequest({",
+                  "    url: pm.collectionVariables.get(\"base_url\") + \"/v1/officers/\" + encodeURIComponent(email),",
+                  "    method: \"GET\",",
+                  "    header: { Authorization: \"Bearer \" + pm.collectionVariables.get(\"admin_access_token\") }",
+                  "}, function (err, res) {",
+                  "    if (!err && res.code === 200) {",
+                  "        var officer = res.json().data.officer;",
+                  "        pm.collectionVariables.set(\"officer\", officer.name);",
+                  "        pm.execution.skipRequest();",
+                  "    }",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -612,64 +639,10 @@
                 "officers"
               ]
             },
-            "description": "E2E: create the L1 officer who resolves the grievance, in the department just created (admin only).",
+            "description": "E2E: staff an existing login (officer_email) as the L1 officer who resolves the grievance, in the department above (admin only). Skipped when an earlier run already staffed them.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"E2E Nodal Officer\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{officer_email}}\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ],\n  \"temporary_password\": \"{{officer_temp_password}}\"\n}"
-            },
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "type": "string"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "E5. Set Officer Initial Password",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    if (pm.response.code !== 200) { console.error(pm.response.text()); }",
-                  "    pm.response.to.have.status(200);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/v1/auth/password/initial",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "auth",
-                "password",
-                "initial"
-              ]
-            },
-            "description": "E2E: an admin-issued temporary password cannot log in directly (must_change_password); replace it before the officer can authenticate.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"current_password\": \"{{officer_temp_password}}\",\n  \"new_password\": \"{{officer_new_password}}\"\n}"
+              "raw": "{\n  \"full_name\": \"E2E Nodal Officer\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"{{department}}\",\n  \"email\": \"{{officer_email}}\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"{{taxonomy_category}}\"\n  ]\n}"
             },
             "auth": {
               "type": "bearer",
@@ -726,7 +699,7 @@
             "description": "E2E: log the new officer in and save their token separately from admin's/farmer's.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"pwd\": \"{{officer_new_password}}\"\n}"
+              "raw": "{\n  \"usr\": \"{{officer_email}}\",\n  \"pwd\": \"{{keycloak_officer_password}}\"\n}"
             },
             "auth": {
               "type": "bearer",
@@ -4485,10 +4458,10 @@
                 "officers"
               ]
             },
-            "description": "Create a Senior Nodal (L2) officer. The login is created when the email is new. temporary_password is required: the officer signs in with it only to replace it through POST /v1/auth/password/initial. An email that already has a login keeps its own password.",
+            "description": "Create a Senior Nodal (L2) officer. The email must already have a login (create it first with POST /v1/users).",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"full_name\": \"Yonas Mekonnen\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"MoA\",\n  \"email\": \"yonas.mekonnen@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
             }
           },
           "response": []
@@ -4526,10 +4499,10 @@
                 "officers"
               ]
             },
-            "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. temporary_password is required and is applied to a new login only.",
+            "description": "Create a Nodal (L1) officer. reports_to is an L2 officer id (their email) and is only valid for an L1. The email must already have a login.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"phone\": \"+251911123456\",\n  \"region\": \"Oromia\",\n  \"status\": \"Active\",\n  \"service_categories\": [\n    \"Inputs\",\n    \"Schemes\"\n  ],\n  \"reports_to\": \"{{officer}}\"\n}"
             }
           },
           "response": []
@@ -4873,7 +4846,7 @@
             "description": "Create a department head. level L3 places the head on the department's desks for the given categories as its final escalation rung. They approve the department's reassignments and are not assigned first-line cases. reports_to is not accepted.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Hana Tesfaye\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"MoA\",\n  \"email\": \"hana.tesfaye@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"full_name\": \"Hana Tesfaye\",\n  \"designation\": \"Category Admin\",\n  \"level\": \"L3\",\n  \"department\": \"MoA\",\n  \"email\": \"hana.tesfaye@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
             }
           },
           "response": []
@@ -4968,7 +4941,7 @@
             "description": "Place a Reviewer on a department's desks. department and service_categories are required; level and reports_to are refused. The login gets the Grievance Review Officer role and reads only those desks' cases. A Reviewer is never assigned a case and cannot change one.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"rahel.review@example.com\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"rahel.review@example.com\"\n}"
             }
           },
           "response": []
@@ -5012,7 +4985,7 @@
             "description": "A Reviewer has no level or supervisor. The response is 400 VALIDATION_ERROR and details names each field.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\",\n  \"temporary_password\": \"Welcome2026\",\n  \"level\": \"L1\",\n  \"reports_to\": \"yonas.mekonnen@example.com\"\n}"
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\",\n  \"level\": \"L1\",\n  \"reports_to\": \"yonas.mekonnen@example.com\"\n}"
             }
           },
           "response": []
@@ -5962,7 +5935,7 @@
             "description": "Create an officer. A Review Officer is refused with 403 PERMISSION_DENIED.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"full_name\": \"Tigist Alemu\",\n  \"designation\": \"Nodal Officer\",\n  \"level\": \"L1\",\n  \"department\": \"MoA\",\n  \"email\": \"tigist.alemu@example.com\",\n  \"service_categories\": [\n    \"Inputs\"\n  ]\n}"
             }
           },
           "response": []
@@ -6274,7 +6247,7 @@
             "description": "Place a Reviewer. A Review Officer is refused with 403 PERMISSION_DENIED.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\",\n  \"temporary_password\": \"Welcome2026\"\n}"
+              "raw": "{\n  \"role\": \"Reviewer\",\n  \"full_name\": \"Rahel Review\",\n  \"designation\": \"Oversight Reviewer\",\n  \"department\": \"MoA\",\n  \"service_categories\": [\n    \"Inputs\"\n  ],\n  \"email\": \"refused.reviewer@example.com\"\n}"
             }
           },
           "response": []
@@ -7429,7 +7402,7 @@
                 }
               ]
             },
-            "description": "Active providers for the grievance form's dropdown. search matches the provider's name, registration number and parent name. area keeps providers inside that area or above it, plus nationwide providers. Names that start with the search text come first, then the most local area."
+            "description": "Active providers for the grievance form's dropdown. search matches the provider's name, registration number. area keeps providers inside that area or above it, plus nationwide providers. Names that start with the search text come first, then the most local area."
           },
           "response": []
         },
@@ -8542,7 +8515,7 @@
             "description": "Files the call under the default category and type, on the IVR Helpline channel, for an\nIndividual Farmer profile made from the number (an existing one is reused). Fayda ID, area\nand every other detail are left empty.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"call_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
+              "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"external_ref_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
             }
           },
           "response": []

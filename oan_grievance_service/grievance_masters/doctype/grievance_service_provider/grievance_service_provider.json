@@ -7,7 +7,6 @@
  "field_order": [
   "provider_name",
   "provider_type",
-  "parent_provider",
   "administrative_area",
   "registered_region",
   "registration_number",
@@ -36,13 +35,6 @@
    "label": "Provider Type",
    "options": "Grievance Service Provider Type",
    "reqd": 1
-  },
-  {
-   "description": "The head office or parent body when this provider is a branch.",
-   "fieldname": "parent_provider",
-   "fieldtype": "Link",
-   "label": "Parent Provider",
-   "options": "Grievance Service Provider"
   },
   {
    "description": "Where the provider operates. Empty means nationwide.",

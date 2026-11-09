@@ -175,7 +175,6 @@ The directory behind the Service Provider dropdown on the Submit Grievance form:
 | `id`                  | varchar | PK                             | `SP-00042`. Never changes, even when the name does                                         |
 | `provider_name`       | text    | IX                             | Display name                                                                               |
 | `provider_type`       | varchar | FK → `service_provider_types`  | Kind of provider (Bank, Cooperative, Market, …); the types are a seeded table, not an enum |
-| `parent_provider`     | varchar | FK → `service_providers.id`    | Head office of a branch; no self-parent, no loops                                          |
 | `administrative_area` | varchar | FK → `administrative_areas.id` | Null = nationwide                                                                          |
 | `registered_region`   | text    |                                | Region text as the source gave it; kept even when it matches no area                       |
 | `registration_number` | text    | IX                             | Searchable                                                                                 |

@@ -82,7 +82,6 @@ def create(
 	*,
 	full_name: str,
 	email: str,
-	temporary_password: str | None = None,
 	role: str = DEFAULT_ROLE,
 	designation: str | None = None,
 	level: str | None = None,
@@ -94,25 +93,17 @@ def create(
 	reports_to: str | None = None,
 	create_department: bool = False,
 	desk_names: list[str] | None = None,
-) -> tuple[str, bool | None]:
+) -> str:
 	"""Make `email` an officer, or a reviewer, on the category desks of `department`.
 
-	Returns the user id and whether `temporary_password` was applied (True), kept from an
-	existing login (False), or omitted (None).
+	Returns the user id.
 
 	A department head is how a department is staffed first: with `create_department` the
 	department is created for them, and any of their categories without a desk there gets one.
 
-	An existing login with no desk rows is promoted, so an admin can staff someone who
-	already has an account. A login that is already an officer or reviewer is rejected, and so
-	is a System Manager or Administrator, who are never managed here.
-
-	`temporary_password` is optional. When provided, a new account can use it just long enough
-	to replace it (`oan_auth_service`'s /api/v1/auth/password/initial). When omitted, no temporary
-	password is set and the user logs in with Keycloak. It is applied to a new login only. An
-	existing login keeps the password its owner already knows, because replacing it with one
-	the admin typed would let the admin take the account over. The caller tells the admin
-	when that happened.
+	Only an existing login can be staffed: an email with no User is refused. The login keeps
+	its own password. A login that is already an officer or reviewer is rejected, and so is a
+	System Manager or Administrator, who are never managed here.
 	"""
 	_assert_status(role, status)
 	existing = role_of(email)
@@ -121,9 +112,12 @@ def create(
 			_("{0} is already an officer.") if existing == DEFAULT_ROLE else _("{0} is already a reviewer.")
 		)
 		frappe.throw(message.format(email), frappe.ValidationError)
-	has_login = bool(frappe.db.exists("User", email))
-	if has_login:
-		account.assert_manageable(email)
+	if not frappe.db.exists("User", email):
+		frappe.throw(
+			_("{0} has no login. Create the user first, then add them here.").format(email),
+			frappe.DoesNotExistError,
+		)
+	account.assert_manageable(email)
 	placement = _placement(role, level, status)
 	placement["designation"] = designation
 	placement["administrative_area"] = _resolve_region(region)
@@ -140,24 +134,16 @@ def create(
 		if is_head and role == DEFAULT_ROLE:
 			_assert_head_free(department, desks)
 
-	user = account.new_or_existing_user(email)
+	user = frappe.get_doc("User", email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
 		category_assignment.open_desk(category, department, {"user": user.name, **placement})
-	if not has_login and temporary_password:
-		account.issue_temporary_password(user.name, temporary_password)
 	if role == REVIEWER_ROLE and status == "Inactive":
 		account.set_enabled(user.name, False)
 	_sync_desk_head_role(user.name)
-	if has_login:
-		password_status = False
-	elif temporary_password:
-		password_status = True
-	else:
-		password_status = None
-	return user.name, password_status
+	return user.name
 
 
 def reset_temporary_password(user_id: str, password: str) -> str:
