@@ -316,23 +316,6 @@ class DismissDuplicateRequest(BaseModel):
 
 STAFF_ROLES = C.STAFF_ROLES
 
-# Columns the server derives on submission. Accepting any of these from the caller
-# would let a client forge case ownership -- permissions.py scopes read and write
-# access on `submitter` and `assisted_by_officer` -- or rewrite the filing-time
-# area snapshot that Grievance.set_administrative_area_metadata is meant to own.
-CLIENT_IMMUTABLE_FIELDS = frozenset(
-	{
-		"submitter",
-		"submitter_name",
-		"contact_mobile",
-		"contact_email",
-		"assisted_by_officer",
-		"area_lft",
-		"area_path_code",
-		"status",
-	}
-)
-
 
 def _resolve_submitter_identity(kwargs):
 	"""Decide who a grievance belongs to, server-side, and snapshot their profile.
