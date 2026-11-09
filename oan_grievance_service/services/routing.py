@@ -12,8 +12,8 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
+from oan_grievance_service.services import audit, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import sla
 
 UNBOUNDED = 999999999
 DESK = "Grievance RBAC Assignment"
@@ -447,6 +447,7 @@ def apply_routing(grievance, commit_status=True):
 		"assigned_to": officer_user,
 	}
 	if hasattr(grievance, "db_set"):
+		audit.record_version(grievance, updates)
 		grievance.db_set(updates, update_modified=False)
 
 	if commit_status:

@@ -14,8 +14,8 @@ from oan_grievance_service.grievance_management.doctype.grievance_settings impor
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
+from oan_grievance_service.services import audit, lifecycle, notifications, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import lifecycle, notifications, sla
 
 
 def open_grievances_with_sla(extra_filters=None):
@@ -196,6 +196,7 @@ def expire_state_timers():
 				reason = f"Closed - no activity while {state}"
 				body = f"Grievance auto-closed: no activity while {state}."
 
+			audit.record_version(grievance, {"closure_reason": reason})
 			grievance.db_set("closure_reason", reason, update_modified=False)
 			lifecycle.transition(
 				grievance,
