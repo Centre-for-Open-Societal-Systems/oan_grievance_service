@@ -17,6 +17,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
+from oan_grievance_service.setup.service_users import ensure_ivr_service_user
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
@@ -556,10 +557,12 @@ NOTIFICATION_EVENTS = [
 
 def after_install():
 	seed_all()
+	ensure_ivr_service_user()
 
 
 def after_migrate():
 	seed_all()
+	ensure_ivr_service_user()
 
 
 def seed_all():
