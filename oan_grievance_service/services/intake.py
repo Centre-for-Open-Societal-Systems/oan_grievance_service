@@ -5,9 +5,11 @@
 `file_from_ivr` is the IVR webhook's whole filing: the caller's profile, the case and what follows.
 """
 
+from datetime import UTC, datetime
+
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import convert_utc_to_system_timezone, now_datetime
 
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 	build_dedupe_key,
@@ -21,7 +23,7 @@ from oan_grievance_service.services import duplicates, identity, notifications, 
 PROFILE = "Grievance Submitter Profile"
 
 
-def record_submission(doc):
+def record_submission(doc, created_on=None):
 	"""The timeline entry that opens a filed case, written by whoever filed it."""
 	submitter_user = frappe.db.get_value(PROFILE, doc.submitter, "user") if doc.submitter else None
 	return GrievanceTimeline.record(
@@ -35,6 +37,7 @@ def record_submission(doc):
 		author_type="submitter",
 		ref_doctype="Grievance",
 		ref_docname=doc.name,
+		created_on=created_on,
 	)
 
 
@@ -50,7 +53,8 @@ def dispatch_filed(doc, flag_duplicates=True):
 def file_from_ivr(
 	phone_number: str,
 	country_code: str | None = None,
-	call_id: str | None = None,
+	external_ref_id: str | None = None,
+	timestamp: datetime | None = None,
 	description: str | None = None,
 	uploads: list[dict] | None = None,
 	consent_given: bool = True,
@@ -63,9 +67,10 @@ def file_from_ivr(
 	The category and type are the default ones; the message is a fixed note unless the
 	IVR platform sends one. Consent is recorded as given unless the platform says otherwise.
 
-	`call_id` makes a retried webhook file once: a second delivery returns the case the
+	`external_ref_id` makes a retried webhook file once: a second delivery returns the case the
 	first one made. `uploads` are the call's files, already checked by `prepare_uploads`, and
-	are stored on the opening timeline entry. Returns `(grievance, submission, attachments)`:
+	are stored on the opening timeline entry, which is dated `timestamp` (the call time the
+	platform reports, never later than now) when it sends one. Returns `(grievance, submission, attachments)`:
 	the timeline entry this call wrote and the files stored, or None and [] for a replayed delivery.
 	"""
 	from oan_auth_service.api.utils import assemble_phone_number
@@ -82,9 +87,9 @@ def file_from_ivr(
 	mobile = identity.validate_mobile(assemble_phone_number(phone_number, country_code=country_code))
 
 	# Namespaced so a call id can never collide with another channel's submission uuid.
-	submission_uuid = f"ivr:{call_id}" if call_id else frappe.generate_hash(length=32)
+	submission_uuid = f"ivr:{external_ref_id}" if external_ref_id else frappe.generate_hash(length=32)
 
-	if call_id:
+	if external_ref_id:
 		existing = frappe.db.get_value("Grievance", {"client_submission_uuid": submission_uuid}, "name")
 		if existing:
 			return frappe.get_doc("Grievance", existing), None, []
@@ -148,7 +153,12 @@ def file_from_ivr(
 			if not profile:
 				raise
 		doc.db_set("submitter", profile.name, update_modified=False)
-	submission = record_submission(doc)
+	call_time = None
+	if timestamp:
+		if timestamp.tzinfo:
+			timestamp = convert_utc_to_system_timezone(timestamp.astimezone(UTC)).replace(tzinfo=None)
+		call_time = min(timestamp, now_datetime())
+	submission = record_submission(doc, created_on=call_time)
 	attachments = store_uploads(doc, uploads, timeline_entry=submission.name) if uploads else []
 	# Every call without a description carries the same note, so look-alike scoring would
 	# flag each repeat call from one number.

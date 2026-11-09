@@ -11839,12 +11839,19 @@ components:
           type: string
           default: null
           nullable: true
-        call_id:
+        external_ref_id:
           maxLength: 100
           type: string
           default: null
           description: The platform's id for the call; a retried delivery with the same id files nothing
             new
+          nullable: true
+        timestamp:
+          format: date-time
+          type: string
+          default: null
+          description: When the platform says the call happened (ISO 8601); a time in the future is read
+            as now
           nullable: true
         description:
           maxLength: 2000

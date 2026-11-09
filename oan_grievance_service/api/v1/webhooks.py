@@ -5,6 +5,8 @@ gateway key, and APISIX calls here with the Frappe API key and secret of a user 
 Grievance Submitter (`Authorization: token <api_key>:<api_secret>`). See apisix/README.md.
 """
 
+from datetime import datetime
+
 from frappe import _
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import handle_api_errors, require_role, success_response, validate_request
@@ -34,10 +36,14 @@ class IvrGrievanceRequest(BaseModel):
 		description="The caller's number: international (+251911223344) or, with a country_code, national",
 	)
 	country_code: str | None = Field(None, max_length=6)
-	call_id: str | None = Field(
+	external_ref_id: str | None = Field(
 		None,
 		max_length=100,
 		description="The platform's id for the call; a retried delivery with the same id files nothing new",
+	)
+	timestamp: datetime | None = Field(
+		None,
+		description="When the platform says the call happened (ISO 8601); a time in the future is read as now",
 	)
 	description: Text | None = Field(
 		None,
@@ -72,7 +78,8 @@ def ivr_grievance(**kwargs):
 	doc, submission, attachments = intake.file_from_ivr(
 		kwargs["phone_number"],
 		country_code=kwargs.get("country_code"),
-		call_id=kwargs.get("call_id"),
+		external_ref_id=kwargs.get("external_ref_id"),
+		timestamp=kwargs.get("timestamp"),
 		description=kwargs.get("description"),
 		uploads=uploads,
 		consent_given=kwargs.get("consent_given", True),

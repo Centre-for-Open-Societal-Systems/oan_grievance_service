@@ -31,12 +31,12 @@
       "value": "+251"
     },
     {
-      "key": "ivr_call_id",
+      "key": "ivr_external_ref_id",
       "value": "postman-call-001",
       "description": "Change it to file a new case; reuse it to test a replay"
     },
     {
-      "key": "ivr_audio_call_id",
+      "key": "ivr_audio_external_ref_id",
       "value": "postman-call-audio-001"
     },
     {
@@ -97,7 +97,7 @@
             "description": "Files the call under the default category and type, channel IVR Helpline, for an Individual Farmer profile made from the number (an existing one is reused). `description` is optional; without it the case gets a fixed note and skips duplicate flagging.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"{{ivr_call_id}}\",\n  \"description\": \"My maize crop was damaged and the input dealer has not replaced the seed.\"\n}",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"external_ref_id\": \"{{ivr_external_ref_id}}\",\n  \"timestamp\": \"2026-11-09T09:30:00+03:00\",\n  \"description\": \"My maize crop was damaged and the input dealer has not replaced the seed.\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -149,10 +149,10 @@
                 "grievances"
               ]
             },
-            "description": "The vendor retried the webhook. The same `call_id` returns the first call's ticket with `created: false` and stores nothing again.",
+            "description": "The vendor retried the webhook. The same `external_ref_id` returns the first call's ticket with `created: false` and stores nothing again.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"{{ivr_call_id}}\"\n}",
+              "raw": "{\n  \"phone_number\": \"{{ivr_phone_number}}\",\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"external_ref_id\": \"{{ivr_external_ref_id}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -275,8 +275,8 @@
                   "type": "text"
                 },
                 {
-                  "key": "call_id",
-                  "value": "{{ivr_audio_call_id}}",
+                  "key": "external_ref_id",
+                  "value": "{{ivr_audio_external_ref_id}}",
                   "type": "text"
                 },
                 {
@@ -433,7 +433,7 @@
             "description": "`phone_number` is the only required field.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"call_id\": \"postman-missing-phone\"\n}",
+              "raw": "{\n  \"country_code\": \"{{ivr_country_code}}\",\n  \"external_ref_id\": \"postman-missing-phone\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

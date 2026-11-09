@@ -8515,7 +8515,7 @@
             "description": "Files the call under the default category and type, on the IVR Helpline channel, for an\nIndividual Farmer profile made from the number (an existing one is reused). Fayda ID, area\nand every other detail are left empty.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"call_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
+              "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"external_ref_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
             }
           },
           "response": []

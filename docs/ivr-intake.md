@@ -5,7 +5,7 @@ a race, and the code orders and guards them so neither loses the farmer's call.
 
 ## Order of work
 
-1. Replay check on `client_submission_uuid` (`ivr:{call_id}`).
+1. Replay check on `client_submission_uuid` (`ivr:{external_ref_id}`).
 2. Read-only profile lookup. A blocked or inactive profile refuses the call here.
 3. Grievance insert. A first-time caller's grievance carries `submitter` empty.
 4. Profile create for a first-time caller, then `submitter` is set with `db_set`.
@@ -41,7 +41,7 @@ commit together, so a committed IVR grievance always has its profile.
 
 ## Not the same race
 
-A second delivery of the same call (same `call_id`) is the `client_submission_uuid` unique key at
+A second delivery of the same call (same `external_ref_id`) is the `client_submission_uuid` unique key at
 the grievance insert. It rolls back the request and returns the first delivery's grievance.
 Duplicate flagging (`services/duplicates`) is a separate background job after commit and is
 unrelated to either race.
