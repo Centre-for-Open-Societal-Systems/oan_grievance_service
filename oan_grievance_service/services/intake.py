@@ -115,13 +115,27 @@ def file_from_ivr(
 			"service_category": category,
 			"grievance_type": get_fallback_type(category),
 			"description": (description or "").strip() or C.IVR_DEFAULT_DESCRIPTION,
-			"submitter": profile.name,
-			"submitter_type": profile.submitter_type,
-			"submitter_name": profile.submitter_name,
-			"contact_mobile": profile.contact_mobile,
-			"contact_email": profile.contact_email,
 		}
 	)
+	if profile:
+		doc.update(
+			{
+				"submitter": profile.name,
+				"submitter_type": profile.submitter_type,
+				"submitter_name": profile.submitter_name,
+				"contact_mobile": profile.contact_mobile,
+				"contact_email": profile.contact_email,
+			}
+		)
+	else:
+		# A first call: the profile is made after the grievance, so take the fields from the number.
+		doc.update(
+			{
+				"submitter_type": "Individual Farmer",
+				"submitter_name": C.IVR_CALLER_NAME,
+				"contact_mobile": mobile,
+			}
+		)
 	try:
 		doc.insert(ignore_permissions=True)
 	except frappe.UniqueValidationError:
