@@ -6908,6 +6908,99 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/BlockSubmitterRequest'
+  /v1/submitters/search:
+    get:
+      tags:
+      - Submitter Management
+      summary: Look a farmer up in the registry by Fayda ID
+      description: Registry ID and name of the farmer with this Fayda ID.
+      operationId: get_api_v1_submitters_search
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmerSearchResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /v1/submitters/search/details:
+    get:
+      tags:
+      - Submitter Management
+      summary: Phone, email and location of a farmer found by search, to pre-fill a submitter
+      description: Contact details of the farmer with this registry ID (the `registry_id` that search
+        returns).
+      operationId: get_api_v1_submitters_search_details
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmerDetailsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
   /v1/service-categories:
     get:
       tags:
@@ -7999,6 +8092,68 @@ components:
       - is_blocked
       - active
       description: Outcome of submitter block or unblock operation
+    FarmerSearchData:
+      type: object
+      properties:
+        farmer:
+          type: object
+          properties:
+            registry_id:
+              type: string
+              description: Farmer Registry internal record ID
+            fayda_id:
+              type: string
+              description: 16-digit Fayda ID searched for
+            submitter_name:
+              type: string
+              nullable: true
+              description: Farmer name in the registry
+          required:
+          - registry_id
+          - fayda_id
+          description: Farmer found in the registry
+      required:
+      - farmer
+      description: Farmer registry search result
+    FarmerDetailsData:
+      type: object
+      properties:
+        farmer:
+          type: object
+          properties:
+            registry_id:
+              type: string
+              description: Farmer Registry internal record ID
+            contact_mobile:
+              type: string
+              nullable: true
+              description: Primary phone number
+            contact_email:
+              type: string
+              nullable: true
+              description: Email address
+            region:
+              type: string
+              nullable: true
+              description: Region name
+            zone:
+              type: string
+              nullable: true
+              description: Zone name
+            woreda:
+              type: string
+              nullable: true
+              description: Woreda name
+            kebele:
+              type: string
+              nullable: true
+              description: Kebele name
+          required:
+          - registry_id
+          description: Registry contact details to pre-fill a submitter profile
+      required:
+      - farmer
+      description: Farmer registry contact details
     AdministrativeAreaItem:
       type: object
       properties:
@@ -11771,6 +11926,56 @@ components:
       - status
       - data
       description: Submitter block/unblock response
+    FarmerSearchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/FarmerSearchData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Farmer registry search response
+    FarmerDetailsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/FarmerDetailsData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Farmer registry details response
     AdministrativeAreasListResponse:
       type: object
       properties:
