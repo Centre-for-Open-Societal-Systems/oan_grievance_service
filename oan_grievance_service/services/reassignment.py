@@ -21,8 +21,8 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	query_active_officer_assignments,
 )
 from oan_grievance_service.permissions import is_department_head, is_unrestricted
+from oan_grievance_service.services import audit, notifications
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import notifications
 from oan_grievance_service.services.routing import (
 	department_desks,
 	find_matching_assignment,
@@ -406,6 +406,7 @@ def on_applied(grievance, request):
 
 	new_desk = find_matching_assignment(grievance)
 	if new_desk:
+		audit.record_version(grievance, {"routing_rule": new_desk.get("name")})
 		grievance.db_set("routing_rule", new_desk.get("name"), update_modified=False)
 
 	officer_row = next((r for r in changes if getattr(r, "fieldname", None) == "assigned_to"), None)

@@ -40,6 +40,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
 	auto_escalation_threshold,
 )
+from oan_grievance_service.services import audit
 from oan_grievance_service.services import constants as C
 
 CLOCK_START_ASSIGNMENT = "assignment"
@@ -606,12 +607,9 @@ def escalate(grievance, reason=None, reassign=True):
 		category=grievance.service_category,
 	)
 	if not target:
-		updates = {
-			"escalated": 1,
-			"next_escalation_at": None,
-			**_first_escalation(grievance),
-		}
-		grievance.db_set(updates, update_modified=False)
+		changes = {"escalated": 1, **_first_escalation(grievance)}
+		audit.record_version(grievance, changes)
+		grievance.db_set({**changes, "next_escalation_at": None}, update_modified=False)
 		grievance.escalated = 1
 		grievance.next_escalation_at = None
 
@@ -634,14 +632,11 @@ def escalate(grievance, reason=None, reassign=True):
 	# terminal rung and the ladder stops here.
 	hours = level.escalation_hours or 0
 	next_at = add_to_date(now_datetime(), hours=hours) if hours else None
-	updates = {
-		"escalated": 1,
-		"next_escalation_at": next_at,
-		**_first_escalation(grievance),
-	}
+	changes = {"escalated": 1, **_first_escalation(grievance)}
 	if reassign:
-		updates["assigned_to"] = target
-	grievance.db_set(updates, update_modified=False)
+		changes["assigned_to"] = target
+	audit.record_version(grievance, changes)
+	grievance.db_set({**changes, "next_escalation_at": next_at}, update_modified=False)
 	grievance.escalated = 1
 	grievance.next_escalation_at = next_at
 	if reassign:
