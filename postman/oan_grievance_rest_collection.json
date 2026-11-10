@@ -2382,6 +2382,85 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Look a farmer up in the registry by Fayda ID, to pre-fill a submitter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/submitters/search",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "submitters",
+                "search"
+              ]
+            },
+            "description": "Registry details (name, phone, email, location) of the farmer with this Fayda ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Phone, email and location of a farmer found by search, to pre-fill a submitter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/submitters/search/details",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "submitters",
+                "search",
+                "details"
+              ]
+            },
+            "description": "Contact details of the farmer with this registry ID (the `registry_id` that search returns)."
+          },
+          "response": []
         }
       ]
     },

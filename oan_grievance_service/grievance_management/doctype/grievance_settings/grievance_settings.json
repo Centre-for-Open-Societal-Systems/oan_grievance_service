@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 0,
- "creation": "2026-11-02 12:00:00.000000",
+ "creation": "2026-11-10 12:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -10,7 +10,7 @@
  "issingle": 1,
  "track_changes": 1,
  "links": [],
- "modified": "2026-11-02 12:00:00.000000",
+ "modified": "2026-11-10 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Settings",
@@ -77,7 +77,10 @@
   "duplicate_weight_category",
   "duplicate_weight_type",
   "duplicate_threshold",
-  "duplicate_high_threshold"
+  "duplicate_high_threshold",
+  "sec_farmer_registry",
+  "farmer_registry_url",
+  "farmer_register_id"
  ],
  "fields": [
   {
@@ -151,6 +154,24 @@
    "fieldtype": "Float",
    "label": "High Match Threshold",
    "precision": "2"
+  },
+  {
+   "fieldname": "sec_farmer_registry",
+   "fieldtype": "Section Break",
+   "label": "Farmer Registry"
+  },
+  {
+   "description": "Base URL of the Farmer Registry Staff API. Leave blank to turn off the farmer search on the intake form.",
+   "fieldname": "farmer_registry_url",
+   "fieldtype": "Data",
+   "label": "Staff API URL",
+   "options": "URL"
+  },
+  {
+   "description": "The register the farmer search reads, sent as register_id and subject_register_id.",
+   "fieldname": "farmer_register_id",
+   "fieldtype": "Data",
+   "label": "Farmer Register ID"
   }
  ]
 }

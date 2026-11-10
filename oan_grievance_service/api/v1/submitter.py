@@ -30,8 +30,10 @@ from oan_grievance_service.grievance_management.doctype.grievance_submitter_prof
 	split_dedupe_key,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services.constants import STAFF_ROLES
+from oan_grievance_service.services.constants import ASSISTED_FILER_ROLES, STAFF_ROLES
+from oan_grievance_service.services.farmer_registry import farmer_contact_details, find_farmer
 from oan_grievance_service.services.identity import (
+	FAYDA_PATTERN,
 	SCHEME_FAYDA,
 	SCHEME_ORG,
 	SCHEME_USER,
@@ -489,4 +491,44 @@ def block_submitter(profile_id: str, reason: str, **kwargs):
 			"active": bool(profile.active),
 		},
 		message=_("Submitter profile blocked successfully."),
+	)
+
+
+@route(
+	"/search",
+	methods=("GET",),
+	summary="Look a farmer up in the registry by Fayda ID",
+	tier="officer-core",
+)
+@handle_api_errors
+@require_role(ASSISTED_FILER_ROLES)
+def search_farmer(fayda_id: str = "", **kwargs):
+	"""Registry ID and name of the farmer with this Fayda ID."""
+	fayda_id = fayda_id.strip()
+	if not FAYDA_PATTERN.match(fayda_id):
+		frappe.throw(_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id), frappe.ValidationError)
+
+	return success_response(
+		data={"farmer": find_farmer(fayda_id)},
+		message=_("Farmer found successfully."),
+	)
+
+
+@route(
+	"/search/details",
+	methods=("GET",),
+	summary="Phone, email and location of a farmer found by search, to pre-fill a submitter",
+	tier="officer-core",
+)
+@handle_api_errors
+@require_role(ASSISTED_FILER_ROLES)
+def farmer_details(registry_id: str = "", **kwargs):
+	"""Contact details of the farmer with this registry ID (the `registry_id` that search returns)."""
+	registry_id = registry_id.strip()
+	if not registry_id:
+		frappe.throw(_("Registry ID is required."), frappe.ValidationError)
+
+	return success_response(
+		data={"farmer": farmer_contact_details(registry_id)},
+		message=_("Farmer details retrieved successfully."),
 	)

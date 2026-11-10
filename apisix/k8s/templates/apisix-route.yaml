@@ -1109,6 +1109,8 @@ spec:
       - /v1/service-providers/:provider_id
       - /v1/sla-configurations
       - /v1/sla-policy
+      - /v1/submitters/search
+      - /v1/submitters/search/details
       methods:
       - GET
     plugins:
