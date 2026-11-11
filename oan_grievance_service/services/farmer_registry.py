@@ -5,6 +5,7 @@ not this service, so its role checks decide what the agent may read. Configure t
 registry in Grievance Settings.
 """
 
+import logging
 import uuid
 
 import frappe
@@ -12,6 +13,7 @@ import requests
 from frappe import _
 from frappe.utils import now_datetime
 from oan_auth_service.api import iam_tokens
+from oan_auth_service.api import operational_log as oplog
 
 SEARCH_PATH = "/register-data/search_in_a_register"
 RECORD_PATH = "/register-data/get_subject_record"
@@ -84,9 +86,15 @@ def _registry() -> tuple[str, str]:
 	return base_url, settings.farmer_register_id
 
 
-def _log():
-	# A file log, not `frappe.log_error`: its Error Log row is rolled back when the request then raises.
-	return frappe.logger("farmer_registry", allow_site=True, file_count=3)
+def _failed(url: str, **fields) -> None:
+	"""One `farmer_registry.error` line: which call failed and how, never what it carried.
+
+	The request payload and the response body are farmer records (names, phone numbers, national
+	IDs), and a scrubber cannot find a name in JSON, so neither is logged: only the status, the
+	registry's own error reason, the *names* of the payload fields, and the size of the reply.
+	A log line, not `frappe.log_error`: that row is rolled back when the request then raises.
+	"""
+	oplog.emit("farmer_registry.error", logging.ERROR, url=url, **fields)
 
 
 def _digits(value) -> str:
@@ -141,12 +149,15 @@ def _post(session: requests.Session, url: str, payload: dict, pagination: dict |
 	try:
 		response = session.post(url, json=envelope, timeout=TIMEOUT_SECONDS)
 	except requests.RequestException as e:
-		_log().error("POST %s unreachable: %s", url, e)
+		_failed(url, reason="unreachable", exception=type(e).__name__, detail=str(e))
 		frappe.throw(_("The farmer registry is unavailable."), frappe.ValidationError)
 
 	if response.status_code != 200:
-		_log().error(
-			"POST %s -> %s payload=%s body=%s", url, response.status_code, payload, response.text[:4000]
+		_failed(
+			url,
+			status=response.status_code,
+			payload_keys=sorted(payload),
+			response_bytes=len(response.content),
 		)
 	if response.status_code in (401, 403):
 		frappe.throw(_("The registry did not accept this sign-in."), frappe.PermissionError)
@@ -157,7 +168,15 @@ def _post(session: requests.Session, url: str, payload: dict, pagination: dict |
 	header = body.get("response_header") or {}
 	if str(header.get("response_status", "")).upper() == "ERROR":
 		message = header.get("response_error_message") or ""
-		_log().error("POST %s -> ERROR payload=%s body=%s", url, payload, response.text[:4000])
+		_failed(
+			url,
+			status=response.status_code,
+			registry_status="ERROR",
+			# Registry-authored text, scrubbed by `emit` for emails, phone numbers, IDs and credentials.
+			reason=message,
+			payload_keys=sorted(payload),
+			response_bytes=len(response.content),
+		)
 		frappe.throw(_(message or "Farmer lookup failed."))
 	return (body.get("response_body") or {}).get("response_payload")
 

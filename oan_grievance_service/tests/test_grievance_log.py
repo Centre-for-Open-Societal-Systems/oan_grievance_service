@@ -109,6 +109,7 @@ class TestSlaAndEscalationEvents(LogCase):
 		with (
 			CapturedLog() as captured,
 			mock.patch.object(sla, "higher_authority_of", return_value=("boss@example.com", rung)),
+			mock.patch.object(sla.audit, "record_version"),
 			mock.patch.object(sla.GrievanceTimeline, "record"),
 			mock.patch("oan_grievance_service.services.notifications.queue"),
 		):
@@ -135,6 +136,7 @@ class TestSlaAndEscalationEvents(LogCase):
 		with (
 			CapturedLog() as captured,
 			mock.patch.object(sla, "higher_authority_of", return_value=(None, None)),
+			mock.patch.object(sla.audit, "record_version"),
 			mock.patch.object(sla.GrievanceTimeline, "record"),
 			mock.patch("oan_grievance_service.services.notifications.queue"),
 		):
@@ -215,7 +217,7 @@ class TestSlaAndEscalationEvents(LogCase):
 			mock.patch.object(frappe, "get_doc", return_value=_case()),
 			mock.patch.object(sla, "escalate", side_effect=RuntimeError(f"no desk for {EMAIL}")),
 			mock.patch.object(frappe, "log_error"),
-			mock.patch.dict(frappe.local.conf, {"grievance_auto_escalation_enabled": True}),
+			mock.patch.object(tasks.grievance_settings, "auto_escalation_enabled", return_value=True),
 		):
 			tasks.escalate_breached()
 
@@ -232,7 +234,7 @@ class TestSlaAndEscalationEvents(LogCase):
 		with (
 			CapturedLog() as captured,
 			mock.patch.object(frappe, "get_all", return_value=[]),
-			mock.patch.dict(frappe.local.conf, {"grievance_auto_escalation_enabled": True}),
+			mock.patch.object(tasks.grievance_settings, "auto_escalation_enabled", return_value=True),
 		):
 			result = tasks.escalate_breached()
 
