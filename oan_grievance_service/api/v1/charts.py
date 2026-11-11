@@ -32,6 +32,7 @@ from typing import Annotated, Literal
 import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
+from oan_auth_service.api import operational_log as oplog
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	check_rate_limit,
@@ -265,7 +266,7 @@ def get_charts(charts: str | None = None, **kwargs):
 			if result.get("unavailable"):
 				unavailable[chart_id] = result["unavailable"]
 		except Exception:
-			frappe.log_error(title=f"Dashboard chart {chart_id} failed")
+			oplog.log_error(title=f"Dashboard chart {chart_id} failed")
 			data[chart_id] = None
 			errors[chart_id] = _("This chart could not be built")
 

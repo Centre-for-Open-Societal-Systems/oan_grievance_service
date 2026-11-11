@@ -9,6 +9,7 @@ import time
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 ACTION_VIEW_DETAIL = "view_detail"
 ACTION_VIEW_LIST = "view_list"
@@ -57,7 +58,7 @@ def record_access(action, grievance=None, scope=None, decision="Allowed", durabl
 		if durable:
 			frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title="Access audit write failed",
 			message=f"action={action}; durable={durable}\n{frappe.get_traceback()}",
 		)

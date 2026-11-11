@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import frappe
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	get_area_bounds,
@@ -470,7 +471,7 @@ def enqueue_routing(grievance_name: str) -> None:
 			enqueue_after_commit=True,
 		)
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to enqueue routing for grievance: {grievance_name}",
 			message=frappe.get_traceback(),
 		)
@@ -503,7 +504,7 @@ def drain_routing_queue(limit: int = 50) -> int:
 			if apply_routing(doc):
 				routed_count += 1
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Scheduled queue routing failed for {name}",
 				message=frappe.get_traceback(),
 			)

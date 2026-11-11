@@ -22,10 +22,12 @@ until they replace it through `POST /api/v1/auth/password/initial`. The mechanis
 oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
+import logging
 from typing import Literal
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -492,8 +494,14 @@ def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
 
 	service.reset_temporary_password(officer, temporary_password)
 	found = service.record(officer)
-	frappe.logger("oan_grievance_service").info(
-		f"temporary password reissued by={frappe.session.user} for={officer} role={found['role']}"
+	# A privileged action, so WARNING: a site that hides INFO chatter still keeps it. The officer
+	# is an email address, so the event carries it masked. The password itself is never passed.
+	oplog.emit(
+		"security.temporary_password_reissued",
+		logging.WARNING,
+		user=frappe.session.user,
+		target_user=officer,
+		target_role=found["role"],
 	)
 	return success_response(
 		data={"officer": found},
