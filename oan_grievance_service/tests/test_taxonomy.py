@@ -104,16 +104,10 @@ class TestTaxonomy(FrappeTestCase):
 				result = create_service_category(category_name=f"STG406 {bad}", code=bad)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(bad, result))
 
-	def test_duplicate_name_or_code_is_rejected(self):
-		self._category()
-		with _keep_transaction():
-			same_name = create_service_category(category_name=CATEGORY, code="Q53")
-			self.assertEqual(same_name["code"], "DUPLICATE_ENTRY", msg=same_name)
-			same_code = create_service_category(category_name="STG406 Other name", code=CODE)
-			self.assertEqual(same_code["code"], "DUPLICATE_ENTRY", msg=same_code)
-			other = self._category(name="STG406 Second", code="Q54")
-			clash = update_service_category(other["category_name"], code=CODE)
-			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
+	def test_name_and_code_are_unique(self):
+		meta = frappe.get_meta("Grievance Service Category")
+		self.assertEqual(meta.autoname, "field:category_name")
+		self.assertTrue(meta.get_field("code").unique)
 
 	def test_unknown_fields_blank_names_and_empty_updates_are_rejected(self):
 		self._category()

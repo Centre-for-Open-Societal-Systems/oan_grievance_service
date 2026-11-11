@@ -446,6 +446,48 @@ data(
 	),
 )
 
+data(
+	"FarmerSearchData",
+	OBJ(
+		{
+			"farmer": OBJ(
+				{
+					"registry_id": S(description="Farmer Registry internal record ID"),
+					"fayda_id": S(description="16-digit Fayda ID searched for"),
+					"submitter_name": S(nullable=True, description="Farmer name in the registry"),
+				},
+				required=["registry_id", "fayda_id"],
+				description="Farmer found in the registry",
+			),
+		},
+		required=["farmer"],
+		description="Farmer registry search result",
+	),
+)
+
+data(
+	"FarmerDetailsData",
+	OBJ(
+		{
+			"farmer": OBJ(
+				{
+					"registry_id": S(description="Farmer Registry internal record ID"),
+					"contact_mobile": S(nullable=True, description="Primary phone number"),
+					"contact_email": S(nullable=True, description="Email address"),
+					"region": S(nullable=True, description="Region name"),
+					"zone": S(nullable=True, description="Zone name"),
+					"woreda": S(nullable=True, description="Woreda name"),
+					"kebele": S(nullable=True, description="Kebele name"),
+				},
+				required=["registry_id"],
+				description="Registry contact details to pre-fill a submitter profile",
+			),
+		},
+		required=["farmer"],
+		description="Farmer registry contact details",
+	),
+)
+
 # Administrative Areas
 data(
 	"AdministrativeAreaItem",
@@ -1292,6 +1334,10 @@ ENVELOPES = {
 	"SubmitterBlockResponse": make_envelope(
 		"SubmitterBlockResultData", description="Submitter block/unblock response"
 	),
+	"FarmerSearchResponse": make_envelope("FarmerSearchData", description="Farmer registry search response"),
+	"FarmerDetailsResponse": make_envelope(
+		"FarmerDetailsData", description="Farmer registry details response"
+	),
 	"AdministrativeAreasListResponse": make_envelope(
 		"AdministrativeAreasListData", description="Administrative areas list response"
 	),
@@ -1697,6 +1743,8 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"register_submitter": "SubmitterRegisterResponse",
 		"block_submitter": "SubmitterBlockResponse",
 		"unblock_submitter": "SubmitterBlockResponse",
+		"search_farmer": "FarmerSearchResponse",
+		"farmer_details": "FarmerDetailsResponse",
 		"get_charts": "DashboardChartsResponse",
 		"list_assignments": "CategoryAssignmentListResponse",
 		"get_assignment": "CategoryAssignmentResponse",

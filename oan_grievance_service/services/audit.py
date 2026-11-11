@@ -105,6 +105,25 @@ def log_denied(action, grievance=None, scope=None, durable=False):
 	record_access(action, grievance=grievance, scope=scope, decision="Denied", durable=durable)
 
 
+def record_version(doc, updates):
+	"""Write the Version row that `save()` would have, for changes about to go through `db_set`.
+
+	`db_set` skips the change log, so call this before it: `db_set` updates `doc` in memory,
+	and the old values are read from there.
+	"""
+	changed = [[field, doc.get(field), value] for field, value in updates.items() if doc.get(field) != value]
+	if not changed:
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Version",
+			"ref_doctype": doc.doctype,
+			"docname": doc.name,
+			"data": frappe.as_json({"changed": changed}),
+		}
+	).insert(ignore_permissions=True)
+
+
 class ImmutableRecord:
 	"""Mixin for append-only doctypes: a row may be created, never changed or removed.
 

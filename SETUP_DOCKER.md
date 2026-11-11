@@ -236,8 +236,7 @@ bench --site "$SITE" set-config allow_tests false --parse
 
 ### 7.2 JWT Signing Key (required)
 
-`oan_auth_service` signs access tokens with RS256. It refuses every login until `jwt_private_keys` names a readable, unencrypted RSA key of at least 2048 bits. The retired `jwt_secrets` key is no longer read.
-
+`oan_auth_service` signs access tokens with RS256. It refuses every login until `jwt_private_keys` names a readable, unencrypted RSA key of at least 2048 bits.
 Create the key inside the site folder, so it lives on the persistent `sites` volume:
 
 ```bash
@@ -278,7 +277,6 @@ bench --site "$SITE" set-config jwt_access_token_ttl 900 --parse
 bench --site "$SITE" set-config jwt_refresh_token_ttl 604800 --parse
 bench --site "$SITE" set-config jwt_refresh_token_ttl_remember_me 7776000 --parse
 bench --site "$SITE" set-config jwt_issuer "oan-grievance-prod"
-bench --site "$SITE" set-config jwt_enforce_https true --parse
 ```
 
 Give each environment its own `jwt_issuer`, so a staging token fails closed against production.
@@ -288,22 +286,12 @@ Give each environment its own `jwt_issuer`, so a staging token fails closed agai
 ```bash
 bench --site "$SITE" set-config grievance_clamav_host clamav
 bench --site "$SITE" set-config grievance_clamav_port 3310 --parse
-bench --site "$SITE" set-config grievance_change_request_hours 24 --parse
-bench --site "$SITE" set-config grievance_auto_escalation_enabled true --parse
 bench set-config -g workers '{"grievance_routing": {"timeout": 300}, "grievance_sla": {"timeout": 1800}, "grievance_scan": {"timeout": 300}, "grievance_notifications": {"timeout": 600}}' --parse
 ```
 
 The last line declares the grievance queues bench-wide. Without it `frappe.enqueue` rejects every routing, SLA, scan and notification job. Restart the stack after setting it so the workers pick it up.
 
-To have a new server fill its service provider directory by itself, also give it the A2C connection (a dedicated A2C service account) **before** `bench migrate` or site install runs:
-
-```bash
-bench --site "$SITE" set-config grievance_a2c_banks_url https://a2c.example.org/api
-bench --site "$SITE" set-config grievance_a2c_banks_username grievance-sync@example.org
-bench --site "$SITE" set-config grievance_a2c_banks_password '<password>'
-```
-
-The same three names in upper case (`GRIEVANCE_A2C_BANKS_URL`, `GRIEVANCE_A2C_BANKS_USERNAME`, `GRIEVANCE_A2C_BANKS_PASSWORD`) work as environment variables, and the site config wins when both are set. The migrate then enables the `A2C Banks` source and queues its first sync on the `long` queue, which upstream's `queue-long` service listens on (keep it running). See [`docs/service-provider-directory.md` section 6.1](docs/service-provider-directory.md).
+A new server's service provider directory stays empty until the `A2C Banks` source is completed once in Desk, with a dedicated A2C service account. Enabling it queues its first sync on the `long` queue, which upstream's `queue-long` service listens on (keep it running). See [`docs/service-provider-directory.md` section 6.1](docs/service-provider-directory.md).
 
 The maximum deferral is set on the **Grievance Deferral Policy** doctype in Desk, not in site config. `grievance_max_deferral_days` and `grievance_sla_clock_start` are no longer read.
 

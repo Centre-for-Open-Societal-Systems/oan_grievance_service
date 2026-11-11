@@ -108,7 +108,7 @@ Whenever you add, modify, or deprecate an API endpoint:
    # Or verify parity in CI mode:
    python postman/sync_postman_from_spec.py --check
    ```
-   Maintain scenario-specific endpoint examples and automated tests in `postman/oan_grievance_rest_collection.json`.
+   New requests are scaffolded into `postman/oan_grievance_rest_collection.json`; the sync counts an endpoint as covered if any `postman/*_collection.json` has it. Keep scenario-specific flows (IVR, farmer eSignet, Development Agent, dashboard charts) in their own collection.
 
 ---
 

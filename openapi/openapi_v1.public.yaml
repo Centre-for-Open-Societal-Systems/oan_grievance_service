@@ -4990,12 +4990,9 @@ paths:
         category must already have a category assignment for the department (or with no department). For
         an L3 a missing category assignment is created with the head on it, and with create_department
         (default false) the department is created too, refused when it already exists. reports_to is an
-        L2 officer and is only for an L1. The login is created when the email is new. An existing login
-        keeps its own roles and is given the officer or review role; a System Manager or Administrator
-        is never managed here. temporary_password is optional: when provided, the account holder signs
-        in with it only to replace it through /api/v1/auth/password/initial. When omitted, they log in
-        with Keycloak. It is applied to a new login only. An email that already has a login keeps its
-        own password and the message says so.'
+        L2 officer and is only for an L1. The email must already have a login; an unknown email is a 404.
+        The login keeps its own password and roles and is given the officer or review role; a System Manager
+        or Administrator is never managed here.'
       operationId: post_api_v1_officers
       responses:
         '200':
@@ -6110,8 +6107,8 @@ paths:
       - Service Providers
       summary: Search service providers
       description: Active providers for the grievance form's dropdown. search matches the provider's name,
-        registration number and parent name. area keeps providers inside that area or above it, plus nationwide
-        providers. Names that start with the search text come first, then the most local area.
+        registration number. area keeps providers inside that area or above it, plus nationwide providers.
+        Names that start with the search text come first, then the most local area.
       operationId: get_api_v1_service_providers
       responses:
         '200':
@@ -6176,8 +6173,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Case-insensitive match on name, registration number or parent name. At least 2 characters
-          when set.
+        description: Case-insensitive match on name, registration number. At least 2 characters when set.
       - name: provider_type
         in: query
         required: false
@@ -6912,6 +6908,99 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/BlockSubmitterRequest'
+  /v1/submitters/search:
+    get:
+      tags:
+      - Submitter Management
+      summary: Look a farmer up in the registry by Fayda ID
+      description: Registry ID and name of the farmer with this Fayda ID.
+      operationId: get_api_v1_submitters_search
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmerSearchResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /v1/submitters/search/details:
+    get:
+      tags:
+      - Submitter Management
+      summary: Phone, email and location of a farmer found by search, to pre-fill a submitter
+      description: Contact details of the farmer with this registry ID (the `registry_id` that search
+        returns).
+      operationId: get_api_v1_submitters_search_details
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmerDetailsResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
   /v1/service-categories:
     get:
       tags:
@@ -8003,6 +8092,68 @@ components:
       - is_blocked
       - active
       description: Outcome of submitter block or unblock operation
+    FarmerSearchData:
+      type: object
+      properties:
+        farmer:
+          type: object
+          properties:
+            registry_id:
+              type: string
+              description: Farmer Registry internal record ID
+            fayda_id:
+              type: string
+              description: 16-digit Fayda ID searched for
+            submitter_name:
+              type: string
+              nullable: true
+              description: Farmer name in the registry
+          required:
+          - registry_id
+          - fayda_id
+          description: Farmer found in the registry
+      required:
+      - farmer
+      description: Farmer registry search result
+    FarmerDetailsData:
+      type: object
+      properties:
+        farmer:
+          type: object
+          properties:
+            registry_id:
+              type: string
+              description: Farmer Registry internal record ID
+            contact_mobile:
+              type: string
+              nullable: true
+              description: Primary phone number
+            contact_email:
+              type: string
+              nullable: true
+              description: Email address
+            region:
+              type: string
+              nullable: true
+              description: Region name
+            zone:
+              type: string
+              nullable: true
+              description: Zone name
+            woreda:
+              type: string
+              nullable: true
+              description: Woreda name
+            kebele:
+              type: string
+              nullable: true
+              description: Kebele name
+          required:
+          - registry_id
+          description: Registry contact details to pre-fill a submitter profile
+      required:
+      - farmer
+      description: Farmer registry contact details
     AdministrativeAreaItem:
       type: object
       properties:
@@ -9968,11 +10119,6 @@ components:
           type: string
         type:
           type: string
-        parent:
-          allOf:
-          - $ref: '#/components/schemas/ServiceProviderParent'
-          default: null
-          nullable: true
         area:
           allOf:
           - $ref: '#/components/schemas/ServiceProviderArea'
@@ -10003,16 +10149,6 @@ components:
       - name
       - type
       type: object
-    ServiceProviderParent:
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-      required:
-      - id
-      - name
-      type: object
     ServiceProviderListData:
       properties:
         items:
@@ -10035,11 +10171,6 @@ components:
           type: string
         type:
           type: string
-        parent:
-          allOf:
-          - $ref: '#/components/schemas/ServiceProviderParent'
-          default: null
-          nullable: true
         area:
           allOf:
           - $ref: '#/components/schemas/ServiceProviderArea'
@@ -10405,26 +10536,10 @@ components:
           default: null
           description: Fayda National ID. Required for Individual Farmer.
           nullable: true
-        national_id:
-          anyOf:
-          - type: string
-          - type: integer
-          default: null
-          description: Alias of fayda_id.
-          nullable: true
         registration_number:
           type: string
           default: null
           description: Organization registration number.
-          nullable: true
-        org_number:
-          type: string
-          default: null
-          description: Alias of registration_number.
-          nullable: true
-        farmer_id:
-          type: string
-          default: null
           nullable: true
         dedupe_key:
           type: string
@@ -10435,19 +10550,9 @@ components:
           type: string
           default: null
           nullable: true
-        region:
-          type: string
-          default: null
-          description: Alias of administrative_area.
-          nullable: true
         administrative_unit:
           type: string
           default: null
-          nullable: true
-        woreda:
-          type: string
-          default: null
-          description: Alias of administrative_unit.
           nullable: true
         preferred_language:
           type: string
@@ -10459,18 +10564,6 @@ components:
           - type: integer
           default: null
           description: Fallback for phone_number.
-          nullable: true
-        phone:
-          anyOf:
-          - type: string
-          - type: integer
-          default: null
-          description: Fallback for phone_number.
-          nullable: true
-        phone_country_code:
-          type: string
-          default: null
-          description: Alias of country_code.
           nullable: true
         contact_email:
           type: string
@@ -11002,11 +11095,6 @@ components:
         email:
           minLength: 1
           type: string
-        temporary_password:
-          maxLength: 128
-          type: string
-          default: null
-          nullable: true
         role:
           default: Officer
           enum:
@@ -11489,11 +11577,6 @@ components:
           default: null
           description: National phone number
           nullable: true
-        phone:
-          type: string
-          default: null
-          description: Phone number alias
-          nullable: true
         contact_email:
           type: string
           default: null
@@ -11519,25 +11602,10 @@ components:
           default: null
           description: Fayda National ID (16 digits)
           nullable: true
-        national_id:
-          type: string
-          default: null
-          description: National ID alias
-          nullable: true
         registration_number:
           type: string
           default: null
           description: Official organization registration/certificate number
-          nullable: true
-        org_number:
-          type: string
-          default: null
-          description: Organization number alias
-          nullable: true
-        farmer_id:
-          type: string
-          default: null
-          description: Farmer ID alias
           nullable: true
         dedupe_key:
           type: string
@@ -11675,12 +11743,19 @@ components:
           type: string
           default: null
           nullable: true
-        call_id:
+        external_ref_id:
           maxLength: 100
           type: string
           default: null
           description: The platform's id for the call; a retried delivery with the same id files nothing
             new
+          nullable: true
+        timestamp:
+          format: date-time
+          type: string
+          default: null
+          description: When the platform says the call happened (ISO 8601); a time in the future is read
+            as now
           nullable: true
         description:
           maxLength: 2000
@@ -11851,6 +11926,56 @@ components:
       - status
       - data
       description: Submitter block/unblock response
+    FarmerSearchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/FarmerSearchData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Farmer registry search response
+    FarmerDetailsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/FarmerDetailsData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Farmer registry details response
     AdministrativeAreasListResponse:
       type: object
       properties:

@@ -142,19 +142,12 @@ class RegistrationExtras(BaseModel):
 	fayda_id: str | int | None = Field(
 		default=None, description="Fayda National ID. Required for Individual Farmer."
 	)
-	national_id: str | int | None = Field(default=None, description="Alias of fayda_id.")
 	registration_number: str | None = Field(default=None, description="Organization registration number.")
-	org_number: str | None = Field(default=None, description="Alias of registration_number.")
-	farmer_id: str | None = None
 	dedupe_key: str | None = Field(default=None, description="Ignored for Individual Farmer.")
 	administrative_area: str | None = None
-	region: str | None = Field(default=None, description="Alias of administrative_area.")
 	administrative_unit: str | None = None
-	woreda: str | None = Field(default=None, description="Alias of administrative_unit.")
 	preferred_language: str | None = None
 	contact_mobile: str | int | None = Field(default=None, description="Fallback for phone_number.")
-	phone: str | int | None = Field(default=None, description="Fallback for phone_number.")
-	phone_country_code: str | None = Field(default=None, description="Alias of country_code.")
 	contact_email: str | None = Field(default=None, description="Fallback for email.")
 
 
@@ -189,10 +182,8 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	mobile_no = user_doc.mobile_no if hasattr(user_doc, "mobile_no") else user_doc.get("mobile_no")
 
 	# Assemble phone number if provided split
-	incoming_phone = (
-		mobile_no or kwargs.get("contact_mobile") or kwargs.get("phone_number") or kwargs.get("phone")
-	)
-	country_code = kwargs.get("country_code") or kwargs.get("phone_country_code")
+	incoming_phone = mobile_no or kwargs.get("contact_mobile") or kwargs.get("phone_number")
+	country_code = kwargs.get("country_code")
 	if incoming_phone:
 		from oan_auth_service.api.utils import assemble_phone_number
 
@@ -230,7 +221,6 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	# and let the format check report a bad Fayda ID instead of failing on .strip().
 	submitter_type = str(kwargs.get("submitter_type") or "Individual Farmer").strip()
 	fayda_id = str(kwargs.get("fayda_id") or "").strip() or None
-	national_id = str(kwargs.get("national_id") or "").strip() or None
 	dedupe_key = kwargs.get("dedupe_key")
 
 	registration_number = kwargs.get("registration_number")
@@ -240,7 +230,7 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		submitter_type in ORG_TYPES and not registration_number
 	)
 	if needs_fayda:
-		if not (fayda_id or national_id):
+		if not fayda_id:
 			frappe.throw(
 				_("A Fayda ID is required to register as {0}.").format(submitter_type),
 				frappe.ValidationError,
@@ -257,14 +247,11 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		submitter_name=full_name or kwargs.get("submitter_name"),
 		contact_mobile=contact_mobile,
 		contact_email=email,
-		administrative_area=kwargs.get("administrative_area") or kwargs.get("region"),
-		administrative_unit=kwargs.get("administrative_unit") or kwargs.get("woreda"),
+		administrative_area=kwargs.get("administrative_area"),
+		administrative_unit=kwargs.get("administrative_unit"),
 		preferred_language=kwargs.get("preferred_language"),
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=kwargs.get("org_number"),
-		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,
 		# Set here and not as a field default: a profile created anywhere else (an IVR or
 		# webhook intake, a desk entry) must not be filed under Web Portal by accident.

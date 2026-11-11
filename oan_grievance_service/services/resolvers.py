@@ -49,11 +49,11 @@ def resolve_grievance_type(type_identifier: str | None, category: str | None = N
 
 def resolve_service_category(value: str) -> str:
 	"""Canonical Grievance Service Category name by id, category_name, or code. Throws when none match."""
-	if frappe.db.exists("Grievance Service Category", value):
-		return value
-	name = frappe.db.get_value(
-		"Grievance Service Category", {"category_name": value}, "name"
-	) or frappe.db.get_value("Grievance Service Category", {"code": value}, "name")
+	name = (
+		frappe.db.get_value("Grievance Service Category", value, "name")
+		or frappe.db.get_value("Grievance Service Category", {"category_name": value}, "name")
+		or frappe.db.get_value("Grievance Service Category", {"code": value}, "name")
+	)
 	if not name:
 		frappe.throw(_("Service category '{0}' does not exist.").format(value), frappe.ValidationError)
 	return name

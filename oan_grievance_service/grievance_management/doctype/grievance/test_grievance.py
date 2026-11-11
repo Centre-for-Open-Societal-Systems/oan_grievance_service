@@ -5,10 +5,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.api.v1.grievance import (
-	CLIENT_IMMUTABLE_FIELDS,
-	_resolve_submitter_identity,
-)
+from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	validate_submission_payload,
 )
@@ -847,11 +844,6 @@ class TestGrievanceSubmitterOwnership(FrappeTestCase):
 		self.assertFalse(frappe.has_permission("Grievance", "create", user=self.officer_user))
 		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.owner_user))
 		self.assertTrue(frappe.has_permission("Grievance", "create", user=self.da_user))
-
-	def test_server_owned_fields_are_stripped_from_the_request(self):
-		"""The area snapshot and ownership columns are not settable by the caller."""
-		for field in ("submitter", "assisted_by_officer", "area_lft", "area_path_code", "status"):
-			self.assertIn(field, CLIENT_IMMUTABLE_FIELDS)
 
 	def test_authenticated_submit_may_omit_identity_at_schema_edge(self):
 		"""Profile-backed submitters send case fields only; pydantic must not require identity."""

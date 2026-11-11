@@ -159,10 +159,7 @@ def derive_dedupe_key(
 	submitter_type: str,
 	mobile: str | None = None,
 	fayda_id: str | None = None,
-	national_id: str | None = None,
 	registration_number: str | None = None,
-	org_number: str | None = None,
-	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 ) -> str | None:
 	"""Automatically derive the canonical scheme-prefixed dedupe key from user inputs.
@@ -198,8 +195,8 @@ def derive_dedupe_key(
 		default_scheme = allowed_schemes[0] if allowed_schemes else SCHEME_PHONE
 		return f"{default_scheme}:{raw_key}"
 
-	fayda = (fayda_id or national_id or "").strip()
-	org = (registration_number or org_number or "").strip()
+	fayda = (fayda_id or "").strip()
+	org = (registration_number or "").strip()
 	phone = (mobile or "").strip()
 
 	# 1. If type accepts SCHEME_ORG:
