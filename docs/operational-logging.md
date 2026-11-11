@@ -34,8 +34,10 @@ existing failure paths are `error` events with the title they always had, and al
 (`oplog.log_error`, in place of `frappe.log_error`).
 
 A sweep (`send_sla_reminders`, `escalate_breached`, `forward_stale_change_requests`,
-`expire_state_timers`) is wrapped with `@logged_job("name")`. It gets its own correlation id,
-`job-<name>-<12 hex>`, so every line the sweep writes, including errors, can be pulled with one filter.
+`expire_state_timers`) is wrapped with `@logged_job("name")`. It gets a correlation id from the shared
+helper (a plain UUID, or Frappe's monitor trace id for the job when `monitor: 1` is set), so every line
+the sweep writes, including errors, can be pulled with one filter; the `job` field on `job.started` says
+which sweep it was.
 
 ## Adding a line
 

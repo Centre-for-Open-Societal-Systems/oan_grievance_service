@@ -11,84 +11,70 @@ and the framing of a scheduled job.
 
 import logging
 import time
-import uuid
-from contextlib import contextmanager
 from functools import wraps
 
 import frappe
-from oan_auth_service.api.operational_log import correlation_id, emit
-
-
-def _iso(value) -> str | None:
-	if not value:
-		return None
-	return value.isoformat() if hasattr(value, "isoformat") else str(value)
+from oan_auth_service.api.operational_log import emit, ensure_correlation_id
 
 
 def grievance_fields(grievance) -> dict:
-	"""The identifying, non-personal facts about a case. Works for a doc or a query row.
+	"""The identifying, non-personal facts about a case: a document or a query row.
 
-	Called from lifecycle and sweep code, so it never raises: a case that cannot be read (a stub,
-	a half-built document) costs its fields, never the work around the log line.
+	`.get` with no default returns None for a field the row does not carry, so this cannot fail
+	on either; it is called from lifecycle and sweep code, ahead of `emit`.
 	"""
-	try:
-		get = grievance.get if hasattr(grievance, "get") else lambda k, d=None: getattr(grievance, k, d)
-		return {
-			"grievance": get("name"),
-			"ticket_number": get("ticket_number"),
-			"category": get("service_category"),
-			"department": get("assigned_dept"),
-			"status": get("status"),
-			"assigned_to": get("assigned_to"),
-			"sla_due_at": _iso(get("sla_due_date")),
-		}
-	except Exception:
-		return {}
-
-
-@contextmanager
-def job(name: str, **fields):
-	"""Frame a scheduled job or background task as `job.started` and `job.finished`.
-
-	Gives the work its own correlation id (a request has one already), so every line the
-	sweep writes, including errors, can be pulled with one filter. `finished` carries the
-	duration and whatever the job put in the dict this yields, such as how many cases moved.
-	"""
-	outer = correlation_id()
-	if not outer:
-		frappe.local.request_id = f"job-{name}-{uuid.uuid4().hex[:12]}"
-	result: dict = {}
-	started = time.perf_counter()
-	emit("job.started", job=name, **fields)
-	try:
-		yield result
-	except Exception as exc:
-		emit(
-			"job.failed",
-			logging.ERROR,
-			job=name,
-			exception=type(exc).__name__,
-			duration_ms=round((time.perf_counter() - started) * 1000),
-		)
-		raise
-	else:
-		emit("job.finished", job=name, duration_ms=round((time.perf_counter() - started) * 1000), **result)
-	finally:
-		if not outer:
-			frappe.local.request_id = None
+	due = grievance.get("sla_due_date")
+	return {
+		"grievance": grievance.get("name"),
+		"ticket_number": grievance.get("ticket_number"),
+		"category": grievance.get("service_category"),
+		"department": grievance.get("assigned_dept"),
+		"status": grievance.get("status"),
+		"assigned_to": grievance.get("assigned_to"),
+		"sla_due_at": due.isoformat() if hasattr(due, "isoformat") else due,
+	}
 
 
 def logged_job(name: str):
-	"""Decorator form of `job`. An integer return value is logged as `processed`."""
+	"""Frame a scheduled job as `job.started` and `job.finished` (or `job.failed`).
+
+	The job gets a correlation id (a request has one already), so every line the sweep writes,
+	including errors, can be pulled with one filter; it is the shared helper's, which is Frappe's
+	monitor trace id for the job when the monitor is on. `job.finished` carries the duration, and
+	the return value as `processed` when it is a count, such as how many cases moved.
+	"""
 
 	def decorator(fn):
 		@wraps(fn)
 		def wrapper(*args, **kwargs):
-			with job(name) as result:
+			outer = getattr(frappe.local, "request_id", None)
+			ensure_correlation_id()
+			started = time.perf_counter()
+			emit("job.started", job=name)
+			try:
 				value = fn(*args, **kwargs)
-				if isinstance(value, int) and not isinstance(value, bool):
-					result["processed"] = value
+			except Exception as exc:
+				duration_ms = round((time.perf_counter() - started) * 1000)
+				emit(
+					"job.failed",
+					logging.ERROR,
+					job=name,
+					exception=type(exc).__name__,
+					duration_ms=duration_ms,
+				)
+				raise
+			else:
+				processed = value if isinstance(value, int) and not isinstance(value, bool) else None
+				emit(
+					"job.finished",
+					job=name,
+					duration_ms=round((time.perf_counter() - started) * 1000),
+					processed=processed,
+				)
 				return value
+			finally:
+				if not outer:
+					frappe.local.request_id = None
 
 		return wrapper
 

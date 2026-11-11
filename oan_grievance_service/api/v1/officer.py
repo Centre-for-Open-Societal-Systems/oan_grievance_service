@@ -509,10 +509,8 @@ def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
 
 	service.reset_temporary_password(officer, temporary_password)
 	found = service.record(officer)
-	# A privileged action, so WARNING (the default of a security event): a site that raises
-	# `grievance_log_level` to hide INFO chatter still keeps it. The officer is an email
-	# address, so the event carries it masked, with a `_ref` added for matching it to other
-	# events. The password itself is never passed.
+	# A privileged action, so WARNING: a site that hides INFO chatter still keeps it. The officer
+	# is an email address, so the event carries it masked. The password itself is never passed.
 	oplog.emit(
 		"security.temporary_password_reissued",
 		logging.WARNING,

@@ -221,7 +221,10 @@ class TestSlaAndEscalationEvents(LogCase):
 
 		(failure,) = captured.named("error")
 		self.assertEqual(failure["title"], "Grievance escalation failed")
-		self.assertTrue(failure["correlation_id"].startswith("job-sla_escalation-"))
+		# The sweep's own id: the one on its `job.started` line, and a plain UUID.
+		(started,) = captured.named("job.started")
+		self.assertEqual(failure["correlation_id"], started["correlation_id"])
+		self.assertTrue(uuid.UUID(failure["correlation_id"]))
 		self.assertEqual(failure["exception"], "RuntimeError")
 		self.assertNoLeak(captured.text)
 
@@ -254,17 +257,54 @@ class TestSlaAndEscalationEvents(LogCase):
 		self.assertEqual(captured.named("job.failed")[0]["exception"], "RuntimeError")
 		self.assertIsNone(frappe.local.request_id)
 
-	def test_an_unreadable_case_costs_the_fields_not_the_work(self):
-		class Broken:
-			def get(self, *_):
-				raise RuntimeError("half-built document")
-
-		self.assertEqual(glog.grievance_fields(Broken()), {})
-		# and a line built from it is still written, with what it has
+	def test_a_row_missing_fields_gives_none_for_them_not_an_error(self):
+		fields = glog.grievance_fields(frappe._dict(name="GRV-1"))
+		self.assertEqual(fields["grievance"], "GRV-1")
+		self.assertIsNone(fields["ticket_number"])
+		self.assertIsNone(fields["sla_due_at"])
+		# and a line built from it keeps the identifier, dropping only what is empty
 		with CapturedLog() as captured:
-			oplog.emit("sla.clock_started", **glog.grievance_fields(Broken()), sla_days=5)
+			oplog.emit("sla.clock_started", **fields, sla_days=5)
 		(line,) = captured.events
-		self.assertEqual(line["sla_days"], 5)
+		self.assertEqual((line["grievance"], line["sla_days"]), ("GRV-1", 5))
+		self.assertNotIn("ticket_number", line)
+
+	def test_the_due_date_is_an_iso_timestamp_whatever_the_row_holds(self):
+		due = frappe.utils.now_datetime()
+		self.assertEqual(glog.grievance_fields(_case(sla_due_date=due))["sla_due_at"], due.isoformat())
+		self.assertEqual(
+			glog.grievance_fields(_case(sla_due_date="2026-11-06 10:00:00"))["sla_due_at"],
+			"2026-11-06 10:00:00",
+		)
+
+	def test_a_sweep_takes_frappes_trace_id_when_the_monitor_is_on(self):
+		"""One id for the sweep's lines, the monitor log and Sentry."""
+		trace = "0af7651916cd43dd8448eb211c80319c"
+
+		@glog.logged_job("sweep")
+		def sweep():
+			return 3
+
+		with (
+			CapturedLog() as captured,
+			mock.patch("oan_auth_service.api.operational_log.get_trace_id", return_value=trace),
+		):
+			sweep()
+		self.assertEqual({e["correlation_id"] for e in captured.events}, {trace})
+		self.assertEqual(captured.named("job.finished")[0]["processed"], 3)
+		self.assertIsNone(frappe.local.request_id)
+
+	def test_a_sweep_inside_a_request_keeps_the_requests_id(self):
+		frappe.local.request_id = "trace-abc-12345"
+
+		@glog.logged_job("sweep")
+		def sweep():
+			return 1
+
+		with CapturedLog() as captured:
+			sweep()
+		self.assertEqual({e["correlation_id"] for e in captured.events}, {"trace-abc-12345"})
+		self.assertEqual(frappe.local.request_id, "trace-abc-12345")
 
 	def test_a_case_row_and_a_document_give_the_same_fields(self):
 		row = frappe._dict(name="GRV-1", ticket_number="3001002A0", service_category="C", status="Open")
