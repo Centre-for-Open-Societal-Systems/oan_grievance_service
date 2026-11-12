@@ -3,7 +3,7 @@
 Run by the Jenkins stages "Package chart" and "Publish chart" of every develop build:
 
     package_chart.py version   prints the chart version, which is also the image tag of the build:
-                               <__version__ of oan_grievance_service>-develop.<BUILD_NUMBER>, e.g. 0.0.0-develop.57 (develop only)
+                               0.0.0-develop.<BUILD_NUMBER>, e.g. 0.0.0-develop.57 (develop only)
     package_chart.py package   writes built-chart/oan-grievance-service-<version>.tgz
     package_chart.py publish   adds that archive to repository/develop/ of oan-helm
 
@@ -59,21 +59,11 @@ def load_generic(work):
 	return generic
 
 
-def app_version():
-	match = re.search(
-		r'(?m)^__version__ = "(\d+\.\d+\.\d+)"$',
-		(ROOT / "oan_grievance_service" / "__init__.py").read_text(encoding="utf-8"),
-	)
-	if not match:
-		raise ValueError('no __version__ = "N.N.N" in oan_grievance_service/__init__.py')
-	return match.group(1)
-
-
 def chart_version(env):
-	"""<__version__>-develop.<BUILD_NUMBER>, a version publish_chart.py puts in repository/develop/."""
+	"""0.0.0-develop.<BUILD_NUMBER>, the only develop version publish_chart.py puts in repository/develop/."""
 	if env["BRANCH_NAME"] != "develop":
 		raise ValueError("only develop packages the chart, not %s" % env["BRANCH_NAME"])
-	return "%s-develop.%s" % (app_version(), env["BUILD_NUMBER"])
+	return "0.0.0-develop.%s" % env["BUILD_NUMBER"]
 
 
 def version_build(env, work):
