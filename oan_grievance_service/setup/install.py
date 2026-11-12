@@ -166,16 +166,12 @@ REVIEWER_ROLE_LEVEL = (
 	"Read-only oversight of a department. Not a step of the escalation chain.",
 )
 
-# Service categories. The code is the 3-character CATEGORY segment of the ticket number
-# (services.ticket_number). Three characters allow 32,768 categories, so a
-# service can later be split into much finer groups without the codes running
-# out. Assigned sequentially; a retired code is never reused.
+# The service category the app owns: the catch-all that routing falls back to, and the one the unrouted desk
+# is scoped to. Every other category comes from the seed data (openg2p-data), not from the app. The code is the
+# 3-character CATEGORY segment of the ticket number (services.ticket_number). Three characters allow 32,768
+# categories, so a service can later be split into much finer groups without the codes running out. A retired
+# code is never reused.
 SERVICE_CATEGORIES = [
-	("Inputs", "001", 1),
-	("Schemes", "002", 2),
-	("Payments", "003", 3),
-	("Credit", "004", 4),
-	("Markets", "005", 5),
 	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
 ]
 
