@@ -71,3 +71,16 @@ Never commit the kubeconfig, its token or `ca.crt`.
 
 - ClamAV: `grievance_clamav_host` is unset, so attachment scans retry until a scanner is configured.
 - `iamServices` and an APISIX route for the new host.
+
+## Gateway routes
+
+The stage `develop → gateway (apisix)` runs `ci/deploy-gateway.sh` and installs the chart `apisix/k8s` as the
+release `grievance-gateway` in namespace `grievance`, with `helm/environments/dev/oan-grievance-gateway.yaml`.
+It runs after the app deploy, and only when `apisix/**`, `openapi/**` or that values file changed. The routes
+match the host `grievance-service.development.oanstaging.com` and reach the Frappe Services of the `grievance`
+release in the same cluster (gunicorn port 8000, socket.io port 9000).
+
+APISIX and its Ingress Controller are a separate release in namespace `api6-gateway`. If its data plane pod is
+`Pending`, the routes are created but nothing serves them. TLS needs a Secret `oan-grievance-tls` in namespace
+`grievance` (written by cert-manager); without it the `ApisixTls` object reports an error and only plain HTTP works.
+Manage the routes with this release or with `adc sync`, never both.
