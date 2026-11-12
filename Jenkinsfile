@@ -324,6 +324,30 @@ ENDSSH
             }
         }
 
+        // develop -> APISIX routes (chart apisix/k8s) on the oan_dev node, after the app deploy.
+        // Runs only when the spec, the generated routes or the gateway values changed.
+        stage('develop → gateway (apisix)') {
+            when {
+                beforeAgent true
+                allOf {
+                    branch 'develop'
+                    anyOf {
+                        changeset 'apisix/**'
+                        changeset 'openapi/**'
+                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
+                    }
+                }
+            }
+            agent { label 'oan-ci-deploy' }
+            options { timeout(time: 15, unit: 'MINUTES') }
+            steps {
+                checkout scm
+                withCredentials([file(credentialsId: 'oan-dev-kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh 'bash ci/deploy-gateway.sh'
+                }
+            }
+        }
+
         stage('Publish chart') {
             when { branch 'develop' }
             steps {
