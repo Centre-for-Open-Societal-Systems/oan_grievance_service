@@ -1,0 +1,63 @@
+# Deploy identity of the grievance Jenkins pipeline on the oan_dev k3s node (see docs/operations/oan-dev-deploy.md).
+# Apply with ci/cluster/bootstrap-oan-dev.sh. Holds no secret data: Kubernetes fills the token Secret.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grievance
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-grievance-deployer
+  namespace: grievance
+---
+# Token the Jenkins kubeconfig credential carries (Kubernetes no longer makes one for a ServiceAccount).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jenkins-grievance-deployer-token
+  namespace: grievance
+  annotations:
+    kubernetes.io/service-account.name: jenkins-grievance-deployer
+type: kubernetes.io/service-account-token
+---
+# Full control inside the grievance namespace only: the `grievance` Helm release, its Secrets and Jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-grievance-deployer
+  namespace: grievance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-grievance-deployer
+    namespace: grievance
+---
+# App deploy: copy the shared Postgres password into the grievance namespace. This one Secret only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-grievance-read-db-secret
+  namespace: frappe-common
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [oan-frappe-common-db]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-grievance-read-db-secret
+  namespace: frappe-common
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-read-db-secret
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-grievance-deployer
+    namespace: grievance

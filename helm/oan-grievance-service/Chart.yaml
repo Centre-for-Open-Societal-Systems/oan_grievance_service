@@ -1,0 +1,28 @@
+apiVersion: v2
+name: oan-grievance-service
+description: OAN Grievance Redressal Frappe app with oan_auth_service for OpenAgriNet (OAN);
+  deploys the OAN frappe chart with the grievance defaults.
+type: application
+version: 0.1.0-dev.1
+appVersion: version-16
+keywords:
+- oan
+- openagrinet
+- frappe
+- grievance
+home: https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service
+sources:
+- https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service
+- https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service
+- https://github.com/Centre-for-Open-Societal-Systems/oan-helm
+maintainers:
+- name: OpenAgriNet (OAN)
+  url: https://github.com/Centre-for-Open-Societal-Systems/oan-helm
+dependencies:
+- name: frappe-service
+  alias: frappe
+  version: 8.0.91-oan.1
+annotations:
+  oan.org/owner: OpenAgriNet (OAN)
+  oan.org/application-source: https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service
+  oan.org/chart-source: https://github.com/Centre-for-Open-Societal-Systems/oan-helm/tree/main/charts/oan-grievance-service
