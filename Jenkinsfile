@@ -25,6 +25,10 @@ pipeline {
         //                -> bench worker --queue grievance_<name>
         //                   (queues are declared in common_site_config.json "workers";
         //                    each must exist as a Deployment in the namespace before a build runs)
+        // Helm release `grievance` on the oan_dev k3s node (develop only, stages below).
+        GRIEVANCE_NAMESPACE = 'grievance'
+        ECR_REPO          = 'oan/oan-grievance-service/grievance-service'
+        ECR_SEED_REPO     = 'oan/oan-grievance-service/grievance-seed'
         DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short worker-grievance-routing worker-grievance-sla worker-grievance-scan worker-grievance-notifications'
         // frappe_docker build definition. Pin to a tag or commit here for reproducible builds.
         FRAPPE_DOCKER_REF = 'main'
@@ -240,6 +244,95 @@ ENDSSH
                     echo "frappe backend did not return 200 at $VERIFY_URL"
                     exit 1
                 '''
+            }
+        }
+
+        // ---- develop -> Helm release `grievance` on the oan_dev k3s node ----
+        // Runs after the RKE2 deploy above, so a problem here never blocks it. The image built above is
+        // pushed again under oan/oan-grievance-service/grievance-service:<__version__>-develop.<build>,
+        // the tag that is also the chart version; the seed image carries the demo data of openg2p-data.
+        stage('Push image + seed (helm)') {
+            when { branch 'develop' }
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    script {
+                        env.IMMUTABLE_TAG = sh(returnStdout: true, script: 'python3 ci/package_chart.py version').trim()
+                    }
+                    sh '''#!/usr/bin/env bash
+                        set -euo pipefail
+                        IMAGE_URI="${IMAGE_REGISTRY}/${ECR_REPO}"
+                        SEED_IMAGE_URI="${IMAGE_REGISTRY}/${ECR_SEED_REPO}"
+
+                        aws ecr get-login-password --region "$AWS_REGION" \
+                            | docker login --username AWS --password-stdin "$IMAGE_REGISTRY"
+
+                        # ECR does not create a repository on push.
+                        for repo in "$ECR_REPO" "$ECR_SEED_REPO"; do
+                            aws ecr describe-repositories --region "$AWS_REGION" --repository-names "$repo" >/dev/null 2>&1 \
+                                || aws ecr create-repository --region "$AWS_REGION" --repository-name "$repo" >/dev/null
+                        done
+
+                        docker tag "$FULL_IMAGE" "${IMAGE_URI}:${IMMUTABLE_TAG}"
+
+                        # The commit openg2p-data develop points at: an unchanged build-arg would let the
+                        # layer cache keep serving an old clone after the data is fixed.
+                        OPENG2P_DATA_REF=$(git ls-remote https://github.com/Centre-for-Open-Societal-Systems/openg2p-data.git refs/heads/develop | cut -f1)
+                        test -n "${OPENG2P_DATA_REF}" || { echo "Could not resolve openg2p-data develop" >&2; exit 1; }
+                        echo "openg2p-data develop is ${OPENG2P_DATA_REF}"
+                        DOCKER_BUILDKIT=1 docker buildx build \
+                            --build-arg OPENG2P_DATA_REF=${OPENG2P_DATA_REF} \
+                            --tag "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}" \
+                            --load ci/seed
+
+                        docker push "${IMAGE_URI}:${IMMUTABLE_TAG}"
+                        docker push "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}"
+                        docker rmi "${IMAGE_URI}:${IMMUTABLE_TAG}" "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}" || true
+                        echo "Pushed ${IMAGE_URI}:${IMMUTABLE_TAG} and ${SEED_IMAGE_URI}:${IMMUTABLE_TAG}"
+                    '''
+                }
+            }
+        }
+
+        stage('Package chart') {
+            when { branch 'develop' }
+            steps {
+                script {
+                    env.IMAGE_TAG        = env.IMMUTABLE_TAG
+                    env.SOURCE_COMMIT    = sh(returnStdout: true, script: 'git rev-parse --verify HEAD').trim()
+                    env.COMMIT_SUBJECT   = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
+                    env.IMAGE_REPOSITORY = "${env.IMAGE_REGISTRY}/${env.ECR_REPO}"
+                }
+                sh 'python3 ci/package_chart.py package'
+                // The deploy stage runs on the VPN deploy agent, which gets the archive from here.
+                stash name: 'built-chart', includes: 'built-chart/**'
+            }
+        }
+
+        stage('develop → oan_dev (helm)') {
+            when { beforeAgent true; branch 'develop' }
+            agent { label 'oan-ci-deploy' }   // VPN agent with helm and kubectl that reaches the oan_dev API
+            options { timeout(time: 45, unit: 'MINUTES') }
+            steps {
+                checkout scm
+                unstash 'built-chart'
+                withCredentials([file(credentialsId: 'oan-dev-grievance-kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh 'bash ci/deploy-helm-dev.sh'
+                }
+            }
+        }
+
+        stage('Publish chart') {
+            when { branch 'develop' }
+            steps {
+                // UNSTABLE, not failed: the image is already deployed.
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    withCredentials([usernamePassword(credentialsId: 'oan-helm-fork-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                        sh 'python3 ci/package_chart.py publish'
+                    }
+                }
             }
         }
     }
