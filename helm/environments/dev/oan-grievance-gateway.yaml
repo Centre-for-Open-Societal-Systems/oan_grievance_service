@@ -1,0 +1,81 @@
+# Values for the oan-grievance-gateway chart (apisix/k8s).
+# Target: the oan_dev k3s node, namespace `grievance`, installed by the Jenkins stage
+# "develop → gateway (apisix)" (ci/deploy-gateway.sh). APISIX and its Ingress Controller run in
+# namespace api6-gateway on the same node, so the routes reach the grievance Frappe Services directly.
+# See apisix/README.md.
+#
+# Set at install, not here:
+# - redis.host: the Redis Service of the APISIX release (ci/deploy-gateway.sh looks it up)
+#
+# For a gateway in another cluster set web.externalHosts and socket.externalHosts to the app nodes' private
+# addresses, and web.port and socket.port to the node ports of gatewayAccess in oan-grievance-service.yaml.
+
+ingressClassName: apisix
+
+# Namespace of the APISIX release, which owns the consumers shared by several apps
+# (the IVR vendor). Routes whitelist them as `<this>_<name>`.
+sharedConsumerNamespace: api6-gateway
+
+# The public host; routes match it, so grievance and A2C (which share /v1/auth/*) stay apart on one gateway.
+hosts:
+  - grievance-service.development.oanstaging.com
+
+# APISIX terminates TLS for `hosts` with this Secret (tls.crt, tls.key) in namespace `grievance`.
+# Dev: written by cert-manager.
+tls:
+  secretName: oan-grievance-tls
+
+# Frappe site name, sent as Host because Frappe selects the site from it. Must equal siteName in
+# oan-grievance-service.yaml.
+siteName: grievance-service.development.oanstaging.com
+
+# With externalHosts set, serviceName only names the ApisixUpstream, and port is the node port of
+# oan-grievance-service.yaml gatewayAccess. Without it, serviceName and port are a Service in this namespace
+# (APISIX and Frappe in one cluster): the Frappe gunicorn Service, port 8000, and the socket.io Service, port 9000.
+web:
+  serviceName: grievance-frappe-gunicorn
+  externalHosts: []
+  port: 8000
+  # Probe each node's port through the Service. Without this, APISIX keeps sending
+  # requests to a node that is down. `host` is the Frappe site name.
+  healthCheck:
+    active:
+      type: http
+      httpPath: /api/method/ping
+      host: grievance-service.development.oanstaging.com
+      timeout: 3
+      healthy:
+        interval: 5s
+        successes: 2
+        httpCodes: [200]
+      unhealthy:
+        interval: 5s
+        httpFailures: 3
+        tcpFailures: 3
+        timeout: 3
+        httpCodes: [500, 502, 503, 504]
+socket:
+  serviceName: grievance-frappe-socketio
+  externalHosts: []
+  port: 9000
+  # socket.io has no ping route: check that the port accepts connections.
+  healthCheck:
+    active:
+      type: tcp
+      timeout: 3
+      healthy:
+        interval: 5s
+        successes: 2
+      unhealthy:
+        interval: 5s
+        tcpFailures: 3
+        timeout: 3
+
+# Browser origins allowed to open a socket.io connection with a session cookie, and regexes of origins
+# the cors plugin allows: the grievance UI and localhost.
+realtimeAllowedOrigins:
+  - https://grievance.development.oanstaging.com
+  - http://localhost:3000
+corsOriginRegexes:
+  - https://grievance\.development\.oanstaging\.com
+  - https?://localhost(:[0-9]+)?
