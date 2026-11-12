@@ -151,20 +151,69 @@ frappe:
         memory: 256Mi
 
   # The queues the app enqueues on (oan_grievance_service/services/constants.py) and their RQ timeouts
-  # in seconds. The site-config job registers them in common_site_config.json.
+  # in seconds. The site-config job registers them in common_site_config.json. Each worker scales between
+  # 1 and 3 replicas on CPU and memory; the targets are percentages of the requests.
   extraWorkers:
   - name: routing
     queues:
       grievance_routing: 300
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: 75
   - name: sla
     queues:
       grievance_sla: 1800
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: 75
   - name: scan
     queues:
       grievance_scan: 300
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: 75
   - name: notifications
     queues:
       grievance_notifications: 600
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 768Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPU: 75
+      targetMemory: 75
 
   jobs:
     createSite:
