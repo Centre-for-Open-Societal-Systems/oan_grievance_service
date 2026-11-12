@@ -40,21 +40,24 @@ It is empty on dev: the rows come from the seed.
 
 ## The identity
 
-`ci/cluster/oan-dev-deployer.yaml` creates namespace `grievance` and ServiceAccount `jenkins-grievance-deployer`:
+The deploy uses the kubeconfig of the a2c service's ServiceAccount `jenkins-a2c-deployer` (Jenkins credential
+`oan-dev-kubeconfig`), the same one the a2c service and UI use. Its access:
 
 | Namespace       | Access                                 | Used for                   |
 | --------------- | -------------------------------------- | -------------------------- |
+| `a2c`           | built-in `admin` role                  | the a2c release            |
 | `grievance`     | built-in `admin` role                  | the `grievance` release    |
 | `frappe-common` | get Secret `oan-frappe-common-db` only | copy the Postgres password |
 
-It cannot touch anything else.
+It cannot touch anything else. One token deploys both services; give a service its own ServiceAccount if that
+separation matters.
 
 ## Set up (once per cluster)
 
-1. On the node (`ssh oan_dev`), with `ci/cluster/` copied over:
-   `bash ci/cluster/bootstrap-oan-dev.sh /tmp/oan-dev-grievance.kubeconfig [https://<api-address>:6443]`.
-2. Jenkins → Manage Jenkins → Credentials, in a scope the grievance job can see → Add → **Secret file**, ID
-   `oan-dev-grievance-kubeconfig`, upload the file. Delete every local copy of it.
+1. Create namespace `grievance` and bind the deployer to it (the namespace exists already on oan_dev):
+   `kubectl create namespace grievance` and
+   `kubectl -n grievance create rolebinding jenkins-a2c-deployer-grievance --clusterrole=admin --serviceaccount=a2c:jenkins-a2c-deployer`.
+2. The Jenkins credential `oan-dev-kubeconfig` must be visible to the grievance job.
 3. Add the two new ECR repositories to the pull permission of the node role (`oan-services-dev-ecr-pull`:
    `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`, `ecr:BatchCheckLayerAvailability`), unless it covers `oan/*`.
    The node pulls with its own IAM role, see the a2c service's `docs/operations/oan-dev-deploy.md`.

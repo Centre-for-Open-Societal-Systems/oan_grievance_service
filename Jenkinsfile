@@ -318,7 +318,7 @@ ENDSSH
             steps {
                 checkout scm
                 unstash 'built-chart'
-                withCredentials([file(credentialsId: 'oan-dev-grievance-kubeconfig', variable: 'KUBECONFIG')]) {
+                withCredentials([file(credentialsId: 'oan-dev-kubeconfig', variable: 'KUBECONFIG')]) {
                     sh 'bash ci/deploy-helm-dev.sh'
                 }
             }
