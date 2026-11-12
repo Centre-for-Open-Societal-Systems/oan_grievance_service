@@ -36,7 +36,7 @@ kubectl -n "${NS}" create secret generic oan-frappe-common-db \
 # PVC with the site's files included.
 DEPLOYED=$(helm -n "${NS}" history grievance -o json 2>/dev/null \
   | python3 -c 'import json, sys; print(next((h["revision"] for h in json.load(sys.stdin) if h["status"] == "deployed"), ""))' \
-  || true)
+  2>/dev/null || true)
 
 # A cancelled build sends SIGTERM: helm marks the upgrade failed and exits, and the script goes on to
 # print the reason and roll back instead of dying with it.
