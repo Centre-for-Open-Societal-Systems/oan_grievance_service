@@ -16,6 +16,9 @@ from frappe.utils import now_datetime
 from oan_grievance_service.services import constants as C
 
 SEED_CATEGORY = "Inputs"
+# The app creates only the fallback category; the demo categories come from the seed data. Tests that name
+# one of these directly (as an RBAC scope, a grievance category) get it from `seed_test_categories`.
+TEST_CATEGORIES = [(SEED_CATEGORY, "001", 1), ("Credit", "004", 4)]
 _CACHED_LEAF_AREA = None
 _CACHED_DEPARTMENT = None
 _CACHED_SUBMITTER_TYPE = None
@@ -179,6 +182,22 @@ def a_submitter_type():
 		.name
 	)
 	return _CACHED_SUBMITTER_TYPE
+
+
+def seed_test_categories():
+	"""`before_tests` hook: create the service categories the tests refer to by name."""
+	for name, code, order in TEST_CATEGORIES:
+		if not frappe.db.exists("Grievance Service Category", name):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": name,
+					"code": code,
+					"sort_order": order,
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+	frappe.db.commit()
 
 
 def a_service_category():
