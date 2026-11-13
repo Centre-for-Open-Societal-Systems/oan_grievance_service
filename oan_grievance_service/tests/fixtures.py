@@ -185,7 +185,14 @@ def a_submitter_type():
 
 
 def seed_test_categories():
-	"""`before_tests` hook: create the service categories the tests refer to by name."""
+	"""`before_tests` hook: create the service categories the tests refer to by name.
+
+	A category is not enough on its own. Its SLA configuration carries the state timers (the
+	Resolved confirmation window is one), and tests that file a case under `Credit` take one of
+	its types. The install seeders create both for the categories that exist, so they run after.
+	"""
+	from oan_grievance_service.setup.install import seed_grievance_types, seed_sla_configurations
+
 	for name, code, order in TEST_CATEGORIES:
 		if not frappe.db.exists("Grievance Service Category", name):
 			frappe.get_doc(
@@ -197,6 +204,8 @@ def seed_test_categories():
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
+	seed_sla_configurations()
+	seed_grievance_types()
 	frappe.db.commit()
 
 
