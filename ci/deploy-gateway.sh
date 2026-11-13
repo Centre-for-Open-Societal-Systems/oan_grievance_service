@@ -17,7 +17,9 @@ set -euo pipefail
 
 RELEASE="${GATEWAY_RELEASE:-grievance-gateway}"
 APISIX_NS="${GATEWAY_APISIX_NAMESPACE:-api6-gateway}"
-CHART="${GATEWAY_CHART:-apisix/k8s}"
+# The archive "Package gateway chart" built for this commit (unstashed into built-gateway-chart/), else the chart folder.
+PACKAGED="$(ls built-gateway-chart/oan-grievance-gateway-*.tgz 2>/dev/null | head -n 1 || true)"
+CHART="${GATEWAY_CHART:-${PACKAGED:-apisix/k8s}}"
 VALUES="${GATEWAY_VALUES:-helm/environments/dev/oan-grievance-gateway.yaml}"
 NS="${GRIEVANCE_NAMESPACE}"
 

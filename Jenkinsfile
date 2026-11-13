@@ -311,6 +311,26 @@ ENDSSH
             }
         }
 
+        // The routes chart (apisix/k8s) is packaged and published like the app chart, but only for a build that
+        // changed the spec, the routes or the gateway values: those are the builds that install it.
+        stage('Package gateway chart') {
+            when {
+                beforeAgent true
+                allOf {
+                    branch 'develop'
+                    anyOf {
+                        changeset 'apisix/**'
+                        changeset 'openapi/**'
+                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
+                    }
+                }
+            }
+            steps {
+                sh 'python3 ci/package_chart.py gateway-package'
+                stash name: 'built-gateway-chart', includes: 'built-gateway-chart/**'
+            }
+        }
+
         stage('develop → oan_dev (helm)') {
             when { beforeAgent true; branch 'develop' }
             agent { label 'oan-ci-deploy' }   // VPN agent with helm and kubectl that reaches the oan_dev API
@@ -342,6 +362,7 @@ ENDSSH
             options { timeout(time: 15, unit: 'MINUTES') }
             steps {
                 checkout scm
+                unstash 'built-gateway-chart'
                 withCredentials([file(credentialsId: 'oan-dev-kubeconfig', variable: 'KUBECONFIG')]) {
                     sh 'bash ci/deploy-gateway.sh'
                 }
@@ -355,6 +376,28 @@ ENDSSH
                 catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                     withCredentials([usernamePassword(credentialsId: 'oan-helm-fork-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
                         sh 'python3 ci/package_chart.py publish'
+                    }
+                }
+            }
+        }
+
+        stage('Publish gateway chart') {
+            when {
+                beforeAgent true
+                allOf {
+                    branch 'develop'
+                    anyOf {
+                        changeset 'apisix/**'
+                        changeset 'openapi/**'
+                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
+                    }
+                }
+            }
+            steps {
+                // UNSTABLE, not failed: the routes are already installed.
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    withCredentials([usernamePassword(credentialsId: 'oan-helm-fork-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                        sh 'python3 ci/package_chart.py gateway-publish'
                     }
                 }
             }
