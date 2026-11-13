@@ -73,6 +73,12 @@ pipeline {
                     def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
                     env.IMAGE_TAG_BUILD = "${env.TARGET_ENV}-${env.BUILD_NUMBER}-${sha}"
                     env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG_BUILD}"
+
+                    // Did this commit touch the spec, the routes or the gateway values? Not `changeset`: Jenkins lists no
+                    // files for a merge commit, so it never matches one. Diff against the first parent instead; if that
+                    // fails (shallow clone), assume yes, since the gateway install is idempotent.
+                    def files = sh(returnStdout: true, script: 'git diff --name-only HEAD^1 HEAD || echo apisix/').trim().split('\n')
+                    env.GATEWAY_CHANGED = files.any { it.startsWith('apisix/') || it.startsWith('openapi/') || it == 'helm/environments/dev/oan-grievance-gateway.yaml' } ? 'true' : 'false'
                     echo "Branch ${env.BRANCH_NAME} -> namespace ${env.K8S_NAMESPACE}, image ${env.FULL_IMAGE}"
                 }
             }
@@ -318,11 +324,7 @@ ENDSSH
                 beforeAgent true
                 allOf {
                     branch 'develop'
-                    anyOf {
-                        changeset 'apisix/**'
-                        changeset 'openapi/**'
-                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
-                    }
+                    expression { env.GATEWAY_CHANGED == 'true' }
                 }
             }
             steps {
@@ -351,11 +353,7 @@ ENDSSH
                 beforeAgent true
                 allOf {
                     branch 'develop'
-                    anyOf {
-                        changeset 'apisix/**'
-                        changeset 'openapi/**'
-                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
-                    }
+                    expression { env.GATEWAY_CHANGED == 'true' }
                 }
             }
             agent { label 'oan-ci-deploy' }
@@ -386,11 +384,7 @@ ENDSSH
                 beforeAgent true
                 allOf {
                     branch 'develop'
-                    anyOf {
-                        changeset 'apisix/**'
-                        changeset 'openapi/**'
-                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
-                    }
+                    expression { env.GATEWAY_CHANGED == 'true' }
                 }
             }
             steps {
