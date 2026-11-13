@@ -3,12 +3,12 @@
 Run by the Jenkins stages "Package chart" and "Publish chart" of every develop build:
 
     package_chart.py version   prints the chart version, which is also the image tag of the build:
-                               0.0.0-develop.<BUILD_NUMBER>, e.g. 0.0.0-develop.57 (develop only)
+                               0.0.1-develop.<BUILD_NUMBER>, e.g. 0.0.1-develop.57 (develop only)
     package_chart.py package   writes built-chart/oan-grievance-service-<version>.tgz
     package_chart.py publish   adds that archive to repository/develop/ of oan-helm
 
 The Chart.yaml annotations and the publisher come from scripts/ci of oan-helm, so this chart is listed like the registry
-charts. The version is 0.0.0-develop.N, which publish_chart.py sends to repository/develop/. The chart keeps its frappe-service dependency vendored in helm/oan-grievance-service/charts,
+charts. The version is 0.0.1-develop.N, which publish_chart.py sends to repository/develop/. The chart keeps its frappe-service dependency vendored in helm/oan-grievance-service/charts,
 so, unlike the registry charts, nothing is downloaded.
 
 version needs BRANCH_NAME (develop) and BUILD_NUMBER. package needs IMAGE_REPOSITORY (registry/repository, no tag), IMAGE_TAG, SOURCE_COMMIT, BRANCH_NAME and COMMIT_SUBJECT.
@@ -60,10 +60,10 @@ def load_generic(work):
 
 
 def chart_version(env):
-	"""0.0.0-develop.<BUILD_NUMBER>, the only develop version publish_chart.py puts in repository/develop/."""
+	"""0.0.1-develop.<BUILD_NUMBER>, the only develop version publish_chart.py puts in repository/develop/."""
 	if env["BRANCH_NAME"] != "develop":
 		raise ValueError("only develop packages the chart, not %s" % env["BRANCH_NAME"])
-	return "0.0.0-develop.%s" % env["BUILD_NUMBER"]
+	return "0.0.1-develop.%s" % env["BUILD_NUMBER"]
 
 
 def version_build(env, work):
