@@ -64,7 +64,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -128,7 +127,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -188,7 +186,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -251,7 +248,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -311,7 +307,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -378,7 +373,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: false
-        group: oan-grievance:auth-credentials:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -441,7 +435,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-public-read:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -502,7 +495,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -564,7 +556,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -625,7 +616,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -686,7 +676,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -746,7 +735,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -811,7 +799,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -871,7 +858,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -940,7 +926,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1060,7 +1045,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1152,7 +1136,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1220,7 +1203,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1295,7 +1277,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1371,7 +1352,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:public-dashboards:frappe-token
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
@@ -1435,7 +1415,6 @@ spec:
         redis_host: {{ required "redis.host is required" .Values.redis.host | quote }}
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:public-reference:public
 {{- if .Values.web.externalHosts }}
     upstreams:
     - name: {{ required "web.serviceName is required" .Values.web.serviceName | quote }}
