@@ -73,6 +73,12 @@ pipeline {
                     def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
                     env.IMAGE_TAG_BUILD = "${env.TARGET_ENV}-${env.BUILD_NUMBER}-${sha}"
                     env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG_BUILD}"
+
+                    // Did this commit touch the spec, the routes or the gateway values? Not `changeset`: Jenkins lists no
+                    // files for a merge commit, so it never matches one. Diff against the first parent instead; if that
+                    // fails (shallow clone), assume yes, since the gateway install is idempotent.
+                    def files = sh(returnStdout: true, script: 'git diff --name-only HEAD^1 HEAD || echo apisix/').trim().split('\n')
+                    env.GATEWAY_CHANGED = files.any { it.startsWith('apisix/') || it.startsWith('openapi/') || it == 'helm/environments/dev/oan-grievance-gateway.yaml' } ? 'true' : 'false'
                     echo "Branch ${env.BRANCH_NAME} -> namespace ${env.K8S_NAMESPACE}, image ${env.FULL_IMAGE}"
                 }
             }
@@ -311,6 +317,22 @@ ENDSSH
             }
         }
 
+        // The routes chart (apisix/k8s) is packaged and published like the app chart, but only for a build that
+        // changed the spec, the routes or the gateway values: those are the builds that install it.
+        stage('Package gateway chart') {
+            when {
+                beforeAgent true
+                allOf {
+                    branch 'develop'
+                    expression { env.GATEWAY_CHANGED == 'true' }
+                }
+            }
+            steps {
+                sh 'python3 ci/package_chart.py gateway-package'
+                stash name: 'built-gateway-chart', includes: 'built-gateway-chart/**'
+            }
+        }
+
         stage('develop → oan_dev (helm)') {
             when { beforeAgent true; branch 'develop' }
             agent { label 'oan-ci-deploy' }   // VPN agent with helm and kubectl that reaches the oan_dev API
@@ -331,17 +353,14 @@ ENDSSH
                 beforeAgent true
                 allOf {
                     branch 'develop'
-                    anyOf {
-                        changeset 'apisix/**'
-                        changeset 'openapi/**'
-                        changeset 'helm/environments/dev/oan-grievance-gateway.yaml'
-                    }
+                    expression { env.GATEWAY_CHANGED == 'true' }
                 }
             }
             agent { label 'oan-ci-deploy' }
             options { timeout(time: 15, unit: 'MINUTES') }
             steps {
                 checkout scm
+                unstash 'built-gateway-chart'
                 withCredentials([file(credentialsId: 'oan-dev-kubeconfig', variable: 'KUBECONFIG')]) {
                     sh 'bash ci/deploy-gateway.sh'
                 }
@@ -355,6 +374,24 @@ ENDSSH
                 catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                     withCredentials([usernamePassword(credentialsId: 'oan-helm-fork-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
                         sh 'python3 ci/package_chart.py publish'
+                    }
+                }
+            }
+        }
+
+        stage('Publish gateway chart') {
+            when {
+                beforeAgent true
+                allOf {
+                    branch 'develop'
+                    expression { env.GATEWAY_CHANGED == 'true' }
+                }
+            }
+            steps {
+                // UNSTABLE, not failed: the routes are already installed.
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    withCredentials([usernamePassword(credentialsId: 'oan-helm-fork-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                        sh 'python3 ci/package_chart.py gateway-publish'
                     }
                 }
             }
