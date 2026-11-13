@@ -63,7 +63,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
   - name: oan-grievance-auth-admin-bearer-get
     description: Admin user and role management. Low volume. Keyed per IP while GATEWAY_JWT is off; per
       token once the gateway verifies tokens.
@@ -94,7 +93,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
   - name: oan-grievance-auth-admin-bearer-patch
     description: Admin user and role management. Low volume. Keyed per IP while GATEWAY_JWT is off; per
       token once the gateway verifies tokens.
@@ -121,7 +119,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
   - name: oan-grievance-auth-admin-bearer-post
     description: Admin user and role management. Low volume. Keyed per IP while GATEWAY_JWT is off; per
       token once the gateway verifies tokens.
@@ -151,7 +148,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
   - name: oan-grievance-auth-admin-bearer-put
     description: Admin user and role management. Low volume. Keyed per IP while GATEWAY_JWT is off; per
       token once the gateway verifies tokens.
@@ -178,7 +174,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-admin:bearer
   - name: oan-grievance-auth-credentials-public-post
     description: Credential-sensitive endpoints (login, register, reset). Per-IP limit against stuffing,
       loose enough for users sharing one address behind NAT; per-account limits are enforced by the app.
@@ -213,7 +208,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: false
-        group: oan-grievance:auth-credentials:public
   - name: oan-grievance-auth-public-read-public-get
     description: Public discovery and health check endpoints.
     labels:
@@ -242,7 +236,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-public-read:public
   - name: oan-grievance-auth-session-bearer-delete
     description: Logged-in user calls (e.g. /me), token refresh and logout. Cheap and frequent; a throttled
       logout would leave the refresh token alive.
@@ -270,7 +263,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
   - name: oan-grievance-auth-session-bearer-get
     description: Logged-in user calls (e.g. /me), token refresh and logout. Cheap and frequent; a throttled
       logout would leave the refresh token alive.
@@ -299,7 +291,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
   - name: oan-grievance-auth-session-bearer-patch
     description: Logged-in user calls (e.g. /me), token refresh and logout. Cheap and frequent; a throttled
       logout would leave the refresh token alive.
@@ -327,7 +318,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:bearer
   - name: oan-grievance-auth-session-public-post
     description: Logged-in user calls (e.g. /me), token refresh and logout. Cheap and frequent; a throttled
       logout would leave the refresh token alive.
@@ -355,7 +345,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:auth-session:public
   - name: oan-grievance-citizen-intake-bearer-delete
     description: 'Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.'
     labels:
@@ -381,7 +370,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
   - name: oan-grievance-citizen-intake-bearer-get
     description: 'Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.'
     labels:
@@ -412,7 +400,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
   - name: oan-grievance-citizen-intake-bearer-patch
     description: 'Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.'
     labels:
@@ -438,7 +425,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
   - name: oan-grievance-citizen-intake-bearer-post
     description: 'Citizen self-service operations: grievance lodging, tracking, replies, messaging, reopen.'
     labels:
@@ -473,7 +459,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:citizen-intake:bearer
   - name: oan-grievance-ivr-webhooks-custom-post
     description: Inbound IVR webhook, called with the gateway key of the IVR platform consumer; not rate
       limited.
@@ -529,7 +514,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
   - name: oan-grievance-officer-core-bearer-get
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -588,7 +572,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
   - name: oan-grievance-officer-core-bearer-patch
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -623,7 +606,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
   - name: oan-grievance-officer-core-bearer-post
     description: 'Back-office and staff triage operations: bulk listing, notes, assignment, rejection,
       and officer options.'
@@ -665,7 +647,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:officer-core:bearer
   - name: oan-grievance-public-dashboards-frappe-token-get
     description: 'Dashboard charts: counts from the dashboard rollups, read by the OAN dashboards with
       their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT
@@ -709,7 +690,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:public-dashboards:frappe-token
   - name: oan-grievance-public-reference-public-get
     description: 'Public unauthenticated reference data: areas, dropdown options, health probes.'
     labels:
@@ -739,7 +719,6 @@ services:
         redis_host: redis
         redis_port: 6379
         allow_degradation: true
-        group: oan-grievance:public-reference:public
   - name: oan-grievance-cors-preflight
     labels:
       app: oan-grievance
