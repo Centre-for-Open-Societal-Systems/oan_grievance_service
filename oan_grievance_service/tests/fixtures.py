@@ -206,7 +206,8 @@ def seed_test_categories():
 			).insert(ignore_permissions=True)
 	seed_sla_configurations()
 	seed_grievance_types()
-	frappe.db.commit()
+	# Committed on purpose: each test class rolls back when it ends, which would take the seed with it.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 
 def a_service_category():
