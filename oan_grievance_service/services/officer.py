@@ -245,7 +245,9 @@ def update(user_id: str, changes: dict) -> str:
 		desks, missing = _category_desks(department, categories, allow_missing=_is_head(level))
 		target = {desk.name for desk in desks}
 		placing_head = level != current.level or {"department", "service_categories"} & changes.keys()
-		if role == DEFAULT_ROLE and _is_head(level) and placing_head:
+		# An inactive head's desk may have been taken since, so taking it back is a placement too.
+		reactivating = bool(status) and status != "Inactive" and current.status == "Inactive"
+		if role == DEFAULT_ROLE and _is_head(level) and (placing_head or reactivating):
 			_assert_head_free(department, desks, user_id)
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
@@ -574,6 +576,10 @@ def _category_desks(
 	return desks, missing
 
 
+# How many taken categories the duplicate-admin error spells out; the rest are counted.
+MAX_CONFLICTS_SHOWN = 5
+
+
 def _assert_head_free(department, desks, user_id=None) -> None:
 	"""A desk has one category admin: refuse a second on a category and department.
 
@@ -598,7 +604,6 @@ def _assert_head_free(department, desks, user_id=None) -> None:
 			"user": ["!=", user_id or ""],
 		},
 		fields=["parent", "user", "on_leave"],
-		order_by="creation asc",
 	)
 	if not taken:
 		return
@@ -607,13 +612,20 @@ def _assert_head_free(department, desks, user_id=None) -> None:
 		label = _("{0} (on leave)").format(row.user) if row.on_leave else row.user
 		admins_by_desk.setdefault(row.parent, []).append(label)
 	where = _("department {0}").format(department) if department else _("no department")
-	conflicts = sorted(
-		_("{0} in {1}: {2}").format(
-			desk.get("category_scope") or _("All categories"), where, ", ".join(admins_by_desk[desk.name])
-		)
-		for desk in desks
-		if desk.name in admins_by_desk
+	conflicting = sorted(
+		(desk for desk in desks if desk.name in admins_by_desk),
+		key=lambda desk: desk.get("category_scope") or "",
 	)
+	conflicts = [
+		_("{0} in {1}: {2}").format(
+			desk.get("category_scope") or _("All categories"),
+			where,
+			", ".join(sorted(admins_by_desk[desk.name])),
+		)
+		for desk in conflicting[:MAX_CONFLICTS_SHOWN]
+	]
+	if len(conflicting) > MAX_CONFLICTS_SHOWN:
+		conflicts.append(_("and {0} more").format(len(conflicting) - MAX_CONFLICTS_SHOWN))
 	frappe.throw(
 		_(
 			"Only one active category admin is allowed for each category in a department. "
