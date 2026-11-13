@@ -503,7 +503,7 @@ class TestSubmitterProfile(FrappeTestCase):
 				{
 					"doctype": "Grievance Service Category",
 					"category_name": "Credit",
-					"code": "CRDT",
+					"code": "004",
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
