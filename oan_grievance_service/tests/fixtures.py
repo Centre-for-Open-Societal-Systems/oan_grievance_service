@@ -185,7 +185,11 @@ def a_submitter_type():
 
 
 def seed_test_categories():
-	"""`before_tests` hook: create the service categories the tests refer to by name."""
+	"""`before_tests` hook: create the service categories the tests refer to by name, then the
+	grievance types and SLA configurations (with their state timers) the app seeds for them, which
+	install skipped while the categories did not exist."""
+	from oan_grievance_service.setup.install import seed_grievance_types, seed_sla_configurations
+
 	for name, code, order in TEST_CATEGORIES:
 		if not frappe.db.exists("Grievance Service Category", name):
 			frappe.get_doc(
@@ -197,7 +201,10 @@ def seed_test_categories():
 					"is_active": 1,
 				}
 			).insert(ignore_permissions=True)
-	frappe.db.commit()
+	seed_grievance_types()
+	seed_sla_configurations()
+	# Each test class rolls back to where it started, so the seed has to be committed to outlive the first one.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 
 def a_service_category():
