@@ -27,8 +27,8 @@ pipeline {
         //                    each must exist as a Deployment in the namespace before a build runs)
         // Helm release `grievance` on the oan_dev k3s node (develop only, stages below).
         GRIEVANCE_NAMESPACE = 'grievance'
-        ECR_REPO          = 'oan/oan-grievance-service/grievance-service'
-        ECR_SEED_REPO     = 'oan/oan-grievance-service/grievance-seed'
+        ECR_REPO          = 'eoan/oan-grievance-service/grievance-service'
+        ECR_SEED_REPO     = 'eoan/oan-grievance-service/grievance-seed'
         DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short worker-grievance-routing worker-grievance-sla worker-grievance-scan worker-grievance-notifications'
         // frappe_docker build definition. Pin to a tag or commit here for reproducible builds.
         FRAPPE_DOCKER_REF = 'main'
@@ -249,7 +249,7 @@ ENDSSH
 
         // ---- develop -> Helm release `grievance` on the oan_dev k3s node ----
         // Runs after the RKE2 deploy above, so a problem here never blocks it. The image built above is
-        // pushed again under oan/oan-grievance-service/grievance-service:<__version__>-develop.<build>,
+        // pushed again under eoan/oan-grievance-service/grievance-service:<__version__>-develop.<build>,
         // the tag that is also the chart version; the seed image carries the demo data of openg2p-data.
         stage('Push image + seed (helm)') {
             when { branch 'develop' }

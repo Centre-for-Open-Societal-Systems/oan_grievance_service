@@ -12,8 +12,8 @@ global:
 
 frappe:
   image:
-    # Jenkinsfile ECR_REPO `oan/oan-grievance-service/grievance-service`.
-    repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/oan-grievance-service/grievance-service
+    # Jenkinsfile ECR_REPO `eoan/oan-grievance-service/grievance-service`.
+    repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/oan-grievance-service/grievance-service
 
   # No imagePullSecrets on oan_dev: the node pulls from ECR with its IAM role (kubelet
   # ecr-credential-provider, docs/operations/oan-dev-deploy.md).
@@ -33,7 +33,7 @@ frappe:
     seed:
       enabled: true
       image:
-        repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/oan/oan-grievance-service/grievance-seed
+        repository: 379220350808.dkr.ecr.ap-south-1.amazonaws.com/eoan/oan-grievance-service/grievance-seed
 
   jobs:
     configure:

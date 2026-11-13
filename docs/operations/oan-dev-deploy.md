@@ -12,8 +12,8 @@ Site `grievance-service.development.oanstaging.com`, database on the shared Post
 
 | Artifact      | Name                                                         | Tag                                             |
 | ------------- | ------------------------------------------------------------ | ----------------------------------------------- |
-| Service image | ECR `oan/oan-grievance-service/grievance-service`            | `0.0.0-develop.<build>`, e.g. `0.0.0-develop.7` |
-| Seed image    | ECR `oan/oan-grievance-service/grievance-seed`               | same tag                                        |
+| Service image | ECR `eoan/oan-grievance-service/grievance-service`            | `0.0.1-develop.<build>`, e.g. `0.0.1-develop.7` |
+| Seed image    | ECR `eoan/oan-grievance-service/grievance-seed`               | same tag                                        |
 | Chart         | `oan-grievance-service` in `repository/develop/` of oan-helm | same version                                    |
 
 The service image is the one the RKE2 stage already built (the layered image with `oan_auth_service` and this app),
