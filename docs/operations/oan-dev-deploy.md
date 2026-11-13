@@ -81,6 +81,6 @@ match the host `grievance-service.development.oanstaging.com` and reach the Frap
 release in the same cluster (gunicorn port 8000, socket.io port 9000).
 
 APISIX and its Ingress Controller are a separate release in namespace `api6-gateway`. If its data plane pod is
-`Pending`, the routes are created but nothing serves them. TLS needs a Secret `oan-grievance-tls` in namespace
-`grievance` (written by cert-manager); without it the `ApisixTls` object reports an error and only plain HTTP works.
+`Pending`, the routes are created but nothing serves them. TLS is not part of this release: APISIX serves the
+environment's wildcard certificate (oan-helm `environments/dev/manifests/apisix-edge.yaml`).
 Manage the routes with this release or with `adc sync`, never both.
