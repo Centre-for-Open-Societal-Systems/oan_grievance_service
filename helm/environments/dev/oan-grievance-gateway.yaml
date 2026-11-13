@@ -3,6 +3,7 @@
 # "develop → gateway (apisix)" (ci/deploy-gateway.sh). APISIX and its Ingress Controller run in
 # namespace api6-gateway on the same node, so the routes reach the grievance Frappe Services directly.
 # See apisix/README.md.
+# After the stage ran, `kubectl -n grievance get apisixroute,apisixupstream` lists the routes.
 #
 # Set at install, not here:
 # - redis.host: the Redis Service of the APISIX release (ci/deploy-gateway.sh looks it up)
