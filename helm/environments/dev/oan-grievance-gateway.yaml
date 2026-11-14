@@ -21,10 +21,8 @@ sharedConsumerNamespace: api6-gateway
 hosts:
   - grievance-service.development.oanstaging.com
 
-# APISIX terminates TLS for `hosts` with this Secret (tls.crt, tls.key) in namespace `grievance`.
-# Dev: written by cert-manager.
-tls:
-  secretName: oan-grievance-tls
+# No `tls`: in dev APISIX terminates TLS for every *.development.oanstaging.com host with one wildcard
+# (oan-helm environments/dev/manifests/apisix-edge.yaml), so this chart creates no ApisixTls.
 
 # Frappe site name, sent as Host because Frappe selects the site from it. Must equal siteName in
 # oan-grievance-service.yaml.
