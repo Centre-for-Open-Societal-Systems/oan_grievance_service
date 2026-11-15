@@ -1,6 +1,6 @@
-{{- if .Values.iamServices }}
+{{- if or .Values.iamServices .Values.farmerRegistry }}
 {{- /*
-Writes iamServices (`OAN IAM Service` rows) into the DB of the site on every install and upgrade, the
+Writes iamServices (`OAN IAM Service` rows) and farmerRegistry (the Farmer Registry fields of `Grievance Settings`) into the DB of the site on every install and upgrade, the
 way the OpenG2P IAM seeds its login_providers table from its values. Nothing goes into site_config.json.
 
 The Secret holds the rows after tpl, so hosts follow global.baseDomain. The Job waits until create-site
@@ -24,6 +24,7 @@ metadata:
 type: Opaque
 stringData:
   iam_services.json: {{ tpl (toJson (default list .Values.iamServices)) . | quote }}
+  farmer_registry.json: {{ tpl (toJson (default dict .Values.farmerRegistry)) . | quote }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -60,7 +61,8 @@ spec:
             echo "waiting for site $SITE_NAME"; sleep 10
           done
           for attempt in $(seq 1 {{ $job.attempts }}); do
-            if bench --site "$SITE_NAME" execute oan_grievance_service.setup.site_settings.sync; then
+            if bench --site "$SITE_NAME" execute oan_grievance_service.setup.site_settings.sync &&
+               bench --site "$SITE_NAME" execute oan_grievance_service.setup.site_settings.sync_farmer_registry; then
               exit 0
             fi
             echo "attempt $attempt of {{ $job.attempts }} failed; retrying in 30s"; sleep 30
@@ -74,6 +76,11 @@ spec:
             secretKeyRef:
               name: {{ $fullname }}-site-settings
               key: iam_services.json
+        - name: OAN_FARMER_REGISTRY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $fullname }}-site-settings
+              key: farmer_registry.json
         volumeMounts:
         - name: sites-dir
           mountPath: /home/frappe/frappe-bench/sites

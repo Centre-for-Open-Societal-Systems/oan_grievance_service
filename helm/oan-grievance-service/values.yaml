@@ -256,3 +256,11 @@ iamServices:
   # nor a default role. Someone who signs in with a national ID files grievances.
   default_roles:
   - Grievance Submitter
+
+# Farmer Registry fields of `Grievance Settings`, written by the same Job on every install and upgrade.
+# Keys are the DocType's field names; a key that is left out is not touched. Values are templates. Empty: the
+# fields stay as set on the desk, and the farmer search on the intake form stays off until both are set.
+# The register ID is the farmer register of the openg2p-farmer-registry chart (registerId).
+farmerRegistry:
+  farmer_registry_url: "https://staff-farmer.{{ .Values.global.baseDomain }}"
+  farmer_register_id: a1a4d25a-1cd4-4356-abac-985a0b3c6bcd
