@@ -12,6 +12,8 @@ from frappe import _
 
 IAM_SERVICE_DOCTYPE = "OAN IAM Service"
 IAM_SERVICES_ENV = "OAN_IAM_SERVICES"
+FARMER_REGISTRY_ENV = "OAN_FARMER_REGISTRY"
+SETTINGS_DOCTYPE = "Grievance Settings"
 
 
 def sync():
@@ -45,3 +47,23 @@ def sync():
 				)
 		doc.save(ignore_permissions=True)
 	print(f"{IAM_SERVICE_DOCTYPE}: {len(entries)} row(s) written")
+
+
+def sync_farmer_registry():
+	"""Set the `Grievance Settings` fields given as a JSON object in $OAN_FARMER_REGISTRY.
+
+	Keys are the DocType's field names; the fields it names are set and the others are left as they are.
+	"""
+	values = json.loads(os.environ.get(FARMER_REGISTRY_ENV) or "{}")
+	if not values:
+		return
+	meta = frappe.get_meta(SETTINGS_DOCTYPE)
+	for fieldname in values:
+		if not meta.has_field(fieldname):
+			frappe.throw(
+				_("{0}: {1} has no field `{2}`.").format(FARMER_REGISTRY_ENV, SETTINGS_DOCTYPE, fieldname)
+			)
+	settings = frappe.get_doc(SETTINGS_DOCTYPE)
+	settings.update(values)
+	settings.save(ignore_permissions=True)
+	print(f"{SETTINGS_DOCTYPE}: {', '.join(values)} written")
