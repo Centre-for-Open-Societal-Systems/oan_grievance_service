@@ -229,14 +229,30 @@ global:
 # `OAN IAM Service` rows (the login options) the site-settings Job writes into the DB on every install and
 # upgrade, matched by `key`. Entries use the DocType's field names; `default_roles` is a list of role
 # names. Values are templates, so hosts can follow global.baseDomain. Empty: no Job, and the rows the seed
-# loaded stay as they are. Example:
-#   iamServices:
-#   - key: staff
-#     label: Staff
-#     enabled: 1
-#     base_url: "https://staff-iam.{{ .Values.global.baseDomain }}"
+# loaded stay as they are. An environment that changes one entry repeats the whole list, as Helm replaces
+# lists. The same login options as A2C (oan_a2c helm/oan-a2c-service/values.yaml).
 siteSettingsJob:
   backoffLimit: 3
   ttlSecondsAfterFinished: 86400
   attempts: 20
-iamServices: []
+iamServices:
+- key: agent
+  label: Agent
+  enabled: 1
+  sort_order: 20
+  base_url: "https://staff-iam.{{ .Values.global.baseDomain }}"
+  provider_id: 1
+  issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
+  client_id: staff-portal
+  application: oan-client
+- key: beneficiary
+  label: National ID (eSignet)
+  enabled: 1
+  sort_order: 30
+  base_url: "https://bene-iam.{{ .Values.global.baseDomain }}"
+  provider_id: 11
+  issuer: "https://esignet.{{ .Values.global.baseDomain }}"
+  # eSignet tokens carry no client roles, and the DocType refuses a row with neither an application
+  # nor a default role. Someone who signs in with a national ID files grievances.
+  default_roles:
+  - Grievance Submitter
