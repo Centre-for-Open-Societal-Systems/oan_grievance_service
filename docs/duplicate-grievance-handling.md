@@ -32,7 +32,7 @@ read-only. Code: `services/duplicates.py`. Algorithm background: `GRIEVANCE_SIMI
      note. The ticket stays a normal one.
 
 The main ticket must be the same submitter's and still open or resolved (Submitted, Assigned,
-Reopened, In Progress, More Info Needed or Resolved): never Closed, Rejected or itself a duplicate,
+Reopened, In Progress, More Info Needed, Resolved or Partially Resolved): never Closed, Rejected or itself a duplicate,
 and never another farmer's, because the farmer is shown its number. The Grievance controller checks
 the same rule on every save. `dismiss` is refused on a ticket that is already a duplicate.
 
@@ -41,13 +41,13 @@ terminal and the Grievance controller refuses every save.
 
 ## Candidates
 
-| Rule      | Value                                                                                  |
-| --------- | -------------------------------------------------------------------------------------- |
-| Submitter | Same `submitter` profile. Anonymous grievances have none, so they are never flagged    |
-| Age       | Earlier tickets only, so the main ticket is always the older one                       |
-| Status    | Submitted, Assigned, Reopened, In Progress, More Info Needed, Resolved                 |
-| Window    | The prompt looks back 24 hours (`PROMPT_WINDOW_HOURS`). The officer flag has no window |
-| Pool      | The submitter's 200 most recent tickets                                                |
+| Rule      | Value                                                                                      |
+| --------- | ------------------------------------------------------------------------------------------ |
+| Submitter | Same `submitter` profile. Anonymous grievances have none, so they are never flagged        |
+| Age       | Earlier tickets only, so the main ticket is always the older one                           |
+| Status    | Submitted, Assigned, Reopened, In Progress, More Info Needed, Resolved, Partially Resolved |
+| Window    | The prompt looks back 24 hours (`PROMPT_WINDOW_HOURS`). The officer flag has no window     |
+| Pool      | The submitter's 200 most recent tickets                                                    |
 
 Submitted, Assigned and Reopened are candidates on purpose. A double submit is compared with a
 ticket that has barely been routed, and the specification's three statuses alone would miss it.

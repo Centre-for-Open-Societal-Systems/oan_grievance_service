@@ -751,7 +751,9 @@ def list_grievances(
 		if is_staff:
 			item["sla_due_date"] = held["sla_due_date"]
 		state_deadline = item.pop("state_deadline", None)
-		item["confirmation_deadline"] = state_deadline if item.get("status") == C.STATE_RESOLVED else None
+		item["confirmation_deadline"] = (
+			state_deadline if item.get("status") in C.AWAITING_CONFIRMATION_STATES else None
+		)
 
 		show_id = permissions.can_see_identity(item)
 		contact = identity.mask_contact(item, show_identity=show_id)
@@ -1794,9 +1796,9 @@ def timeline(
 				"sla_consumed_percent": sla.consumed_percent(doc),
 				"next_escalation_at": to_tz_aware_iso(doc.next_escalation_at),
 				# Kept under its old name for existing clients: the confirmation window is
-				# the Resolved state's timer.
+				# the timer of the Resolved and Partially Resolved states.
 				"confirmation_deadline": to_tz_aware_iso(doc.state_deadline)
-				if doc.workflow_state == C.STATE_RESOLVED
+				if doc.workflow_state in C.AWAITING_CONFIRMATION_STATES
 				else None,
 				"active_deferral_request": active_deferral_request,
 			},
@@ -2253,8 +2255,8 @@ def summary():
 	"""Counts of visible grievances on each queue status card.
 
 	The cards are All, Submitted, Reopened, In Progress, More Info Needed,
-	Rejected, Resolved and Closed. Officers also get an Assigned card. Any other workflow
-	state is counted under In Progress. Each card includes its display order and
+	Rejected, Resolved, Partially Resolved and Closed. Officers also get an Assigned card.
+	Any other workflow state is counted under In Progress. Each card includes its display order and
 	whether the workflow treats it as terminal (no per-card default).
 	"""
 	return success_response(

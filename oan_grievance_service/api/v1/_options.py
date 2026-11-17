@@ -250,6 +250,12 @@ _STATUS_CARDS = (
 		"officer_only": False,
 	},
 	{
+		"status": "Partially Resolved",
+		"label": "Partially Resolved",
+		"workflow_states": (C.STATE_PARTIALLY_RESOLVED,),
+		"officer_only": False,
+	},
+	{
 		"status": "Closed",
 		"label": "Closed",
 		"workflow_states": (C.STATE_CLOSED,),
@@ -280,6 +286,7 @@ _STATUS_ALIASES = {
 	"rejected": "Rejected",
 	"duplicates": "Duplicate",
 	"resolved": "Resolved",
+	"partially resolved": "Partially Resolved",
 	"closed": "Closed",
 }
 for _card in _STATUS_CARDS:

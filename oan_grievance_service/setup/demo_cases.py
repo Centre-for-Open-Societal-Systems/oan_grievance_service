@@ -897,7 +897,7 @@ def _act(doc, action, by, reason, entry_type, confirmed=False):
 
 def _auto_close(doc):
 	"""What `tasks.expire_state_timers` does when a state's timer runs out."""
-	if doc.workflow_state == C.STATE_RESOLVED:
+	if doc.workflow_state in C.AWAITING_CONFIRMATION_STATES:
 		reason = "Closed - resolution period elapsed without objection"
 		body = "Grievance auto-closed: resolution period elapsed without objection."
 	else:

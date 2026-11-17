@@ -87,7 +87,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Submitted\nAssigned\nReopened\nIn Progress\nMore Info Needed\nResolved\nClosed\nRejected\nDuplicate",
+   "options": "Submitted\nAssigned\nReopened\nIn Progress\nMore Info Needed\nResolved\nPartially Resolved\nClosed\nRejected\nDuplicate",
    "read_only": 1,
    "reqd": 1,
    "search_index": 1
@@ -433,7 +433,7 @@
    "permlevel": 1
   },
   {
-   "description": "When the case reached Resolved or Closed. Cleared if the case is reopened, and set again when it is next resolved.",
+   "description": "When the case reached Resolved, Partially Resolved or Closed. Cleared if the case is reopened, and set again when it is next resolved.",
    "fieldname": "resolved_at",
    "fieldtype": "Datetime",
    "label": "Resolved At",
@@ -448,7 +448,7 @@
    "label": "Closure and Feedback"
   },
   {
-   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved this is the closure window.",
+   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved and Partially Resolved this is the closure window.",
    "fieldname": "state_deadline",
    "fieldtype": "Datetime",
    "label": "State Deadline",

@@ -994,6 +994,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				"Duplicate",
 				"Rejected",
 				"Resolved",
+				"Partially Resolved",
 				"Closed",
 			],
 		)
@@ -1023,6 +1024,7 @@ class TestGrievanceStaffOptions(FrappeTestCase):
 				"Duplicate",
 				"Rejected",
 				"Resolved",
+				"Partially Resolved",
 				"Closed",
 			],
 		)

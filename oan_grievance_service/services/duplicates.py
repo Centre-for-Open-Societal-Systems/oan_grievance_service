@@ -50,6 +50,7 @@ CANDIDATE_STATES = (
 	C.STATE_IN_PROGRESS,
 	C.STATE_MORE_INFO_NEEDED,
 	C.STATE_RESOLVED,
+	C.STATE_PARTIALLY_RESOLVED,
 )
 
 # Starting values, the same as the defaults of the Duplicate Detection fields in Grievance

@@ -44,6 +44,15 @@ def history(grievance):
 	)
 
 
+def history_names(grievance):
+	return frappe.get_all(
+		"Grievance Status History",
+		filters={"grievance": grievance},
+		pluck="name",
+		order_by="timestamp asc, creation asc",
+	)
+
+
 def workflow():
 	return frappe.get_doc("Workflow", install.WORKFLOW_NAME)
 
@@ -115,7 +124,7 @@ class TestContractOneTheWorkflowIsTheOnlyTransitionTable(FrappeTestCase):
 
 	def test_a_reopen_exists_only_inside_the_confirmation_window(self):
 		reopens = {(row.state, row.next_state) for row in workflow().transitions if row.action == "Reopen"}
-		self.assertEqual(reopens, {("Resolved", "Reopened")})
+		self.assertEqual(reopens, {("Resolved", "Reopened"), ("Partially Resolved", "Reopened")})
 
 	def test_seeding_again_rebuilds_rather_than_duplicates(self):
 		before = {(r.state, r.action, r.next_state, r.allowed) for r in workflow().transitions}
@@ -202,11 +211,15 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 		self.assertTrue(sent)
 		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "state_deadline"))
 
-	def test_partially_resolved_does_the_same(self):
+	def test_partially_resolved_opens_the_same_window_but_is_not_resolved(self):
 		row, sent = self._respond("Partially Resolve")
-		self.assertEqual(self._state()["workflow_state"], "Resolved")
-		self.assertEqual(row.action, "Partially Resolve")
+		self.assertEqual(
+			self._state(), {"workflow_state": "Partially Resolved", "status": "Partially Resolved"}
+		)
+		self.assertEqual((row.to_status, row.action), ("Partially Resolved", "Partially Resolve"))
+		self.assertEqual((row.reason, row.notes), ("Looked into it.", "Summary."))
 		self.assertTrue(sent)
+		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "state_deadline"))
 
 	def test_referred_sends_the_case_back_to_assignment(self):
 		row, sent = self._respond("Refer Onward")
@@ -246,6 +259,141 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 		row = lifecycle.transition(doc, "Resolve", reason="Issue investigated and fixed.")
 		self.assertEqual(self._state()["workflow_state"], "Resolved")
 		self.assertEqual(row.to_status, "Resolved")
+
+
+class TestPartialResolutionIsNotResolution(WorkflowTestCase):
+	"""STG-505: a partial answer used to move the case to Resolved, so it was reported as resolved."""
+
+	def _partially_resolve(self):
+		self._at_in_progress()
+		lifecycle.transition(self._saved(), "Partially Resolve", reason="The subsidy part is paid.")
+		return self._saved()
+
+	def test_only_the_resolve_action_reaches_resolved(self):
+		into = {}
+		for row in workflow().transitions:
+			into.setdefault(row.next_state, set()).add(row.action)
+		self.assertEqual(into["Resolved"], {"Resolve"})
+		self.assertEqual(into["Partially Resolved"], {"Partially Resolve"})
+
+	def test_a_partial_answer_is_reported_as_partially_resolved_everywhere(self):
+		from oan_grievance_service.api.v1._options import public_status
+
+		doc = self._partially_resolve()
+		self.assertEqual((doc.workflow_state, doc.status), ("Partially Resolved", "Partially Resolved"))
+		self.assertEqual(public_status(doc.status), "Partially Resolved")
+		self.assertEqual(history(self.grievance.name)[-1].to_status, "Partially Resolved")
+
+	def test_a_full_answer_is_still_resolved(self):
+		self._at_pending_submitter()
+		self.assertEqual(self._state(), {"workflow_state": "Resolved", "status": "Resolved"})
+
+	def test_it_stops_the_clock_and_counts_with_the_resolved_group(self):
+		from oan_grievance_service.services import sla
+
+		self.assertEqual(sla.sla_category_of("Partially Resolved"), sla.STOPPED)
+		self.assertNotIn("Partially Resolved", sla.open_states())
+		self.assertIn(C.STATE_PARTIALLY_RESOLVED, C.RESOLVED_STATES)
+		self.assertIn(C.STATE_PARTIALLY_RESOLVED, C.AWAITING_CONFIRMATION_STATES)
+		self.assertNotIn(C.STATE_PARTIALLY_RESOLVED, (C.STATE_RESOLVED,))
+
+	def test_the_submitter_can_still_close_the_case(self):
+		from oan_grievance_service.api.v1 import grievance
+
+		self._partially_resolve()
+		res = grievance.action(
+			self.grievance.ticket_number or self.grievance.name,
+			action="Close Case",
+			reason="Good enough.",
+		)
+		self.assertEqual(res["status"], "success")
+		self.assertEqual(self._state(), {"workflow_state": "Closed", "status": "Closed"})
+
+	def test_the_action_endpoint_returns_the_new_status(self):
+		from oan_grievance_service.api.v1 import grievance
+
+		self._at_in_progress()
+		res = grievance.action(
+			self.grievance.ticket_number or self.grievance.name,
+			action="Partially Resolve",
+			action_taken="Paid the subsidy.",
+			resolution_summary="The input voucher is still pending.",
+		)
+		self.assertEqual(res["data"]["status"], "Partially Resolved")
+
+	def test_the_submitter_can_reopen_it_and_must_say_why(self):
+		self._partially_resolve()
+		with self.assertRaises(frappe.ValidationError):
+			lifecycle.transition(self._saved(), "Reopen")
+		self.assertEqual(self._state()["workflow_state"], "Partially Resolved")
+		lifecycle.transition(self._saved(), "Reopen", reason="The voucher never came.")
+		self.assertEqual(self._state()["workflow_state"], "Reopened")
+
+	def test_it_closes_by_itself_when_the_window_runs_out(self):
+		self._partially_resolve()
+		with patch("oan_grievance_service.services.notifications.queue") as queue:
+			lifecycle.transition(self._saved(), "Auto Close", reason="Window elapsed.", automated=True)
+		self.assertEqual(self._state()["workflow_state"], "Closed")
+		self.assertIn(C.EVENT_AUTO_CLOSED, [call.args[1] for call in queue.call_args_list])
+
+	def test_the_queue_has_its_own_card_and_filter(self):
+		from oan_grievance_service.api.v1._options import (
+			expand_status_filter,
+			get_status_summary,
+		)
+
+		self._partially_resolve()
+		cards = {card["status"]: card["count"] for card in get_status_summary()}
+		self.assertGreaterEqual(cards["Partially Resolved"], 1)
+		self.assertEqual(expand_status_filter(["Partially Resolved"]), ["Partially Resolved"])
+		self.assertEqual(expand_status_filter(["Resolved"]), ["Resolved"])
+		self.assertEqual(expand_status_filter(["partially_resolved"]), ["Partially Resolved"])
+
+	def test_feedback_is_accepted_on_a_partially_resolved_case(self):
+		self._partially_resolve()
+		feedback = frappe.get_doc(
+			{
+				"doctype": "Grievance Feedback",
+				"grievance": self.grievance.name,
+				"rating": 3,
+				"feedback_type": "Resolution",
+			}
+		)
+		feedback.validate()
+
+	def test_the_patch_moves_cases_left_in_resolved_by_a_partial_answer_only(self):
+		from oan_grievance_service.patches.add_partially_resolved_status import execute
+
+		# What the data looked like before: the partial answer had moved the case to Resolved.
+		partial = self._partially_resolve()
+		frappe.db.set_value(
+			"Grievance",
+			partial.name,
+			{"workflow_state": "Resolved", "status": "Resolved"},
+			update_modified=False,
+		)
+		frappe.db.set_value(
+			"Grievance Status History",
+			history_names(partial.name)[-1],
+			"to_status",
+			"Resolved",
+			update_modified=False,
+		)
+		full = a_grievance()
+		full.db_set("assigned_dept", a_department(), update_modified=False)
+		full.db_set("assigned_to", "Administrator", update_modified=False)
+		lifecycle.transition(full, "Assign")
+		lifecycle.transition(full, "Resolve", reason="All done.")
+
+		execute()
+
+		def state_of(name):
+			return frappe.db.get_value("Grievance", name, ["workflow_state", "status"], as_dict=True)
+
+		self.assertEqual(
+			state_of(partial.name), {"workflow_state": "Partially Resolved", "status": "Partially Resolved"}
+		)
+		self.assertEqual(state_of(full.name), {"workflow_state": "Resolved", "status": "Resolved"})
 
 
 class TestContractThreeAReasonIsDemandedByTheHistoryRow(WorkflowTestCase):

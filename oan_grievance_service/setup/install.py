@@ -46,7 +46,8 @@ ROLES = [
 # Grievance is not a submittable doctype: a case is filed the moment it is inserted,
 # straight into Submitted, and every state is docstatus 0. Closed and Rejected have
 # no outbound transition, which is what makes them terminal (the Grievance
-# controller refuses edits there); a reopen happens from Resolved, and nowhere else.
+# controller refuses edits there); a reopen happens from Resolved or Partially Resolved,
+# and nowhere else.
 WORKFLOW_NAME = "Grievance Workflow"
 
 # (state, style, SLA category). Order matters: Frappe treats the first row
@@ -62,6 +63,7 @@ WORKFLOW_STATES = [
 	(C.STATE_IN_PROGRESS, "Primary", "Running"),
 	(C.STATE_MORE_INFO_NEEDED, "Warning", "Paused"),
 	(C.STATE_RESOLVED, "Success", "Stopped"),
+	(C.STATE_PARTIALLY_RESOLVED, "Warning", "Stopped"),
 	(C.STATE_CLOSED, "Success", "Stopped"),
 	(C.STATE_REJECTED, "Danger", "Stopped"),
 	(C.STATE_DUPLICATE, "Inverse", "Stopped"),
@@ -78,17 +80,17 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_PARTIALLY_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	# A reopened case waits for an officer exactly as an assigned one does.
 	(C.STATE_REOPENED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_REOPENED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_REOPENED, "Partially Resolve", C.STATE_PARTIALLY_RESOLVED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
+	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_PARTIALLY_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
@@ -104,6 +106,10 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_RESOLVED, "Reopen", C.STATE_REOPENED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
 	(C.STATE_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
+	# A partial answer leaves the submitter the same three choices a full one does.
+	(C.STATE_PARTIALLY_RESOLVED, "Reopen", C.STATE_REOPENED, SUBMITTER_ROLES),
+	(C.STATE_PARTIALLY_RESOLVED, "Close Case", C.STATE_CLOSED, SUBMITTER_ROLES),
+	(C.STATE_PARTIALLY_RESOLVED, "Auto Close", C.STATE_CLOSED, SYSTEM_ROLES),
 ]
 
 ORG_WORKFLOW_NAME = "Organization Workflow"

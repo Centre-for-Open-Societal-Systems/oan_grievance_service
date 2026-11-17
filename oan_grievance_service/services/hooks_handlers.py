@@ -24,8 +24,8 @@ def after_workflow_action(doc, from_state):
 	to_state = doc.workflow_state
 
 	# A desk button arrives with no context; the Workflow still knows which
-	# action joins the two states, so the trail names it -- unless several do
-	# (Resolve and Partially Resolve), where guessing would record the wrong one.
+	# action joins the two states, so the trail names it -- unless several do, where
+	# guessing would record the wrong one.
 	if not context.action:
 		joining = {
 			row.action
@@ -68,11 +68,11 @@ def after_workflow_action(doc, from_state):
 			notifications.queue(doc, C.EVENT_REOPENED)
 		elif to_state == C.STATE_MORE_INFO_NEEDED:
 			notifications.queue(doc, C.EVENT_MORE_INFO_REQUESTED)
-		elif to_state == C.STATE_RESOLVED:
-			# Asks the submitter to confirm the resolution or reopen within the window.
+		elif to_state in C.AWAITING_CONFIRMATION_STATES:
+			# Asks the submitter to confirm the response or reopen within the window.
 			notifications.queue(doc, C.EVENT_RESPONSE_SENT)
 		elif to_state == C.STATE_CLOSED:
-			if from_state == C.STATE_RESOLVED and context.get("action") == "Auto Close":
+			if from_state in C.AWAITING_CONFIRMATION_STATES and context.get("action") == "Auto Close":
 				notifications.queue(doc, C.EVENT_AUTO_CLOSED)
 			elif context.get("confirmed"):
 				notifications.queue(doc, C.EVENT_CONFIRMED)

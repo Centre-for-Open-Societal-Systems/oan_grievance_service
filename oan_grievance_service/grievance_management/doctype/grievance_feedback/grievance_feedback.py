@@ -27,10 +27,10 @@ class GrievanceFeedback(Document):
 			frappe.throw(_("Grievance is required."), frappe.ValidationError)
 
 		grievance = frappe.get_doc("Grievance", self.grievance)
-		allowed_states = (C.STATE_RESOLVED, C.STATE_CLOSED)
+		allowed_states = C.RESOLVED_STATES
 		if grievance.workflow_state not in allowed_states and grievance.status not in allowed_states:
 			frappe.throw(
-				_("Feedback can only be submitted for grievances in Resolved or Closed status."),
+				_("Feedback can only be submitted for a grievance that is resolved or closed."),
 				frappe.ValidationError,
 			)
 

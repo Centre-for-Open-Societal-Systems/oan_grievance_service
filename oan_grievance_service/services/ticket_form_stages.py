@@ -400,8 +400,8 @@ def _closure(s):
 					(_("Reopened"), last == ACTION_REOPEN),
 				],
 			),
-			# The boxes have none for Rejected, Duplicate or In Progress, so the plain status is
-			# kept for the data.
+			# The boxes have none for Rejected, Duplicate, Partially Resolved or In Progress, so the
+			# plain status is kept for the data.
 			_field(_("Current Status"), doc.status, pdf=False),
 			_field(_("Closure Date"), _when(closing.timestamp) if closing else ""),
 			_field(_("Closure Remarks"), _closure_remarks(doc, closing)),

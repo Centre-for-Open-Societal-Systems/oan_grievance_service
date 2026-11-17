@@ -205,7 +205,7 @@ def expire_state_timers():
 				sla.escalate(grievance, reason=f"No action while {state}")
 				continue
 
-			if state == C.STATE_RESOLVED:
+			if state in C.AWAITING_CONFIRMATION_STATES:
 				reason = "Closed - resolution period elapsed without objection"
 				body = "Grievance auto-closed: resolution period elapsed without objection."
 			elif state == C.STATE_MORE_INFO_NEEDED:

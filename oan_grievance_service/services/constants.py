@@ -25,6 +25,10 @@ STATE_REOPENED = "Reopened"
 STATE_IN_PROGRESS = "In Progress"
 STATE_MORE_INFO_NEEDED = "More Info Needed"
 STATE_RESOLVED = "Resolved"
+# Where the Partially Resolve action lands: an officer answered part of the grievance and the
+# rest stays open. It waits on the submitter exactly as Resolved does (reopen, close or auto-close),
+# but it is never reported as Resolved.
+STATE_PARTIALLY_RESOLVED = "Partially Resolved"
 STATE_CLOSED = "Closed"
 STATE_REJECTED = "Rejected"
 # An officer-confirmed copy of another ticket. Terminal and read-only: the main ticket is where
@@ -40,10 +44,15 @@ ORG_STATUS_SUSPENDED = "Suspended"
 ORG_TYPES = ("NGO", "FPO", "Cooperative")
 
 
-# The group the dashboards count as resolved: Resolved or Closed. The open and
-# awaiting-action groups are not listed here; sla.open_states() and
-# sla.awaiting_action_states() read them from the Grievance Workflow.
-RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
+# The states in which an officer has given the submitter an answer and the submitter decides
+# what happens next: confirm and close it, reopen it, or let the confirmation window run out.
+AWAITING_CONFIRMATION_STATES = (STATE_RESOLVED, STATE_PARTIALLY_RESOLVED)
+
+# The group the dashboards count as resolved: Resolved, Partially Resolved or Closed. A partial
+# answer stops the SLA clock and counts as the officer's response, as it did when it shared the
+# Resolved state. The open and awaiting-action groups are not listed here; sla.open_states()
+# and sla.awaiting_action_states() read them from the Grievance Workflow.
+RESOLVED_STATES = (*AWAITING_CONFIRMATION_STATES, STATE_CLOSED)
 
 # How long a client may reuse an answer from a reference-data endpoint.
 REFERENCE_CACHE_SECONDS = 300
@@ -109,6 +118,7 @@ DEFAULT_SLA_DAYS = 7
 # State timers every new SLA Configuration starts with: (state, hours, on_expiry).
 DEFAULT_STATE_TIMERS = (
 	(STATE_RESOLVED, 7 * 24, "Auto Close"),
+	(STATE_PARTIALLY_RESOLVED, 7 * 24, "Auto Close"),
 	(STATE_MORE_INFO_NEEDED, 7 * 24, "Auto Close"),
 )
 # Reminder thresholds as a percentage of the SLA window.
