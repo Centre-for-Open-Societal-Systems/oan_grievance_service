@@ -24,7 +24,8 @@
   "notification",
   "col_transport",
   "communication",
-  "sms_log"
+  "sms_log",
+  "oan_message"
  ],
  "fields": [
   {
@@ -83,7 +84,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Queued\nSent\nFailed",
+   "options": "Queued\nQueued with OAN\nSent\nFailed",
    "reqd": 1,
    "search_index": 1
   },
@@ -147,12 +148,20 @@
    "label": "SMS Log",
    "options": "SMS Log",
    "read_only": 1
+  },
+  {
+   "fieldname": "oan_message",
+   "fieldtype": "Link",
+   "label": "OAN Message",
+   "options": "OAN Message",
+   "read_only": 1,
+   "description": "The OAN Messaging outbox row for this SMS: its Desk status and OAN status show whether it was sent and delivered."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-10 17:00:00.000000",
+ "modified": "2026-11-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Notification",
  "name": "Grievance Notification Log",

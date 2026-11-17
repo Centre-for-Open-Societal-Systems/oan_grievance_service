@@ -446,6 +446,10 @@ class TestSmsFailsClosed(NotificationCase):
 		super().setUp()
 		if frappe.get_hooks("send_sms"):
 			self.skipTest("a send_sms hook owns delivery here; core's SMS Log is bypassed")
+		# These cover Frappe's own sender, used when OAN Messaging is not configured.
+		oan = mock.patch.object(notifications, "_oan_enabled", return_value=False)
+		oan.start()
+		self.addCleanup(oan.stop)
 		self._gateway_was = frappe.db.get_single_value("SMS Settings", "sms_gateway_url")
 		self.addCleanup(self._set_gateway, self._gateway_was)
 		self._real_send = notifications._send_sms
@@ -599,3 +603,72 @@ class TestNotificationTranslatability(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		self.addCleanup(frappe.delete_doc, "Notification", doc.name, force=True)
 		self.assertTrue(doc.name)
+
+
+class TestSmsThroughOan(NotificationCase):
+	"""With OAN Messaging configured, an SMS row is handed to the connector's outbox.
+
+	The row reads "Queued with OAN" (never "Sent" on hand-over) and links the OAN Message,
+	whose own status shows whether the SMS was sent and delivered. The connector's tests
+	cover sending and polling; nothing leaves this test.
+	"""
+
+	def setUp(self):
+		super().setUp()
+		keys = ("oan_messaging_enabled", "oan_messaging_base_url", "oan_messaging_token")
+		conf = {k: frappe.conf.get(k) for k in keys}
+		self.addCleanup(lambda: [frappe.conf.__setitem__(k, v) for k, v in conf.items()])
+		frappe.conf.oan_messaging_enabled = 1
+		frappe.conf.oan_messaging_base_url = "https://oan-messaging.example.invalid"
+		frappe.conf.oan_messaging_token = "oanmsg_" + "t" * 43
+		enqueue = mock.patch.object(frappe, "enqueue")  # no dispatch job from the test
+		enqueue.start()
+		self.addCleanup(enqueue.stop)
+		self._make_notification(notifications.RECIPIENT_DEPARTMENT_HEAD, channel="SMS")
+
+	def test_sms_row_is_queued_with_oan_and_linked(self):
+		notifications.queue(self.grievance, EVENT)
+		notifications.dispatch_queued(grievance=self.grievance.name)
+
+		row = frappe.get_doc("Grievance Notification Log", self._rows()[0].name)
+		self.assertEqual(row.status, notifications.STATUS_QUEUED_WITH_OAN)
+		message = frappe.get_doc("OAN Message", row.oan_message)
+		self.assertEqual((message.recipient, message.purpose), ("+251900000001", "transactional"))
+		self.assertEqual(message.source_reference, f"grievance:{self.grievance.name}:{EVENT}")
+		self.assertEqual((message.reference_doctype, message.reference_name), (row.doctype, row.name))
+		self.assertEqual(message.event, EVENT)
+		self.assertEqual(message.text, row.message)
+
+	def test_a_message_oan_cannot_queue_fails_the_row(self):
+		notifications.queue(self.grievance, EVENT)
+		frappe.db.set_value(
+			"Grievance Notification Log", self._rows()[0].name, "message", "x" * 200
+		)  # longer than one SMS part
+		notifications.dispatch_queued(grievance=self.grievance.name)
+
+		row = self._rows()[0]
+		self.assertEqual(row.status, "Failed")
+		self.assertFalse(frappe.db.get_value("Grievance Notification Log", row.name, "oan_message"))
+
+	def test_frappes_sender_is_not_used(self):
+		with mock.patch.object(notifications, "_send_sms") as core:
+			notifications.queue(self.grievance, EVENT)
+			notifications.dispatch_queued(grievance=self.grievance.name)
+		core.assert_not_called()
+
+	def test_ticket_form_counts_sms_handed_to_oan(self):
+		from oan_grievance_service.services import ticket_form
+
+		notifications.queue(self.grievance, EVENT)
+		notifications.dispatch_queued(grievance=self.grievance.name)
+		frappe.set_user("Administrator")
+		self.assertIn("SMS", ticket_form._Source(self.grievance).channels)
+
+	def test_a_number_oan_does_not_accept_fails_the_row(self):
+		mobile = frappe.db.get_value("User", self.head, "mobile_no")
+		self.addCleanup(frappe.db.set_value, "User", self.head, "mobile_no", mobile)
+		frappe.db.set_value("User", self.head, "mobile_no", "12345")
+		notifications.queue(self.grievance, EVENT)
+		notifications.dispatch_queued(grievance=self.grievance.name)
+		row = self._rows()[0]
+		self.assertEqual(row.status, "Failed")

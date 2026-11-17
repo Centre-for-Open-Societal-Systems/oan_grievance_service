@@ -162,7 +162,7 @@ class _Source:
 		if self.staff:
 			self.channels = _read(
 				"Grievance Notification Log",
-				filters={"grievance": doc.name, "status": "Sent"},
+				filters={"grievance": doc.name, "status": ["in", ["Sent", "Queued with OAN"]]},
 				pluck="channel",
 				order_by="sent_at asc, name asc",
 			)

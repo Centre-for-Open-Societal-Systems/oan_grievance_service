@@ -8,7 +8,7 @@ app_license = "mit"
 # Apps
 # ------------------
 
-required_apps = ["oan_auth_service"]
+required_apps = ["oan_auth_service", "oan_messaging_connector"]
 
 add_to_apps_screen = [
 	{
