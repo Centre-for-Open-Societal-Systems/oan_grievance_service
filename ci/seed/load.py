@@ -16,6 +16,7 @@ import shutil
 import sys
 
 import frappe
+from frappe.model import default_fields
 from frappe.utils.password import update_password
 
 # These change the schema or cached metadata when saved, so they go through their controllers.
@@ -53,14 +54,35 @@ ALTERNATE_KEYS = {
 }
 
 
-def exists_under_another_name(doctype, row):
+# The seed name of a row that was skipped, to the name of the record already on the site, per doctype.
+# Rows loaded later that link to the skipped one are pointed at the real record, since db_insert does not
+# check links and would otherwise leave them pointing at nothing.
+RENAMED = {}
+
+# Ticket codes are upper case. The controllers enforce that, and the loader does not run them.
+CODE_FIELDS = {"Grievance Service Category": "code", "Grievance Type": "type_code"}
+
+
+def existing_under_another_name(doctype, row):
+	"""The name of the record that already holds one of the row's alternate keys, if any."""
 	for fields in ALTERNATE_KEYS.get(doctype, []):
 		filters = {field: row.get(field) for field in fields}
 		if any(value in (None, "") for value in filters.values()):
 			continue
-		if frappe.db.exists(doctype, filters):
-			return True
-	return False
+		name = frappe.db.exists(doctype, filters)
+		if name:
+			return name
+	return None
+
+
+def exists_under_another_name(doctype, row):
+	return bool(existing_under_another_name(doctype, row))
+
+
+def clean_code(doctype, row):
+	field = CODE_FIELDS.get(doctype)
+	if field and row.get(field) is not None:
+		row[field] = str(row[field]).strip().upper() or None
 
 
 def normalize(row, doctype):
@@ -69,6 +91,11 @@ def normalize(row, doctype):
 		value = row.get(field.fieldname)
 		if field.fieldtype in TYPED_FIELDS and value == "":
 			row[field.fieldname] = None
+		elif field.fieldtype == "Data" and field.unique and value == "":
+			# Two rows with '' would collide on the unique index, where NULLs do not.
+			row[field.fieldname] = None
+		elif field.fieldtype == "Link" and value in RENAMED.get(field.options, {}):
+			row[field.fieldname] = RENAMED[field.options][value]
 		elif field.fieldtype in ("Table", "Table MultiSelect") and value:
 			for child in value:
 				normalize(child, field.options)
@@ -91,7 +118,10 @@ def load_doctype(doctype, rows, password):
 		name = row["name"]
 		if frappe.db.exists(doctype, name):
 			continue
-		if exists_under_another_name(doctype, row):
+		clean_code(doctype, row)
+		existing = existing_under_another_name(doctype, row)
+		if existing:
+			RENAMED.setdefault(doctype, {})[name] = existing
 			skipped += 1
 			continue
 		frappe.db.savepoint("seed_row")
@@ -132,6 +162,36 @@ def copy_files(seed):
 					shutil.copyfile(os.path.join(root, name), path)
 
 
+# Doctypes whose seed rows need fields that a build of the app may not have yet. Checked as a whole before
+# anything loads. Other doctypes are not: their exports carry fields of other branches that a site may lack
+# without harm.
+PREFLIGHT_DOCTYPES = ("Grievance Type",)
+
+
+def preflight(seed, manifest):
+	"""Refuse to load anything when the data holds a field this build of the site does not have.
+
+	A seed ahead of the app would otherwise fail row by row after the earlier doctypes were committed,
+	leaving a half-loaded site and a failed deploy.
+	"""
+	missing = {}
+	for doctype in PREFLIGHT_DOCTYPES:
+		if doctype not in manifest["files"] or not frappe.db.exists("DocType", doctype):
+			continue
+		with open(os.path.join(seed, "data", manifest["files"][doctype])) as f:  # nosemgrep
+			rows = json.load(f)
+		known = {field.fieldname for field in frappe.get_meta(doctype).fields} | set(default_fields)
+		unknown = {key for row in rows for key in row} - known - {"doctype"}
+		if unknown:
+			missing[doctype] = sorted(unknown)
+	if missing:
+		detail = "; ".join(f"{doctype}: {', '.join(keys)}" for doctype, keys in missing.items())
+		sys.exit(
+			f"Seed data has fields this site lacks ({detail}). "
+			"Deploy the app version that adds them, run bench migrate, then load again."
+		)
+
+
 def main(site, seed):
 	frappe.init(site=site, sites_path=".")
 	frappe.connect()
@@ -141,6 +201,7 @@ def main(site, seed):
 	password = os.environ.get("SEED_USER_PASSWORD")
 	with open(os.path.join(seed, "manifest.json")) as f:  # nosemgrep
 		manifest = json.load(f)
+	preflight(seed, manifest)
 	copy_files(seed)
 	failed = 0
 	for doctype in manifest["order"]:

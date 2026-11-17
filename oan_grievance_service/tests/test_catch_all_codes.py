@@ -11,7 +11,8 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.patches import seed_catch_all_sys_codes
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.setup.install import seed_unrouted_desk
+from oan_grievance_service.setup.install import seed_grievance_types, seed_unrouted_desk
+from oan_grievance_service.tests.fixtures import a_department
 
 
 def _loader():
@@ -79,14 +80,13 @@ class TestCatchAllCodes(FrappeTestCase):
 		self.assertEqual((kind.type_code, kind.department), (C.FALLBACK_TYPE_CODE, C.UNROUTED_DEPARTMENT))
 
 	def test_patch_runs_twice_and_keeps_admin_choices(self):
-		frappe.db.set_value(
-			"Grievance Type", self.type_name, "department", "Test Department 512"
-		)  # not linked
+		own = a_department()
+		frappe.db.set_value("Grievance Type", self.type_name, "department", own)
 		with _tickets_issued(False):
 			seed_catch_all_sys_codes.execute()
 			seed_catch_all_sys_codes.execute()
 		kind = self._type()
-		self.assertEqual(kind.department, "Test Department 512")
+		self.assertEqual(kind.department, own)
 		self.assertEqual(kind.type_code, C.FALLBACK_TYPE_CODE)
 
 	def test_loader_does_not_add_a_second_other_type(self):
@@ -106,6 +106,84 @@ class TestCatchAllCodes(FrappeTestCase):
 			load.load_doctype("Grievance Type", [dict(row)], None)
 		after = frappe.db.count("Grievance Type", {"type_name": "Other", "service_category": self.category})
 		self.assertEqual(before, after)
+
+	def test_a_later_seed_run_gives_the_catch_all_its_desk(self):
+		# Made before the desk existed: nothing but a later run can repair it.
+		self.assertIsNone(self._type().department)
+		seed_grievance_types()
+		kind = self._type()
+		self.assertEqual((kind.type_code, kind.department), (C.FALLBACK_TYPE_CODE, C.UNROUTED_DEPARTMENT))
+		own = a_department()
+		frappe.db.set_value("Grievance Type", self.type_name, "department", own)
+		seed_grievance_types()
+		self.assertEqual(self._type().department, own, "an administrator's desk stays")
+
+	def test_rows_that_link_to_a_skipped_row_point_at_the_real_record(self):
+		load = _loader()
+		with mock.patch.object(frappe.db, "commit"):
+			load.load_doctype(
+				"Grievance Type",
+				[
+					{
+						"name": "SYS",
+						"type_code": "SYS",
+						"type_name": C.FALLBACK_GRIEVANCE_TYPE,
+						"service_category": self.category,
+						"is_active": 1,
+					}
+				],
+				None,
+			)
+			load.load_doctype(
+				"Grievance RBAC Assignment",
+				[
+					{
+						"name": "GR-RBAC-STG512",
+						"category_scope": self.category,
+						"department_scope": C.UNROUTED_DEPARTMENT,
+						"grievance_type_scope": "SYS",
+						"active": 1,
+						"effective_from": "2026-11-17",
+						"officers": [],
+					}
+				],
+				None,
+			)
+		scope = frappe.db.get_value("Grievance RBAC Assignment", "GR-RBAC-STG512", "grievance_type_scope")
+		self.assertEqual(scope, self.type_name)
+
+	def test_loader_stores_blank_codes_as_null_and_upper_cases_the_rest(self):
+		load = _loader()
+		rows = [
+			{
+				"name": f"ZZ-{n}",
+				"type_code": code,
+				"type_name": f"STG512 {n}",
+				"service_category": self.category,
+				"is_active": 1,
+			}
+			for n, code in ((1, ""), (2, ""), (3, "zz-3"))
+		]
+		with mock.patch.object(frappe.db, "commit"):
+			load.load_doctype("Grievance Type", rows, None)
+		codes = [frappe.db.get_value("Grievance Type", f"ZZ-{n}", "type_code") for n in (1, 2, 3)]
+		self.assertEqual(codes, [None, None, "ZZ-3"])
+
+	def test_preflight_stops_a_seed_that_is_ahead_of_the_app(self):
+		load = _loader()
+		seed = os.path.join(os.path.dirname(frappe.get_app_path("oan_grievance_service")), "ci", "seed", "_t")
+		os.makedirs(os.path.join(seed, "data"), exist_ok=True)
+		with open(os.path.join(seed, "data", "Grievance_Type.json"), "w") as f:
+			f.write('[{"name": "X", "type_name": "X", "service_category": "Other", "no_such_field": 1}]')
+		try:
+			manifest = {"files": {"Grievance Type": "Grievance_Type.json"}}
+			with self.assertRaises(SystemExit) as caught:
+				load.preflight(seed, manifest)
+			self.assertIn("no_such_field", str(caught.exception))
+		finally:
+			os.remove(os.path.join(seed, "data", "Grievance_Type.json"))
+			os.rmdir(os.path.join(seed, "data"))
+			os.rmdir(seed)
 
 	def test_loader_skips_by_name_or_code_when_the_type_has_no_code_yet(self):
 		load = _loader()

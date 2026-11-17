@@ -7,9 +7,11 @@ notification matrix.
 
 import gzip
 import json
+import logging
 import os
 
 import frappe
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
@@ -671,18 +673,49 @@ def seed_grievance_types():
 	for name, category in GRIEVANCE_TYPES:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
-		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
+		existing = frappe.db.get_value(
+			"Grievance Type", {"type_name": name, "service_category": category}, "name"
+		)
+		if existing:
+			if is_catch_all:
+				# Not just on creation: a type made before the code and the desk existed gets them on a later run.
+				complete_catch_all_type(existing)
 			continue
 		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
-		set_name = None
-		if name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY:
-			# The catch-all is keyed on its code like every other type, and it routes to the triage desk.
-			row["type_code"] = set_name = C.FALLBACK_TYPE_CODE
-			if frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
-				row["department"] = C.UNROUTED_DEPARTMENT
-		frappe.get_doc(row).insert(ignore_permissions=True, set_name=set_name)
+		if is_catch_all:
+			# The catch-all is keyed on its code like every other type.
+			row["type_code"] = C.FALLBACK_TYPE_CODE
+		doc = frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
+		if is_catch_all:
+			complete_catch_all_type(doc.name)
 		made.append(name)
 	return made
+
+
+def complete_catch_all_type(name: str) -> None:
+	"""Give the catch-all type its code and its triage desk, whichever is missing.
+
+	An administrator's choice stays: a department already set is not replaced.
+	"""
+	doc = frappe.get_doc("Grievance Type", name)
+	changed = False
+	if not doc.type_code and not frappe.db.exists("Grievance Type", {"type_code": C.FALLBACK_TYPE_CODE}):
+		doc.type_code = C.FALLBACK_TYPE_CODE
+		changed = True
+	if not doc.department:
+		if frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
+			doc.department = C.UNROUTED_DEPARTMENT
+			changed = True
+		else:
+			oplog.emit(
+				"taxonomy.catch_all_without_department",
+				level=logging.WARNING,
+				grievance_type=name,
+				department=C.UNROUTED_DEPARTMENT,
+			)
+	if changed:
+		doc.save(ignore_permissions=True)
 
 
 def seed_administrative_areas():

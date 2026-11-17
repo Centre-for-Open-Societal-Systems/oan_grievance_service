@@ -8,13 +8,16 @@ Seeding skips what exists, so a site installed earlier would keep the old `006` 
 type with no code and no department. That also lets the seed data add a second Other type, because
 the loader cannot tell it from the one already there.
 
-The category code is changed only while no ticket has been issued under it: a code that has appeared
-in a ticket number is frozen, so such a site keeps `006` and only the type is updated.
+Both records are saved through their controllers, which refuse what must not change. The category
+keeps `006` once any ticket carries it, because a code that has appeared in a ticket number is frozen.
+The type does not take part in the ticket number, so it is updated either way.
 """
 
 import frappe
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.setup.install import complete_catch_all_type
 
 OLD_SORT_ORDER = 6
 NEW_SORT_ORDER = 20
@@ -24,42 +27,30 @@ def execute():
 	category = C.FALLBACK_SERVICE_CATEGORY
 	if not frappe.db.exists("Grievance Service Category", category):
 		return
-	fix_category(category)
-	fix_type(category)
-
-
-def fix_category(category: str) -> None:
-	values = frappe.db.get_value("Grievance Service Category", category, ["code", "sort_order"], as_dict=True)
-	if values.code == C.FALLBACK_CATEGORY_CODE:
-		return
-	issued = frappe.db.exists("Grievance", {"service_category": category, "ticket_number": ["is", "set"]})
-	taken = frappe.db.exists(
-		"Grievance Service Category", {"code": C.FALLBACK_CATEGORY_CODE, "name": ["!=", category]}
-	)
-	if issued or taken:
-		frappe.logger("patches").info(
-			f"Service category '{category}' keeps code {values.code}: it is in use or the code is taken."
-		)
-		return
-	changes = {"code": C.FALLBACK_CATEGORY_CODE}
-	if values.sort_order == OLD_SORT_ORDER:
-		changes["sort_order"] = NEW_SORT_ORDER
-	frappe.db.set_value("Grievance Service Category", category, changes, update_modified=False)
-
-
-def fix_type(category: str) -> None:
-	name = frappe.db.get_value(
+	move_category(category)
+	type_name = frappe.db.get_value(
 		"Grievance Type", {"type_name": C.FALLBACK_GRIEVANCE_TYPE, "service_category": category}, "name"
 	)
-	if not name:
+	if type_name:
+		complete_catch_all_type(type_name)
+
+
+def move_category(category: str) -> None:
+	doc = frappe.get_doc("Grievance Service Category", category)
+	if doc.code == C.FALLBACK_CATEGORY_CODE:
 		return
-	values = frappe.db.get_value("Grievance Type", name, ["type_code", "department"], as_dict=True)
-	changes = {}
-	if not values.type_code and not frappe.db.exists(
-		"Grievance Type", {"type_code": C.FALLBACK_TYPE_CODE, "name": ["!=", name]}
-	):
-		changes["type_code"] = C.FALLBACK_TYPE_CODE
-	if not values.department and frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
-		changes["department"] = C.UNROUTED_DEPARTMENT
-	if changes:
-		frappe.db.set_value("Grievance Type", name, changes, update_modified=False)
+	old_code = doc.code
+	doc.code = C.FALLBACK_CATEGORY_CODE
+	if doc.sort_order == OLD_SORT_ORDER:
+		doc.sort_order = NEW_SORT_ORDER
+	try:
+		doc.save(ignore_permissions=True)
+	except (frappe.ValidationError, frappe.DuplicateEntryError) as error:
+		# In use, or the code is taken. A patch must not stop the migration over it.
+		frappe.clear_messages()
+		oplog.emit(
+			"taxonomy.catch_all_code_kept",
+			service_category=category,
+			code=old_code,
+			reason=str(error)[:200],
+		)

@@ -288,13 +288,13 @@ To bring a category back, use `PATCH` with `{ "is_active": true }`.
 
 Ordered by category, then name. Returns active and inactive unless filtered.
 
-| Query              | Type    | Required | Default | Notes                                                      |
-| :----------------- | :------ | :------- | :------ | :--------------------------------------------------------- |
-| `service_category` | string  | no       | all     | Category name or ticket code. Unknown category returns 400 |
-| `is_active`        | boolean | no       | both    | `true`/`false`                                             |
-| `search`           | string  | no       |         | Text contained in the type name, case-insensitive          |
-| `page`             | integer | no       | 1       | 1 or more                                                  |
-| `page_size`        | integer | no       | 20      | 1 to 100                                                   |
+| Query              | Type    | Required | Default | Notes                                                          |
+| :----------------- | :------ | :------- | :------ | :------------------------------------------------------------- |
+| `service_category` | string  | no       | all     | Category name or ticket code. Unknown category returns 400     |
+| `is_active`        | boolean | no       | both    | `true`/`false`                                                 |
+| `search`           | string  | no       |         | Text contained in the type name or type code, case-insensitive |
+| `page`             | integer | no       | 1       | 1 or more                                                      |
+| `page_size`        | integer | no       | 20      | 1 to 100                                                       |
 
 ```
 GET /api/v1/grievance-types?service_category=Infrastructure&is_active=true
@@ -313,7 +313,13 @@ Response `200`:
         "type_name": "Road access blocked",
         "service_category": "Infrastructure",
         "is_active": true,
-        "has_grievances": false
+        "has_grievances": false,
+        "type_code": null,
+        "department": null,
+        "sla_l1_days": 0,
+        "sla_l2_days": 0,
+        "external_referral": null,
+        "resolution_path": null
       }
     ],
     "pagination": {
@@ -334,11 +340,17 @@ Response `200`:
 
 `POST /api/v1/grievance-types`
 
-| Body field         | Type    | Required | Default | Notes                                                   |
-| :----------------- | :------ | :------- | :------ | :------------------------------------------------------ |
-| `service_category` | string  | yes      |         | Parent category, by name or ticket code. Must be active |
-| `type_name`        | string  | yes      |         | Up to 140 characters. Unique within the category        |
-| `is_active`        | boolean | no       | `true`  |                                                         |
+| Body field          | Type    | Required | Default | Notes                                                                            |
+| :------------------ | :------ | :------- | :------ | :------------------------------------------------------------------------------- |
+| `service_category`  | string  | yes      |         | Parent category, by name or ticket code. Must be active                          |
+| `type_name`         | string  | yes      |         | Up to 140 characters. Unique within the category                                 |
+| `is_active`         | boolean | no       | `true`  |                                                                                  |
+| `type_code`         | string  | no       |         | Up to 16 characters, stored upper case. Unique. **Administrator only** (see 5.6) |
+| `department`        | string  | no       |         | Owning department. Must exist. **Administrator only**                            |
+| `sla_l1_days`       | integer | no       | `0`     | Default working days at Kebele, 0 or more. **Administrator only**                |
+| `sla_l2_days`       | integer | no       | `0`     | Default working days at Woreda, 0 or more. **Administrator only**                |
+| `external_referral` | string  | no       |         | Who a case is referred to outside OAN. **Administrator only**                    |
+| `resolution_path`   | integer | no       |         | Routing path 1 to 5 (see 5.6). **Administrator only**                            |
 
 ```json
 { "service_category": "Infrastructure", "type_name": "Road access blocked" }
@@ -356,7 +368,13 @@ Response `200`: `data.grievance_type` is the record.
       "type_name": "Road access blocked",
       "service_category": "Infrastructure",
       "is_active": true,
-      "has_grievances": false
+      "has_grievances": false,
+      "type_code": null,
+      "department": null,
+      "sla_l1_days": 0,
+      "sla_l2_days": 0,
+      "external_referral": null,
+      "resolution_path": null
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -364,7 +382,7 @@ Response `200`: `data.grievance_type` is the record.
 }
 ```
 
-Errors: `409` when the name already exists in that category; `400` when the category does not exist or is inactive, or a field is missing or blank.
+Errors: `409` when the name already exists in that category or the type code is already used; `403` when a category head sends any of the six fields above; `400` when the category does not exist or is inactive, or a field is missing or blank.
 
 ### 5.3 Get a grievance type
 
@@ -376,12 +394,13 @@ Response `200`: the record under `data.grievance_type`, message `Grievance type 
 
 `PATCH /api/v1/grievance-types/{grievance_type}`
 
-Send only the fields that change. `service_category` is **not accepted**: a type stays in the category it was created in.
+Send only the fields that change. `service_category` and `type_code` are **not accepted**: a type stays in the category it was created in, and its code is set once.
 
-| Body field  | Type    | Notes                                                                                                                   |
-| :---------- | :------ | :---------------------------------------------------------------------------------------------------------------------- |
-| `type_name` | string  | Unique within the category                                                                                              |
-| `is_active` | boolean | `true` is refused (400) while the category is inactive. The default category's catch-all `Other` type cannot be `false` |
+| Body field                                                                         | Type      | Notes                                                                                                                   |
+| :--------------------------------------------------------------------------------- | :-------- | :---------------------------------------------------------------------------------------------------------------------- |
+| `type_name`                                                                        | string    | Unique within the category                                                                                              |
+| `is_active`                                                                        | boolean   | `true` is refused (400) while the category is inactive. The default category's catch-all `Other` type cannot be `false` |
+| `department`, `sla_l1_days`, `sla_l2_days`, `external_referral`, `resolution_path` | as in 5.2 | **Administrator only.** `null` clears a field. A blank string is refused (400)                                          |
 
 ```json
 { "type_name": "Road access obstructed" }
@@ -412,6 +431,23 @@ Response `200`:
 `DELETE /api/v1/grievance-types/{grievance_type}`
 
 No body. Same as `PATCH` with `{ "is_active": false }`. Repeating the call changes nothing. Response `200` has message `Grievance type deactivated` and the record with `"is_active": false`.
+
+### 5.6 Routing defaults of a type
+
+A type carries the attributes of its row in the Routing Matrix. The seed fills them for the 75 sub-types and the catch-all `Other` type (`SYS`) (see `oan-seed/README.md` in openg2p-data).
+
+| Field               | Meaning                                                                                                                                 |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------------- |
+| `type_code`         | The matrix code, for example `C01-01`. The seed matches on it, so a second type cannot take it. Read-only after creation                |
+| `department`        | The department that owns the type                                                                                                       |
+| `sla_l1_days`       | Default working days at Kebele. `0` means none at this level: never set, or the type skips Kebele                                       |
+| `sla_l2_days`       | Default working days at Woreda. `0` means none at this level                                                                            |
+| `external_referral` | Who a case is referred to outside OAN, for example `Court`                                                                              |
+| `resolution_path`   | 1 Kebele Agriculture Office, 2 Kebele Committee, 3 Community Elders First, 4 Direct to Woreda or ATI, 5 Confidential. `null` when unset |
+
+These are defaults for the owners to change. The SLA engine does not read the two SLA fields: it uses the category's SLA configuration.
+
+**Who may set them.** Only an administrator can set `type_code` and the five routing fields, on create or edit, and that includes clearing one with `null`. A category head can still rename or retire a type of their category. The API answers `403 PERMISSION_DENIED` otherwise.
 
 ## 6. Example error responses
 

@@ -516,9 +516,12 @@ class TestTaxonomy(FrappeTestCase):
 		bare = self._type(name="STG406 Bare")
 		self.assertIsNone(bare["type_code"])
 		self.assertIsNone(bare["resolution_path"])
-		# An SLA that was never set reads back as none, not as 0 days.
-		self.assertIsNone(bare["sla_l1_days"])
-		self.assertIsNone(bare["sla_l2_days"])
+		# An SLA that was never set reads back as 0: none at this level.
+		self.assertEqual((bare["sla_l1_days"], bare["sla_l2_days"]), (0, 0))
+		# A stored 0 is a real value, the "skips Kebele" of the matrix, and is not turned into null.
+		skipped = update_grievance_type(type_id, sla_l1_days=0)
+		self.assertEqual(skipped["data"]["grievance_type"]["sla_l1_days"], 0)
+		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["sla_l2_days"], 15)
 
 		with _keep_transaction():
 			clash = create_grievance_type(
@@ -559,7 +562,7 @@ class TestTaxonomy(FrappeTestCase):
 				record["external_referral"],
 				record["resolution_path"],
 			),
-			(None, None, None, None),
+			(None, 0, None, None),
 		)
 		self.assertEqual(record["sla_l2_days"], 10)
 		with _keep_transaction():
@@ -595,6 +598,8 @@ class TestTaxonomy(FrappeTestCase):
 		):
 			for result in (
 				create_grievance_type(service_category=CATEGORY, type_name="STG406 Head", resolution_path=3),
+				# The code is the key the seed matches on, so a head cannot claim one.
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 Claim", type_code="SYS"),
 				update_grievance_type(kind["grievance_type_id"], department=a_department()),
 				update_grievance_type(kind["grievance_type_id"], sla_l1_days=None),
 			):
@@ -612,6 +617,26 @@ class TestTaxonomy(FrappeTestCase):
 				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-03"
 			)
 			self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+
+	def test_another_unique_violation_is_not_reported_as_a_code_clash(self):
+		self._category()
+		with (
+			_keep_transaction(),
+			mock.patch.object(GrievanceType, "insert", side_effect=frappe.UniqueValidationError),
+		):
+			result = create_grievance_type(service_category=CATEGORY, type_name="STG406 Odd")
+		self.assertEqual(result["code"], "DUPLICATE_ENTRY", msg=result)
+		self.assertNotIn("Type code", str(result))
+
+	def test_a_lowercase_code_clash_names_the_stored_code(self):
+		self._category()
+		self._type(type_code="Q51-05")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin2", type_code="q51-05"
+			)
+		self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+		self.assertIn("Q51-05", str(twin))
 
 	def test_type_list_searches_the_code_as_well_as_the_name(self):
 		self._category()

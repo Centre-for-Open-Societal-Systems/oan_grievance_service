@@ -7521,8 +7521,8 @@ paths:
       - Administration
       summary: List grievance types
       description: 'Admin list of grievance types by category and name, active and inactive, filterable
-        by service category, active flag and text in the name or type code. An SLA of null means none
-        at that level: unset, or the type skips it.'
+        by service category, active flag and text in the name or type code. An SLA of 0 means none at
+        that level: never set, or the type skips it.'
       operationId: get_api_v1_grievance_types
       responses:
         '200':
@@ -11942,7 +11942,7 @@ components:
           minLength: 1
           type: string
           default: null
-          description: Stable key from the Routing Matrix, e.g. C01-01. Unique.
+          description: Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.
           nullable: true
         department:
           minLength: 1
@@ -11954,13 +11954,13 @@ components:
           minimum: 0
           type: integer
           default: null
-          description: Default Kebele SLA in working days
+          description: Default Kebele SLA in working days. 0 means none at this level.
           nullable: true
         sla_l2_days:
           minimum: 0
           type: integer
           default: null
-          description: Default Woreda SLA in working days
+          description: Default Woreda SLA in working days. 0 means none at this level.
           nullable: true
         external_referral:
           maxLength: 140
@@ -11999,13 +11999,13 @@ components:
           minimum: 0
           type: integer
           default: null
-          description: Null clears it
+          description: 0 or null means none at this level
           nullable: true
         sla_l2_days:
           minimum: 0
           type: integer
           default: null
-          description: Null clears it
+          description: 0 or null means none at this level
           nullable: true
         external_referral:
           maxLength: 140
