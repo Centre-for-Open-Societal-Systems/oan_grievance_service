@@ -1,6 +1,8 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
+from unittest import mock
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -25,7 +27,10 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 	get_default_category,
 	rename_category,
 )
-from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+	GrievanceType,
+	get_fallback_type,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 from oan_grievance_service.tests.fixtures import (
@@ -511,6 +516,9 @@ class TestTaxonomy(FrappeTestCase):
 		bare = self._type(name="STG406 Bare")
 		self.assertIsNone(bare["type_code"])
 		self.assertIsNone(bare["resolution_path"])
+		# An SLA that was never set reads back as none, not as 0 days.
+		self.assertIsNone(bare["sla_l1_days"])
+		self.assertIsNone(bare["sla_l2_days"])
 
 		with _keep_transaction():
 			clash = create_grievance_type(
@@ -527,6 +535,92 @@ class TestTaxonomy(FrappeTestCase):
 
 		listed = list_grievance_types(service_category=CATEGORY)["data"]["grievance_types"]
 		self.assertEqual({row["type_code"] for row in listed}, {"Q51-01", None})
+
+	def test_routing_defaults_can_be_cleared_with_null_but_not_blank(self):
+		self._category()
+		created = self._type(
+			type_code="Q51-02",
+			department=a_department(),
+			sla_l1_days=7,
+			sla_l2_days=10,
+			external_referral="Court",
+			resolution_path=2,
+		)
+		type_id = created["grievance_type_id"]
+		cleared = update_grievance_type(
+			type_id, department=None, sla_l1_days=None, external_referral=None, resolution_path=None
+		)
+		self.assertEqual(cleared["status"], "success", msg=cleared)
+		record = cleared["data"]["grievance_type"]
+		self.assertEqual(
+			(
+				record["department"],
+				record["sla_l1_days"],
+				record["external_referral"],
+				record["resolution_path"],
+			),
+			(None, None, None, None),
+		)
+		self.assertEqual(record["sla_l2_days"], 10)
+		with _keep_transaction():
+			for result in (
+				update_grievance_type(type_id, external_referral=""),
+				update_grievance_type(type_id, department=" "),
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 Blank", external_referral=""
+				),
+				# The code is fixed once set, whatever its case.
+				update_grievance_type(type_id, type_code="q51-02"),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_type_department_must_exist(self):
+		self._category()
+		with _keep_transaction():
+			created = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Orphan", department="No such department"
+			)
+			self.assertEqual(created["status"], "error", msg=created)
+			self.assertEqual(created["code"], "VALIDATION_ERROR", msg=created)
+			kind = self._type(name="STG406 Real")
+			moved = update_grievance_type(kind["grievance_type_id"], department="No such department")
+			self.assertEqual(moved["code"], "VALIDATION_ERROR", msg=moved)
+
+	def test_only_an_administrator_sets_routing_defaults(self):
+		self._category()
+		kind = self._type()
+		with (
+			_keep_transaction(),
+			mock.patch("oan_grievance_service.api.v1.taxonomy.is_unrestricted", return_value=False),
+		):
+			for result in (
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 Head", resolution_path=3),
+				update_grievance_type(kind["grievance_type_id"], department=a_department()),
+				update_grievance_type(kind["grievance_type_id"], sla_l1_days=None),
+			):
+				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+			# The name and the active flag stay with the category head.
+			renamed = update_grievance_type(kind["grievance_type_id"], type_name="STG406 Renamed by head")
+			self.assertEqual(renamed["status"], "success", msg=renamed)
+
+	def test_a_type_code_race_is_a_duplicate_not_a_server_error(self):
+		self._category()
+		self._type(type_code="Q51-03")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			# Validation passes, as it would for two requests at once: the unique index refuses the second.
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-03"
+			)
+			self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+
+	def test_type_list_searches_the_code_as_well_as_the_name(self):
+		self._category()
+		self._type(type_code="Q51-04", name="STG406 Searchable")
+		self._type(name="STG406 Other one")
+		by_code = list_grievance_types(search="q51-04")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_code], ["STG406 Searchable"])
+		by_name = list_grievance_types(search="STG406 Other")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_name], ["STG406 Other one"])
 
 	def test_type_request_validation_and_unknown_category(self):
 		self._category()

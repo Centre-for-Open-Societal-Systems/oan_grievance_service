@@ -7325,8 +7325,9 @@ paths:
       tags:
       - Administration
       summary: List grievance types
-      description: Admin list of grievance types by category and name, active and inactive, filterable
-        by service category, active flag and text in the name.
+      description: 'Admin list of grievance types by category and name, active and inactive, filterable
+        by service category, active flag and text in the name or type code. An SLA of null means none
+        at that level: unset, or the type skips it.'
       operationId: get_api_v1_grievance_types
       responses:
         '200':
@@ -7404,7 +7405,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Matches the type name
+        description: Matches the type name or code
       security:
       - BearerAuth: []
     post:
@@ -11795,27 +11796,33 @@ components:
           minLength: 1
           type: string
           default: null
+          description: Owning department. Null clears it.
           nullable: true
         sla_l1_days:
           minimum: 0
           type: integer
           default: null
+          description: Null clears it
           nullable: true
         sla_l2_days:
           minimum: 0
           type: integer
           default: null
+          description: Null clears it
           nullable: true
         external_referral:
           maxLength: 140
+          minLength: 1
           type: string
           default: null
+          description: Null clears it
           nullable: true
         resolution_path:
           maximum: 5
           minimum: 1
           type: integer
           default: null
+          description: Routing path 1 to 5. Null clears it.
           nullable: true
       type: object
     IvrGrievanceRequest:

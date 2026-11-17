@@ -4,9 +4,10 @@ Run from the bench's sites/ directory with the bench's python:
 
     load.py <site> <seed directory>
 
-Only creates what is missing, so it is safe on every deploy: records edited or added
-after the first run stay as they are, and a deleted demo record comes back. Emails stay
-muted and document controllers do not run, so loading sends nothing.
+Only creates what is missing, so it is safe on every deploy. A row counts as present by its name, and a
+category or type also by its code or name. Records edited or added after the first run stay as they are,
+and a deleted demo record comes back. Emails stay muted and document controllers do not run, so loading
+sends nothing.
 """
 
 import json
@@ -42,6 +43,26 @@ TYPED_FIELDS = {
 }
 
 
+# A record can already exist under another name: the app seeds its own catch-all category and type, and a
+# site loaded before a seed change holds records the data now names differently. The loader skips a row
+# when one of these keys is already taken, so the same taxonomy entry is not added twice.
+ALTERNATE_KEYS = {
+	"Grievance Service Category": [("code",), ("category_name",)],
+	"Grievance Type": [("type_code",), ("service_category", "type_name")],
+	"Grievance SLA Configuration": [("service_category",)],
+}
+
+
+def exists_under_another_name(doctype, row):
+	for fields in ALTERNATE_KEYS.get(doctype, []):
+		filters = {field: row.get(field) for field in fields}
+		if any(value in (None, "") for value in filters.values()):
+			continue
+		if frappe.db.exists(doctype, filters):
+			return True
+	return False
+
+
 def normalize(row, doctype):
 	row["doctype"] = doctype
 	for field in frappe.get_meta(doctype).fields:
@@ -65,10 +86,13 @@ def insert(row, doctype):
 
 
 def load_doctype(doctype, rows, password):
-	created = failed = 0
+	created = failed = skipped = 0
 	for row in rows:
 		name = row["name"]
 		if frappe.db.exists(doctype, name):
+			continue
+		if exists_under_another_name(doctype, row):
+			skipped += 1
 			continue
 		frappe.db.savepoint("seed_row")
 		try:
@@ -81,7 +105,8 @@ def load_doctype(doctype, rows, password):
 			failed += 1
 			print(f"FAILED {doctype} {name}: {e}")
 	frappe.db.commit()  # nosemgrep
-	print(f"{doctype}: created {created} of {len(rows)}, failed {failed}")
+	extra = f", {skipped} already present under another name" if skipped else ""
+	print(f"{doctype}: created {created} of {len(rows)}, failed {failed}{extra}")
 	return failed
 
 

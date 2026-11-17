@@ -2,8 +2,10 @@
 # not pick one. Seeded by setup/install.py; intake defaults to them by name.
 FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
-# The code of the catch-all category and type in the Routing Matrix (STG-512). The type is also keyed on it.
-FALLBACK_CODE = "SYS"
+# Codes of the catch-all in the Routing Matrix (STG-512). The category code is the CATEGORY segment of
+# the ticket number; the type code is the key the seed matches the type on. Both are SYS by convention.
+FALLBACK_CATEGORY_CODE = "SYS"
+FALLBACK_TYPE_CODE = "SYS"
 UNROUTED_DEPARTMENT = "Unrouted"
 UNROUTED_OFFICER = "unrouted@grievance.local"
 

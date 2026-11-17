@@ -41,7 +41,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
 )
-from oan_grievance_service.permissions import assert_heads_category
+from oan_grievance_service.permissions import assert_heads_category, is_unrestricted
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_DESK_HEAD
@@ -67,6 +67,9 @@ TYPE_EDITABLE = (
 	"external_referral",
 	"resolution_path",
 )
+# What the Routing Matrix owners decide. A category head may rename or retire a type of their category,
+# but moving it to another department or changing its SLA or path is for an administrator.
+ROUTING_FIELDS = ("department", "sla_l1_days", "sla_l2_days", "external_referral", "resolution_path")
 
 
 # Service categories
@@ -468,11 +471,11 @@ class UpdateGrievanceType(Body):
 	grievance_type: NonBlank
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
-	department: NonBlank | None = None
-	sla_l1_days: int | None = Field(None, ge=0)
-	sla_l2_days: int | None = Field(None, ge=0)
-	external_referral: str | None = Field(None, max_length=NAME_LENGTH)
-	resolution_path: int | None = Field(None, ge=1, le=5)
+	department: NonBlank | None = Field(None, description="Owning department. Null clears it.")
+	sla_l1_days: int | None = Field(None, ge=0, description="Null clears it")
+	sla_l2_days: int | None = Field(None, ge=0, description="Null clears it")
+	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH, description="Null clears it")
+	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5. Null clears it.")
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -480,7 +483,7 @@ class ListGrievanceTypes(PageParams, Body):
 
 	service_category: str | None = None
 	is_active: bool | None = None
-	search: str | None = Field(None, description="Matches the type name")
+	search: str | None = Field(None, description="Matches the type name or code")
 
 	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
@@ -497,8 +500,9 @@ def _type_records(docs: list) -> list[dict]:
 			"has_grievances": doc.name in grievances,
 			"type_code": doc.type_code or None,
 			"department": doc.department or None,
-			"sla_l1_days": doc.sla_l1_days,
-			"sla_l2_days": doc.sla_l2_days,
+			# The column cannot hold NULL, so 0 is what "no SLA at this level" reads back as.
+			"sla_l1_days": doc.sla_l1_days or None,
+			"sla_l2_days": doc.sla_l2_days or None,
 			"external_referral": doc.external_referral or None,
 			"resolution_path": doc.resolution_path or None,
 		}
@@ -513,7 +517,8 @@ def _type_records(docs: list) -> list[dict]:
 @api_doc(
 	summary="List grievance types",
 	description="Admin list of grievance types by category and name, active and inactive, filterable by "
-	+ "service category, active flag and text in the name.",
+	+ "service category, active flag and text in the name or type code. An SLA of null means none "
+	+ "at that level: unset, or the type skips it.",
 	tags=["Administration"],
 	response_model=GrievanceTypeListData,
 )
@@ -530,7 +535,7 @@ def list_grievance_types(
 	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
 	if service_category:
 		filters["service_category"] = resolve_service_category(service_category)
-	or_filters = _search(TYPE, search, ("type_name",))
+	or_filters = _search(TYPE, search, ("type_name", "type_code"))
 	docs = frappe.get_all(
 		TYPE,
 		filters=filters,
@@ -607,6 +612,14 @@ def create_grievance_type(
 	"""Create a grievance type under a category."""
 	category = resolve_service_category(service_category)
 	assert_heads_category(frappe.session.user, category)
+	routing = {
+		"department": department,
+		"sla_l1_days": sla_l1_days,
+		"sla_l2_days": sla_l2_days,
+		"external_referral": external_referral,
+		"resolution_path": resolution_path,
+	}
+	_assert_may_set_routing({field: value for field, value in routing.items() if value is not None})
 	doc = frappe.get_doc(
 		{
 			"doctype": TYPE,
@@ -620,7 +633,15 @@ def create_grievance_type(
 			"external_referral": external_referral,
 			"resolution_path": resolution_path,
 		}
-	).insert()
+	)
+	try:
+		doc.insert()
+	except frappe.UniqueValidationError:
+		# Two creates with one type code can both pass validation, and the unique index decides.
+		frappe.throw(
+			_("Type code '{0}' is already used by another grievance type.").format(type_code),
+			frappe.DuplicateEntryError,
+		)
 	return success_response(
 		data={"grievance_type": _type_records([doc])[0]}, message=_("Grievance type created")
 	)
@@ -651,6 +672,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 	changes = _editable(kwargs, TYPE_EDITABLE)
 	if not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
+	_assert_may_set_routing(changes)
 	doc.update(changes)
 	doc.save()
 	return success_response(
@@ -688,6 +710,15 @@ def deactivate_grievance_type(grievance_type: str, **kwargs):
 
 # Helpers
 # -------
+
+
+def _assert_may_set_routing(sent: dict) -> None:
+	"""Routing defaults are an administrator's to set, not a category head's."""
+	# A key sent as null counts too: clearing a field is as much a change as setting it.
+	if any(field in sent for field in ROUTING_FIELDS) and not is_unrestricted(frappe.session.user):
+		frappe.throw(
+			_("Only an administrator can set the routing defaults of a type."), frappe.PermissionError
+		)
 
 
 def _editable(sent: dict, allowed: tuple[str, ...]) -> dict:
