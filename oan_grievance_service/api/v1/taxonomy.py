@@ -58,7 +58,15 @@ NAME_LENGTH = 140
 # The only fields a PATCH may write. The request schema already forbids anything else; this
 # keeps that true if a schema ever grows a field the document should not take from a client.
 CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_default")
-TYPE_EDITABLE = ("type_name", "is_active")
+TYPE_EDITABLE = (
+	"type_name",
+	"is_active",
+	"department",
+	"sla_l1_days",
+	"sla_l2_days",
+	"external_referral",
+	"resolution_path",
+)
 
 
 # Service categories
@@ -89,6 +97,12 @@ class GrievanceTypeRecord(BaseModel):
 	service_category: str
 	is_active: bool
 	has_grievances: bool
+	type_code: str | None = None
+	department: str | None = None
+	sla_l1_days: int | None = None
+	sla_l2_days: int | None = None
+	external_referral: str | None = None
+	resolution_path: int | None = None
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -438,6 +452,14 @@ class CreateGrievanceType(Body):
 	service_category: NonBlank = Field(description="Parent category, by name or ticket code")
 	type_name: NonBlank = Field(max_length=NAME_LENGTH, description="Unique within the category")
 	is_active: bool = True
+	type_code: NonBlank | None = Field(
+		None, max_length=16, description="Stable key from the Routing Matrix, e.g. C01-01. Unique."
+	)
+	department: NonBlank | None = Field(None, description="Owning department")
+	sla_l1_days: int | None = Field(None, ge=0, description="Default Kebele SLA in working days")
+	sla_l2_days: int | None = Field(None, ge=0, description="Default Woreda SLA in working days")
+	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH)
+	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5")
 
 
 class UpdateGrievanceType(Body):
@@ -446,6 +468,11 @@ class UpdateGrievanceType(Body):
 	grievance_type: NonBlank
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
+	department: NonBlank | None = None
+	sla_l1_days: int | None = Field(None, ge=0)
+	sla_l2_days: int | None = Field(None, ge=0)
+	external_referral: str | None = Field(None, max_length=NAME_LENGTH)
+	resolution_path: int | None = Field(None, ge=1, le=5)
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -468,6 +495,12 @@ def _type_records(docs: list) -> list[dict]:
 			"service_category": doc.service_category,
 			"is_active": bool(doc.is_active),
 			"has_grievances": doc.name in grievances,
+			"type_code": doc.type_code or None,
+			"department": doc.department or None,
+			"sla_l1_days": doc.sla_l1_days,
+			"sla_l2_days": doc.sla_l2_days,
+			"external_referral": doc.external_referral or None,
+			"resolution_path": doc.resolution_path or None,
 		}
 		for doc in docs
 	]
@@ -502,7 +535,18 @@ def list_grievance_types(
 		TYPE,
 		filters=filters,
 		or_filters=or_filters,
-		fields=["name", "type_name", "service_category", "is_active"],
+		fields=[
+			"name",
+			"type_name",
+			"service_category",
+			"is_active",
+			"type_code",
+			"department",
+			"sla_l1_days",
+			"sla_l2_days",
+			"external_referral",
+			"resolution_path",
+		],
 		# Name alone is not unique across categories, so the id breaks ties and pages never overlap.
 		order_by="service_category asc, type_name asc, name asc",
 		start=params.start,
@@ -552,6 +596,12 @@ def create_grievance_type(
 	service_category: str,
 	type_name: str,
 	is_active: bool | str = True,
+	type_code: str | None = None,
+	department: str | None = None,
+	sla_l1_days: int | None = None,
+	sla_l2_days: int | None = None,
+	external_referral: str | None = None,
+	resolution_path: int | None = None,
 	**kwargs,
 ):
 	"""Create a grievance type under a category."""
@@ -563,6 +613,12 @@ def create_grievance_type(
 			"service_category": category,
 			"type_name": type_name,
 			"is_active": 1 if is_active else 0,
+			"type_code": type_code,
+			"department": department,
+			"sla_l1_days": sla_l1_days,
+			"sla_l2_days": sla_l2_days,
+			"external_referral": external_referral,
+			"resolution_path": resolution_path,
 		}
 	).insert()
 	return success_response(
@@ -581,7 +637,8 @@ def create_grievance_type(
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
-	description="Change the name or active flag. The service category cannot change. A type "
+	description="Change the name, active flag or routing defaults (department, SLA days, external referral, "
+	+ "resolution path). The service category and type code cannot change. A type "
 	+ "cannot be reactivated while its category is inactive, and the catch-all Other type of the "
 	+ "default category cannot be deactivated.",
 	tags=["Administration"],

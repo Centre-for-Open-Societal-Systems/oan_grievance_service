@@ -172,7 +172,7 @@ REVIEWER_ROLE_LEVEL = (
 # categories, so a service can later be split into much finer groups without the codes running out. A retired
 # code is never reused.
 SERVICE_CATEGORIES = [
-	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CODE, 20),
 ]
 
 # Baseline SLA configurations for standard service categories.
@@ -672,14 +672,14 @@ def seed_grievance_types():
 			continue
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Type",
-				"type_name": name,
-				"service_category": category,
-				"is_active": 1,
-			}
-		).insert(ignore_permissions=True)
+		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
+		set_name = None
+		if name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY:
+			# The catch-all is keyed on its code like every other type, and it routes to the triage desk.
+			row["type_code"] = set_name = C.FALLBACK_CODE
+			if frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
+				row["department"] = C.UNROUTED_DEPARTMENT
+		frappe.get_doc(row).insert(ignore_permissions=True, set_name=set_name)
 		made.append(name)
 	return made
 

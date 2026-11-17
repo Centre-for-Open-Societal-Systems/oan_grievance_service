@@ -7716,9 +7716,10 @@ paths:
       tags:
       - Administration
       summary: Update a grievance type
-      description: Change the name or active flag. The service category cannot change. A type cannot be
-        reactivated while its category is inactive, and the catch-all Other type of the default category
-        cannot be deactivated.
+      description: Change the name, active flag or routing defaults (department, SLA days, external referral,
+        resolution path). The service category and type code cannot change. A type cannot be reactivated
+        while its category is inactive, and the catch-all Other type of the default category cannot be
+        deactivated.
       operationId: patch_api_v1_grievance_types_grievance_type
       responses:
         '200':
@@ -10610,6 +10611,30 @@ components:
           type: boolean
         has_grievances:
           type: boolean
+        type_code:
+          type: string
+          default: null
+          nullable: true
+        department:
+          type: string
+          default: null
+          nullable: true
+        sla_l1_days:
+          type: integer
+          default: null
+          nullable: true
+        sla_l2_days:
+          type: integer
+          default: null
+          nullable: true
+        external_referral:
+          type: string
+          default: null
+          nullable: true
+        resolution_path:
+          type: integer
+          default: null
+          nullable: true
       required:
       - grievance_type_id
       - type_name
@@ -11911,6 +11936,44 @@ components:
         is_active:
           default: true
           type: boolean
+        type_code:
+          maxLength: 16
+          minLength: 1
+          type: string
+          default: null
+          description: Stable key from the Routing Matrix, e.g. C01-01. Unique.
+          nullable: true
+        department:
+          minLength: 1
+          type: string
+          default: null
+          description: Owning department
+          nullable: true
+        sla_l1_days:
+          minimum: 0
+          type: integer
+          default: null
+          description: Default Kebele SLA in working days
+          nullable: true
+        sla_l2_days:
+          minimum: 0
+          type: integer
+          default: null
+          description: Default Woreda SLA in working days
+          nullable: true
+        external_referral:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        resolution_path:
+          maximum: 5
+          minimum: 1
+          type: integer
+          default: null
+          description: Routing path 1 to 5
+          nullable: true
       required:
       - service_category
       - type_name
@@ -11925,6 +11988,32 @@ components:
           type: string
         is_active:
           type: boolean
+        department:
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        sla_l1_days:
+          minimum: 0
+          type: integer
+          default: null
+          nullable: true
+        sla_l2_days:
+          minimum: 0
+          type: integer
+          default: null
+          nullable: true
+        external_referral:
+          maxLength: 140
+          type: string
+          default: null
+          nullable: true
+        resolution_path:
+          maximum: 5
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
       type: object
     IvrGrievanceRequest:
       additionalProperties: false

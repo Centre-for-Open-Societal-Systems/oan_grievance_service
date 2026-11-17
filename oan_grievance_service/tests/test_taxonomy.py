@@ -29,6 +29,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_ty
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 from oan_grievance_service.tests.fixtures import (
+	a_department,
 	a_grievance,
 	a_leaf_area,
 	a_submitter_type,
@@ -481,6 +482,51 @@ class TestTaxonomy(FrappeTestCase):
 		# The same name under another category is a different type.
 		elsewhere = self._type(category="STG406 Second", name=first["type_name"])
 		self.assertNotEqual(elsewhere["grievance_type_id"], first["grievance_type_id"])
+
+	def test_type_carries_its_routing_defaults(self):
+		self._category()
+		department = a_department()
+		created = self._type(
+			type_code="q51-01",
+			department=department,
+			sla_l1_days=7,
+			sla_l2_days=10,
+			external_referral="Input regulator",
+			resolution_path=1,
+		)
+		self.assertEqual(created["type_code"], "Q51-01")
+		self.assertEqual(
+			(created["department"], created["sla_l1_days"], created["sla_l2_days"]), (department, 7, 10)
+		)
+		self.assertEqual((created["external_referral"], created["resolution_path"]), ("Input regulator", 1))
+		type_id = created["grievance_type_id"]
+
+		# Admin edits take effect, and a type made without them has none.
+		updated = update_grievance_type(type_id, sla_l2_days=15, resolution_path=4)
+		self.assertEqual(updated["status"], "success", msg=updated)
+		record = updated["data"]["grievance_type"]
+		self.assertEqual(
+			(record["sla_l1_days"], record["sla_l2_days"], record["resolution_path"]), (7, 15, 4)
+		)
+		bare = self._type(name="STG406 Bare")
+		self.assertIsNone(bare["type_code"])
+		self.assertIsNone(bare["resolution_path"])
+
+		with _keep_transaction():
+			clash = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-01"
+			)
+			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
+			for result in (
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 A", resolution_path=6),
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 B", sla_l1_days=-1),
+				update_grievance_type(type_id, resolution_path=0),
+				update_grievance_type(type_id, type_code="Q51-09"),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+		listed = list_grievance_types(service_category=CATEGORY)["data"]["grievance_types"]
+		self.assertEqual({row["type_code"] for row in listed}, {"Q51-01", None})
 
 	def test_type_request_validation_and_unknown_category(self):
 		self._category()

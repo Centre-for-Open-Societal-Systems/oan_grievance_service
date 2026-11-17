@@ -7,13 +7,41 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
+RESOLUTION_PATHS = (1, 2, 3, 4, 5)
+
 
 class GrievanceType(Document):
 	def validate(self):
 		self.type_name = (self.type_name or "").strip()
+		self.type_code = (self.type_code or "").strip().upper() or None
+		self.external_referral = (self.external_referral or "").strip() or None
 		self.validate_unique_in_category()
+		self.validate_routing_defaults()
 		self.validate_category()
 		self.validate_fallback()
+
+	def validate_routing_defaults(self):
+		"""The routing path is one of the five the deck defines, and an SLA is never negative."""
+		if self.resolution_path and self.resolution_path not in RESOLUTION_PATHS:
+			frappe.throw(
+				_("Resolution path of '{0}' must be 1 to 5.").format(self.type_name), frappe.ValidationError
+			)
+		if (self.sla_l1_days or 0) < 0 or (self.sla_l2_days or 0) < 0:
+			frappe.throw(
+				_("SLA days of '{0}' cannot be negative.").format(self.type_name), frappe.ValidationError
+			)
+		if self.type_code and (self.is_new() or self.has_value_changed("type_code")):
+			# Seeding keys on the code: a second type with it would be the same taxonomy entry twice.
+			existing = frappe.db.get_value(
+				"Grievance Type", {"type_code": self.type_code, "name": ["!=", self.name or ""]}, "name"
+			)
+			if existing:
+				frappe.throw(
+					_("Type code '{0}' is already used by grievance type {1}.").format(
+						self.type_code, existing
+					),
+					frappe.DuplicateEntryError,
+				)
 
 	def validate_unique_in_category(self):
 		"""A category never holds the same type twice. The same name under another category is fine."""
