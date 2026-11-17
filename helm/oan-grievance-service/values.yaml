@@ -76,8 +76,8 @@ frappe:
       targetMemory: 75
     resources:
       requests:
-        cpu: 50m
-        memory: 64Mi
+        cpu: 10m
+        memory: 32Mi
   worker:
     gunicorn:
       envVars: &frappeEnv
@@ -92,13 +92,13 @@ frappe:
       autoscaling:
         enabled: true
         minReplicas: 1
-        maxReplicas: 3
+        maxReplicas: 2
         targetCPU: 75
         targetMemory: 75
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 25m
+          memory: 320Mi
     default:
       envVars: *frappeEnv
       autoscaling:
@@ -109,8 +109,8 @@ frappe:
         targetMemory: 75
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 30m
+          memory: 128Mi
     short:
       envVars: *frappeEnv
       autoscaling:
@@ -121,8 +121,8 @@ frappe:
         targetMemory: 75
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 30m
+          memory: 128Mi
     long:
       envVars: *frappeEnv
       autoscaling:
@@ -133,10 +133,14 @@ frappe:
         targetMemory: 75
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 30m
+          memory: 128Mi
     scheduler:
       envVars: *frappeEnv
+      resources:
+        requests:
+          cpu: 30m
+          memory: 128Mi
   socketio:
     envVars: *frappeEnv
     autoscaling:
@@ -147,8 +151,8 @@ frappe:
       targetMemory: 75
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 20m
+        memory: 64Mi
 
   # The queues the app enqueues on (oan_grievance_service/services/constants.py) and their RQ timeouts
   # in seconds. The site-config job registers them in common_site_config.json. Each worker scales between
@@ -159,8 +163,8 @@ frappe:
       grievance_routing: 300
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 10m
+        memory: 96Mi
       limits:
         memory: 768Mi
     autoscaling:
@@ -174,8 +178,8 @@ frappe:
       grievance_sla: 1800
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 10m
+        memory: 96Mi
       limits:
         memory: 768Mi
     autoscaling:
@@ -189,8 +193,8 @@ frappe:
       grievance_scan: 300
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 10m
+        memory: 96Mi
       limits:
         memory: 768Mi
     autoscaling:
@@ -204,8 +208,8 @@ frappe:
       grievance_notifications: 600
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 10m
+        memory: 96Mi
       limits:
         memory: 768Mi
     autoscaling:
