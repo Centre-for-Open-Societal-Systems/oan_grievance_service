@@ -767,9 +767,7 @@ def _walk(rng, now, path, template, farmer, slug_of):
 				)
 			elif step == "resolve":
 				reason = response_body.compose(action_taken, resolution)
-				_act(
-					doc, rng.choice(["Resolve", "Resolve", "Partially Resolve"]), officer, reason, "response"
-				)
+				_act(doc, "Resolve", officer, reason, "response")
 			elif step == "close":
 				_act(doc, "Close Case", farmer.user, rng.choice(CLOSE_REASONS), "resolution", confirmed=True)
 				doc.db_set("closure_reason", "Resolved and confirmed by the submitter", update_modified=False)
