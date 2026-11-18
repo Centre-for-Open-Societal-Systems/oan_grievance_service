@@ -2,42 +2,19 @@ pipeline {
     agent any
 
     options {
-        // Ten Deployments are updated together; two overlapping runs of the same branch would fight over them.
         disableConcurrentBuilds()
-        // Heavy build (frappe_docker layered image, node + bench build for 3 apps)
+        // Heavy build (frappe_docker layered image, node + bench build for 2 apps)
         timeout(time: 90, unit: 'MINUTES')
     }
 
     environment {
-        AWS_REGION        = 'ap-south-1'
-        AWS_ACCOUNT_ID    = '379220350808'
-        IMAGE_REGISTRY    = '379220350808.dkr.ecr.ap-south-1.amazonaws.com'   // matches image_registry in inventory/group_vars/all/main.yml
-        IMAGE_NAME        = 'oan-frappe'   // matches frappe_image_repo; must exist as an ECR repository first
-        RKE2_NODE         = '13.233.56.204'
-        // All ten Deployments run the SAME oan-frappe image with different commands:
-        //   backend      -> gunicorn frappe.app:application
-        //   frontend     -> nginx-entrypoint.sh
-        //   scheduler    -> bench schedule
-        //   websocket    -> node apps/frappe/socketio.js
-        //   worker-long  -> bench worker --queue long
-        //   worker-short -> bench worker --queue short,default
-        //   worker-grievance-routing | -sla | -scan | -notifications
-        //                -> bench worker --queue grievance_<name>
-        //                   (queues are declared in common_site_config.json "workers";
-        //                    each must exist as a Deployment in the namespace before a build runs)
-        // Helm release `grievance` on the oan_dev k3s node (develop only, stages below).
+        AWS_REGION          = 'ap-south-1'
+        AWS_ACCOUNT_ID      = '379220350808'
+        IMAGE_REGISTRY      = '379220350808.dkr.ecr.ap-south-1.amazonaws.com'
         GRIEVANCE_NAMESPACE = 'grievance'
-        ECR_REPO          = 'eoan/oan-grievance-service/grievance-service'
-        ECR_SEED_REPO     = 'eoan/oan-grievance-service/grievance-seed'
-        DEPLOYMENTS       = 'backend frontend scheduler websocket worker-long worker-short worker-grievance-routing worker-grievance-sla worker-grievance-scan worker-grievance-notifications'
-        // frappe_docker build definition. Pin to a tag or commit here for reproducible builds.
-        FRAPPE_DOCKER_REF = 'main'
-        // Run `bench migrate` in the backend pod after the new image has rolled out.
-        // Set to 'false' to skip it (schema changes then have to be migrated by hand).
-        RUN_MIGRATE       = 'true'
-        // Per-branch target (namespace, site, public URL) is chosen in the Checkout stage:
-        //   develop -> namespace develop,  image tag develop-<build>-<sha>
-        //   staging -> namespace staging,  image tag staging-<build>-<sha>
+        ECR_REPO            = 'eoan/oan-grievance-service/grievance-service'
+        ECR_SEED_REPO       = 'eoan/oan-grievance-service/grievance-seed'
+        FRAPPE_DOCKER_REF   = 'main'
     }
 
     stages {
@@ -46,40 +23,18 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Which environment this branch deploys to. Anything else (e.g. PR builds) only gets
-                    // this stage; the build/push/deploy stages below are skipped for it.
-                    def targets = [
-                        develop: [
-                            namespace: 'develop',
-                            site:      'develop.grievance.test',
-                            verifyUrl: 'https://grievance-backend-dev.oanstaging.com/api/method/ping'
-                        ],
-                        staging: [
-                            namespace: 'staging',
-                            site:      'staging.grievance.test',
-                            // CONFIRM: the public backend host of the staging ingress
-                            verifyUrl: 'https://grievance-backend-staging.oanstaging.com/api/method/ping'
-                        ]
-                    ]
-                    def target = targets[env.BRANCH_NAME]
-                    env.TARGET_ENV    = target ? env.BRANCH_NAME : 'develop'
-                    def t = target ?: targets.develop
-                    env.K8S_NAMESPACE = t.namespace
-                    env.SITE_NAME     = t.site
-                    env.VERIFY_URL    = t.verifyUrl
+                    if (env.BRANCH_NAME == 'develop') {
+                        env.IMMUTABLE_TAG = sh(returnStdout: true, script: 'python3 ci/package_chart.py version').trim()
+                    } else {
+                        def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
+                        env.IMMUTABLE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}-${sha}"
+                    }
+                    env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_REPO}:${env.IMMUTABLE_TAG}"
+                    env.SEED_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_SEED_REPO}:${env.IMMUTABLE_TAG}"
 
-                    // Immutable, traceable tag: <env>-<build number>-<short sha of THIS repo>.
-                    // (The image also carries oan_auth_service HEAD, which this sha does not cover.)
-                    def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
-                    env.IMAGE_TAG_BUILD = "${env.TARGET_ENV}-${env.BUILD_NUMBER}-${sha}"
-                    env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG_BUILD}"
-
-                    // Did this commit touch the spec, the routes or the gateway values? Not `changeset`: Jenkins lists no
-                    // files for a merge commit, so it never matches one. Diff against the first parent instead; if that
-                    // fails (shallow clone), assume yes, since the gateway install is idempotent.
                     def files = sh(returnStdout: true, script: 'git diff --name-only HEAD^1 HEAD || echo apisix/').trim().split('\n')
                     env.GATEWAY_CHANGED = files.any { it.startsWith('apisix/') || it.startsWith('openapi/') || it == 'helm/environments/dev/oan-grievance-gateway.yaml' } ? 'true' : 'false'
-                    echo "Branch ${env.BRANCH_NAME} -> namespace ${env.K8S_NAMESPACE}, image ${env.FULL_IMAGE}"
+                    echo "Branch ${env.BRANCH_NAME} -> tag ${env.IMMUTABLE_TAG}, image ${env.FULL_IMAGE}"
                 }
             }
         }
@@ -88,11 +43,6 @@ pipeline {
             when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 script {
-                    // Only the EXTRA apps go here: frappe itself is installed from FRAPPE_PATH /
-                    // FRAPPE_BRANCH in the build step. Both OAN apps are pinned to the branch being
-                    // built (develop or staging), so the image carries that branch's HEAD of BOTH apps.
-                    // Written as plain text: groovy.json.JsonOutput is blocked by the Jenkins
-                    // script sandbox ("Scripts not permitted to use staticMethod ...").
                     def branch = env.BRANCH_NAME
                     def appsJson = """[
   {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service", "branch": "${branch}"},
@@ -107,13 +57,6 @@ pipeline {
         stage('Build image') {
             when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
-                // frappe_docker's own layered Containerfile is the build definition; this repo
-                // only supplies the apps.json branch pins above.
-                // Current frappe_docker reads apps.json from a BuildKit secret with id "apps_json"
-                // (the old APPS_JSON_BASE64 build arg is silently ignored and gives plain frappe).
-                // BuildKit does not include secret contents in its cache key, so CACHE_BUST (the
-                // Containerfile's own cache-busting arg) forces `bench init` to re-fetch the apps
-                // on every build; without it a cached no-apps layer would be reused.
                 sh '''
                     [ -s "$WORKSPACE/apps.json" ] || { echo "apps.json is missing or empty"; exit 1; }
                     cat "$WORKSPACE/apps.json"
@@ -128,11 +71,28 @@ pipeline {
                         --build-arg FRAPPE_BRANCH=version-16 \
                         --file images/layered/Containerfile \
                         -t "$FULL_IMAGE" \
-                        -t "$IMAGE_REGISTRY/$IMAGE_NAME:$TARGET_ENV" \
+                        -t "$IMAGE_REGISTRY/$ECR_REPO:develop" \
                         .
 
                     # Never push or deploy an image that is missing the OAN apps
                     docker run --rm "$FULL_IMAGE" bash -c "ls apps && test -d apps/oan_auth_service && test -d apps/oan_grievance_service"
+                '''
+            }
+        }
+
+        stage('Build seed') {
+            when { branch 'develop' }
+            steps {
+                sh '''
+                    # The commit openg2p-data develop points at: an unchanged build-arg would let the
+                    # layer cache keep serving an old clone after the data is fixed.
+                    OPENG2P_DATA_REF=$(git ls-remote https://github.com/Centre-for-Open-Societal-Systems/openg2p-data.git refs/heads/develop | cut -f1)
+                    test -n "${OPENG2P_DATA_REF}" || { echo "Could not resolve openg2p-data develop" >&2; exit 1; }
+                    echo "openg2p-data develop is ${OPENG2P_DATA_REF}"
+                    DOCKER_BUILDKIT=1 docker buildx build \
+                        --build-arg OPENG2P_DATA_REF=${OPENG2P_DATA_REF} \
+                        --tag "$SEED_IMAGE" \
+                        --load ci/seed
                 '''
             }
         }
@@ -144,134 +104,8 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-ecr-creds'
                 ]]) {
-                    sh '''
-                        aws ecr get-login-password --region "$AWS_REGION" \
-                            | docker login --username AWS --password-stdin "$IMAGE_REGISTRY"
-                        docker push "$FULL_IMAGE"
-                        docker push "$IMAGE_REGISTRY/$IMAGE_NAME:$TARGET_ENV"
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy (kubectl)') {
-            when { anyOf { branch 'develop'; branch 'staging' } }
-            steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'grievance-dev-ssh-key',   // grievance.pem
-                    keyFileVariable: 'SSH_KEY',
-                    usernameVariable: 'SSH_USER'
-                )]) {
-                    // Sets all ten Deployments to the immutable build tag (no dependence on
-                    // imagePullPolicy or a floating tag). If anything fails, only the Deployments
-                    // already updated by this run are rolled back.
-                    sh '''
-ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@$RKE2_NODE" \
-    bash -s -- "$(echo "$DEPLOYMENTS" | tr ' ' ',')" "$FULL_IMAGE" "$K8S_NAMESPACE" <<'ENDSSH'
-set -euo pipefail
-# ssh joins its arguments into one string and the remote shell re-splits it, so the list
-# of Deployments travels comma-separated and is split here.
-DEPLOYMENTS="$(echo "$1" | tr ',' ' ')"; IMAGE="$2"; NS="$3"
-# Non-interactive SSH sessions do not load the login PATH; RKE2 keeps kubectl in its own bin dir
-export PATH="$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin:/snap/bin"
-export KUBECONFIG="$HOME/.kube/config"
-
-# Fail fast if any Deployment name does not exist
-for d in $DEPLOYMENTS; do
-    kubectl get deployment "$d" -n "$NS" > /dev/null
-done
-
-UPDATED=""
-rollback() {
-    echo "Rolling back: $UPDATED"
-    for d in $UPDATED; do
-        kubectl rollout undo "deployment/$d" -n "$NS" || true
-    done
-}
-
-echo "Deploying $IMAGE to: $DEPLOYMENTS ($NS)"
-for d in $DEPLOYMENTS; do
-    kubectl set image "deployment/$d" "*=$IMAGE" -n "$NS" || { rollback; exit 1; }
-    UPDATED="$UPDATED $d"
-done
-
-for d in $DEPLOYMENTS; do
-    echo "waiting on $d..."
-    kubectl rollout status "deployment/$d" -n "$NS" --timeout=300s || { rollback; exit 1; }
-done
-ENDSSH
-                    '''
-                }
-            }
-        }
-
-        stage('Migrate') {
-            when {
-                allOf {
-                    anyOf { branch 'develop'; branch 'staging' }
-                    expression { env.RUN_MIGRATE == 'true' }
-                }
-            }
-            steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'grievance-dev-ssh-key',
-                    keyFileVariable: 'SSH_KEY',
-                    usernameVariable: 'SSH_USER'
-                )]) {
-                    // Runs against the NEW backend pod, so schema changes shipped in this image are applied.
-                    // A migration cannot be undone by the image rollback above; a failure here fails the build.
-                    sh '''
-ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@$RKE2_NODE" \
-    bash -s -- "$K8S_NAMESPACE" "$SITE_NAME" <<'ENDSSH'
-set -euo pipefail
-NS="$1"; SITE="$2"
-export PATH="$PATH:/var/lib/rancher/rke2/bin:/usr/local/bin:/snap/bin"
-export KUBECONFIG="$HOME/.kube/config"
-echo "bench migrate on $SITE ($NS)"
-kubectl exec -n "$NS" deploy/backend -- bench --site "$SITE" migrate
-echo "bench clear-cache on $SITE ($NS)"
-kubectl exec -n "$NS" deploy/backend -- bench --site "$SITE" clear-cache
-ENDSSH
-                    '''
-                }
-            }
-        }
-
-        stage('Verify') {
-            when { anyOf { branch 'develop'; branch 'staging' } }
-            steps {
-                sh '''
-                    for i in $(seq 1 20); do
-                        code=$(curl -sk -o /dev/null -w "%{http_code}" "$VERIFY_URL" || true)
-                        echo "attempt $i: $VERIFY_URL -> $code"
-                        [ "$code" = "200" ] && exit 0
-                        sleep 10
-                    done
-                    echo "frappe backend did not return 200 at $VERIFY_URL"
-                    exit 1
-                '''
-            }
-        }
-
-        // ---- develop -> Helm release `grievance` on the oan_dev k3s node ----
-        // Runs after the RKE2 deploy above, so a problem here never blocks it. The image built above is
-        // pushed again under eoan/oan-grievance-service/grievance-service:<__version__>-develop.<build>,
-        // the tag that is also the chart version; the seed image carries the demo data of openg2p-data.
-        stage('Push image + seed (helm)') {
-            when { branch 'develop' }
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-ecr-creds'
-                ]]) {
-                    script {
-                        env.IMMUTABLE_TAG = sh(returnStdout: true, script: 'python3 ci/package_chart.py version').trim()
-                    }
                     sh '''#!/usr/bin/env bash
                         set -euo pipefail
-                        IMAGE_URI="${IMAGE_REGISTRY}/${ECR_REPO}"
-                        SEED_IMAGE_URI="${IMAGE_REGISTRY}/${ECR_SEED_REPO}"
-
                         aws ecr get-login-password --region "$AWS_REGION" \
                             | docker login --username AWS --password-stdin "$IMAGE_REGISTRY"
 
@@ -281,22 +115,15 @@ ENDSSH
                                 || aws ecr create-repository --region "$AWS_REGION" --repository-name "$repo" >/dev/null
                         done
 
-                        docker tag "$FULL_IMAGE" "${IMAGE_URI}:${IMMUTABLE_TAG}"
-
-                        # The commit openg2p-data develop points at: an unchanged build-arg would let the
-                        # layer cache keep serving an old clone after the data is fixed.
-                        OPENG2P_DATA_REF=$(git ls-remote https://github.com/Centre-for-Open-Societal-Systems/openg2p-data.git refs/heads/develop | cut -f1)
-                        test -n "${OPENG2P_DATA_REF}" || { echo "Could not resolve openg2p-data develop" >&2; exit 1; }
-                        echo "openg2p-data develop is ${OPENG2P_DATA_REF}"
-                        DOCKER_BUILDKIT=1 docker buildx build \
-                            --build-arg OPENG2P_DATA_REF=${OPENG2P_DATA_REF} \
-                            --tag "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}" \
-                            --load ci/seed
-
-                        docker push "${IMAGE_URI}:${IMMUTABLE_TAG}"
-                        docker push "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}"
-                        docker rmi "${IMAGE_URI}:${IMMUTABLE_TAG}" "${SEED_IMAGE_URI}:${IMMUTABLE_TAG}" || true
-                        echo "Pushed ${IMAGE_URI}:${IMMUTABLE_TAG} and ${SEED_IMAGE_URI}:${IMMUTABLE_TAG}"
+                        docker push "$FULL_IMAGE"
+                        if [ "${BRANCH_NAME}" = "develop" ]; then
+                            docker push "$IMAGE_REGISTRY/$ECR_REPO:develop"
+                            docker push "$SEED_IMAGE"
+                            docker rmi "$FULL_IMAGE" "$IMAGE_REGISTRY/$ECR_REPO:develop" "$SEED_IMAGE" || true
+                        else
+                            docker rmi "$FULL_IMAGE" || true
+                        fi
+                        echo "Pushed images for ${BRANCH_NAME}"
                     '''
                 }
             }
@@ -367,6 +194,25 @@ ENDSSH
             }
         }
 
+        stage('Verify') {
+            when { beforeAgent true; branch 'develop' }
+            agent { label 'oan-ci-deploy' }
+            steps {
+                sh '''
+                    host="grievance-service.development.oanstaging.com"
+                    url="https://$host/v1/auth/iam/providers"
+                    for i in $(seq 1 10); do
+                        code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "$url" || true)
+                        echo "attempt $i: $url -> $code"
+                        case "$code" in 2??|401|403) exit 0 ;; esac
+                        sleep 6
+                    done
+                    echo "grievance service did not answer at $url"
+                    exit 1
+                '''
+            }
+        }
+
         stage('Publish chart') {
             when { branch 'develop' }
             steps {
@@ -400,7 +246,7 @@ ENDSSH
 
     post {
         failure {
-            echo "oan-frappe ${env.BRANCH_NAME} deploy failed. Check the stage logs above, and 'kubectl get deployment -n ${env.K8S_NAMESPACE} -o wide' for any Deployment still on a different image."
+            echo "oan-frappe ${env.BRANCH_NAME} deploy failed."
         }
     }
 }
