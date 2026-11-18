@@ -28,6 +28,7 @@ before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
 # are seeded so a fresh site comes up usable.
 
 after_install = "oan_grievance_service.setup.install.after_install"
+before_tests = "oan_grievance_service.tests.fixtures.seed_test_categories"
 after_migrate = [
 	"oan_grievance_service.setup.install.after_migrate",
 	"oan_grievance_service.services.dashboard_rollup.ensure_built",

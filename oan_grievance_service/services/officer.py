@@ -310,7 +310,9 @@ def update(user_id: str, changes: dict) -> str:
 		desks, missing = _category_desks(department, categories, allow_missing=_is_head(level))
 		target = {desk.name for desk in desks}
 		placing_head = level != current.level or {"department", "service_categories"} & changes.keys()
-		if role == DEFAULT_ROLE and _is_head(level) and placing_head:
+		# An inactive head's desk may have been taken since, so taking it back is a placement too.
+		reactivating = bool(status) and status != "Inactive" and current.status == "Inactive"
+		if role == DEFAULT_ROLE and _is_head(level) and (placing_head or reactivating):
 			_assert_head_free(
 				department, desks, user_id, region=changes.get("region") or getattr(current, "region", None)
 			)
@@ -654,6 +656,10 @@ def _category_desks(
 	return desks, missing
 
 
+# How many taken categories the duplicate-admin error spells out; the rest are counted.
+MAX_CONFLICTS_SHOWN = 5
+
+
 def _assert_head_free(department, desks, user_id=None, region=None) -> None:
 	"""A desk has one category admin per region: refuse a second on a category, department and area.
 
@@ -661,6 +667,9 @@ def _assert_head_free(department, desks, user_id=None, region=None) -> None:
 	missing department meaning the desks that have none. A desk that already has an active
 	category admin for this area is handled by them. `user_id` is the officer being edited, who does not
 	count against themselves.
+
+	Every category that is already taken is reported at once, so a caller who picked several
+	does not have to retry one conflict at a time. An admin who is on leave still holds the desk.
 	"""
 	top = top_rung()
 	if not top or not desks:
@@ -677,20 +686,37 @@ def _assert_head_free(department, desks, user_id=None, region=None) -> None:
 	taken = frappe.get_all(
 		ROW,
 		filters=filters,
-		fields=["parent", "user", "administrative_area"],
-		limit=1,
+		fields=["parent", "user", "on_leave"],
 	)
-	if taken:
-		desk = next(desk for desk in desks if desk.name == taken[0].parent)
-		scope = desk.get("category_scope") or _("All categories")
-		where = _("in {0}").format(department) if department else _("with no department")
-		area_note = f" for {taken[0].administrative_area}" if taken[0].administrative_area else ""
-		frappe.throw(
-			_("{0} {1} is already handled by another category admin{2}: {3}.").format(
-				scope, where, area_note, taken[0].user
-			),
-			frappe.ValidationError,
+	if not taken:
+		return
+	admins_by_desk = {}
+	for row in taken:
+		label = _("{0} (on leave)").format(row.user) if row.on_leave else row.user
+		admins_by_desk.setdefault(row.parent, []).append(label)
+	where = _("department {0}").format(department) if department else _("no department")
+	conflicting = sorted(
+		(desk for desk in desks if desk.name in admins_by_desk),
+		key=lambda desk: desk.get("category_scope") or "",
+	)
+	conflicts = [
+		_("{0} in {1}: {2}").format(
+			desk.get("category_scope") or _("All categories"),
+			where,
+			", ".join(sorted(admins_by_desk[desk.name])),
 		)
+		for desk in conflicting[:MAX_CONFLICTS_SHOWN]
+	]
+	if len(conflicting) > MAX_CONFLICTS_SHOWN:
+		conflicts.append(_("and {0} more").format(len(conflicting) - MAX_CONFLICTS_SHOWN))
+	frappe.throw(
+		_(
+			"Only one active category admin is allowed for each category in a department. "
+			"Already assigned: {0}. Choose a different category or department, "
+			"or deactivate the current category admin first."
+		).format("; ".join(conflicts)),
+		frappe.ValidationError,
+	)
 
 
 def _assert_status(role: str, status: str) -> None:
