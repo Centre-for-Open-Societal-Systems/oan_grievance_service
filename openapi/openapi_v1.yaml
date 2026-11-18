@@ -7520,9 +7520,8 @@ paths:
       tags:
       - Administration
       summary: List grievance types
-      description: 'Admin list of grievance types by category and name, active and inactive, filterable
-        by service category, active flag and text in the name or type code. An SLA of 0 means none at
-        that level: never set, or the type skips it.'
+      description: Admin list of grievance types by category and name, active and inactive, filterable
+        by service category, active flag and text in the name or type code.
       operationId: get_api_v1_grievance_types
       responses:
         '200':
@@ -7717,10 +7716,9 @@ paths:
       tags:
       - Administration
       summary: Update a grievance type
-      description: Change the name, active flag or routing defaults (department, SLA days, external referral,
-        resolution path). The service category and type code cannot change. A type cannot be reactivated
-        while its category is inactive, and the catch-all Other type of the default category cannot be
-        deactivated.
+      description: Change the name, active flag, external referral or resolution path. The service category
+        and type code cannot change. A type cannot be reactivated while its category is inactive, and
+        the catch-all Other type of the default category cannot be deactivated.
       operationId: patch_api_v1_grievance_types_grievance_type
       responses:
         '200':
@@ -10616,18 +10614,6 @@ components:
           type: string
           default: null
           nullable: true
-        department:
-          type: string
-          default: null
-          nullable: true
-        sla_l1_days:
-          type: integer
-          default: null
-          nullable: true
-        sla_l2_days:
-          type: integer
-          default: null
-          nullable: true
         external_referral:
           type: string
           default: null
@@ -11944,24 +11930,6 @@ components:
           default: null
           description: Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.
           nullable: true
-        department:
-          minLength: 1
-          type: string
-          default: null
-          description: Owning department
-          nullable: true
-        sla_l1_days:
-          minimum: 0
-          type: integer
-          default: null
-          description: Default Kebele SLA in working days. 0 means none at this level.
-          nullable: true
-        sla_l2_days:
-          minimum: 0
-          type: integer
-          default: null
-          description: Default Woreda SLA in working days. 0 means none at this level.
-          nullable: true
         external_referral:
           maxLength: 140
           minLength: 1
@@ -11989,24 +11957,6 @@ components:
           type: string
         is_active:
           type: boolean
-        department:
-          minLength: 1
-          type: string
-          default: null
-          description: Owning department. Null clears it.
-          nullable: true
-        sla_l1_days:
-          minimum: 0
-          type: integer
-          default: null
-          description: 0 or null means none at this level
-          nullable: true
-        sla_l2_days:
-          minimum: 0
-          type: integer
-          default: null
-          description: 0 or null means none at this level
-          nullable: true
         external_referral:
           maxLength: 140
           minLength: 1

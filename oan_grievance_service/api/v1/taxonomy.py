@@ -60,8 +60,9 @@ NAME_LENGTH = 140
 CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_default")
 # What the Routing Matrix owners decide about a type. The code is the key the seed matches on, so it is
 # an administrator's too: a category head may rename or retire a type of their category, but not claim a
-# matrix code, move the type to another department, or change its SLA or path.
-TYPE_ROUTING_FIELDS = ("department", "sla_l1_days", "sla_l2_days", "external_referral", "resolution_path")
+# matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
+# Assignment) and the turnaround is the SLA configuration's, so neither is a field of the type.
+TYPE_ROUTING_FIELDS = ("external_referral", "resolution_path")
 TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS)
 # The code is set once, when the type is made.
 TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS)
@@ -96,9 +97,6 @@ class GrievanceTypeRecord(BaseModel):
 	is_active: bool
 	has_grievances: bool
 	type_code: str | None = None
-	department: str | None = None
-	sla_l1_days: int | None = None
-	sla_l2_days: int | None = None
 	external_referral: str | None = None
 	resolution_path: int | None = None
 
@@ -455,13 +453,6 @@ class CreateGrievanceType(Body):
 		max_length=16,
 		description="Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.",
 	)
-	department: NonBlank | None = Field(None, description="Owning department")
-	sla_l1_days: int | None = Field(
-		None, ge=0, description="Default Kebele SLA in working days. 0 means none at this level."
-	)
-	sla_l2_days: int | None = Field(
-		None, ge=0, description="Default Woreda SLA in working days. 0 means none at this level."
-	)
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH)
 	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5")
 
@@ -472,9 +463,6 @@ class UpdateGrievanceType(Body):
 	grievance_type: NonBlank
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
-	department: NonBlank | None = Field(None, description="Owning department. Null clears it.")
-	sla_l1_days: int | None = Field(None, ge=0, description="0 or null means none at this level")
-	sla_l2_days: int | None = Field(None, ge=0, description="0 or null means none at this level")
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH, description="Null clears it")
 	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5. Null clears it.")
 
@@ -506,15 +494,8 @@ def _type_records(docs: list) -> list[dict]:
 
 
 def _routing_value(doc, field: str):
-	"""A type's routing attribute as the API shows it.
-
-	An SLA is the stored number: the column cannot hold NULL, so 0 means "no SLA at this level", whether the
-	type skips it or never had one. The path (1 to 5) and the text fields are null when unset.
-	"""
-	value = doc.get(field)
-	if field in ("sla_l1_days", "sla_l2_days"):
-		return int(value or 0)
-	return value or None
+	"""A type's routing attribute as the API shows it: null when unset (the path column stores 0 for that)."""
+	return doc.get(field) or None
 
 
 @route("/grievance-types", methods=("GET",), summary="List grievance types", tier="officer-core")
@@ -524,8 +505,7 @@ def _routing_value(doc, field: str):
 @api_doc(
 	summary="List grievance types",
 	description="Admin list of grievance types by category and name, active and inactive, filterable by "
-	+ "service category, active flag and text in the name or type code. An SLA of 0 means none "
-	+ "at that level: never set, or the type skips it.",
+	+ "service category, active flag and text in the name or type code.",
 	tags=["Administration"],
 	response_model=GrievanceTypeListData,
 )
@@ -639,8 +619,8 @@ def create_grievance_type(
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
-	description="Change the name, active flag or routing defaults (department, SLA days, external referral, "
-	+ "resolution path). The service category and type code cannot change. A type "
+	description="Change the name, active flag, external referral or resolution path. The service "
+	+ "category and type code cannot change. A type "
 	+ "cannot be reactivated while its category is inactive, and the catch-all Other type of the "
 	+ "default category cannot be deactivated.",
 	tags=["Administration"],

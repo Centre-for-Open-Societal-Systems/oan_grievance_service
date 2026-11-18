@@ -10,14 +10,11 @@
   "type_name",
   "type_code",
   "service_category",
-  "department",
   "col_gtype",
   "is_active",
   "sec_routing_defaults",
-  "sla_l1_days",
-  "sla_l2_days",
-  "col_routing",
   "external_referral",
+  "col_routing",
   "resolution_path"
  ],
  "fields": [
@@ -47,13 +44,6 @@
    "reqd": 1
   },
   {
-   "description": "The department that owns this type",
-   "fieldname": "department",
-   "fieldtype": "Link",
-   "label": "Owning Department",
-   "options": "Grievance Department"
-  },
-  {
    "fieldname": "col_gtype",
    "fieldtype": "Column Break"
   },
@@ -69,28 +59,14 @@
    "label": "Routing Defaults"
   },
   {
-   "description": "Default working days for the Kebele level. 0 when the type skips Kebele. A starting value the owners may change.",
-   "fieldname": "sla_l1_days",
-   "fieldtype": "Int",
-   "label": "SLA L1 (working days)",
-   "non_negative": 1
-  },
-  {
-   "description": "Default working days for the Woreda level. A starting value the owners may change.",
-   "fieldname": "sla_l2_days",
-   "fieldtype": "Int",
-   "label": "SLA L2 (working days)",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "col_routing",
-   "fieldtype": "Column Break"
-  },
-  {
    "description": "Who a case is referred to outside OAN, e.g. Court, Input regulator",
    "fieldname": "external_referral",
    "fieldtype": "Data",
    "label": "External Referral"
+  },
+  {
+   "fieldname": "col_routing",
+   "fieldtype": "Column Break"
   },
   {
    "description": "1 Kebele Agriculture Office, 2 Kebele Committee, 3 Community Elders First, 4 Direct to Woreda or ATI, 5 Confidential",

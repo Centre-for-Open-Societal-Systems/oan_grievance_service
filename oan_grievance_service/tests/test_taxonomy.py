@@ -34,7 +34,6 @@ from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_ty
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 from oan_grievance_service.tests.fixtures import (
-	a_department,
 	a_grievance,
 	a_leaf_area,
 	a_submitter_type,
@@ -490,38 +489,24 @@ class TestTaxonomy(FrappeTestCase):
 
 	def test_type_carries_its_routing_defaults(self):
 		self._category()
-		department = a_department()
-		created = self._type(
-			type_code="q51-01",
-			department=department,
-			sla_l1_days=7,
-			sla_l2_days=10,
-			external_referral="Input regulator",
-			resolution_path=1,
-		)
+		created = self._type(type_code="q51-01", external_referral="Input regulator", resolution_path=1)
 		self.assertEqual(created["type_code"], "Q51-01")
-		self.assertEqual(
-			(created["department"], created["sla_l1_days"], created["sla_l2_days"]), (department, 7, 10)
-		)
 		self.assertEqual((created["external_referral"], created["resolution_path"]), ("Input regulator", 1))
 		type_id = created["grievance_type_id"]
 
 		# Admin edits take effect, and a type made without them has none.
-		updated = update_grievance_type(type_id, sla_l2_days=15, resolution_path=4)
+		updated = update_grievance_type(type_id, resolution_path=4)
 		self.assertEqual(updated["status"], "success", msg=updated)
 		record = updated["data"]["grievance_type"]
-		self.assertEqual(
-			(record["sla_l1_days"], record["sla_l2_days"], record["resolution_path"]), (7, 15, 4)
-		)
+		self.assertEqual((record["external_referral"], record["resolution_path"]), ("Input regulator", 4))
 		bare = self._type(name="STG406 Bare")
-		self.assertIsNone(bare["type_code"])
-		self.assertIsNone(bare["resolution_path"])
-		# An SLA that was never set reads back as 0: none at this level.
-		self.assertEqual((bare["sla_l1_days"], bare["sla_l2_days"]), (0, 0))
-		# A stored 0 is a real value, the "skips Kebele" of the matrix, and is not turned into null.
-		skipped = update_grievance_type(type_id, sla_l1_days=0)
-		self.assertEqual(skipped["data"]["grievance_type"]["sla_l1_days"], 0)
-		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["sla_l2_days"], 15)
+		self.assertEqual(
+			(bare["type_code"], bare["external_referral"], bare["resolution_path"]), (None, None, None)
+		)
+		# The department is a desk's and the turnaround the SLA configuration's: the type has neither.
+		self.assertNotIn("department", record)
+		self.assertNotIn("sla_l1_days", record)
+		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["resolution_path"], 4)
 
 		with _keep_transaction():
 			clash = create_grievance_type(
@@ -530,9 +515,11 @@ class TestTaxonomy(FrappeTestCase):
 			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
 			for result in (
 				create_grievance_type(service_category=CATEGORY, type_name="STG406 A", resolution_path=6),
-				create_grievance_type(service_category=CATEGORY, type_name="STG406 B", sla_l1_days=-1),
 				update_grievance_type(type_id, resolution_path=0),
 				update_grievance_type(type_id, type_code="Q51-09"),
+				# Fields the type no longer takes are refused by the request schema.
+				update_grievance_type(type_id, department="Anything"),
+				update_grievance_type(type_id, sla_l1_days=5),
 			):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 
@@ -541,34 +528,15 @@ class TestTaxonomy(FrappeTestCase):
 
 	def test_routing_defaults_can_be_cleared_with_null_but_not_blank(self):
 		self._category()
-		created = self._type(
-			type_code="Q51-02",
-			department=a_department(),
-			sla_l1_days=7,
-			sla_l2_days=10,
-			external_referral="Court",
-			resolution_path=2,
-		)
+		created = self._type(type_code="Q51-02", external_referral="Court", resolution_path=2)
 		type_id = created["grievance_type_id"]
-		cleared = update_grievance_type(
-			type_id, department=None, sla_l1_days=None, external_referral=None, resolution_path=None
-		)
+		cleared = update_grievance_type(type_id, external_referral=None, resolution_path=None)
 		self.assertEqual(cleared["status"], "success", msg=cleared)
 		record = cleared["data"]["grievance_type"]
-		self.assertEqual(
-			(
-				record["department"],
-				record["sla_l1_days"],
-				record["external_referral"],
-				record["resolution_path"],
-			),
-			(None, 0, None, None),
-		)
-		self.assertEqual(record["sla_l2_days"], 10)
+		self.assertEqual((record["external_referral"], record["resolution_path"]), (None, None))
 		with _keep_transaction():
 			for result in (
 				update_grievance_type(type_id, external_referral=""),
-				update_grievance_type(type_id, department=" "),
 				create_grievance_type(
 					service_category=CATEGORY, type_name="STG406 Blank", external_referral=""
 				),
@@ -576,18 +544,6 @@ class TestTaxonomy(FrappeTestCase):
 				update_grievance_type(type_id, type_code="q51-02"),
 			):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
-
-	def test_type_department_must_exist(self):
-		self._category()
-		with _keep_transaction():
-			created = create_grievance_type(
-				service_category=CATEGORY, type_name="STG406 Orphan", department="No such department"
-			)
-			self.assertEqual(created["status"], "error", msg=created)
-			self.assertEqual(created["code"], "VALIDATION_ERROR", msg=created)
-			kind = self._type(name="STG406 Real")
-			moved = update_grievance_type(kind["grievance_type_id"], department="No such department")
-			self.assertEqual(moved["code"], "VALIDATION_ERROR", msg=moved)
 
 	def test_only_an_administrator_sets_routing_defaults(self):
 		self._category()
@@ -600,8 +556,8 @@ class TestTaxonomy(FrappeTestCase):
 				create_grievance_type(service_category=CATEGORY, type_name="STG406 Head", resolution_path=3),
 				# The code is the key the seed matches on, so a head cannot claim one.
 				create_grievance_type(service_category=CATEGORY, type_name="STG406 Claim", type_code="SYS"),
-				update_grievance_type(kind["grievance_type_id"], department=a_department()),
-				update_grievance_type(kind["grievance_type_id"], sla_l1_days=None),
+				update_grievance_type(kind["grievance_type_id"], external_referral="Court"),
+				update_grievance_type(kind["grievance_type_id"], resolution_path=None),
 			):
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 			# The name and the active flag stay with the category head.

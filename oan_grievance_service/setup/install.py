@@ -7,11 +7,9 @@ notification matrix.
 
 import gzip
 import json
-import logging
 import os
 
 import frappe
-from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
@@ -172,8 +170,7 @@ REVIEWER_ROLE_LEVEL = (
 # is scoped to. Every other category comes from the seed data (openg2p-data), not from the app. The code is the
 # 3-character CATEGORY segment of the ticket number (services.ticket_number). Three characters allow 32,768
 # categories, so a service can later be split into much finer groups without the codes running out. A retired
-# code is never reused. The catch-all is `SYS`, as in the Routing Matrix; a site installed earlier has `006`
-# until the patch `seed_catch_all_sys_codes` moves it, which it does only while no ticket carries the old code.
+# code is never reused. The catch-all is `SYS`, as in the Routing Matrix.
 SERVICE_CATEGORIES = [
 	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CATEGORY_CODE, 20),
 ]
@@ -673,49 +670,16 @@ def seed_grievance_types():
 	for name, category in GRIEVANCE_TYPES:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
-		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
-		existing = frappe.db.get_value(
-			"Grievance Type", {"type_name": name, "service_category": category}, "name"
-		)
-		if existing:
-			if is_catch_all:
-				# Not just on creation: a type made before the code and the desk existed gets them on a later run.
-				complete_catch_all_type(existing)
+		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
 		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
 		if is_catch_all:
-			# The catch-all is keyed on its code like every other type.
+			# Keyed on its code like every other type, so the seed data finds it by name.
 			row["type_code"] = C.FALLBACK_TYPE_CODE
-		doc = frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
-		if is_catch_all:
-			complete_catch_all_type(doc.name)
+		frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
 		made.append(name)
 	return made
-
-
-def complete_catch_all_type(name: str) -> None:
-	"""Give the catch-all type its code and its triage desk, whichever is missing.
-
-	An administrator's choice stays: a department already set is not replaced.
-	"""
-	doc = frappe.get_doc("Grievance Type", name)
-	changed = False
-	if not doc.type_code and not frappe.db.exists("Grievance Type", {"type_code": C.FALLBACK_TYPE_CODE}):
-		doc.type_code = C.FALLBACK_TYPE_CODE
-		changed = True
-	if not doc.department:
-		if frappe.db.exists("Grievance Department", C.UNROUTED_DEPARTMENT):
-			doc.department = C.UNROUTED_DEPARTMENT
-			changed = True
-		else:
-			oplog.emit(
-				"taxonomy.catch_all_without_department",
-				level=logging.WARNING,
-				grievance_type=name,
-				department=C.UNROUTED_DEPARTMENT,
-			)
-	if changed:
-		doc.save(ignore_permissions=True)
 
 
 def seed_administrative_areas():

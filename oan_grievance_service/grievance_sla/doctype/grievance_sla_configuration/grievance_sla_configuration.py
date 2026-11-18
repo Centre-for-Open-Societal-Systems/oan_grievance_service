@@ -68,6 +68,37 @@ class GrievanceSLAConfiguration(Document):
 		if self.holiday_list and not frappe.db.exists("Grievance Holiday List", self.holiday_list):
 			frappe.throw(_("Holiday List '{0}' does not exist.").format(self.holiday_list))
 		self.validate_state_timers()
+		self.validate_level_turnarounds()
+
+	def validate_level_turnarounds(self):
+		"""A turnaround is a positive number of days, for an active level, set once per level and type.
+
+		A type belongs to this category: a row for another category's type would never apply.
+		"""
+		seen = set()
+		for row in self.level_turnarounds:
+			if (row.turnaround_days or 0) <= 0:
+				frappe.throw(_("Row {0}: Turnaround must be greater than zero.").format(row.idx))
+			key = (row.role_level, row.grievance_type or "")
+			if key in seen:
+				frappe.throw(
+					_("Row {0}: {1} already has a turnaround{2}.").format(
+						row.idx,
+						row.role_level,
+						_(" for {0}").format(row.grievance_type) if row.grievance_type else "",
+					)
+				)
+			seen.add(key)
+			if not frappe.db.get_value("Grievance Role Level", row.role_level, "is_active"):
+				frappe.throw(_("Row {0}: {1} is not an active role level.").format(row.idx, row.role_level))
+			if row.grievance_type:
+				category = frappe.db.get_value("Grievance Type", row.grievance_type, "service_category")
+				if category != self.service_category:
+					frappe.throw(
+						_("Row {0}: {1} belongs to {2}, not {3}.").format(
+							row.idx, row.grievance_type, category, self.service_category
+						)
+					)
 
 	def validate_state_timers(self):
 		"""One timer per state, and only an expiry the Workflow can carry out."""
