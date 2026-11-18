@@ -118,7 +118,7 @@ class RoleCase(FrappeTestCase):
 		return result["data"]["officer"]
 
 	def _head(self, email=f"{PREFIX}head@example.com", **extra):
-		return self._officer(email, level="L3", designation="Department Head", full_name="Hana Head", **extra)
+		return self._officer(email, level="L4", designation="Department Head", full_name="Hana Head", **extra)
 
 	def _reviewer(self, email=f"{PREFIX}reviewer@example.com", **extra):
 		result = create_officer(
@@ -156,14 +156,14 @@ class RoleCase(FrappeTestCase):
 
 
 class TestDepartmentHead(RoleCase):
-	def test_a_department_head_is_an_l3_officer_on_the_departments_desks(self):
+	def test_a_department_head_is_an_l4_officer_on_the_departments_desks(self):
 		head = self._head(service_categories=[self.inputs, self.credit])
 		self.assertEqual(
-			(head["role"], head["level"], head["department"]), ("Officer", "L3", self.department)
+			(head["role"], head["level"], head["department"]), ("Officer", "L4", self.department)
 		)
 		self.assertEqual(head["designation"], "Department Head")
 		self.assertEqual(sorted(head["service_categories"]), sorted([self.inputs, self.credit]))
-		self.assertEqual({a["level"] for a in head["assignments"]}, {"L3"})
+		self.assertEqual({a["level"] for a in head["assignments"]}, {"L4"})
 		self.assertIn(C.ROLE_OFFICER, self._roles(head["name"]))
 		rows = self._rows(head["name"])
 		self.assertEqual(len(rows), 2)
@@ -191,9 +191,9 @@ class TestDepartmentHead(RoleCase):
 		officer = self._officer()
 		head = self._head()
 		self.assertLessEqual({officer["name"], head["name"]}, set(self._ids(q=PREFIX)))
-		self.assertEqual(self._ids(level="L3", q=PREFIX), [head["name"]])
+		self.assertEqual(self._ids(level="L4", q=PREFIX), [head["name"]])
 		self.assertEqual(self._ids(level="L1", q=PREFIX), [officer["name"]])
-		self.assertEqual(self._ids(level="L3", q=PREFIX, department="S444"), [])
+		self.assertEqual(self._ids(level="L4", q=PREFIX, department="S444"), [])
 
 	def test_the_head_holds_the_top_rung_and_is_fallback_when_lower_rungs_are_away(self):
 		head = self._head()
@@ -212,7 +212,7 @@ class TestDepartmentHead(RoleCase):
 		for row in desk.officers:
 			if row.user == self.l2_seed:
 				row.on_leave = 1
-		# Both L1 and L2 are away, so the desk falls back to the L3 Department Head.
+		# Both L1 and L2 are away, so the desk falls back to the L4 Department Head.
 		self.assertEqual(routing.pick_officer_by_strategy(desk), head["name"])
 		for row in desk.officers:
 			if row.user == head["name"]:
@@ -241,8 +241,8 @@ class TestDepartmentHead(RoleCase):
 
 	def test_an_officer_can_be_promoted_to_head_and_back(self):
 		officer = self._officer()
-		promoted = update_officer(officer["name"], level="L3")["data"]["officer"]
-		self.assertEqual(promoted["level"], "L3")
+		promoted = update_officer(officer["name"], level="L4")["data"]["officer"]
+		self.assertEqual(promoted["level"], "L4")
 		row = self._rows(officer["name"])[0]
 		self.assertEqual((row.role_level, row.is_primary), ("department_head", 0))
 		demoted = update_officer(officer["name"], level="L1")["data"]["officer"]
@@ -258,18 +258,18 @@ class TestDepartmentHead(RoleCase):
 	def test_heads_are_in_the_status_counts(self):
 		self._head()
 		self.assertEqual(
-			officer_status_counts(level="L3", q=PREFIX)["data"],
+			officer_status_counts(level="L4", q=PREFIX)["data"],
 			{"active": 1, "on_leave": 0, "inactive": 0, "total": 1},
 		)
 
-	def test_an_l4_is_not_a_level(self):
+	def test_an_l5_is_not_a_level(self):
 		with _keep_transaction():
 			result = create_officer(
 				full_name="X",
 				designation="Y",
-				level="L4",
+				level="L5",
 				department="S443",
-				email=f"{PREFIX}l4@example.com",
+				email=f"{PREFIX}l5@example.com",
 				service_categories=[self.inputs],
 				temporary_password=PASSWORD,
 			)
@@ -281,7 +281,7 @@ class TestDepartmentHead(RoleCase):
 		result = create_officer(
 			full_name="Bureau Head",
 			designation="Director General",
-			level="L3",
+			level="L4",
 			department=new_dept_name,
 			email=head_email,
 			service_categories=[self.inputs],
@@ -291,7 +291,7 @@ class TestDepartmentHead(RoleCase):
 		self.assertEqual(result["status"], "success")
 		self.assertTrue(frappe.db.exists("Grievance Department", {"dept_name": new_dept_name}))
 		created_officer = result["data"]["officer"]
-		self.assertEqual(created_officer["level"], "L3")
+		self.assertEqual(created_officer["level"], "L4")
 		self.assertEqual(created_officer["department"], new_dept_name)
 		desks = frappe.get_all(
 			DESK,
@@ -414,11 +414,11 @@ class TestReviewerOnTheDesk(RoleCase):
 		self.assertIn(mine.name, names)
 		self.assertNotIn(elsewhere.name, names)
 
-	def test_a_reviewer_who_was_never_placed_keeps_oversight_of_every_filed_case(self):
+	def test_a_reviewer_who_was_never_placed_is_denied_access_by_default(self):
 		loose = _user(f"{PREFIX}loose@example.com", "Loose Reviewer", role=C.ROLE_REVIEW_OFFICER)
 		case = a_grievance(assigned_dept=self.other_department)
-		self.assertTrue(permissions.has_grievance_permission(case, "read", loose))
-		self.assertEqual(permissions.grievance_query_conditions(loose), "(1 = 1)")
+		self.assertFalse(permissions.has_grievance_permission(case, "read", loose))
+		self.assertEqual(permissions.grievance_query_conditions(loose), "(1 = 0)")
 
 	def test_a_reviewer_with_every_desk_retired_reads_nothing(self):
 		reviewer = self._reviewer(service_categories=[a_service_category()])
@@ -723,7 +723,7 @@ class TestPermissions(RoleCase):
 			create_officer(
 				full_name="X",
 				designation="Y",
-				level="L3",
+				level="L4",
 				department="S443",
 				email=f"{PREFIX}w-head@example.com",
 				service_categories=[self.inputs],
@@ -750,7 +750,7 @@ class TestPermissions(RoleCase):
 		with _keep_transaction():
 			for result in (
 				list_officers(),
-				list_officers(level="L3"),
+				list_officers(level="L4"),
 				get_officer(self.head["name"]),
 				officer_status_counts(),
 			):
@@ -887,7 +887,7 @@ class TestStatusCounts(RoleCase):
 				{"status": "Active"},
 				{"page": 1},
 				{"bogus": 1},
-				{"level": "L4"},
+				{"level": "L5"},
 				{"role": "Owner"},
 				{"role": "Admin"},
 				{"department": "Nope"},

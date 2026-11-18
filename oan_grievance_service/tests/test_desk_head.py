@@ -41,7 +41,8 @@ class TestDeskHead(base.RoleCase):
 	def test_the_role_follows_the_top_rung(self):
 		officer = self._officer()
 		self.assertNotIn(C.ROLE_DESK_HEAD, self._roles(officer["name"]))
-		update_officer(officer["name"], level="L3")
+		res = update_officer(officer["name"], level="L4")
+		self.assertEqual(res.get("status"), "success", msg=res)
 		self.assertIn(C.ROLE_DESK_HEAD, self._roles(officer["name"]))
 		update_officer(officer["name"], level="L1")
 		self.assertNotIn(C.ROLE_DESK_HEAD, self._roles(officer["name"]))
@@ -69,7 +70,7 @@ class TestDeskHead(base.RoleCase):
 
 	def test_a_head_cannot_create_a_head_a_reviewer_or_a_department(self):
 		head = self._desk_head()
-		for extra in ({"level": "L3"}, {"role": "Reviewer", "level": None}, {"create_department": True}):
+		for extra in ({"level": "L4"}, {"role": "Reviewer", "level": None}, {"create_department": True}):
 			with self.subTest(extra=extra), _keep_transaction():
 				result = self._new_officer_as(head["name"], f"{base.PREFIX}nope@example.com", **extra)
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
@@ -93,7 +94,7 @@ class TestDeskHead(base.RoleCase):
 		with _keep_transaction():
 			for result in (
 				update_officer(other_head["name"], full_name="Renamed"),
-				update_officer(mine["name"], level="L3"),
+				update_officer(mine["name"], level="L4"),
 				update_officer(mine["name"], department="S444"),
 			):
 				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)

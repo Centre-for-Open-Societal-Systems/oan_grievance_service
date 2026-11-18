@@ -4,7 +4,6 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.tests.fixtures import a_grievance_type, a_service_category
 
 SLA_DOCTYPE = "Grievance SLA Configuration"
@@ -65,9 +64,7 @@ class TestSlaLevelTurnarounds(FrappeTestCase):
 
 	def test_only_an_active_level_can_be_used(self):
 		with self.assertRaises(frappe.ValidationError):
-			_config([{"role_level": C.ROLE_LEVEL_REVIEW_OFFICER, "turnaround_days": 5}]).insert(
-				ignore_permissions=True
-			)
+			_config([{"role_level": "review_officer", "turnaround_days": 5}]).insert(ignore_permissions=True)
 
 	def test_a_type_must_belong_to_the_configurations_category(self):
 		elsewhere = frappe.get_doc(

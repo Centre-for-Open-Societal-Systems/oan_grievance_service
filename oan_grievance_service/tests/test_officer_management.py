@@ -272,7 +272,7 @@ class TestOfficerManagement(FrappeTestCase):
 		bad = [
 			{"department": "Nope"},
 			{"email": "not-an-email"},
-			{"level": "L4"},
+			{"level": "L5"},
 			{"status": "Gone"},
 			{"service_categories": []},
 			{"service_categories": ["Nope"]},
@@ -433,7 +433,7 @@ class TestOfficerManagement(FrappeTestCase):
 	def test_bad_filter_values_are_validation_errors(self):
 		with _keep_transaction():
 			for bad in (
-				{"level": "L4"},
+				{"level": "L5"},
 				{"status": "Gone"},
 				{"page_size": 0},
 				{"bogus": 1},

@@ -18,7 +18,9 @@ from frappe.query_builder import Order
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
 )
-from oan_grievance_service.services.constants import ROLE_LEVEL_REVIEW_OFFICER
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
+)
 
 # A Reviewer sits on a department's desks too, with read-only access to that department.
 OFFICER_ROLES = {"Grievance Officer", "Grievance Admin", "Grievance Review Officer"}
@@ -29,6 +31,68 @@ UNBOUNDED_SPAN = 999999999
 
 
 class GrievanceRBACAssignment(Document):
+	def before_validate(self):
+		self.ensure_positions_for_officers()
+
+	def ensure_positions_for_officers(self):
+		for row in self.officers:
+			if row.get("position"):
+				pos = frappe.db.get_value(
+					"Grievance Officer Position",
+					row.position,
+					[
+						"occupant",
+						"role_level",
+						"administrative_area",
+						"designation",
+						"position_title",
+						"reports_to_position",
+					],
+					as_dict=True,
+				)
+				if pos:
+					# Fill only what the row lacks: Position edits reach linked rows through
+					# the Position's own sync, and a row re-levelled on the desk must keep it.
+					row.user = row.user or pos.occupant
+					row.role_level = row.role_level or pos.role_level
+					row.administrative_area = row.administrative_area or pos.administrative_area
+					row.designation = row.designation or pos.designation or pos.position_title
+					if pos.reports_to_position and not row.reports_to:
+						row.reports_to = frappe.db.get_value(
+							"Grievance Officer Position", pos.reports_to_position, "occupant"
+						)
+			elif row.get("user"):
+				filters = {"occupant": row.user, "active": 1}
+				if row.get("role_level"):
+					filters["role_level"] = row.role_level
+				if row.get("administrative_area"):
+					filters["administrative_area"] = row.administrative_area
+				pos_name = frappe.db.get_value(
+					"Grievance Officer Position",
+					filters,
+					"name",
+				)
+				if not pos_name:
+					occupant = row.user if frappe.db.get_value("User", row.user, "enabled") else None
+					role_lvl = row.get("role_level")
+					if not role_lvl:
+						chain = GrievanceRoleLevel.get_chain()
+						role_lvl = chain[0].name if chain else "nodal_officer"
+					desig = row.get("designation") or role_lvl.replace("_", " ").title()
+					pos_doc = frappe.get_doc(
+						{
+							"doctype": "Grievance Officer Position",
+							"position_title": f"{desig} - {row.user}",
+							"role_level": role_lvl,
+							"administrative_area": row.get("administrative_area"),
+							"occupant": occupant,
+							"designation": desig,
+							"active": 1,
+						}
+					).insert(ignore_permissions=True)
+					pos_name = pos_doc.name
+				row.position = pos_name
+
 	def validate(self):
 		# Type- and provider-scoped desks predate these rules and are left alone.
 		if self.is_unnarrowed():
@@ -44,11 +108,19 @@ class GrievanceRBACAssignment(Document):
 		return bool(self.category_scope) and not any(self.get(field) for field in NARROWING_SCOPES)
 
 	def validate_no_repeated_officer(self):
-		seen = set()
+		seen_users = set()
+		seen_positions = set()
 		for row in self.officers:
-			if row.user in seen:
-				frappe.throw(_("Officer '{0}' is listed more than once.").format(row.user))
-			seen.add(row.user)
+			if getattr(row, "position", None):
+				if row.position in seen_positions:
+					frappe.throw(
+						_("Position '{0}' is listed more than once on this desk.").format(row.position)
+					)
+				seen_positions.add(row.position)
+			if getattr(row, "user", None):
+				if row.user in seen_users:
+					frappe.throw(_("Officer '{0}' is listed more than once.").format(row.user))
+				seen_users.add(row.user)
 
 	def reject_duplicate_desk(self):
 		"""One category-only desk per (category, department), inactive desks included.
@@ -94,7 +166,11 @@ class GrievanceRBACAssignment(Document):
 
 	def validate_links(self):
 		for row in self.officers:
-			if row.active:
+			if getattr(row, "position", None) and not frappe.db.exists(
+				"Grievance Officer Position", row.position
+			):
+				frappe.throw(_("Position '{0}' does not exist.").format(row.position), frappe.ValidationError)
+			if row.active and getattr(row, "user", None):
 				_assert_officer(row.user)
 		if self.category_scope:
 			_assert_active(
@@ -107,7 +183,7 @@ class GrievanceRBACAssignment(Document):
 
 
 def _active_users(rows) -> set[str]:
-	return {row.user for row in rows if row.active}
+	return {row.user for row in rows if row.active and getattr(row, "user", None)}
 
 
 def _assert_officer(user: str):
@@ -192,7 +268,9 @@ def query_active_officer_assignments(
 	if distinct:
 		query = query.distinct()
 	if not include_reviewers:
-		query = query.where(c.role_level != ROLE_LEVEL_REVIEW_OFFICER)
+		chain = GrievanceRoleLevel.get_chain()
+		if chain:
+			query = query.where(c.role_level.isin([r.name for r in chain]))
 	if user:
 		query = query.where(c.user == user)
 	if role_level:
@@ -304,10 +382,6 @@ def find_officer_by_role_level(role_level, department=None, administrative_area=
 
 def top_rung():
 	"""The name of the last entry in GrievanceRoleLevel.get_chain(), or None."""
-	from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
-		GrievanceRoleLevel,
-	)
-
 	chain = GrievanceRoleLevel.get_chain()
 	return chain[-1].name if chain else None
 
@@ -401,6 +475,15 @@ def get_officer_supervisor(user, department=None, administrative_area=None, stri
 	)
 	rows = [r for r in rows if r.reports_to]
 	if not rows:
+		from oan_grievance_service.grievance_access_control.positions import positions_of
+
+		for pos in positions_of(user):
+			if pos.get("reports_to_position"):
+				sup = frappe.db.get_value(
+					"Grievance Officer Position", pos["reports_to_position"], "occupant"
+				)
+				if sup:
+					return sup
 		return None
 
 	best = covering_rows(rows, department, category, administrative_area)

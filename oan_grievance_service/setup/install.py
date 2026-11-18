@@ -142,22 +142,35 @@ ORG_WORKFLOW_TRANSITIONS = [
 # these govern the climb after that, which is why they shorten going up. The department
 # head has none, which is what makes that rung terminal.
 ROLE_LEVELS = [
-	("nodal_officer", "Nodal Officer", 10, 48, "L1. Department-wide coordination point for grievances."),
+	("nodal_officer", "Kebele Nodal Officer", 10, 48, "L1. Kebele-level coordination point for grievances."),
 	(
 		"senior_nodal_officer",
-		"Senior Nodal Officer",
+		"Woreda Nodal Officer",
 		20,
 		24,
-		"L2. Senior coordination; first rung above the nodal officer.",
+		"L2. Woreda-level coordination; first rung above the Kebele nodal officer.",
 	),
-	("department_head", "Category Admin", 30, 0, "Final internal escalation rung for the department."),
+	(
+		"zonal_head",
+		"Zonal Head",
+		25,
+		24,
+		"L3. Zonal-level coordination and escalation point.",
+	),
+	(
+		"department_head",
+		"Regional Bureau Head",
+		30,
+		0,
+		"L4. Final internal escalation rung for the region/department.",
+	),
 ]
 
 # The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
 # Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
 # and `top_rung` read active levels only. Routing and the officer picker skip these rows.
 REVIEWER_ROLE_LEVEL = (
-	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"review_officer",
 	"Review Officer",
 	910,
 	"Read-only oversight of a department. Not a step of the escalation chain.",

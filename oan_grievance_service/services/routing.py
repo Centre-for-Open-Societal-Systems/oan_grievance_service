@@ -215,8 +215,8 @@ def ranked_assignments(grievance):
 	fits = _desk_area_fits([a.name for a, _ in scoped], case_area, case_lft, case_rgt)
 	scoped.sort(
 		key=lambda row: (
-			fits.get(row[0].name, (UNBOUNDED, False))[0],
 			-row[1],
+			fits.get(row[0].name, (UNBOUNDED, False))[0],
 			str(row[0].creation),
 			row[0].name,
 		)
@@ -330,24 +330,75 @@ def _covering_case(officers, grievance):
 
 
 def _available(officers):
-	return [o for o in officers if not getattr(o, "on_leave", 0)]
+	from oan_grievance_service.grievance_access_control.positions import (
+		is_officer_on_leave,
+		prefetch_positions,
+	)
+
+	prefetch_positions([getattr(o, "user", None) for o in officers])
+	return [
+		o
+		for o in officers
+		if not getattr(o, "on_leave", 0) and not is_officer_on_leave(getattr(o, "user", None))
+	]
 
 
 def pick_officer_by_strategy(assignment_doc, grievance=None):
 	if not assignment_doc.get("officers"):
 		return None
 
-	eligible = _available(
-		[
-			o
-			for o in assignment_doc.officers
-			if getattr(o, "active", 1) and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER
-		]
-	)
+	pos_names = [o.position for o in assignment_doc.officers if getattr(o, "position", None)]
+	positions_by_name = {}
+	sup_occupants = {}
+	if pos_names:
+		positions = frappe.get_all(
+			"Grievance Officer Position",
+			filters={"name": ["in", pos_names]},
+			fields=["name", "occupant", "role_level", "administrative_area", "reports_to_position"],
+		)
+		positions_by_name = {p.name: p for p in positions}
+		sup_pos_names = [p.reports_to_position for p in positions if p.reports_to_position]
+		if sup_pos_names:
+			sup_occupants = {
+				p.name: p.occupant
+				for p in frappe.get_all(
+					"Grievance Officer Position",
+					filters={"name": ["in", sup_pos_names]},
+					fields=["name", "occupant"],
+				)
+			}
+
+	chain = GrievanceRoleLevel.get_chain()
+	chain_codes = {rung.name for rung in chain}
+
+	candidates = []
+	for o in assignment_doc.officers:
+		user = getattr(o, "user", None)
+		pos_name = getattr(o, "position", None)
+		if pos_name and pos_name in positions_by_name:
+			pos = positions_by_name[pos_name]
+			if not user:
+				user = pos.occupant
+				o.user = user
+			if not getattr(o, "role_level", None):
+				o.role_level = pos.role_level
+			if not getattr(o, "administrative_area", None):
+				o.administrative_area = pos.administrative_area
+			if not getattr(o, "reports_to", None) and pos.reports_to_position:
+				o.reports_to = sup_occupants.get(pos.reports_to_position)
+
+		if (
+			user
+			and getattr(o, "active", 1)
+			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
+		):
+			candidates.append(o)
+
+	eligible = _available(candidates)
 	if not eligible:
 		return None
 
-	order = {rung.name: rung.level_order for rung in GrievanceRoleLevel.get_chain()}
+	order = {rung.name: rung.level_order for rung in chain}
 	rank_of = {o.user: order.get(o.role_level, float("inf")) for o in eligible}
 	active_officers = []
 	for rank in sorted(set(rank_of.values())):
@@ -383,6 +434,8 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		return winner.user
 
 	elif strategy == "Least Loaded":
+		from oan_grievance_service.grievance_access_control.positions import max_open_cases_for
+
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
@@ -402,7 +455,7 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 				user=o.user,
 				officer_doc=o,
 				open_count=counts.get(o.user, 0),
-				max_cap=getattr(o, "max_open_cases", 0) or 0,
+				max_cap=getattr(o, "max_open_cases", 0) or max_open_cases_for(o.user),
 			)
 			for o in active_officers
 		]
@@ -424,14 +477,19 @@ def apply_routing(grievance, commit_status=True):
 	doc = officer_user = None
 	routing_on = auto_routing_enabled()
 	desks = ranked_assignments(grievance) if routing_on else assignments_for_unrouted()
+	tried_specific_desk = False
 	for assignment in desks:
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
 		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
 		# the Unrouted triage desk.
 		if not (candidate.department_scope or candidate.category_scope):
 			continue
-		# No officer covers the case's region: any officer on the desk beats none.
-		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)
+		if candidate.department_scope != C.UNROUTED_DEPARTMENT:
+			tried_specific_desk = True
+			officer_user = pick_officer_by_strategy(candidate, grievance)
+		else:
+			# Triage desk catches cases without area filter
+			officer_user = pick_officer_by_strategy(candidate)
 		if officer_user:
 			doc = candidate
 			break
@@ -452,11 +510,13 @@ def apply_routing(grievance, commit_status=True):
 		grievance.db_set(updates, update_modified=False)
 
 	if commit_status:
-		reason = (
-			f"Auto-routed by assignment {doc.name}"
-			if routing_on
-			else f"Auto-routing is off; sent to triage desk {doc.name}"
-		)
+		if not routing_on:
+			reason = f"Auto-routing is off; sent to triage desk {doc.name}"
+		elif doc.department_scope == C.UNROUTED_DEPARTMENT and tried_specific_desk:
+			area_name = grievance.get("administrative_area") or "unspecified area"
+			reason = f"No officer on matching desk covers area '{area_name}'; sent to triage desk {doc.name}"
+		else:
+			reason = f"Auto-routed by assignment {doc.name}"
 		lifecycle.transition(grievance, "Assign", reason=reason, automated=True)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc
