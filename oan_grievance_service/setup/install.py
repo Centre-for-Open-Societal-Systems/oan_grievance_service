@@ -167,9 +167,9 @@ REVIEWER_ROLE_LEVEL = (
 # is scoped to. Every other category comes from the seed data (openg2p-data), not from the app. The code is the
 # 3-character CATEGORY segment of the ticket number (services.ticket_number). Three characters allow 32,768
 # categories, so a service can later be split into much finer groups without the codes running out. A retired
-# code is never reused.
+# code is never reused. The catch-all is `SYS`, as in the Routing Matrix.
 SERVICE_CATEGORIES = [
-	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CATEGORY_CODE, 20),
 ]
 
 # Baseline SLA configurations for standard service categories.
@@ -655,14 +655,12 @@ def seed_grievance_types():
 			continue
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Type",
-				"type_name": name,
-				"service_category": category,
-				"is_active": 1,
-			}
-		).insert(ignore_permissions=True)
+		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
+		if is_catch_all:
+			# Keyed on its code like every other type, so the seed data finds it by name.
+			row["type_code"] = C.FALLBACK_TYPE_CODE
+		frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
 		made.append(name)
 	return made
 
