@@ -193,19 +193,21 @@ def _scope_covers(doc, scopes) -> bool:
 
 
 def _is_placed(user):
-	"""Whether `user` has been put on a desk at all, active or not."""
-	return bool(frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user}))
+	"""Whether `user` has been put on a desk or assigned a position at all, active or not."""
+	return bool(
+		frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user})
+		or frappe.db.exists("Grievance Officer Position", {"occupant": user})
+	)
 
 
 def _reviewer_clause(user):
 	"""What a Review Officer reads: the cases in their desks' scopes.
 
 	A reviewer placed on a department's desks reads that department's cases only, and loses
-	access when every desk is retired. One who was never placed on a desk keeps the oversight
-	of every filed case that Review Officers had before desks were assigned to them.
+	access when every desk is retired. Unplaced Reviewers deny access by default.
 	"""
 	if not _is_placed(user):
-		return "1 = 1"
+		return "1 = 0"
 	scoped = _scope_clauses(active_scopes(user))
 	return "(" + " or ".join(scoped) + ")" if scoped else "1 = 0"
 
@@ -281,7 +283,7 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		return True
 
 	if ROLE_REVIEW_OFFICER in roles and ptype == "read":
-		if not _is_placed(user) or _scope_covers(doc, active_scopes(user)):
+		if _is_placed(user) and _scope_covers(doc, active_scopes(user)):
 			return True
 
 	if roles & SUBMITTER_ROLES:

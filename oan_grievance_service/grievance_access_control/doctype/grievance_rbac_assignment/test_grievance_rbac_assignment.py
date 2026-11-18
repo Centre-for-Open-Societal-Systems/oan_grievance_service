@@ -71,6 +71,7 @@ class TestGrievanceRBACAssignment(FrappeTestCase):
 
 		# Tests in this class share one transaction, and a category desk is unique per
 		# department, so each test starts without the previous test's desks.
+		frappe.db.delete("Grievance Officer Position", {"occupant": ["in", list(self.users.keys())]})
 		for name in frappe.get_all(
 			"Grievance RBAC Assignment", filters={"department_scope": "Unified Agri Dept"}, pluck="name"
 		):

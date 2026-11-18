@@ -220,3 +220,5 @@ __marimo__/
 # Custom ignores
 .DS_Store
 scripts/
+*.kubeconfig
+uv.lock

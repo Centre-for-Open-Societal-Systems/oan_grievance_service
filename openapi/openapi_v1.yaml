@@ -5033,6 +5033,7 @@ paths:
           - L1
           - L2
           - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -5230,6 +5231,7 @@ paths:
           - L1
           - L2
           - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -5525,6 +5527,8 @@ paths:
           enum:
           - L1
           - L2
+          - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -9973,6 +9977,7 @@ components:
           - L1
           - L2
           - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -10009,6 +10014,7 @@ components:
           - L1
           - L2
           - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -10108,6 +10114,8 @@ components:
           enum:
           - L1
           - L2
+          - L3
+          - L4
           type: string
         role_level:
           type: string
@@ -11308,6 +11316,7 @@ components:
           - L1
           - L2
           - L3
+          - L4
           type: string
           default: null
           nullable: true
@@ -11359,6 +11368,7 @@ components:
           - L1
           - L2
           - L3
+          - L4
           type: string
         full_name:
           maxLength: 140

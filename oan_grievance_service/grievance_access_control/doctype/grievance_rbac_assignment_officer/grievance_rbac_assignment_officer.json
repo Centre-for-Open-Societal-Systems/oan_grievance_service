@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "position",
   "user",
   "role_level",
   "reports_to",
@@ -20,20 +21,26 @@
  ],
  "fields": [
   {
+   "description": "Organizational post/seat serving this desk",
+   "fieldname": "position",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Position",
+   "options": "Grievance Officer Position"
+  },
+  {
    "fieldname": "user",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "User",
-   "options": "User",
-   "reqd": 1
+   "options": "User"
   },
   {
    "fieldname": "role_level",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Role Level",
-   "options": "Grievance Role Level",
-   "reqd": 1
+   "options": "Grievance Role Level"
   },
   {
    "description": "Direct supervisor for escalation and approval workflows",
@@ -102,7 +109,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-07 10:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance RBAC Assignment Officer",

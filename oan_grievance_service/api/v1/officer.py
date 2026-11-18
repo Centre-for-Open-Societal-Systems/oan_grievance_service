@@ -52,7 +52,7 @@ DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 
 route = prefixed("/api/v1/officers")
 
-Level = Literal["L1", "L2", "L3"]
+Level = Literal["L1", "L2", "L3", "L4"]
 Status = Literal["Active", "On Leave", "Inactive"]
 Role = Literal["Officer", "Reviewer"]
 
@@ -437,9 +437,9 @@ def create_officer(
 			"reports_to": reports_to,
 		},
 	)
-	if is_unrestricted(caller) and role == "Officer" and level != "L3":
+	if is_unrestricted(caller) and role == "Officer" and not service.is_head(level):
 		if not service_categories:
-			field_errors(CreateOfficer, {"service_categories": "Required for an L1 or L2 officer"})
+			field_errors(CreateOfficer, {"service_categories": "Required for a non-head officer"})
 	user_id = service.create(**fields)
 	return success_response(data={"officer": service.record(user_id)}, message=_("{0} created").format(role))
 

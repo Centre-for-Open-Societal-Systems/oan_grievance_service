@@ -34,7 +34,7 @@ route = prefixed("/api/v1/officers")
 class OfficerStatisticsRecord(BaseModel):
 	user: str
 	full_name: str | None = None
-	level: Literal["L1", "L2"]
+	level: Literal["L1", "L2", "L3", "L4"]
 	role_level: str
 	assigned: int
 	resolved: int
@@ -50,7 +50,7 @@ class OfficerStatisticsListData(BaseModel):
 class ListOfficerStatistics(PageParams, Body):
 	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
 
-	level: Literal["L1", "L2"] | None = None
+	level: Literal["L1", "L2", "L3", "L4"] | None = None
 	department: str | None = None
 
 	_blank = field_validator("level", "department", mode="before")(blank_to_none)

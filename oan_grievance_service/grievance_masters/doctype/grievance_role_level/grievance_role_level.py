@@ -57,15 +57,28 @@ class GrievanceRoleLevel(Document):
 	@staticmethod
 	def get_chain():
 		"""Returns all active rungs ordered by level_order ascending, cached in memory."""
-		chain = frappe.cache.get_value(CACHE_KEY)
+		if not getattr(frappe, "db", None):
+			return []
+		chain = None
+		try:
+			cache = getattr(frappe, "cache", None)
+			if cache:
+				chain = cache.get_value(CACHE_KEY)
+		except Exception:
+			chain = None
+
 		if chain is None:
-			chain = frappe.get_all(
-				"Grievance Role Level",
-				filters={"is_active": 1},
-				fields=["name", "level_name", "level_order", "escalation_hours"],
-				order_by="level_order asc",
-			)
-			frappe.cache.set_value(CACHE_KEY, chain)
+			try:
+				chain = frappe.get_all(
+					"Grievance Role Level",
+					filters={"is_active": 1},
+					fields=["name", "level_name", "level_order", "escalation_hours"],
+					order_by="level_order asc",
+				)
+				if getattr(frappe, "cache", None):
+					frappe.cache.set_value(CACHE_KEY, chain)
+			except Exception:
+				chain = []
 		return chain
 
 

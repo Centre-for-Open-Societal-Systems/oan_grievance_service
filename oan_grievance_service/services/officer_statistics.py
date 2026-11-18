@@ -25,7 +25,12 @@ DESK = "Grievance RBAC Assignment"
 OFFICER_ROW = "Grievance RBAC Assignment Officer"
 
 # Grievance Role Level codes seeded by setup/install.py, keyed by the tier the admin tabs show.
-LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
+LEVEL_CODES = {
+	"L1": "nodal_officer",
+	"L2": "senior_nodal_officer",
+	"L3": "zonal_head",
+	"L4": "department_head",
+}
 LEVEL_BY_CODE = {code: level for level, code in LEVEL_CODES.items()}
 
 

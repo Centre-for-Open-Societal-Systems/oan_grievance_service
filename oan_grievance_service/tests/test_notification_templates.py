@@ -133,43 +133,56 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 	def test_dynamic_resolution_for_new_role_level(self):
 		"""Adding a new role level dynamically resolves without code changes."""
 		new_level_code = "zonal_officer_test"
-		if not frappe.db.exists("Grievance Role Level", new_level_code):
-			frappe.get_doc(
-				{
-					"doctype": "Grievance Role Level",
-					"level_code": new_level_code,
-					"level_name": "Zonal Officer Test",
-					"level_order": 15,
-					"escalation_hours": 36,
-					"is_active": 1,
-				}
-			).insert(ignore_permissions=True)
-
 		user_email = "zonal-test@example.com"
-		if not frappe.db.exists("User", user_email):
-			frappe.get_doc(
-				{
-					"doctype": "User",
-					"email": user_email,
-					"first_name": "Zonal",
-					"last_name": "Officer",
-					"enabled": 1,
-					"roles": [{"role": "Grievance Officer"}],
-				}
-			).insert(ignore_permissions=True)
-
 		dept_name = "Zonal Test Dept"
-		if not frappe.db.exists("Grievance Department", dept_name):
-			frappe.get_doc(
-				{
-					"doctype": "Grievance Department",
-					"dept_name": dept_name,
-					"short_name": "ZTD",
-				}
-			).insert(ignore_permissions=True)
+
+		def _cleanup():
+			for desk_name in frappe.get_all(
+				"Grievance RBAC Assignment", filters={"department_scope": dept_name}, pluck="name"
+			):
+				frappe.delete_doc("Grievance RBAC Assignment", desk_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("User", user_email):
+				frappe.delete_doc("User", user_email, force=True, ignore_permissions=True)
+			if frappe.db.exists("Grievance Department", dept_name):
+				frappe.delete_doc("Grievance Department", dept_name, force=True, ignore_permissions=True)
+			if frappe.db.exists("Grievance Role Level", new_level_code):
+				frappe.delete_doc("Grievance Role Level", new_level_code, force=True, ignore_permissions=True)
+
+		_cleanup()
+		self.addCleanup(_cleanup)
+
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Role Level",
+				"level_code": new_level_code,
+				"level_name": "Zonal Officer Test",
+				"level_order": 920,
+				"escalation_hours": 36,
+				"is_active": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": user_email,
+				"first_name": "Zonal",
+				"last_name": "Officer",
+				"enabled": 1,
+				"roles": [{"role": "Grievance Officer"}],
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Department",
+				"dept_name": dept_name,
+				"short_name": "ZTD",
+			}
+		).insert(ignore_permissions=True)
 
 		# Setup desk assignment with the new role level
-		desk = frappe.get_doc(
+		frappe.get_doc(
 			{
 				"doctype": "Grievance RBAC Assignment",
 				"department_scope": dept_name,
@@ -185,30 +198,6 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 				],
 			}
 		).insert(ignore_permissions=True)
-		self.addCleanup(
-			frappe.delete_doc, "Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True
-		)
-		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("User", user_email, force=True, ignore_permissions=True)
-				if frappe.db.exists("User", user_email)
-				else None
-			)
-		)
-		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Grievance Department", dept_name, force=True, ignore_permissions=True)
-				if frappe.db.exists("Grievance Department", dept_name)
-				else None
-			)
-		)
-		self.addCleanup(
-			lambda: (
-				frappe.delete_doc("Grievance Role Level", new_level_code, force=True, ignore_permissions=True)
-				if frappe.db.exists("Grievance Role Level", new_level_code)
-				else None
-			)
-		)
 
 		grievance = frappe._dict(
 			{
