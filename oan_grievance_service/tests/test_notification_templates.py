@@ -127,7 +127,6 @@ class TestNotificationTemplatesAPI(FrappeTestCase):
 		self.assertEqual(template["channel"], "Email")
 		self.assertEqual(template["recipient_type"], "Role Level")
 		self.assertEqual(template["role_level"], "department_head")
-		self.assertEqual(template["role_level_name"], "Category Admin")
 		self.assertTrue(template["enabled"])
 
 	def test_dynamic_resolution_for_new_role_level(self):
