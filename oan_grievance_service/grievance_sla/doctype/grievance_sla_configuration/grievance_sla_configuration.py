@@ -81,13 +81,13 @@ class GrievanceSLAConfiguration(Document):
 				frappe.throw(_("Row {0}: Turnaround must be greater than zero.").format(row.idx))
 			key = (row.role_level, row.grievance_type or "")
 			if key in seen:
-				frappe.throw(
-					_("Row {0}: {1} already has a turnaround{2}.").format(
-						row.idx,
-						row.role_level,
-						_(" for {0}").format(row.grievance_type) if row.grievance_type else "",
+				if row.grievance_type:
+					frappe.throw(
+						_("Row {0}: {1} already has a turnaround for {2}.").format(
+							row.idx, row.role_level, row.grievance_type
+						)
 					)
-				)
+				frappe.throw(_("Row {0}: {1} already has a turnaround.").format(row.idx, row.role_level))
 			seen.add(key)
 			if not frappe.db.get_value("Grievance Role Level", row.role_level, "is_active"):
 				frappe.throw(_("Row {0}: {1} is not an active role level.").format(row.idx, row.role_level))
