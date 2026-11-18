@@ -69,11 +69,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "1 Kebele Agriculture Office, 2 Kebele Committee, 3 Community Elders First, 4 Direct to Woreda or ATI, 5 Confidential",
+   "description": "How cases of this type are meant to be handled. Descriptive only: the levels that handle a case are the officers of the desks, not the path.",
    "fieldname": "resolution_path",
-   "fieldtype": "Int",
-   "label": "Resolution Path (1-5)",
-   "non_negative": 1
+   "fieldtype": "Link",
+   "label": "Resolution Path",
+   "options": "Grievance Resolution Path"
   }
  ],
  "grid_page_length": 50,

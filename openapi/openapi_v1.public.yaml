@@ -10412,7 +10412,7 @@ components:
           default: null
           nullable: true
         resolution_path:
-          type: integer
+          type: string
           default: null
           nullable: true
       required:
@@ -11740,11 +11740,11 @@ components:
           default: null
           nullable: true
         resolution_path:
-          maximum: 5
-          minimum: 1
-          type: integer
+          maxLength: 140
+          minLength: 1
+          type: string
           default: null
-          description: Routing path 1 to 5
+          description: Name of a Grievance Resolution Path
           nullable: true
       required:
       - service_category
@@ -11768,11 +11768,11 @@ components:
           description: Null clears it
           nullable: true
         resolution_path:
-          maximum: 5
-          minimum: 1
-          type: integer
+          maxLength: 140
+          minLength: 1
+          type: string
           default: null
-          description: Routing path 1 to 5. Null clears it.
+          description: Name of a Grievance Resolution Path. Null clears it.
           nullable: true
       type: object
     IvrGrievanceRequest:

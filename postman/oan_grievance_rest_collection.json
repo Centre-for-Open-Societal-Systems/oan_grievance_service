@@ -4315,7 +4315,7 @@
             "description": "Create a type under an active category. Required: service_category (name or code), type_name. The name is unique within the category (the same name under another category is allowed). Duplicate returns 409.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\",\n  \"type_code\": \"INP-01\",\n  \"external_referral\": \"Input regulator\",\n  \"resolution_path\": 1\n}"
+              "raw": "{\n  \"service_category\": \"Inputs\",\n  \"type_name\": \"Late fertilizer delivery\",\n  \"type_code\": \"INP-01\",\n  \"external_referral\": \"Input regulator\",\n  \"resolution_path\": \"Kebele Agriculture Office\"\n}"
             }
           },
           "response": []
@@ -4394,7 +4394,7 @@
             "description": "Partial update of type_name or is_active. The service category cannot change. A type cannot be reactivated while its category is inactive, and the catch-all Other type of the default category cannot be deactivated.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\",\n  \"resolution_path\": 2\n}"
+              "raw": "{\n  \"type_name\": \"Delayed fertilizer delivery\",\n  \"resolution_path\": \"Kebele Committee\"\n}"
             }
           },
           "response": []

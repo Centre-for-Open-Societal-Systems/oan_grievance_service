@@ -344,7 +344,7 @@ Response `200`:
 | `is_active`         | boolean | no       | `true`  |                                                                                  |
 | `type_code`         | string  | no       |         | Up to 16 characters, stored upper case. Unique. **Administrator only** (see 5.6) |
 | `external_referral` | string  | no       |         | Who a case is referred to outside OAN. **Administrator only**                    |
-| `resolution_path`   | integer | no       |         | Routing path 1 to 5 (see 5.6). **Administrator only**                            |
+| `resolution_path`   | string  | no       |         | Name of a Grievance Resolution Path (see 5.6). **Administrator only**            |
 
 ```json
 { "service_category": "Infrastructure", "type_name": "Road access blocked" }
@@ -427,16 +427,18 @@ No body. Same as `PATCH` with `{ "is_active": false }`. Repeating the call chang
 
 A type carries the matrix attributes that are about the type itself. The seed fills them for the 75 sub-types and the catch-all `Other` type (`SYS`) (see `oan-seed/README.md` in openg2p-data).
 
-| Field               | Meaning                                                                                                                                 |
-| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------------- |
-| `type_code`         | The matrix code, for example `C01-01`. The seed matches on it, so a second type cannot take it. Read-only after creation                |
-| `external_referral` | Who a case is referred to outside OAN, for example `Court`                                                                              |
-| `resolution_path`   | 1 Kebele Agriculture Office, 2 Kebele Committee, 3 Community Elders First, 4 Direct to Woreda or ATI, 5 Confidential. `null` when unset |
+| Field               | Meaning                                                                                                                                                                                                                                         |
+| :------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type_code`         | The matrix code, for example `C01-01`. The seed matches on it, so a second type cannot take it. Read-only after creation                                                                                                                        |
+| `external_referral` | Who a case is referred to outside OAN, for example `Court`                                                                                                                                                                                      |
+| `resolution_path`   | Name of a `Grievance Resolution Path`: an active master record, so the set of paths is not fixed. The seed has Kebele Agriculture Office, Kebele Committee, Community Elders First, Direct to Woreda or ATI and Confidential. `null` when unset |
 
 Two attributes of the matrix row are **not** fields of the type, so there is one place to change each:
 
 - **The owning department** is the desk's. Routing reads `Grievance RBAC Assignment` (`department_scope` with `category_scope` and `grievance_type_scope`), never the type. See [desk-scoping-and-authority.md](desk-scoping-and-authority.md).
 - **The turnaround days** are the SLA configuration's. `Grievance SLA Configuration` has a `level_turnarounds` table of rows (`role_level`, optional `grievance_type`, `turnaround_days`), where `nodal_officer` is L1 (Kebele) and `senior_nodal_officer` is L2 (Woreda). A level a type skips has no row. The table is not part of this API: it is edited in the desk UI, and the seed fills it. The SLA engine does not read it yet: the clock still runs on the category's `sla_days`.
+
+**The resolution path is descriptive.** Nothing in routing or the workflow reads it. Which levels handle a case is decided by the desk (`Grievance RBAC Assignment`) scoped to the type's category or type: a desk hands a case to the officer of the lowest rung it has, so a type that should skip Kebele has a desk with no Nodal Officer (L1) assigned, and its cases go to the next rung. Path 4, Direct to Woreda or ATI, is set up that way, with no code in the router.
 
 **Who may set them.** Only an administrator can set `type_code`, `external_referral` and `resolution_path`, on create or edit, and that includes clearing one with `null`. A category head can still rename or retire a type of their category. The API answers `403 PERMISSION_DENIED` otherwise.
 

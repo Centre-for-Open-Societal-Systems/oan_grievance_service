@@ -98,7 +98,7 @@ class GrievanceTypeRecord(BaseModel):
 	has_grievances: bool
 	type_code: str | None = None
 	external_referral: str | None = None
-	resolution_path: int | None = None
+	resolution_path: str | None = None
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -454,7 +454,9 @@ class CreateGrievanceType(Body):
 		description="Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.",
 	)
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH)
-	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5")
+	resolution_path: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Name of a Grievance Resolution Path"
+	)
 
 
 class UpdateGrievanceType(Body):
@@ -464,7 +466,9 @@ class UpdateGrievanceType(Body):
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH, description="Null clears it")
-	resolution_path: int | None = Field(None, ge=1, le=5, description="Routing path 1 to 5. Null clears it.")
+	resolution_path: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Name of a Grievance Resolution Path. Null clears it."
+	)
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -494,7 +498,7 @@ def _type_records(docs: list) -> list[dict]:
 
 
 def _routing_value(doc, field: str):
-	"""A type's routing attribute as the API shows it: null when unset (the path column stores 0 for that)."""
+	"""A type's routing attribute as the API shows it: null when unset."""
 	return doc.get(field) or None
 
 

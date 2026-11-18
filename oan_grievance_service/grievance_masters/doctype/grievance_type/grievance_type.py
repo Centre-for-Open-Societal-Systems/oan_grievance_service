@@ -7,8 +7,6 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
-RESOLUTION_PATHS = (1, 2, 3, 4, 5)
-
 
 class GrievanceType(Document):
 	def validate(self):
@@ -21,10 +19,15 @@ class GrievanceType(Document):
 		self.validate_fallback()
 
 	def validate_routing_defaults(self):
-		"""The routing path is one of the five the deck defines, and a type code is used once."""
-		if self.resolution_path and self.resolution_path not in RESOLUTION_PATHS:
+		"""A type takes an active resolution path, and a type code is used once."""
+		if (
+			self.resolution_path
+			and (self.is_new() or self.has_value_changed("resolution_path"))
+			and not frappe.db.get_value("Grievance Resolution Path", self.resolution_path, "is_active")
+		):
 			frappe.throw(
-				_("Resolution path of '{0}' must be 1 to 5.").format(self.type_name), frappe.ValidationError
+				_("Resolution path '{0}' is not active.").format(self.resolution_path),
+				frappe.ValidationError,
 			)
 		if self.type_code and (self.is_new() or self.has_value_changed("type_code")):
 			# Seeding keys on the code: a second type with it would be the same taxonomy entry twice.
