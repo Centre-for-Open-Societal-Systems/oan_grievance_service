@@ -276,3 +276,96 @@ class TestBelgAreaApi(UrgencyApiFixture):
 		"""No official Belg list exists, so nothing is preset: a woreda is Belg only when marked."""
 		woreda = an_administrative_area(f"Woreda {frappe.generate_hash(length=5)}", None, "Woreda")
 		self.assertEqual(frappe.db.get_value("Grievance Administrative Area", woreda, "is_belg"), 0)
+
+
+class TestHandlingFieldsOnEveryWritePath(UrgencyApiFixture):
+	"""Only an administrator sets a type's handling fields, through the Desk and /api/resource too."""
+
+	def a_desk_head(self):
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": f"head-{frappe.generate_hash(length=5)}@test.local",
+					"first_name": "head",
+					"send_welcome_email": 0,
+					"roles": [{"role": "Grievance Desk Head"}, {"role": "Grievance Officer"}],
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def a_sensitive_type(self):
+		return a_type(sensitive=1)
+
+	def test_a_desk_head_cannot_unflag_a_sensitive_type(self):
+		kind = frappe.get_doc("Grievance Type", self.a_sensitive_type())
+		frappe.set_user(self.a_desk_head())
+		kind.is_sensitive = 0
+		# Past the DocPerm and hook checks, as a Desk or /api/resource save of a head's own type is.
+		with self.assertRaises(frappe.PermissionError):
+			kind.save(ignore_permissions=True)
+
+	def test_a_desk_head_cannot_make_a_type_urgent_or_change_its_season(self):
+		season = self.a_season()
+		head = self.a_desk_head()
+		for change in ({"is_urgent": 1, "urgency_season": season}, {"urgency_season": season}):
+			kind = frappe.get_doc("Grievance Type", a_type())
+			frappe.set_user(head)
+			kind.update(change)
+			with self.subTest(change=change), self.assertRaises(frappe.PermissionError):
+				kind.save(ignore_permissions=True)
+			frappe.set_user("Administrator")
+
+	def test_a_desk_head_cannot_create_a_sensitive_type(self):
+		frappe.set_user(self.a_desk_head())
+		with self.assertRaises(frappe.PermissionError):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Type",
+					"type_name": f"Head {frappe.generate_hash(length=6)}",
+					"service_category": self.category,
+					"is_sensitive": 1,
+				}
+			).insert(ignore_permissions=True)
+
+	def test_a_desk_head_still_renames_a_sensitive_type(self):
+		kind = frappe.get_doc("Grievance Type", self.a_sensitive_type())
+		frappe.set_user(self.a_desk_head())
+		kind.type_name = f"Renamed {frappe.generate_hash(length=6)}"
+		kind.save(ignore_permissions=True)
+		self.assertEqual(kind.is_sensitive, 1)
+
+	def test_an_administrator_changes_the_flags_and_it_is_in_the_history(self):
+		kind = frappe.get_doc("Grievance Type", self.a_sensitive_type())
+		kind.is_sensitive = 0
+		# Frappe writes no Version while `in_test` is set; a real save does.
+		with mock.patch.object(frappe, "in_test", False):
+			kind.save(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("Version", {"ref_doctype": "Grievance Type", "docname": kind.name}))
+
+
+class TestUrgencySeasonApiGuards(UrgencyApiFixture):
+	def test_a_season_used_by_an_urgent_type_cannot_be_made_standard(self):
+		name = self.a_season()
+		a_type(name, urgent=1)
+		with _keep_transaction():
+			result = update_urgency_season(name, handling_class="Standard")
+		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_the_season_list_is_paged(self):
+		for _ in range(3):
+			self.a_season()
+		total = frappe.db.count("Grievance Urgency Season")
+		first = list_urgency_seasons(page_size=2)["data"]
+		self.assertEqual(len(first["urgency_seasons"]), 2)
+		self.assertEqual(first["pagination"]["total_count"], total)
+		names = [s["season_name"] for s in first["urgency_seasons"]]
+		second = list_urgency_seasons(page=2, page_size=2)["data"]["urgency_seasons"]
+		self.assertFalse(set(names) & {s["season_name"] for s in second})
+
+	def test_the_season_list_filters_on_active(self):
+		retired = self.a_season(is_active=0)
+		active = list_urgency_seasons(is_active=True, page_size=100)["data"]["urgency_seasons"]
+		self.assertNotIn(retired, {s["season_name"] for s in active})

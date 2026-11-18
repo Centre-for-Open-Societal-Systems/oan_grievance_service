@@ -188,3 +188,40 @@ class TestGrievanceUrgencySeason(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 		self.assertEqual(doc.is_urgent, 0)
+
+
+class TestSeasonKeepsItsUrgentTypes(FrappeTestCase):
+	def an_urgent_type_on(self, season):
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": f"Urgent {frappe.generate_hash(length=6)}",
+				"service_category": a_service_category(),
+				"is_urgent": 1,
+				"urgency_season": season,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_a_season_used_by_an_urgent_type_stays_urgent(self):
+		season = _season().insert(ignore_permissions=True)
+		self.an_urgent_type_on(season.name)
+		season.handling_class = C.HANDLING_STANDARD
+		with self.assertRaises(frappe.ValidationError):
+			season.save(ignore_permissions=True)
+
+	def test_a_season_no_urgent_type_uses_may_become_priority_only(self):
+		season = _season().insert(ignore_permissions=True)
+		season.handling_class = C.HANDLING_STANDARD
+		season.priority = C.PRIORITY_HIGH
+		season.save(ignore_permissions=True)
+		self.assertEqual(season.handling_class, C.HANDLING_STANDARD)
+
+	def test_a_retired_urgent_type_does_not_hold_its_season(self):
+		season = _season().insert(ignore_permissions=True)
+		self.an_urgent_type_on(season.name)
+		frappe.db.set_value(
+			"Grievance Type", {"urgency_season": season.name}, "is_active", 0, update_modified=False
+		)
+		season.handling_class = C.HANDLING_STANDARD
+		season.save(ignore_permissions=True)
+		self.assertEqual(season.handling_class, C.HANDLING_STANDARD)

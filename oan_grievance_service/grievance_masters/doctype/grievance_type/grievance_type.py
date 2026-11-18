@@ -7,6 +7,9 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
+# What makes a type sensitive or urgent: an administrator's to set (STG-514).
+HANDLING_FIELDS = ("is_sensitive", "is_urgent", "urgency_season")
+
 
 class GrievanceType(Document):
 	def validate(self):
@@ -17,7 +20,31 @@ class GrievanceType(Document):
 		self.validate_routing_defaults()
 		self.validate_category()
 		self.validate_fallback()
+		self.validate_handling_set_by_an_administrator()
 		self.validate_urgency()
+
+	def validate_handling_set_by_an_administrator(self):
+		"""Only an administrator decides whether a type is Sensitive or Urgent, on every write path.
+
+		A Desk Head may write the types of the categories they head (Desk, /api/resource, the
+		taxonomy API), so the rule lives here and not only in the endpoint: unflagging a sensitive
+		type would send its next cases to Kebele officers.
+		"""
+		before = None if self.is_new() else self.get_doc_before_save()
+		changed = [
+			field
+			for field in HANDLING_FIELDS
+			if (self.get(field) or None) != ((before.get(field) if before else None) or None)
+		]
+		if not changed:
+			return
+		from oan_grievance_service.permissions import is_unrestricted
+
+		if not is_unrestricted():
+			frappe.throw(
+				_("Only an administrator can change whether a grievance type is sensitive or urgent."),
+				frappe.PermissionError,
+			)
 
 	def validate_urgency(self):
 		"""An Urgent type has a live season that makes its cases Urgent inside the window.

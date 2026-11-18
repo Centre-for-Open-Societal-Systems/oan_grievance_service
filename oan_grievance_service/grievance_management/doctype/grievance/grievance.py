@@ -249,17 +249,22 @@ class Grievance(Document):
 		"""A case goes only to an officer who sits on an active desk. Anyone else would own
 		a case that no routing, escalation or reassignment rule can place. A sensitive case
 		never goes to a Kebele-level officer."""
-		if self.assigned_to and (self.is_new() or self.has_value_changed("assigned_to")):
+		if not self.assigned_to:
+			return
+		assignee_changed = self.is_new() or self.has_value_changed("assigned_to")
+		if assignee_changed:
 			self.assert_officer_has_desk(self.assigned_to)
-			if self.is_sensitive:
-				from oan_grievance_service import permissions
+		# Also when the case has just become sensitive (moved to a sensitive type) with its officer
+		# kept: it must not stay with an officer who can no longer open it.
+		if self.is_sensitive and (assignee_changed or self.has_value_changed("is_sensitive")):
+			from oan_grievance_service import permissions
 
-				if permissions.is_kebele_level_officer(self.assigned_to):
-					frappe.throw(
-						_("A sensitive case cannot be assigned to a Kebele-level officer."),
-						frappe.ValidationError,
-						title=_("Invalid Officer"),
-					)
+			if permissions.is_kebele_level_officer(self.assigned_to):
+				frappe.throw(
+					_("A sensitive case cannot be assigned to a Kebele-level officer."),
+					frappe.ValidationError,
+					title=_("Invalid Officer"),
+				)
 
 	@staticmethod
 	def assert_officer_has_desk(officer):

@@ -711,6 +711,8 @@ def deactivate_grievance_type(grievance_type: str, **kwargs):
 
 SEASON = "Grievance Urgency Season"
 AREA = "Grievance Administrative Area"
+# What a PATCH may write on a season; the windows are replaced as a whole, separately.
+SEASON_EDITABLE = ("is_active", "all_year", "handling_class", "priority", "description")
 SEASON_WINDOW_FIELDS = (
 	"applies_to",
 	"administrative_area",
@@ -755,6 +757,15 @@ class UrgencySeasonData(BaseModel):
 
 class UrgencySeasonListData(BaseModel):
 	urgency_seasons: list[UrgencySeasonRecord]
+	pagination: dict
+
+
+class ListUrgencySeasons(PageParams, Body):
+	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
+
+	is_active: bool | None = None
+
+	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
 
 class SeasonRef(Body):
@@ -836,6 +847,7 @@ def _season_records(names: list[str]) -> list[dict]:
 @route("/urgency-seasons", methods=("GET",), summary="List urgency seasons", tier="officer-core")
 @handle_api_errors
 @require_role(DESK_HEAD_READ_ROLES)
+@validate_request(ListUrgencySeasons)
 @api_doc(
 	summary="List urgency seasons",
 	description="Every season with its Default, Belg Woreda and Specific Area windows in the Gregorian "
@@ -844,11 +856,29 @@ def _season_records(names: list[str]) -> list[dict]:
 	tags=["Administration"],
 	response_model=UrgencySeasonListData,
 )
-def list_urgency_seasons(**kwargs):
-	"""List the urgency seasons."""
-	names = frappe.get_all(SEASON, pluck="name", order_by="name asc")
+def list_urgency_seasons(
+	is_active: bool | str | None = None,
+	page: int | str = 1,
+	page_size: int | str = 20,
+	**kwargs,
+):
+	"""List the urgency seasons, by name, a page at a time."""
+	params = PageParams(page=page, page_size=page_size)
+	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
+	names = frappe.get_all(
+		SEASON,
+		filters=filters,
+		pluck="name",
+		order_by="name asc",
+		start=params.start,
+		limit=params.page_size,
+	)
 	return success_response(
-		data={"urgency_seasons": _season_records(names)}, message=_("Urgency seasons retrieved")
+		data={
+			"urgency_seasons": _season_records(names),
+			"pagination": page_meta(_count(SEASON, filters, None), params.page, params.page_size),
+		},
+		message=_("Urgency seasons retrieved"),
 	)
 
 
@@ -870,11 +900,7 @@ def update_urgency_season(season: str, **kwargs):
 	"""Update a season. `kwargs` holds only the fields the client sent."""
 	doc = frappe.get_doc(SEASON, season)
 	windows = kwargs.pop("windows", None)
-	changes = {
-		field: int(value) if isinstance(value, bool) else value
-		for field, value in kwargs.items()
-		if field in ("is_active", "all_year", "handling_class", "priority", "description")
-	}
+	changes = _editable(kwargs, SEASON_EDITABLE)
 	if not changes and windows is None:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
 	doc.update(changes)
@@ -914,7 +940,8 @@ def set_belg_area(area: str, is_belg: bool | str, **kwargs):
 			),
 			frappe.ValidationError,
 		)
-	doc.is_belg = 1 if is_belg in (True, 1, "1", "true", "True") else 0
+	# `validate_request` has already parsed it to a bool.
+	doc.is_belg = int(is_belg)
 	doc.save()
 	return success_response(
 		data={"administrative_area": doc.name, "level_name": doc.level_name, "is_belg": bool(doc.is_belg)},

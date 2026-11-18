@@ -8,7 +8,9 @@ and compare, so a drift between the data and the matrix fails here and not in pr
 import os
 import re
 import unittest
+from datetime import date
 from pathlib import Path
+from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -202,3 +204,97 @@ class TestApplyMatrixPatch(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.count("Grievance Urgency Season", {"season_name": "Meher input season"}), 1
 		)
+
+
+ETHIOPIAN_EPOCH = 1724221  # Julian day number of Meskerem 1, year 1 (Amete Mihret)
+
+
+def ethiopian_to_gregorian(year, month, day):
+	"""A Gregorian date from an Ethiopian one. Only for checking the seeded dates."""
+	jdn = ETHIOPIAN_EPOCH + 365 * (year - 1) + year // 4 + 30 * C.ETHIOPIAN_MONTHS.index(month) + day - 1
+	return date.fromordinal(jdn - 1721425)
+
+
+class TestEthiopianDates(unittest.TestCase):
+	def test_the_converter_is_anchored_on_known_new_years(self):
+		self.assertEqual(ethiopian_to_gregorian(2018, "Meskerem", 1), date(2025, 9, 11))
+		self.assertEqual(ethiopian_to_gregorian(2016, "Meskerem", 1), date(2023, 9, 12))
+		self.assertEqual(ethiopian_to_gregorian(2015, "Pagume", 6), date(2023, 9, 11))
+
+	def test_both_c01_windows_name_the_same_days_in_both_calendars(self):
+		"""Meher and Belg are dated to the day; Ethiopian year 2018 is an ordinary one."""
+		meher = next(s for s in matrix.SEASONS if s["season_name"] == "Meher input season")
+		for window in meher["windows"]:
+			with self.subTest(window=window["applies_to"]):
+				start = ethiopian_to_gregorian(2018, window["eth_start_month"], window["eth_start_day"])
+				end = ethiopian_to_gregorian(2018, window["eth_end_month"], window["eth_end_day"])
+				self.assertEqual((start.month, start.day), (window["start_month"], window["start_day"]))
+				self.assertEqual((end.month, end.day), (window["end_month"], window["end_day"]))
+
+	def test_the_belg_window_is_tir_24_to_miyazya_22(self):
+		meher = next(s for s in matrix.SEASONS if s["season_name"] == "Meher input season")
+		belg = next(w for w in meher["windows"] if w["applies_to"] == C.WINDOW_BELG)
+		self.assertEqual(
+			(belg["eth_start_month"], belg["eth_start_day"], belg["eth_end_month"], belg["eth_end_day"]),
+			("Tir", 24, "Miyazya", 22),
+		)
+
+
+class TestApplyMatrixPatchValidates(FrappeTestCase):
+	"""The patch saves through the type, so validation and history run."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.savepoint = "matrix_patch_validates"
+		frappe.db.savepoint(self.savepoint)
+		apply_sensitive_urgent_matrix.execute()  # makes the seasons when they are missing
+
+	def tearDown(self):
+		frappe.db.rollback(save_point=self.savepoint)
+
+	def a_type(self, code):
+		existing = frappe.db.get_value("Grievance Type", {"type_code": code})
+		if existing:
+			frappe.db.set_value("Grievance Type", existing, "type_code", f"X{frappe.generate_hash(length=8)}")
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Type",
+					"type_name": f"{code} {frappe.generate_hash(length=6)}",
+					"service_category": a_service_category(),
+					"type_code": code,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def test_a_type_is_not_linked_to_a_season_an_administrator_retired(self):
+		frappe.db.set_value("Grievance Urgency Season", "Meher input season", "is_active", 0)
+		name = self.a_type("C01-04")
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(
+			frappe.db.get_value("Grievance Type", name, ["is_urgent", "urgency_season"]), (0, None)
+		)
+
+	def test_a_type_is_not_made_urgent_by_a_priority_only_season(self):
+		frappe.db.set_value(
+			"Grievance Urgency Season", "Irrigation season (dry season)", "handling_class", "Standard"
+		)
+		name = self.a_type("C02-02")
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(frappe.db.get_value("Grievance Type", name, "is_urgent"), 0)
+
+	def test_the_other_types_are_still_applied_when_one_is_refused(self):
+		frappe.db.set_value("Grievance Urgency Season", "Meher input season", "is_active", 0)
+		refused, sensitive = self.a_type("C01-05"), self.a_type("C15-02")
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(frappe.db.get_value("Grievance Type", refused, "is_urgent"), 0)
+		self.assertEqual(frappe.db.get_value("Grievance Type", sensitive, "is_sensitive"), 1)
+
+	def test_the_change_is_in_the_types_history(self):
+		name = self.a_type("C13-02")
+		# Frappe writes no Version while `in_test` is set; a migration's save does.
+		with mock.patch.object(frappe, "in_test", False):
+			apply_sensitive_urgent_matrix.execute()
+		self.assertTrue(frappe.db.exists("Version", {"ref_doctype": "Grievance Type", "docname": name}))

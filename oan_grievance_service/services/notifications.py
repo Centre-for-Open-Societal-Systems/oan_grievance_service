@@ -623,18 +623,39 @@ def _shown_ticket(grievance) -> str:
 	return tn.display(grievance.ticket_number) or grievance.name
 
 
-def sensitive_submitter_text(grievance) -> tuple[str, str]:
+# Stands in for a sensitive case's PIN in everything stored here. The PIN itself is put back only
+# into the text that leaves the system (`_outbound_message`).
+PIN_MASK = "******"
+
+
+def sensitive_submitter_text(grievance, reveal_pin=False) -> tuple[str, str]:
 	"""(message, subject) a sensitive case sends its submitter: the reference number and PIN only.
 
 	No officer, no office, no category, no date. The Routing Matrix allows 'Woreda office' at
-	most where an office must be named; nothing here needs one.
+	most where an office must be named; nothing here needs one. The PIN is masked unless
+	`reveal_pin`: the Grievance Notification Log, which officers can read, never holds it.
 	"""
 	ref = _shown_ticket(grievance)
 	pin = classification.pin_of(grievance)
 	subject = _("Grievance {0}").format(ref)
 	if not pin:
 		return subject, subject
-	return _("Grievance {0}. PIN: {1}").format(ref, pin), subject
+	return _("Grievance {0}. PIN: {1}").format(ref, pin if reveal_pin else PIN_MASK), subject
+
+
+def _outbound_message(row, grievance) -> str:
+	"""The text a queued row sends: its logged message, with a sensitive case's PIN put back.
+
+	Only the exact masked message `queue` wrote for the case's submitter is unmasked, so no other
+	row, and no template text, ever gets the PIN.
+	"""
+	if not grievance.get("is_sensitive"):
+		return row.message
+	with print_language(row.language):
+		masked, _subject = sensitive_submitter_text(grievance)
+		if row.message != masked:
+			return row.message
+		return sensitive_submitter_text(grievance, reveal_pin=True)[0]
 
 
 def _is_kebele_level_user(recipient) -> bool:
@@ -861,10 +882,11 @@ def _send_email_row(row, grievance):
 		communication_type="Automated Message",
 	).get("name")
 
+	# The Communication shows on the case, so it keeps the masked text; only the mail carries the PIN.
 	frappe.sendmail(
 		recipients=[address],
 		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
-		message=row.message,
+		message=_outbound_message(row, grievance),
 		reference_doctype="Grievance",
 		reference_name=grievance.name,
 		communication=communication,
@@ -892,7 +914,7 @@ def _send_sms_row(row, grievance):
 		raise ValueError("No SMS gateway configured in SMS Settings; message not sent.")
 
 	before = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
-	_send_sms([mobile], strip_html_tags(row.message), success_msg=False)
+	_send_sms([mobile], strip_html_tags(_outbound_message(row, grievance)), success_msg=False)
 	after = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 
 	delivered = bool(after and after != before)
@@ -927,7 +949,8 @@ def _send_system_row(row, grievance):
 			"document_name": grievance.name,
 			"subject": row.subject or _shown_ticket(grievance),
 			"title": row.subject or _shown_ticket(grievance),
-			"description": row.message,
+			# Core's Notification Log is read by its recipient only, the submitter themselves.
+			"description": _outbound_message(row, grievance),
 			"from_user": from_user,
 		},
 		# Our own log dedupes on (grievance, event, recipient, channel); this stops a

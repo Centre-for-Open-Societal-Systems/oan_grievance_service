@@ -13,10 +13,15 @@ What the matrix says, and where it stops:
   not a flag, so it is an open point (a coercion case is filed as C13-03).
 - Urgent is Yes on C01-01..08, C02-01..05, C07-01..03 and C17-01..04. C09 is not Urgent: its
   season only raises priority.
-- A window is whole months, so the day is the first and the last of the month. C01 is the only
-  window with days, and its Gregorian and Ethiopian boundaries agree (15 May is Ginbot 7, 31
-  August is Nehase 25). The others do not: 'Oct - Apr' starts about ten days before Tikimt.
-  The Gregorian window decides; the Ethiopian one is recorded beside it.
+- The Gregorian window decides; the Ethiopian one is recorded beside it for officers to read.
+- C01's two windows are dated to the day, and their Ethiopian dates are the same days: Meher is
+  15 May to 31 August (Ginbot 7 to Nehase 25), Belg is 1 February to 30 April (Tir 24 to
+  Miyazya 22). In the Ethiopian year before a Gregorian leap year the Ethiopian dates fall a day
+  later, which changes nothing: the Gregorian window decides.
+- The other windows are whole months in the matrix, so they run from the first to the last day
+  of the month, and the Ethiopian months are the matrix's own: 'Oct - Apr' is given as Tikimt to
+  Miyazya, which starts about ten days later and ends about eight days later than October to
+  April. The matrix owners have not said which is meant (an open point).
 - No official list of Belg woredas exists, so none is seeded: they are marked on the area.
 """
 
@@ -58,7 +63,7 @@ SEASONS = (
 		"description": "C01 agricultural inputs. Belg woredas use February to April instead.",
 		"windows": (
 			_window(C.WINDOW_DEFAULT, (5, 15), (8, 31), ("Ginbot", 7), ("Nehase", 25)),
-			_window(C.WINDOW_BELG, (2, 1), (4, 30), ("Tir", 1), ("Miyazya", 30)),
+			_window(C.WINDOW_BELG, (2, 1), (4, 30), ("Tir", 24), ("Miyazya", 22)),
 		),
 	},
 	{

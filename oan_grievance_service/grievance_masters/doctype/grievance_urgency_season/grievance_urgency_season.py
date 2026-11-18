@@ -26,7 +26,7 @@ class GrievanceUrgencySeason(Document):
 	def validate(self):
 		self.season_name = (self.season_name or "").strip()
 		self.validate_windows()
-		self.validate_deactivation()
+		self.validate_urgent_types_keep_their_season()
 
 	def validate_windows(self):
 		if self.all_year:
@@ -104,19 +104,30 @@ class GrievanceUrgencySeason(Document):
 					frappe.ValidationError,
 				)
 
-	def validate_deactivation(self):
-		"""An inactive season is no season, so a type that is Urgent must not be left without one."""
-		if self.is_active or self.is_new() or not self.has_value_changed("is_active"):
+	def validate_urgent_types_keep_their_season(self):
+		"""An active Urgent type needs its season active and Urgent in the window.
+
+		Deactivating the season, or turning it into a priority-only (Standard) season, would leave
+		such a type flagged Urgent with no case ever classed Urgent, and refuse its next save. The
+		types are moved off the season first.
+		"""
+		if self.is_new():
+			return
+		deactivated = not self.is_active and self.has_value_changed("is_active")
+		made_standard = self.handling_class != C.HANDLING_URGENT and self.has_value_changed("handling_class")
+		if not (deactivated or made_standard):
 			return
 		in_use = frappe.db.get_value(
 			"Grievance Type",
 			{"urgency_season": self.name, "is_urgent": 1, "is_active": 1},
 			"name",
 		)
-		if in_use:
-			frappe.throw(
-				_("Season {0} is used by the urgent grievance type {1}, so it cannot be deactivated.").format(
-					self.name, in_use
-				),
-				frappe.ValidationError,
+		if not in_use:
+			return
+		if deactivated:
+			message = _("Season {0} is used by the urgent grievance type {1}, so it cannot be deactivated.")
+		else:
+			message = _(
+				"Season {0} is used by the urgent grievance type {1}, so its handling class must stay Urgent."
 			)
+		frappe.throw(message.format(self.name, in_use), frappe.ValidationError)

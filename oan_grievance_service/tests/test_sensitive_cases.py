@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1 import grievance as grievance_api
-from oan_grievance_service.services import classification, notifications, routing
+from oan_grievance_service.services import classification, notifications, reassignment, routing
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.services.ticket_number import region_of
@@ -285,6 +285,21 @@ class TestSensitiveSubmitterAccess(SensitiveFixture):
 		case = self.file_for(a_user_with_role("Grievance Submitter", "owner"))
 		self.assertFalse(permissions.has_grievance_permission(case, "read", stranger))
 
+	def test_the_list_shows_a_submitter_no_desk_of_a_sensitive_case(self):
+		farmer = a_user_with_role("Grievance Submitter", "farmer")
+		sensitive, ordinary = self.file_for(farmer), self.file_for(farmer, sensitive=False)
+		for case in (sensitive, ordinary):
+			frappe.db.set_value(
+				"Grievance", case.name, "assigned_dept", self.department, update_modified=False
+			)
+		frappe.set_user(farmer)
+		rows = {row["name"]: row for row in grievance_api.list_grievances(limit=100)["data"]["items"]}
+		self.assertIsNone(rows[sensitive.name]["assigned_dept"])
+		self.assertIsNone(rows[sensitive.name]["department"])
+		self.assertNotIn(self.department, str(rows[sensitive.name]))
+		# An ordinary case still names its department, as before.
+		self.assertEqual(rows[ordinary.name]["department"], self.department)
+
 	def test_a_submitter_is_shown_no_officer_and_no_classification(self):
 		farmer = a_user_with_role("Grievance Submitter", "farmer")
 		case = self.file_for(farmer)
@@ -323,26 +338,13 @@ class TestSensitiveNotifications(SensitiveFixture):
 		).insert(ignore_permissions=True)
 		return event
 
-	def test_a_sensitive_sms_carries_only_the_reference_and_pin(self):
-		case = self.a_case(assigned_to=self.focal_officer)
-		rows = notifications.queue(case, self.a_notification())
-		self.assertEqual(len(rows), 1)
-		pin = classification.pin_of(case)
-		reference = tn.display(case.ticket_number)
-		self.assertEqual(rows[0].message, f"Grievance {reference}. PIN: {pin}")
-		for leaked in (OFFICER_NAME, self.focal_officer, self.department, self.category):
-			self.assertNotIn(leaked, rows[0].message)
-			self.assertNotIn(leaked, rows[0].subject or "")
+	def masked(self, case):
+		return f"Grievance {tn.display(case.ticket_number)}. PIN: {notifications.PIN_MASK}"
 
-	def test_a_sensitive_email_and_in_app_message_say_no_more(self):
-		case = self.a_case(assigned_to=self.focal_officer)
-		rows = notifications.queue(case, self.a_notification(channel="Email"))
-		self.assertEqual(
-			rows[0].message, f"Grievance {tn.display(case.ticket_number)}. PIN: {classification.pin_of(case)}"
-		)
-		self.assertNotIn(OFFICER_NAME, f"{rows[0].message} {rows[0].subject}")
+	def revealed(self, case):
+		return f"Grievance {tn.display(case.ticket_number)}. PIN: {classification.pin_of(case)}"
 
-	def test_a_sensitive_in_app_message_to_a_registered_submitter_says_no_more(self):
+	def a_registered_farmer(self):
 		farmer = a_user_with_role("Grievance Submitter", "farmer")
 		profile = frappe.get_doc(
 			{
@@ -353,12 +355,59 @@ class TestSensitiveNotifications(SensitiveFixture):
 				"user": farmer,
 			}
 		).insert(ignore_permissions=True)
-		case = self.a_case(assigned_to=self.focal_officer, submitter=profile.name)
-		rows = notifications.queue(case, self.a_notification(channel="System Notification"))
+		return farmer, profile.name
+
+	def test_a_sensitive_message_is_logged_with_the_reference_and_a_masked_pin(self):
+		case = self.a_case(assigned_to=self.focal_officer)
+		rows = notifications.queue(case, self.a_notification())
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].message, self.masked(case))
+		stored = frappe.db.get_value("Grievance Notification Log", rows[0].name, ["message", "subject"])
+		self.assertNotIn(classification.pin_of(case), " ".join(stored))
+		for leaked in (OFFICER_NAME, self.focal_officer, self.department, self.category):
+			self.assertNotIn(leaked, rows[0].message)
+			self.assertNotIn(leaked, rows[0].subject or "")
+
+	def test_the_text_that_leaves_carries_the_pin(self):
+		case = self.a_case(assigned_to=self.focal_officer)
+		row = notifications.queue(case, self.a_notification())[0]
+		self.assertEqual(notifications._outbound_message(row, case), self.revealed(case))
+		# The log row itself is untouched.
 		self.assertEqual(
-			rows[0].message, f"Grievance {tn.display(case.ticket_number)}. PIN: {classification.pin_of(case)}"
+			frappe.db.get_value("Grievance Notification Log", row.name, "message"), self.masked(case)
 		)
-		self.assertNotIn(OFFICER_NAME, f"{rows[0].message} {rows[0].subject}")
+
+	def test_no_other_message_ever_gets_the_pin(self):
+		case = self.a_case(assigned_to=self.focal_officer)
+		officer_row = notifications.queue(case, self.a_notification(recipient="Assigned Officer"))[0]
+		self.assertEqual(notifications._outbound_message(officer_row, case), officer_row.message)
+		self.assertNotIn(classification.pin_of(case), notifications._outbound_message(officer_row, case))
+
+	def test_a_sensitive_email_carries_the_pin_but_the_case_record_does_not(self):
+		case = self.a_case(assigned_to=self.focal_officer, contact_email="farmer@example.com")
+		row = notifications.queue(case, self.a_notification(channel="Email"))[0]
+		self.assertEqual(row.message, self.masked(case))
+		sent = []
+		with patch.object(notifications.frappe, "sendmail", side_effect=lambda **kw: sent.append(kw)):
+			result = notifications._send_email_row(row, case)
+		self.assertEqual(sent[0]["message"], self.revealed(case))
+		# The Communication shows on the case, to the officers who work it: masked.
+		content = frappe.db.get_value("Communication", result["communication"], "content")
+		self.assertNotIn(classification.pin_of(case), content)
+		self.assertNotIn(OFFICER_NAME, f"{row.message} {row.subject}")
+
+	def test_a_sensitive_in_app_message_reaches_the_submitter_with_the_pin(self):
+		farmer, profile = self.a_registered_farmer()
+		case = self.a_case(assigned_to=self.focal_officer, submitter=profile)
+		row = notifications.queue(case, self.a_notification(channel="System Notification"))[0]
+		self.assertEqual(row.recipient, farmer)
+		self.assertEqual(row.message, self.masked(case))
+		sent = []
+		target = "frappe.desk.doctype.notification_log.notification_log.enqueue_create_notification"
+		with patch(target, side_effect=lambda users, doc, **kw: sent.append(doc)):
+			notifications._send_system_row(row, case)
+		self.assertEqual(sent[0]["description"], self.revealed(case))
+		self.assertNotIn(OFFICER_NAME, f"{row.message} {row.subject}")
 
 	def test_the_message_is_the_same_whatever_the_template_says(self):
 		case = self.a_case(assigned_to=self.focal_officer)
@@ -385,14 +434,34 @@ class TestSensitiveNotifications(SensitiveFixture):
 
 	def test_the_text_helper_names_the_reference_and_pin_only(self):
 		case = self.a_case()
+		reference = re.escape(tn.display(case.ticket_number))
 		message, subject = notifications.sensitive_submitter_text(case)
-		self.assertRegex(message, rf"^Grievance {re.escape(tn.display(case.ticket_number))}\. PIN: \d{{6}}$")
+		self.assertEqual(message, self.masked(case))
+		revealed, _subject = notifications.sensitive_submitter_text(case, reveal_pin=True)
+		self.assertRegex(revealed, rf"^Grievance {reference}\. PIN: \d{{6}}$")
 		self.assertEqual(subject, f"Grievance {tn.display(case.ticket_number)}")
 
 
 class TestSensitiveSubmission(SensitiveFixture):
-	def submit(self, **payload):
-		"""File through the submit handler as an administrator; the handler is what classifies."""
+	def a_registered_farmer(self):
+		farmer = a_user_with_role("Grievance Submitter", "farmer")
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_name": "Registered Farmer",
+				"submitter_type": a_submitter_type(),
+				"contact_mobile": "+251911234567",
+				"user": farmer,
+			}
+		).insert(ignore_permissions=True)
+		return farmer
+
+	def submit(self, user="Administrator", **payload):
+		"""File through the submit handler as `user`; the handler is what classifies.
+
+		An administrator, or an assisted submitter, files on the submitter's behalf; a Grievance
+		Submitter files for themselves.
+		"""
 		body = {
 			"service_category": self.category,
 			"grievance_type": self.sensitive_type,
@@ -403,30 +472,52 @@ class TestSensitiveSubmission(SensitiveFixture):
 			"contact_mobile": "+251911234567",
 			**payload,
 		}
-		result = grievance_api.submit(**body)
+		frappe.set_user(user)
+		try:
+			result = grievance_api.submit(**body)
+		finally:
+			frappe.set_user("Administrator")
 		self.assertIn("data", result, msg=result)
 		name = tn.normalize(result["data"]["ticket_number"])
 		return result["data"], frappe.get_doc("Grievance", name)
 
-	def test_an_anonymous_sensitive_submission_works_and_returns_the_pin(self):
-		data, case = self.submit(is_anonymous=True)
-		self.assertEqual(case.is_anonymous, 1)
-		self.assertEqual(case.is_sensitive, 1)
+	def test_a_submitter_filing_for_themselves_gets_the_pin(self):
+		data, case = self.submit(self.a_registered_farmer(), is_anonymous=True)
+		self.assertEqual((case.is_anonymous, case.is_sensitive), (1, 1))
+		self.assertFalse(case.assisted_by_officer)
 		self.assertEqual(data["status_pin"], classification.pin_of(case))
 		self.assertRegex(data["status_pin"], r"^\d{6}$")
 		self.assertIsNone(data["routing_rule"])
 
-	def test_a_sensitive_submission_queues_only_the_reference_and_pin_for_the_submitter(self):
+	def test_an_administrator_filing_on_behalf_gets_no_pin_and_no_desk(self):
+		data, case = self.submit()
+		self.assertEqual(case.assisted_by_officer, "Administrator")
+		self.assertNotIn("status_pin", data)
+		state = data["current_state"]
+		for key in ("assigned_to", "assigned_to_name", "department", "possible_duplicate"):
+			self.assertIsNone(state[key], key)
+		for key in ("is_sensitive", "handling_class", "priority"):
+			self.assertNotIn(key, state)
+
+	def test_an_agent_filing_on_behalf_gets_no_pin(self):
+		agent = a_user_with_role("Grievance Assisted Submitter", "agent")
+		data, case = self.submit(agent)
+		self.assertEqual(case.assisted_by_officer, agent)
+		self.assertNotIn("status_pin", data)
+		self.assertIsNone(data["current_state"]["department"])
+
+	def test_the_submitter_still_gets_the_pin_by_message_when_someone_files_for_them(self):
 		_data, case = self.submit(is_anonymous=True)
 		rows = frappe.get_all(
 			"Grievance Notification Log",
 			filters={"grievance": case.name, "event": C.EVENT_SUBMISSION_RECEIVED},
-			fields=["message", "subject"],
+			fields=["name", "message", "language"],
 		)
 		for row in rows:
 			self.assertEqual(
-				row.message, f"Grievance {tn.display(case.ticket_number)}. PIN: {classification.pin_of(case)}"
+				row.message, f"Grievance {tn.display(case.ticket_number)}. PIN: {notifications.PIN_MASK}"
 			)
+			self.assertIn(classification.pin_of(case), notifications._outbound_message(row, case))
 
 	def test_what_a_submitter_is_shown_of_a_sensitive_case_has_no_desk_and_no_flags(self):
 		farmer = a_user_with_role("Grievance Submitter", "farmer")
@@ -445,10 +536,14 @@ class TestSensitiveSubmission(SensitiveFixture):
 		self.assertEqual(state["is_sensitive"], True)
 
 	def test_an_ordinary_submission_has_no_pin(self):
-		data, case = self.submit(grievance_type=self.ordinary_type)
+		data, case = self.submit(self.a_registered_farmer(), grievance_type=self.ordinary_type)
 		self.assertNotIn("status_pin", data)
 		self.assertEqual(case.is_sensitive, 0)
 		self.assertIsNone(classification.pin_of(case))
+
+	def test_an_ordinary_case_filed_on_behalf_keeps_the_staff_view(self):
+		data, _case = self.submit(grievance_type=self.ordinary_type)
+		self.assertIn("is_sensitive", data["current_state"])
 
 	def test_an_anonymous_ordinary_submission_still_works(self):
 		_data, case = self.submit(grievance_type=self.ordinary_type, is_anonymous=True)
@@ -457,6 +552,49 @@ class TestSensitiveSubmission(SensitiveFixture):
 	def test_the_submission_is_classified_by_the_backend_not_the_client(self):
 		_data, plain = self.submit(grievance_type=self.ordinary_type, is_sensitive=True)
 		self.assertEqual(plain.is_sensitive, 0)
+
+
+class TestSensitiveReassignment(SensitiveFixture):
+	"""Moving a case to a sensitive type takes it off a Kebele-level officer."""
+
+	def an_ordinary_case_with_the_kebele_officer(self):
+		return self.a_case(sensitive=False, assigned_to=self.kebele_officer, assigned_dept=self.department)
+
+	def test_a_move_to_a_sensitive_type_goes_to_the_focal_person(self):
+		case = self.an_ordinary_case_with_the_kebele_officer()
+		changes = reassignment.resolve(case, department=self.department, grievance_type=self.sensitive_type)
+		self.assertEqual(changes["grievance_type"], self.sensitive_type)
+		self.assertEqual(changes["assigned_to"], self.focal_officer)
+
+	def test_naming_a_kebele_officer_for_a_sensitive_type_is_refused(self):
+		case = self.an_ordinary_case_with_the_kebele_officer()
+		with self.assertRaises(frappe.ValidationError):
+			reassignment.resolve(
+				case,
+				department=self.department,
+				officer=self.kebele_officer,
+				grievance_type=self.sensitive_type,
+			)
+
+	def test_a_move_to_another_ordinary_type_keeps_the_kebele_officer(self):
+		case = self.an_ordinary_case_with_the_kebele_officer()
+		changes = reassignment.resolve(case, department=self.department, grievance_type=a_type())
+		self.assertNotIn("assigned_to", changes)
+
+	def test_the_resolved_move_saves_with_the_focal_person(self):
+		case = self.an_ordinary_case_with_the_kebele_officer()
+		changes = reassignment.resolve(case, department=self.department, grievance_type=self.sensitive_type)
+		case.update(changes)
+		case.flags.change_request = "test-change-request"
+		case.save(ignore_permissions=True)
+		self.assertEqual((case.is_sensitive, case.assigned_to), (1, self.focal_officer))
+
+	def test_a_type_change_that_leaves_a_kebele_officer_on_a_sensitive_case_is_refused(self):
+		case = self.an_ordinary_case_with_the_kebele_officer()
+		case.grievance_type = self.sensitive_type
+		case.flags.change_request = "test-change-request"
+		with self.assertRaises(frappe.ValidationError):
+			case.save(ignore_permissions=True)
 
 
 class TestOfficerView(SensitiveFixture):

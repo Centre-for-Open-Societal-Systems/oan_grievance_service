@@ -771,7 +771,11 @@ def list_grievances(
 		for fieldname in ("is_sensitive", "handling_class", "priority"):
 			item.pop(fieldname, None)
 		item.update(shown)
-		item["department"] = item.get("assigned_dept") if is_staff or not sensitive else None
+		if not is_staff and sensitive:
+			# Neither the alias nor the column it aliases: the desk of a sensitive case is not the
+			# submitter's to see.
+			item["assigned_dept"] = None
+		item["department"] = item.get("assigned_dept")
 		item["assigned_to_name"] = assignee_names.get(item.get("assigned_to"))
 		if not is_staff:
 			item["assigned_to"] = None
@@ -934,27 +938,29 @@ def _classification_view(source, is_staff) -> dict:
 	}
 
 
-def _current_state(doc, extra=None):
+def _current_state(doc, extra=None, as_submitter=False):
 	"""The `current_state` block every mutating endpoint echoes back.
 
 	One definition, so a field added for one endpoint's client is there for all of
 	them and the shape cannot drift between them. `extra` carries the fields only
-	one endpoint has a reason to report.
+	one endpoint has a reason to report. `as_submitter` gives the submitter's view whoever
+	the caller is: for a sensitive case filed on someone's behalf, which the filer must not
+	learn more about than the submitter would.
 	"""
 	user = frappe.session.user
-	is_staff = permissions.is_staff(user)
+	is_staff = permissions.is_staff(user) and not as_submitter
 	state = {
 		"status": public_status(doc.status),
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
-		"assigned_to_name": _assignee_name(doc),
+		"assigned_to_name": _assignee_name(doc) if is_staff else None,
 		"department": doc.assigned_dept if is_staff or not doc.is_sensitive else None,
 		**_classification_view(doc, is_staff),
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
 		"can_request_more_info": identity.is_reachable(doc),
 		"duplicate_of": tn.display(doc.duplicate_of) if doc.duplicate_of else None,
-		"possible_duplicate": _possible_duplicate(doc),
+		"possible_duplicate": _possible_duplicate(doc) if is_staff else None,
 	}
 	if extra:
 		state.update(extra)
@@ -1067,14 +1073,18 @@ def submit(**kwargs):
 	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
 	intake.dispatch_filed(doc)
 
-	# A sensitive case gives its submitter the PIN to check it with, and no hint of the desk.
+	# A sensitive case gives its submitter the PIN to check it with, and no hint of the desk. Filed on
+	# someone's behalf, the filer gets neither the PIN (the submitter has it by SMS) nor the staff
+	# view of the case: the permission rules bar them from it once it is filed.
 	from oan_grievance_service.services import classification
 
-	sensitive_receipt = (
-		{"status_pin": classification.pin_of(doc), "routing_rule": None}
-		if doc.is_sensitive
-		else {"routing_rule": getattr(doc, "routing_rule", None)}
-	)
+	on_behalf = bool(doc.is_sensitive and doc.assisted_by_officer)
+	if not doc.is_sensitive:
+		sensitive_receipt = {"routing_rule": getattr(doc, "routing_rule", None)}
+	elif on_behalf:
+		sensitive_receipt = {"routing_rule": None}
+	else:
+		sensitive_receipt = {"status_pin": classification.pin_of(doc), "routing_rule": None}
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
@@ -1084,7 +1094,7 @@ def submit(**kwargs):
 			**sensitive_receipt,
 			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 			"attachments": attachments,
-			"current_state": _current_state(doc),
+			"current_state": _current_state(doc, as_submitter=on_behalf),
 			"timeline_event": _timeline_event_with(submission, doc, attachments),
 		},
 		message=_("Grievance submitted successfully"),

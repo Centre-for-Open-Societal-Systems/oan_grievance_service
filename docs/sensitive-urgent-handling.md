@@ -41,22 +41,26 @@ A window is a start and end month and day. It may wrap the year end (October to 
 
 ### Both calendars
 
-Each window stores a Gregorian window (which decides) and an Ethiopian one (recorded, validated and shown). The two are not the same range for every season: 'Oct - Apr' starts about ten days before Tikimt 1. The Gregorian window decides, because that is the column of the Routing Matrix that carries a start and end for every season.
+Each window stores a Gregorian window (which decides) and an Ethiopian one (recorded, validated and shown). The Gregorian window decides, because that is the column of the Routing Matrix that carries a start and end for every season.
+
+C01's windows are dated to the day and name the same days in both calendars: Meher is 15 May to 31 August (Ginbot 7 to Nehase 25), Belg is 1 February to 30 April (Tir 24 to Miyazya 22). In the Ethiopian year before a Gregorian leap year those Ethiopian dates fall a day later. The other windows are whole months in the matrix, and their Ethiopian months are the matrix's own, which are not the same range: 'Oct - Apr' is given as Tikimt to Miyazya, which starts about ten days later than 1 October.
 
 ## Configuration
 
 Everything is data. Nothing needs a code change.
 
-| What                                     | Where                                                                                                                                         |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sensitive, Urgent, season of a sub-type  | Grievance Type (`is_sensitive`, `is_urgent`, `urgency_season`), or `PATCH /api/v1/grievance-types/{id}`. Administrators only                  |
-| Season windows, handling class, priority | Grievance Urgency Season, or `PATCH /api/v1/urgency-seasons/{season}` (`windows` replaces them all). `GET /api/v1/urgency-seasons` lists them |
-| Woreda override                          | a Specific Area row on the season                                                                                                             |
-| Belg woredas                             | `is_belg` on the area, or `PATCH /api/v1/administrative-areas/{area}/belg`. Mark the woreda: the kebeles inside follow it                     |
+| What                                     | Where                                                                                                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sensitive, Urgent, season of a sub-type  | Grievance Type (`is_sensitive`, `is_urgent`, `urgency_season`), or `PATCH /api/v1/grievance-types/{id}`. Administrators only, on every write path    |
+| Season windows, handling class, priority | Grievance Urgency Season, or `PATCH /api/v1/urgency-seasons/{season}` (`windows` replaces them all). `GET /api/v1/urgency-seasons` lists them, paged |
+| Woreda override                          | a Specific Area row on the season                                                                                                                    |
+| Belg woredas                             | `is_belg` on the area, or `PATCH /api/v1/administrative-areas/{area}/belg`. Mark the woreda: the kebeles inside follow it                            |
 
-An Urgent type needs an active season whose handling class is Urgent. A season used by an active Urgent type cannot be deactivated.
+An Urgent type needs an active season whose handling class is Urgent. A season used by an active Urgent type can neither be deactivated nor made Standard: move the types off it first.
 
-The matrix values are in `setup/urgency_matrix.py`. A new site gets them from the seed (`openg2p-data`, `oan-seed/grievance`); a site that already holds the types gets them from the `apply_sensitive_urgent_matrix` patch, which only fills what is empty. The matrix test reads the workbook itself when it is on the machine.
+Only an administrator changes a type's `is_sensitive`, `is_urgent` or `urgency_season`. The rule is in the type's own validation (`GrievanceType.validate_handling_set_by_an_administrator`), so it holds for the Desk and `/api/resource` as well as the taxonomy API: a Desk Head may write the other fields of the types they head, never these. Grievance Type and Grievance Urgency Season track changes, so every change is in their version history.
+
+The matrix values are in `setup/urgency_matrix.py`. A new site gets them from the seed (`openg2p-data`, `oan-seed/grievance`); a site that already holds the types gets them from the `apply_sensitive_urgent_matrix` patch, which only fills what is empty. The patch saves each type through its validation: a type whose season an administrator has retired or made Standard is left as it is and logged. The matrix test reads the workbook itself when it is on the machine.
 
 ### What the matrix flags
 
@@ -68,21 +72,23 @@ The matrix values are in `setup/urgency_matrix.py`. A new site gets them from th
 
 Enforced on the server, never only in the portal.
 
-| Rule                                     | Where it is enforced                                                                                                                                                                                                                                                        |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Anonymous filing                         | unchanged: `is_anonymous` works on every type, and a sensitive case still keeps the submitter's profile link for the submitter's own access                                                                                                                                 |
-| Bypass the Kebele                        | routing never picks an officer whose seat on the desk is at Kebele level or below (`routing.pick_officer_by_strategy`, also used by reassignment); escalation never lands on one (`sla.escalate`); an assignee that is one is refused (`Grievance.guard_assignee_has_desk`) |
-| Kebele officers never see them           | `permissions.grievance_query_conditions` and `has_grievance_permission`, so the list, the case, the timeline, attachments and export all refuse. Dashboard figures are counts, not cases                                                                                    |
-| Not through whoever filed it for someone | a development agent who filed a sensitive case for a farmer does not keep access afterwards: the case is reached through the submitter's own profile, or the account that filed it for itself                                                                               |
-| Route to the focal person                | existing desks: the lowest rung seated at Woreda level or above takes the case. The Ethics, Female/Safety and Data Protection focal persons are the officers of the C13, C15 and C16 desks                                                                                  |
-| Officer identity                         | the API shows no officer, desk or classification to a submitter; notifications to the submitter say none either                                                                                                                                                             |
-| SMS                                      | a sensitive case sends its submitter only `Grievance <reference>. PIN: <pin>`, on every channel, whatever the template says (`notifications.sensitive_submitter_text`). Officer notices skip Kebele-level officers                                                          |
+| Rule                                     | Where it is enforced                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Anonymous filing                         | unchanged: `is_anonymous` works on every type, and a sensitive case still keeps the submitter's profile link for the submitter's own access                                                                                                                                                                                                                                                                              |
+| Bypass the Kebele                        | routing never picks an officer whose seat on the desk is at Kebele level or below (`routing.pick_officer_by_strategy`); escalation never lands on one (`sla.escalate`); a reassignment to a sensitive type neither keeps nor picks one (`reassignment.resolve` reads the type the case moves to); an assignee that is one is refused, also when the case has just become sensitive (`Grievance.guard_assignee_has_desk`) |
+| Kebele officers never see them           | `permissions.grievance_query_conditions` and `has_grievance_permission`, so the list, the case, the timeline, attachments and export all refuse. Dashboard figures are counts, not cases                                                                                                                                                                                                                                 |
+| Not through whoever filed it for someone | a development agent who filed a sensitive case for a farmer does not keep access afterwards: the case is reached through the submitter's own profile, or the account that filed it for itself. The submit response gives someone filing on the submitter's behalf no PIN and only the submitter's view of the case                                                                                                       |
+| Route to the focal person                | existing desks: the lowest rung seated at Woreda level or above takes the case. The Ethics, Female/Safety and Data Protection focal persons are the officers of the C13, C15 and C16 desks                                                                                                                                                                                                                               |
+| Officer identity                         | the API shows a submitter no officer, no desk (neither `assigned_dept` nor `department`) and no classification; notifications to the submitter say none either                                                                                                                                                                                                                                                           |
+| SMS                                      | a sensitive case sends its submitter only `Grievance <reference>. PIN: <pin>`, on every channel, whatever the template says (`notifications.sensitive_submitter_text`). Officer notices skip Kebele-level officers                                                                                                                                                                                                       |
 
 A **Kebele-level officer** is a user whose every active desk seat has, on the officer's row, an area at Kebele level or below (Kebele, Village, Ward). A seat with no area, or at Woreda level and above, makes the user Woreda-level. Someone with no seat is not a Kebele officer.
 
 ### PIN
 
-A sensitive case gets a random six digit PIN at filing, stored encrypted and returned to the submitter in the submit response (`status_pin`), so a submitter without a phone has it. The PIN is also sent in each SMS, so it is recoverable server-side by design. A PIN status check endpoint is not part of this ticket (CR-16).
+A sensitive case gets a random six digit PIN at filing, stored encrypted. A submitter who files for themselves gets it in the submit response (`status_pin`), so a submitter without a phone has it. Someone filing on the submitter's behalf (a development agent, an administrator) does not: the submitter gets it by message.
+
+The PIN is never stored in clear by this app. The Grievance Notification Log, which officers can read, holds the message with the PIN masked (`Grievance <reference>. PIN: ******`), and so does the Communication an email leaves on the case. The PIN is put back only into the text that leaves the system (`notifications._outbound_message`): the SMS, the email and the submitter's own in-app alert. The gateway's own records (SMS Log, Email Queue) are System Manager only. The PIN is recoverable server-side by design, since every message carries it. A PIN status check endpoint is not part of this ticket (CR-16).
 
 ## Officer view
 
@@ -90,7 +96,7 @@ A sensitive case gets a random six digit PIN at filing, stored encrypted and ret
 
 ## Open points
 
-- **Calendar boundaries.** Gregorian decides. The Ethiopian window is stored but does not drive classification. Matrix owners should confirm, because C02, C07 and C09 differ by 8 to 10 days between the two.
+- **Calendar boundaries.** Gregorian decides. The Ethiopian window is stored but does not drive classification. Matrix owners should confirm C02, C07 and C09, whose Ethiopian months (Tikimt to Miyazya, Tikimt to Tahsas) differ by 8 to 10 days from their Gregorian months.
 - **C04 coercion.** "C04 if coercion" is free text in the Confidential path, not a flag. A per-case Sensitive flag set by an officer, DA or administrator is not built (change plan, section 3 item 14). Until decided, a coercion case is filed as C13-03.
 - **The subject of a grievance.** No field names the person complained about (change plan, section 3 item 15), so the service cannot exclude them by identity. The Kebele bypass covers the case where they are a DA or Kebele officer; a subject who is a Woreda officer on the same desk is not excluded.
 - **Belg woredas.** No official list exists, so none is seeded. Maintain them with `is_belg`. This is a dependency on the source list.
