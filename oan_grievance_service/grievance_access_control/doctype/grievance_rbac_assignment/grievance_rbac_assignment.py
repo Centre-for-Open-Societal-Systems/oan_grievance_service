@@ -40,15 +40,21 @@ class GrievanceRBACAssignment(Document):
 				pos = frappe.db.get_value(
 					"Grievance Officer Position",
 					row.position,
-					["occupant", "role_level", "administrative_area", "designation", "reports_to_position"],
+					[
+						"occupant",
+						"role_level",
+						"administrative_area",
+						"designation",
+						"position_title",
+						"reports_to_position",
+					],
 					as_dict=True,
 				)
 				if pos:
 					row.user = pos.occupant
 					row.role_level = pos.role_level
 					row.administrative_area = pos.administrative_area
-					if pos.designation:
-						row.designation = pos.designation
+					row.designation = pos.designation or pos.position_title
 					if pos.reports_to_position:
 						row.reports_to = frappe.db.get_value(
 							"Grievance Officer Position", pos.reports_to_position, "occupant"
@@ -65,14 +71,20 @@ class GrievanceRBACAssignment(Document):
 					"name",
 				)
 				if not pos_name:
+					occupant = row.user if frappe.db.get_value("User", row.user, "enabled") else None
+					role_lvl = row.get("role_level")
+					if not role_lvl:
+						chain = GrievanceRoleLevel.get_chain()
+						role_lvl = chain[0].name if chain else "nodal_officer"
+					desig = row.get("designation") or role_lvl.replace("_", " ").title()
 					pos_doc = frappe.get_doc(
 						{
 							"doctype": "Grievance Officer Position",
-							"position_title": f"{row.user} - {row.get('role_level') or 'Officer'}",
-							"role_level": row.get("role_level") or "nodal_officer",
+							"position_title": f"{desig} - {row.user}",
+							"role_level": role_lvl,
 							"administrative_area": row.get("administrative_area"),
-							"occupant": row.user,
-							"designation": row.get("designation"),
+							"occupant": occupant,
+							"designation": desig,
 							"active": 1,
 						}
 					).insert(ignore_permissions=True)

@@ -430,6 +430,8 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		return winner.user
 
 	elif strategy == "Least Loaded":
+		from oan_grievance_service.grievance_access_control.positions import max_open_cases_for
+
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
@@ -449,16 +451,7 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 				user=o.user,
 				officer_doc=o,
 				open_count=counts.get(o.user, 0),
-				max_cap=getattr(o, "max_open_cases", 0)
-				or (
-					frappe.db.get_value("Grievance Officer Position", o.position, "max_open_cases")
-					if getattr(o, "position", None)
-					else None
-				)
-				or frappe.db.get_value(
-					"Grievance Officer Position", {"occupant": o.user, "active": 1}, "max_open_cases"
-				)
-				or 0,
+				max_cap=getattr(o, "max_open_cases", 0) or max_open_cases_for(o.user),
 			)
 			for o in active_officers
 		]

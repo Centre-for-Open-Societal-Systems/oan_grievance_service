@@ -68,17 +68,17 @@ class GrievanceRoleLevel(Document):
 			chain = None
 
 		if chain is None:
-			try:
-				chain = frappe.get_all(
-					"Grievance Role Level",
-					filters={"is_active": 1},
-					fields=["name", "level_name", "level_order", "escalation_hours"],
-					order_by="level_order asc",
-				)
-				if getattr(frappe, "cache", None):
+			chain = frappe.get_all(
+				"Grievance Role Level",
+				filters={"is_active": 1},
+				fields=["name", "level_name", "level_order", "escalation_hours"],
+				order_by="level_order asc",
+			)
+			if getattr(frappe, "cache", None):
+				try:
 					frappe.cache.set_value(CACHE_KEY, chain)
-			except Exception:
-				chain = []
+				except Exception:
+					pass
 		return chain
 
 

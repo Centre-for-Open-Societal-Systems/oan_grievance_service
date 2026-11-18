@@ -21,6 +21,10 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 
 class GrievanceOfficerPosition(Document):
 	def validate(self):
+		if not self.position_title and self.designation:
+			self.position_title = self.designation
+		elif not self.designation and self.position_title:
+			self.designation = self.position_title
 		self.validate_occupant()
 		self.validate_hierarchy()
 		self.validate_leave()
@@ -29,6 +33,27 @@ class GrievanceOfficerPosition(Document):
 		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
 
 		clear_position_cache(self.occupant)
+		self.sync_desk_rows()
+
+	def sync_desk_rows(self):
+		"""Keep desk membership child rows synchronized when position facts change."""
+		sup_occupant = None
+		if self.reports_to_position:
+			sup_occupant = frappe.db.get_value(
+				"Grievance Officer Position", self.reports_to_position, "occupant"
+			)
+
+		desig = self.designation or self.position_title
+		Officer = frappe.qb.DocType("Grievance RBAC Assignment Officer")
+		(
+			frappe.qb.update(Officer)
+			.set(Officer.user, self.occupant)
+			.set(Officer.role_level, self.role_level)
+			.set(Officer.administrative_area, self.administrative_area)
+			.set(Officer.designation, desig)
+			.set(Officer.reports_to, sup_occupant)
+			.where(Officer.position == self.name)
+		).run()
 
 	def on_trash(self):
 		from oan_grievance_service.grievance_access_control.positions import clear_position_cache

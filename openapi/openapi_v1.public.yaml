@@ -5396,8 +5396,6 @@ paths:
           enum:
           - L1
           - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -9907,8 +9905,6 @@ components:
           enum:
           - L1
           - L2
-          - L3
-          - L4
           type: string
         role_level:
           type: string

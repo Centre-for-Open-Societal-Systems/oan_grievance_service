@@ -36,7 +36,10 @@ def _roster(level: str | None, department: str | None):
 	Officer = frappe.qb.DocType(OFFICER_ROW)
 	Desk = frappe.qb.DocType(DESK)
 	User = frappe.qb.DocType("User")
-	codes = [LEVEL_CODES[level]] if level else list(LEVEL_CODES.values())
+	if level:
+		codes = [LEVEL_CODES[level]]
+	else:
+		codes = [LEVEL_CODES[lvl] for lvl in ("L1", "L2") if lvl in LEVEL_CODES]
 	query = (
 		frappe.qb.from_(Officer)
 		.join(Desk)

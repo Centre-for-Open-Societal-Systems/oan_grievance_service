@@ -29,40 +29,53 @@
    "options": "Grievance Officer Position"
   },
   {
+   "fetch_from": "position.occupant",
    "fieldname": "user",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "User",
-   "options": "User"
+   "label": "Officer",
+   "options": "User",
+   "read_only": 1
   },
   {
+   "fetch_from": "position.role_level",
    "fieldname": "role_level",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Role Level",
-   "options": "Grievance Role Level"
+   "options": "Grievance Role Level",
+   "read_only": 1
   },
   {
    "description": "Direct supervisor for escalation and approval workflows",
    "fieldname": "reports_to",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Reports To",
-   "options": "User"
+   "options": "User",
+   "read_only": 1
   },
   {
    "description": "Region (or any area) this officer covers, including its sub-tree. Blank covers every area. The nearest enclosing area wins when routing.",
+   "fetch_from": "position.administrative_area",
    "fieldname": "administrative_area",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Administrative Area",
-   "options": "Grievance Administrative Area"
+   "options": "Grievance Administrative Area",
+   "read_only": 1
   },
   {
    "description": "Officer title shown in the administration screens, for example Nodal Officer.",
+   "fetch_from": "position.designation",
    "fieldname": "designation",
    "fieldtype": "Data",
-   "label": "Designation"
+   "hidden": 1,
+   "in_list_view": 0,
+   "label": "Designation",
+   "read_only": 1
   },
   {
    "default": "1",
@@ -83,8 +96,10 @@
    "description": "Keeps the desk row and its permissions, but auto-routing skips this officer until cleared.",
    "fieldname": "on_leave",
    "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "On Leave"
+   "hidden": 1,
+   "in_list_view": 0,
+   "label": "On Leave",
+   "read_only": 1
   },
   {
    "fieldname": "col_officer",
@@ -95,12 +110,17 @@
    "description": "0 = unlimited capacity",
    "fieldname": "max_open_cases",
    "fieldtype": "Int",
-   "label": "Max Open Cases"
+   "hidden": 1,
+   "in_list_view": 0,
+   "label": "Max Open Cases",
+   "read_only": 1
   },
   {
    "description": "Rotation cursor timestamp for round-robin assignment",
    "fieldname": "last_assigned_at",
    "fieldtype": "Datetime",
+   "hidden": 1,
+   "in_list_view": 0,
    "label": "Last Assigned At",
    "read_only": 1
   }
