@@ -78,17 +78,14 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	# A reopened case waits for an officer exactly as an assigned one does.
 	(C.STATE_REOPENED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_REOPENED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
@@ -183,9 +180,9 @@ REVIEWER_ROLE_LEVEL = (
 # is scoped to. Every other category comes from the seed data (openg2p-data), not from the app. The code is the
 # 3-character CATEGORY segment of the ticket number (services.ticket_number). Three characters allow 32,768
 # categories, so a service can later be split into much finer groups without the codes running out. A retired
-# code is never reused.
+# code is never reused. The catch-all is `SYS`, as in the Routing Matrix.
 SERVICE_CATEGORIES = [
-	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CATEGORY_CODE, 20),
 ]
 
 # Baseline SLA configurations for standard service categories.
@@ -274,20 +271,6 @@ RESPONSE_TEMPLATES = [
 			+ "Resolution Summary:\n"
 			+ "Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
 			+ "with the outcome, you can reopen it from the grievance page.\n\n"
-			+ "{{ officer_name }}, {{ today }}"
-		),
-	),
-	(
-		"Partially resolved - standard",
-		"Partially Resolve",
-		(
-			"Action Taken:\n"
-			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
-			+ "on {{ service_category }} and took the following action:\n\n"
-			+ "Resolution Summary:\n"
-			+ "Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
-			+ "open and why:\n\n"
-			+ "If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
 			+ "{{ officer_name }}, {{ today }}"
 		),
 	),
@@ -685,14 +668,12 @@ def seed_grievance_types():
 			continue
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Type",
-				"type_name": name,
-				"service_category": category,
-				"is_active": 1,
-			}
-		).insert(ignore_permissions=True)
+		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
+		if is_catch_all:
+			# Keyed on its code like every other type, so the seed data finds it by name.
+			row["type_code"] = C.FALLBACK_TYPE_CODE
+		frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
 		made.append(name)
 	return made
 

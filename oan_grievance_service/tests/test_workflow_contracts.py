@@ -202,11 +202,16 @@ class TestContractTwoAResponseDecidesTheNextState(WorkflowTestCase):
 		self.assertTrue(sent)
 		self.assertIsNotNone(frappe.db.get_value("Grievance", self.grievance.name, "state_deadline"))
 
-	def test_partially_resolved_does_the_same(self):
-		row, sent = self._respond("Partially Resolve")
-		self.assertEqual(self._state()["workflow_state"], "Resolved")
-		self.assertEqual(row.action, "Partially Resolve")
-		self.assertTrue(sent)
+	def test_partially_resolve_is_not_an_action(self):
+		"""Resolve is the only way to finish a case; Partially Resolve is neither offered
+		to the officer nor accepted."""
+		self._at_in_progress()
+		offered = {row.action for row in get_transitions(self._saved())}
+		self.assertIn("Resolve", offered)
+		self.assertNotIn("Partially Resolve", offered)
+		with self.assertRaises(WorkflowTransitionError):
+			lifecycle.transition(self._saved(), "Partially Resolve", reason="Looked into it.")
+		self.assertEqual(self._state()["workflow_state"], "In Progress")
 
 	def test_referred_sends_the_case_back_to_assignment(self):
 		row, sent = self._respond("Refer Onward")

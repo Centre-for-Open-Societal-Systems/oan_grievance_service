@@ -1,6 +1,8 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
+from unittest import mock
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -25,12 +27,16 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 	get_default_category,
 	rename_category,
 )
-from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+	GrievanceType,
+	get_fallback_type,
+)
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
 from oan_grievance_service.tests.fixtures import (
 	a_grievance,
 	a_leaf_area,
+	a_role_level,
 	a_submitter_type,
 	discard_grievance,
 	post_grievance,
@@ -481,6 +487,146 @@ class TestTaxonomy(FrappeTestCase):
 		# The same name under another category is a different type.
 		elsewhere = self._type(category="STG406 Second", name=first["type_name"])
 		self.assertNotEqual(elsewhere["grievance_type_id"], first["grievance_type_id"])
+
+	def test_type_carries_its_routing_defaults(self):
+		self._category()
+		first, second = "nodal_officer", "senior_nodal_officer"
+		# The review officer rung is inactive: it is no step of the chain.
+		retired = "review_officer"
+		created = self._type(type_code="q51-01", external_referral="Input regulator", entry_role_level=first)
+		self.assertEqual(created["type_code"], "Q51-01")
+		self.assertEqual(
+			(created["external_referral"], created["entry_role_level"]), ("Input regulator", first)
+		)
+		type_id = created["grievance_type_id"]
+
+		# Admin edits take effect, and a type made without them has none.
+		updated = update_grievance_type(type_id, entry_role_level=second)
+		self.assertEqual(updated["status"], "success", msg=updated)
+		record = updated["data"]["grievance_type"]
+		self.assertEqual(
+			(record["external_referral"], record["entry_role_level"]), ("Input regulator", second)
+		)
+		bare = self._type(name="STG406 Bare")
+		self.assertEqual(
+			(bare["type_code"], bare["external_referral"], bare["entry_role_level"]), (None, None, None)
+		)
+		# The department is a desk's and the turnaround the SLA configuration's: the type has neither.
+		self.assertNotIn("department", record)
+		self.assertNotIn("sla_l1_days", record)
+		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["entry_role_level"], second)
+
+		with _keep_transaction():
+			clash = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-01"
+			)
+			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
+			for result in (
+				# The level is a role level of the hierarchy: an unknown or an inactive one is refused.
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 A", entry_role_level="no_such_level"
+				),
+				update_grievance_type(type_id, entry_role_level=retired),
+				update_grievance_type(type_id, entry_role_level=""),
+				update_grievance_type(type_id, type_code="Q51-09"),
+				# Fields the type no longer takes are refused by the request schema.
+				update_grievance_type(type_id, department="Anything"),
+				update_grievance_type(type_id, sla_l1_days=5),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+		listed = list_grievance_types(service_category=CATEGORY)["data"]["grievance_types"]
+		self.assertEqual({row["type_code"] for row in listed}, {"Q51-01", None})
+
+	def test_routing_defaults_can_be_cleared_with_null_but_not_blank(self):
+		self._category()
+		created = self._type(
+			type_code="Q51-02", external_referral="Court", entry_role_level="department_head"
+		)
+		type_id = created["grievance_type_id"]
+		cleared = update_grievance_type(type_id, external_referral=None, entry_role_level=None)
+		self.assertEqual(cleared["status"], "success", msg=cleared)
+		record = cleared["data"]["grievance_type"]
+		self.assertEqual((record["external_referral"], record["entry_role_level"]), (None, None))
+		with _keep_transaction():
+			for result in (
+				update_grievance_type(type_id, external_referral=""),
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 Blank", external_referral=""
+				),
+				# The code is fixed once set, whatever its case.
+				update_grievance_type(type_id, type_code="q51-02"),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_a_type_keeps_a_level_that_is_retired_later(self):
+		self._category()
+		level = a_role_level()
+		kind = self._type(entry_role_level=level)
+		frappe.db.set_value("Grievance Role Level", level, "is_active", 0)
+		renamed = update_grievance_type(kind["grievance_type_id"], type_name="STG406 Renamed")
+		self.assertEqual(renamed["status"], "success", msg=renamed)
+		self.assertEqual(renamed["data"]["grievance_type"]["entry_role_level"], level)
+
+	def test_only_an_administrator_sets_routing_defaults(self):
+		self._category()
+		kind = self._type()
+		with (
+			_keep_transaction(),
+			mock.patch("oan_grievance_service.api.v1.taxonomy.is_unrestricted", return_value=False),
+		):
+			for result in (
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 Head", entry_role_level="nodal_officer"
+				),
+				# The code is the key the seed matches on, so a head cannot claim one.
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 Claim", type_code="SYS"),
+				update_grievance_type(kind["grievance_type_id"], external_referral="Court"),
+				update_grievance_type(kind["grievance_type_id"], entry_role_level=None),
+			):
+				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+			# The name and the active flag stay with the category head.
+			renamed = update_grievance_type(kind["grievance_type_id"], type_name="STG406 Renamed by head")
+			self.assertEqual(renamed["status"], "success", msg=renamed)
+
+	def test_a_type_code_race_is_a_duplicate_not_a_server_error(self):
+		self._category()
+		self._type(type_code="Q51-03")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			# Validation passes, as it would for two requests at once: the unique index refuses the second.
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-03"
+			)
+			self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+
+	def test_another_unique_violation_is_not_reported_as_a_code_clash(self):
+		self._category()
+		with (
+			_keep_transaction(),
+			mock.patch.object(GrievanceType, "insert", side_effect=frappe.UniqueValidationError),
+		):
+			result = create_grievance_type(service_category=CATEGORY, type_name="STG406 Odd")
+		self.assertEqual(result["code"], "DUPLICATE_ENTRY", msg=result)
+		self.assertNotIn("Type code", str(result))
+
+	def test_a_lowercase_code_clash_names_the_stored_code(self):
+		self._category()
+		self._type(type_code="Q51-05")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin2", type_code="q51-05"
+			)
+		self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+		self.assertIn("Q51-05", str(twin))
+
+	def test_type_list_searches_the_code_as_well_as_the_name(self):
+		self._category()
+		self._type(type_code="Q51-04", name="STG406 Searchable")
+		self._type(name="STG406 Other one")
+		by_code = list_grievance_types(search="q51-04")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_code], ["STG406 Searchable"])
+		by_name = list_grievance_types(search="STG406 Other")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_name], ["STG406 Other one"])
 
 	def test_type_request_validation_and_unknown_category(self):
 		self._category()

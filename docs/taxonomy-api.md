@@ -288,13 +288,13 @@ To bring a category back, use `PATCH` with `{ "is_active": true }`.
 
 Ordered by category, then name. Returns active and inactive unless filtered.
 
-| Query              | Type    | Required | Default | Notes                                                      |
-| :----------------- | :------ | :------- | :------ | :--------------------------------------------------------- |
-| `service_category` | string  | no       | all     | Category name or ticket code. Unknown category returns 400 |
-| `is_active`        | boolean | no       | both    | `true`/`false`                                             |
-| `search`           | string  | no       |         | Text contained in the type name, case-insensitive          |
-| `page`             | integer | no       | 1       | 1 or more                                                  |
-| `page_size`        | integer | no       | 20      | 1 to 100                                                   |
+| Query              | Type    | Required | Default | Notes                                                          |
+| :----------------- | :------ | :------- | :------ | :------------------------------------------------------------- |
+| `service_category` | string  | no       | all     | Category name or ticket code. Unknown category returns 400     |
+| `is_active`        | boolean | no       | both    | `true`/`false`                                                 |
+| `search`           | string  | no       |         | Text contained in the type name or type code, case-insensitive |
+| `page`             | integer | no       | 1       | 1 or more                                                      |
+| `page_size`        | integer | no       | 20      | 1 to 100                                                       |
 
 ```
 GET /api/v1/grievance-types?service_category=Infrastructure&is_active=true
@@ -313,7 +313,10 @@ Response `200`:
         "type_name": "Road access blocked",
         "service_category": "Infrastructure",
         "is_active": true,
-        "has_grievances": false
+        "has_grievances": false,
+        "type_code": null,
+        "external_referral": null,
+        "entry_role_level": null
       }
     ],
     "pagination": {
@@ -334,11 +337,14 @@ Response `200`:
 
 `POST /api/v1/grievance-types`
 
-| Body field         | Type    | Required | Default | Notes                                                   |
-| :----------------- | :------ | :------- | :------ | :------------------------------------------------------ |
-| `service_category` | string  | yes      |         | Parent category, by name or ticket code. Must be active |
-| `type_name`        | string  | yes      |         | Up to 140 characters. Unique within the category        |
-| `is_active`        | boolean | no       | `true`  |                                                         |
+| Body field          | Type    | Required | Default | Notes                                                                            |
+| :------------------ | :------ | :------- | :------ | :------------------------------------------------------------------------------- |
+| `service_category`  | string  | yes      |         | Parent category, by name or ticket code. Must be active                          |
+| `type_name`         | string  | yes      |         | Up to 140 characters. Unique within the category                                 |
+| `is_active`         | boolean | no       | `true`  |                                                                                  |
+| `type_code`         | string  | no       |         | Up to 16 characters, stored upper case. Unique. **Administrator only** (see 5.6) |
+| `external_referral` | string  | no       |         | Who a case is referred to outside OAN. **Administrator only**                    |
+| `entry_role_level`  | string  | no       |         | Code of an active Grievance Role Level (see 5.6). **Administrator only**         |
 
 ```json
 { "service_category": "Infrastructure", "type_name": "Road access blocked" }
@@ -356,7 +362,10 @@ Response `200`: `data.grievance_type` is the record.
       "type_name": "Road access blocked",
       "service_category": "Infrastructure",
       "is_active": true,
-      "has_grievances": false
+      "has_grievances": false,
+      "type_code": null,
+      "external_referral": null,
+      "entry_role_level": null
     }
   },
   "meta": { "api_version": "v1", "status": "current" },
@@ -364,7 +373,7 @@ Response `200`: `data.grievance_type` is the record.
 }
 ```
 
-Errors: `409` when the name already exists in that category; `400` when the category does not exist or is inactive, or a field is missing or blank.
+Errors: `409` when the name already exists in that category or the type code is already used; `403` when a category head sends any of the three fields above; `400` when the category does not exist or is inactive, or a field is missing or blank.
 
 ### 5.3 Get a grievance type
 
@@ -376,12 +385,13 @@ Response `200`: the record under `data.grievance_type`, message `Grievance type 
 
 `PATCH /api/v1/grievance-types/{grievance_type}`
 
-Send only the fields that change. `service_category` is **not accepted**: a type stays in the category it was created in.
+Send only the fields that change. `service_category` and `type_code` are **not accepted**: a type stays in the category it was created in, and its code is set once.
 
-| Body field  | Type    | Notes                                                                                                                   |
-| :---------- | :------ | :---------------------------------------------------------------------------------------------------------------------- |
-| `type_name` | string  | Unique within the category                                                                                              |
-| `is_active` | boolean | `true` is refused (400) while the category is inactive. The default category's catch-all `Other` type cannot be `false` |
+| Body field                              | Type      | Notes                                                                                                                   |
+| :-------------------------------------- | :-------- | :---------------------------------------------------------------------------------------------------------------------- |
+| `type_name`                             | string    | Unique within the category                                                                                              |
+| `is_active`                             | boolean   | `true` is refused (400) while the category is inactive. The default category's catch-all `Other` type cannot be `false` |
+| `external_referral`, `entry_role_level` | as in 5.2 | **Administrator only.** `null` clears a field. A blank string is refused (400)                                          |
 
 ```json
 { "type_name": "Road access obstructed" }
@@ -412,6 +422,25 @@ Response `200`:
 `DELETE /api/v1/grievance-types/{grievance_type}`
 
 No body. Same as `PATCH` with `{ "is_active": false }`. Repeating the call changes nothing. Response `200` has message `Grievance type deactivated` and the record with `"is_active": false`.
+
+### 5.6 Routing defaults of a type
+
+A type carries the matrix attributes that are about the type itself. The seed fills them for the 75 sub-types and the catch-all `Other` type (`SYS`) (see `oan-seed/README.md` in openg2p-data).
+
+| Field               | Meaning                                                                                                                                                                                 |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type_code`         | The matrix code, for example `C01-01`. The seed matches on it, so a second type cannot take it. Read-only after creation                                                                |
+| `external_referral` | Who a case is referred to outside OAN, for example `Court`                                                                                                                              |
+| `entry_role_level`  | Code of a `Grievance Role Level` (for example `nodal_officer`): the lowest level whose officers handle the type. A type that skips Kebele has `senior_nodal_officer`. `null` when unset |
+
+Two attributes of the matrix row are **not** fields of the type, so there is one place to change each:
+
+- **The owning department** is the desk's. Routing reads `Grievance RBAC Assignment` (`department_scope` with `category_scope` and `grievance_type_scope`), never the type. See [desk-scoping-and-authority.md](desk-scoping-and-authority.md).
+- **The turnaround days** are the SLA configuration's. `Grievance SLA Configuration` has a `level_turnarounds` table of rows (`role_level`, optional `grievance_type`, `turnaround_days`), where `nodal_officer` is L1 (Kebele) and `senior_nodal_officer` is L2 (Woreda). A level a type skips has no row. The table is not part of this API: it is edited in the desk UI, and the seed fills it. The SLA engine does not read it yet: the clock still runs on the category's `sla_days`.
+
+**The entry level is descriptive.** Nothing in routing or the workflow reads it. Who handles a case is decided by the desk (`Grievance RBAC Assignment`) scoped to the type's category or type: a desk hands a case to the officer of the lowest rung it has, so a type that should skip Kebele has a desk with no Nodal Officer (L1) assigned, and its cases go to the next rung. `entry_role_level` records that intent next to the type, using the same role levels as the desks and the SLA turnaround.
+
+**Who may set them.** Only an administrator can set `type_code`, `external_referral` and `entry_role_level`, on create or edit, and that includes clearing one with `null`. A category head can still rename or retire a type of their category. The API answers `403 PERMISSION_DENIED` otherwise.
 
 ## 6. Example error responses
 

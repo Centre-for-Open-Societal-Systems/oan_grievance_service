@@ -7523,7 +7523,7 @@ paths:
       - Administration
       summary: List grievance types
       description: Admin list of grievance types by category and name, active and inactive, filterable
-        by service category, active flag and text in the name.
+        by service category, active flag and text in the name or type code.
       operationId: get_api_v1_grievance_types
       responses:
         '200':
@@ -7601,7 +7601,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Matches the type name
+        description: Matches the type name or code
       x-legacy-rpc-method: oan_grievance_service.api.v1.taxonomy.list_grievance_types
       x-gateway-tier: officer-core
       security:
@@ -7718,9 +7718,9 @@ paths:
       tags:
       - Administration
       summary: Update a grievance type
-      description: Change the name or active flag. The service category cannot change. A type cannot be
-        reactivated while its category is inactive, and the catch-all Other type of the default category
-        cannot be deactivated.
+      description: Change the name, active flag, external referral or entry role level. The service category
+        and type code cannot change. A type cannot be reactivated while its category is inactive, and
+        the catch-all Other type of the default category cannot be deactivated.
       operationId: patch_api_v1_grievance_types_grievance_type
       responses:
         '200':
@@ -10614,6 +10614,18 @@ components:
           type: boolean
         has_grievances:
           type: boolean
+        type_code:
+          type: string
+          default: null
+          nullable: true
+        external_referral:
+          type: string
+          default: null
+          nullable: true
+        entry_role_level:
+          type: string
+          default: null
+          nullable: true
       required:
       - grievance_type_id
       - type_name
@@ -11917,6 +11929,26 @@ components:
         is_active:
           default: true
           type: boolean
+        type_code:
+          maxLength: 16
+          minLength: 1
+          type: string
+          default: null
+          description: Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.
+          nullable: true
+        external_referral:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          nullable: true
+        entry_role_level:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          description: Code of an active Grievance Role Level
+          nullable: true
       required:
       - service_category
       - type_name
@@ -11931,6 +11963,20 @@ components:
           type: string
         is_active:
           type: boolean
+        external_referral:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          description: Null clears it
+          nullable: true
+        entry_role_level:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          description: Code of an active Grievance Role Level. Null clears it.
+          nullable: true
       type: object
     IvrGrievanceRequest:
       additionalProperties: false

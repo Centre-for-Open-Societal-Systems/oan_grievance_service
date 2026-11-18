@@ -821,7 +821,6 @@ def _grievance_page(items, page, page_size, total_count):
 ACTIONS_REQUIRING_REASON = {
 	"Close Case",
 	"In Progress",
-	"Partially Resolve",
 	"Refer Onward",
 	"Reject",
 	"Reopen",
@@ -1315,7 +1314,6 @@ _ACTION_ENTRY_TYPES = {
 	"Request More Info": "info_request",
 	"Submitter Reply": "info_response",
 	"Resolve": "response",
-	"Partially Resolve": "response",
 	"Refer Onward": "response",
 }
 
@@ -1406,7 +1404,7 @@ def action(
 
 	if matching_action == "In Progress" or (
 		doc.workflow_state in (C.STATE_ASSIGNED, C.STATE_REOPENED)
-		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
+		and matching_action in ("Request More Info", "Resolve")
 	):
 		_ensure_owner(doc)
 
