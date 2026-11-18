@@ -10,8 +10,6 @@ Zone (L3) -> Region (L4).
 
 import frappe
 
-from oan_grievance_service.services import constants as C
-
 
 def execute():
 	if not frappe.db.exists("Grievance Role Level", "zonal_head"):

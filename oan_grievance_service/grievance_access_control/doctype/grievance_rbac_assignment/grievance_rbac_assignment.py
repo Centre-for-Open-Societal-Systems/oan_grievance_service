@@ -51,11 +51,13 @@ class GrievanceRBACAssignment(Document):
 					as_dict=True,
 				)
 				if pos:
-					row.user = pos.occupant
-					row.role_level = pos.role_level
-					row.administrative_area = pos.administrative_area
-					row.designation = pos.designation or pos.position_title
-					if pos.reports_to_position:
+					# Fill only what the row lacks: Position edits reach linked rows through
+					# the Position's own sync, and a row re-levelled on the desk must keep it.
+					row.user = row.user or pos.occupant
+					row.role_level = row.role_level or pos.role_level
+					row.administrative_area = row.administrative_area or pos.administrative_area
+					row.designation = row.designation or pos.designation or pos.position_title
+					if pos.reports_to_position and not row.reports_to:
 						row.reports_to = frappe.db.get_value(
 							"Grievance Officer Position", pos.reports_to_position, "occupant"
 						)

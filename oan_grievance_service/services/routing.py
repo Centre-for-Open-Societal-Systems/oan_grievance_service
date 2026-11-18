@@ -330,8 +330,12 @@ def _covering_case(officers, grievance):
 
 
 def _available(officers):
-	from oan_grievance_service.grievance_access_control.positions import is_officer_on_leave
+	from oan_grievance_service.grievance_access_control.positions import (
+		is_officer_on_leave,
+		prefetch_positions,
+	)
 
+	prefetch_positions([getattr(o, "user", None) for o in officers])
 	return [
 		o
 		for o in officers

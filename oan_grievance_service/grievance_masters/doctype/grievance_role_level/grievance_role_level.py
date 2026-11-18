@@ -57,8 +57,6 @@ class GrievanceRoleLevel(Document):
 	@staticmethod
 	def get_chain():
 		"""Returns all active rungs ordered by level_order ascending, cached in memory."""
-		if not getattr(frappe, "db", None):
-			return []
 		chain = None
 		try:
 			cache = getattr(frappe, "cache", None)

@@ -6,6 +6,21 @@
 import frappe
 from frappe.utils import getdate, nowdate
 
+_POSITION_FIELDS = [
+	"name",
+	"position_title",
+	"role_level",
+	"administrative_area",
+	"designation",
+	"occupant",
+	"reports_to_position",
+	"active",
+	"max_open_cases",
+	"on_leave",
+	"leave_from",
+	"leave_to",
+]
+
 
 def positions_of(user: str, active_only: bool = True) -> list[dict]:
 	"""Return the list of positions occupied by `user`, cached per request in frappe.local."""
@@ -24,26 +39,28 @@ def positions_of(user: str, active_only: bool = True) -> list[dict]:
 	if active_only:
 		filters["active"] = 1
 
-	positions = frappe.get_all(
-		"Grievance Officer Position",
-		filters=filters,
-		fields=[
-			"name",
-			"position_title",
-			"role_level",
-			"administrative_area",
-			"designation",
-			"occupant",
-			"reports_to_position",
-			"active",
-			"max_open_cases",
-			"on_leave",
-			"leave_from",
-			"leave_to",
-		],
-	)
+	positions = frappe.get_all("Grievance Officer Position", filters=filters, fields=_POSITION_FIELDS)
 	cache[cache_key] = positions
 	return positions
+
+
+def prefetch_positions(users: list[str]) -> None:
+	"""Load the active positions of all `users` in one query into the per-request cache."""
+	cache = getattr(frappe.local, "grievance_user_positions", None)
+	if cache is None:
+		cache = frappe.local.grievance_user_positions = {}
+	missing = [u for u in set(users) if u and (u, True) not in cache]
+	if not missing:
+		return
+	for user in missing:
+		cache[(user, True)] = []
+	rows = frappe.get_all(
+		"Grievance Officer Position",
+		filters={"occupant": ["in", missing], "active": 1},
+		fields=_POSITION_FIELDS,
+	)
+	for row in rows:
+		cache[(row.occupant, True)].append(row)
 
 
 def clear_position_cache(user: str | None = None) -> None:
