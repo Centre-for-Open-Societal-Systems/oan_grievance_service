@@ -46,20 +46,26 @@ def execute():
 			desig = r.designation or (r.role_level.replace("_", " ").title() if r.role_level else "Officer")
 			area_suffix = f" - {r.administrative_area}" if r.administrative_area else ""
 			title = f"{desig}{area_suffix}"
-			pos = frappe.get_doc(
-				{
-					"doctype": "Grievance Officer Position",
-					"position_title": title[:140],
-					"role_level": r.role_level or "nodal_officer",
-					"administrative_area": r.administrative_area,
-					"designation": r.designation,
-					"occupant": r.user if (r.user and frappe.db.exists("User", r.user)) else None,
-					"active": r.active if r.active is not None else 1,
-					"on_leave": r.on_leave if r.on_leave is not None else 0,
-					"max_open_cases": r.max_open_cases or 0,
-				}
-			).insert(ignore_permissions=True)
-			pos_map[key] = pos.name
+			occupant = r.user if (r.user and frappe.db.exists("User", r.user)) else None
+			if occupant and not frappe.db.get_value("User", occupant, "enabled"):
+				occupant = None
+			try:
+				pos = frappe.get_doc(
+					{
+						"doctype": "Grievance Officer Position",
+						"position_title": title[:140],
+						"role_level": r.role_level or "nodal_officer",
+						"administrative_area": r.administrative_area,
+						"designation": r.designation,
+						"occupant": occupant,
+						"active": r.active if r.active is not None else 1,
+						"on_leave": r.on_leave if r.on_leave is not None else 0,
+						"max_open_cases": r.max_open_cases or 0,
+					}
+				).insert(ignore_permissions=True)
+				pos_map[key] = pos.name
+			except Exception:
+				continue
 
 		frappe.db.set_value(
 			"Grievance RBAC Assignment Officer",

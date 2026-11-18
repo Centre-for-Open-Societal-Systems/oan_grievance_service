@@ -343,33 +343,58 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 	if not assignment_doc.get("officers"):
 		return None
 
+	pos_names = [o.position for o in assignment_doc.officers if getattr(o, "position", None)]
+	positions_by_name = {}
+	sup_occupants = {}
+	if pos_names:
+		positions = frappe.get_all(
+			"Grievance Officer Position",
+			filters={"name": ["in", pos_names]},
+			fields=["name", "occupant", "role_level", "administrative_area", "reports_to_position"],
+		)
+		positions_by_name = {p.name: p for p in positions}
+		sup_pos_names = [p.reports_to_position for p in positions if p.reports_to_position]
+		if sup_pos_names:
+			sup_occupants = {
+				p.name: p.occupant
+				for p in frappe.get_all(
+					"Grievance Officer Position",
+					filters={"name": ["in", sup_pos_names]},
+					fields=["name", "occupant"],
+				)
+			}
+
+	chain = GrievanceRoleLevel.get_chain()
+	chain_codes = {rung.name for rung in chain}
+
 	candidates = []
 	for o in assignment_doc.officers:
 		user = getattr(o, "user", None)
 		pos_name = getattr(o, "position", None)
-		if pos_name:
+		if pos_name and pos_name in positions_by_name:
+			pos = positions_by_name[pos_name]
 			if not user:
-				user = frappe.db.get_value("Grievance Officer Position", pos_name, "occupant")
+				user = pos.occupant
 				o.user = user
 			if not getattr(o, "role_level", None):
-				o.role_level = frappe.db.get_value("Grievance Officer Position", pos_name, "role_level")
+				o.role_level = pos.role_level
 			if not getattr(o, "administrative_area", None):
-				o.administrative_area = frappe.db.get_value(
-					"Grievance Officer Position", pos_name, "administrative_area"
-				)
-			if not getattr(o, "reports_to", None):
-				sup_pos = frappe.db.get_value("Grievance Officer Position", pos_name, "reports_to_position")
-				if sup_pos:
-					o.reports_to = frappe.db.get_value("Grievance Officer Position", sup_pos, "occupant")
+				o.administrative_area = pos.administrative_area
+			if not getattr(o, "reports_to", None) and pos.reports_to_position:
+				o.reports_to = sup_occupants.get(pos.reports_to_position)
 
-		if user and getattr(o, "active", 1) and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER:
+		if (
+			user
+			and getattr(o, "active", 1)
+			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
+		):
 			candidates.append(o)
 
 	eligible = _available(candidates)
 	if not eligible:
 		return None
 
-	order = {rung.name: rung.level_order for rung in GrievanceRoleLevel.get_chain()}
+	order = {rung.name: rung.level_order for rung in chain}
 	rank_of = {o.user: order.get(o.role_level, float("inf")) for o in eligible}
 	active_officers = []
 	for rank in sorted(set(rank_of.values())):

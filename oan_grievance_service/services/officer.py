@@ -62,13 +62,6 @@ ROW = "Grievance RBAC Assignment Officer"
 def get_level_codes() -> dict[str, str]:
 	"""Map 'L1', 'L2', 'L3', 'L4' etc. to the level_code based on level_order in GrievanceRoleLevel."""
 	chain = GrievanceRoleLevel.get_chain()
-	if not chain:
-		return {
-			"L1": "nodal_officer",
-			"L2": "senior_nodal_officer",
-			"L3": "zonal_head",
-			"L4": "department_head",
-		}
 	return {f"L{i+1}": rung.name for i, rung in enumerate(chain)}
 
 
@@ -76,9 +69,30 @@ def get_code_levels() -> dict[str, str]:
 	return {code: level for level, code in get_level_codes().items()}
 
 
+def reviewer_role_level() -> str:
+	"""The role level assigned to reviewers (read-only oversight)."""
+	cached = getattr(getattr(frappe, "local", None), "grievance_reviewer_role_level", None)
+	if cached:
+		return cached
+	if getattr(frappe, "db", None):
+		inactive = frappe.get_all("Grievance Role Level", filters={"is_active": 0}, pluck="name", limit=1)
+		if inactive:
+			if getattr(frappe, "local", None):
+				frappe.local.grievance_reviewer_role_level = inactive[0]
+			return inactive[0]
+	return "review_officer"
+
+
 class DynamicLevelCodes(Mapping):
 	def __getitem__(self, key):
-		return get_level_codes()[key]
+		codes = get_level_codes()
+		if key in codes:
+			return codes[key]
+		chain = GrievanceRoleLevel.get_chain()
+		valid_codes = {r.name for r in chain}
+		if key in valid_codes:
+			return key
+		raise KeyError(key)
 
 	def __iter__(self):
 		return iter(get_level_codes())
@@ -86,10 +100,21 @@ class DynamicLevelCodes(Mapping):
 	def __len__(self):
 		return len(get_level_codes())
 
+	def __contains__(self, key):
+		if key in get_level_codes():
+			return True
+		chain = GrievanceRoleLevel.get_chain()
+		return key in {r.name for r in chain}
+
 
 class DynamicCodeLevels(Mapping):
 	def __getitem__(self, key):
-		return get_code_levels()[key]
+		codes = get_code_levels()
+		if key in codes:
+			return codes[key]
+		if key in get_level_codes():
+			return key
+		raise KeyError(key)
 
 	def __iter__(self):
 		return iter(get_code_levels())
@@ -97,13 +122,16 @@ class DynamicCodeLevels(Mapping):
 	def __len__(self):
 		return len(get_code_levels())
 
+	def __contains__(self, key):
+		return key in get_code_levels() or key in get_level_codes()
+
 
 class DynamicRoleCodes(Mapping):
 	def __getitem__(self, role):
 		if role == DEFAULT_ROLE:
 			return tuple(get_code_levels())
 		elif role == REVIEWER_ROLE:
-			return (C.ROLE_LEVEL_REVIEW_OFFICER,)
+			return (reviewer_role_level(),)
 		raise KeyError(role)
 
 	def __iter__(self):
@@ -190,7 +218,7 @@ def create(
 		)
 		desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
 		if is_head and role == DEFAULT_ROLE:
-			_assert_head_free(department, desks, region=region)
+			_assert_head_free(department, desks, region=placement.get("administrative_area"))
 
 	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
@@ -202,6 +230,9 @@ def create(
 			1 if status == "On Leave" else 0,
 			update_modified=False,
 		)
+		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
+
+		clear_position_cache(user.name)
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
@@ -313,21 +344,40 @@ def update(user_id: str, changes: dict) -> str:
 		# An inactive head's desk may have been taken since, so taking it back is a placement too.
 		reactivating = bool(status) and status != "Inactive" and current.status == "Inactive"
 		if role == DEFAULT_ROLE and _is_head(level) and (placing_head or reactivating):
-			_assert_head_free(
-				department, desks, user_id, region=changes.get("region") or getattr(current, "region", None)
+			resolved_region = (
+				_resolve_region(changes["region"])
+				if "region" in changes
+				else getattr(current, "region", None)
 			)
+			_assert_head_free(department, desks, user_id, region=resolved_region)
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
 		account.set_enabled(user_id, True)
-	if "status" in changes and frappe.db.exists("Grievance Officer Position", {"occupant": user_id}):
-		frappe.db.set_value(
-			"Grievance Officer Position",
-			{"occupant": user_id},
-			"on_leave",
-			1 if changes["status"] == "On Leave" else 0,
-			update_modified=False,
+	pos_updates = {}
+	if "designation" in changes:
+		pos_updates["designation"] = designation
+	if level != current.level:
+		pos_updates["role_level"] = LEVEL_CODES.get(level, level)
+	if "region" in changes:
+		pos_updates["administrative_area"] = row_changes.get("administrative_area")
+	if "reports_to" in changes:
+		sup = row_changes.get("reports_to")
+		pos_updates["reports_to_position"] = (
+			frappe.db.get_value("Grievance Officer Position", {"occupant": sup, "active": 1}, "name")
+			if sup
+			else None
 		)
+	if "status" in changes:
+		pos_updates["on_leave"] = 1 if changes["status"] == "On Leave" else 0
+	if pos_updates:
+		for pos_name in frappe.get_all(
+			"Grievance Officer Position", filters={"occupant": user_id, "active": 1}, pluck="name"
+		):
+			frappe.db.set_value("Grievance Officer Position", pos_name, pos_updates, update_modified=False)
+		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
+
+		clear_position_cache(user_id)
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
@@ -681,13 +731,17 @@ def _assert_head_free(department, desks, user_id=None, region=None) -> None:
 		"active": 1,
 		"user": ["!=", user_id or ""],
 	}
-	if region:
-		filters["administrative_area"] = ["in", [region, "", None]]
-	taken = frappe.get_all(
+	taken_all = frappe.get_all(
 		ROW,
 		filters=filters,
-		fields=["parent", "user", "on_leave"],
+		fields=["parent", "user", "on_leave", "administrative_area"],
 	)
+	if not taken_all:
+		return
+	if region:
+		taken = [r for r in taken_all if not r.administrative_area or r.administrative_area == region]
+	else:
+		taken = taken_all
 	if not taken:
 		return
 	admins_by_desk = {}
@@ -756,7 +810,7 @@ def _status_filter(row, status: str):
 def _placement(role: str, level: str | None, status: str) -> dict:
 	"""Row fields that follow from the role, level and status."""
 	if role == REVIEWER_ROLE:
-		return {"role_level": C.ROLE_LEVEL_REVIEW_OFFICER, "is_primary": 0, **_availability(status)}
+		return {"role_level": reviewer_role_level(), "is_primary": 0, **_availability(status)}
 	return {
 		"role_level": LEVEL_CODES[level],
 		"is_primary": 1 if level == "L1" else 0,
@@ -767,9 +821,11 @@ def _placement(role: str, level: str | None, status: str) -> dict:
 def _change_level(user_id: str, old: str, new: str) -> dict:
 	"""Row fields for moving an officer between rungs."""
 	chain = GrievanceRoleLevel.get_chain()
-	lowest_code = chain[0].name if chain else "nodal_officer"
-	if LEVEL_CODES.get(old) != lowest_code and frappe.db.exists(
-		ROW, {"reports_to": user_id, "parenttype": DESK}
+	lowest_code = chain[0].name if chain else None
+	if (
+		lowest_code
+		and LEVEL_CODES.get(old) != lowest_code
+		and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK})
 	):
 		frappe.throw(
 			_("{0} cannot change level while other officers report to them.").format(user_id),
@@ -797,10 +853,12 @@ def _resolve_supervisor(user_id: str | None, level: str | None) -> str | None:
 		return None
 	chain = GrievanceRoleLevel.get_chain()
 	order = {r.name: r.level_order for r in chain}
-	my_code = LEVEL_CODES.get(level)
-	my_order = order.get(my_code, float("-inf"))
+	my_code = LEVEL_CODES.get(level) if level in LEVEL_CODES else level
+	if not my_code or my_code not in order:
+		frappe.throw(_("Invalid or unknown officer level '{0}'.").format(level), frappe.ValidationError)
+	my_order = order[my_code]
 	top = top_rung()
-	if my_code and my_code == top:
+	if my_code == top:
 		frappe.throw(_("The department head cannot report to another officer."), frappe.ValidationError)
 
 	higher_codes = [r.name for r in chain if r.level_order > my_order]
@@ -857,7 +915,8 @@ def scope_create(caller: str, fields: dict) -> dict:
 	"""
 	if is_unrestricted(caller):
 		return fields
-	if fields.get("role", DEFAULT_ROLE) != DEFAULT_ROLE or _is_head(fields.get("level")):
+	level = fields.get("level")
+	if fields.get("role", DEFAULT_ROLE) != DEFAULT_ROLE or not level or _is_head(level):
 		frappe.throw(_("A desk head can only create subordinate officers."), frappe.PermissionError)
 	if fields.get("create_department"):
 		frappe.throw(_("A desk head cannot create departments."), frappe.PermissionError)

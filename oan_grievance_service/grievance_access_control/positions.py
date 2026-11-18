@@ -46,6 +46,18 @@ def positions_of(user: str, active_only: bool = True) -> list[dict]:
 	return positions
 
 
+def clear_position_cache(user: str | None = None) -> None:
+	"""Clear the per-request position cache in frappe.local."""
+	cache = getattr(frappe.local, "grievance_user_positions", None)
+	if cache is None:
+		return
+	if user:
+		cache.pop((user, True), None)
+		cache.pop((user, False), None)
+	else:
+		frappe.local.grievance_user_positions = {}
+
+
 def is_officer_on_leave(user: str, as_of_date: str | None = None) -> bool:
 	"""Check if an officer user is currently on leave via their occupied Position(s)."""
 	if not user:

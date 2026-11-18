@@ -173,7 +173,7 @@ ROLE_LEVELS = [
 # Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
 # and `top_rung` read active levels only. Routing and the officer picker skip these rows.
 REVIEWER_ROLE_LEVEL = (
-	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"review_officer",
 	"Review Officer",
 	910,
 	"Read-only oversight of a department. Not a step of the escalation chain.",

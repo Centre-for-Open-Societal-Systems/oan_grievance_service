@@ -18,7 +18,9 @@ from frappe.query_builder import Order
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
 )
-from oan_grievance_service.services.constants import ROLE_LEVEL_REVIEW_OFFICER
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
+)
 
 # A Reviewer sits on a department's desks too, with read-only access to that department.
 OFFICER_ROLES = {"Grievance Officer", "Grievance Admin", "Grievance Review Officer"}
@@ -41,7 +43,7 @@ class GrievanceRBACAssignment(Document):
 					["occupant", "role_level", "administrative_area", "designation", "reports_to_position"],
 					as_dict=True,
 				)
-				if pos and not row.get("user"):
+				if pos:
 					row.user = pos.occupant
 					row.role_level = pos.role_level
 					row.administrative_area = pos.administrative_area
@@ -52,9 +54,14 @@ class GrievanceRBACAssignment(Document):
 							"Grievance Officer Position", pos.reports_to_position, "occupant"
 						)
 			elif row.get("user"):
+				filters = {"occupant": row.user, "active": 1}
+				if row.get("role_level"):
+					filters["role_level"] = row.role_level
+				if row.get("administrative_area"):
+					filters["administrative_area"] = row.administrative_area
 				pos_name = frappe.db.get_value(
 					"Grievance Officer Position",
-					{"occupant": row.user, "active": 1},
+					filters,
 					"name",
 				)
 				if not pos_name:
@@ -71,31 +78,6 @@ class GrievanceRBACAssignment(Document):
 					).insert(ignore_permissions=True)
 					pos_name = pos_doc.name
 				row.position = pos_name
-
-			if row.get("position") and row.get("user"):
-				pos_updates = {}
-				if row.get("role_level"):
-					pos_updates["role_level"] = row.role_level
-				pos_updates["administrative_area"] = row.get("administrative_area")
-				if row.get("designation"):
-					pos_updates["designation"] = row.designation
-				if row.get("reports_to"):
-					sup_pos = frappe.db.get_value(
-						"Grievance Officer Position", {"occupant": row.reports_to, "active": 1}, "name"
-					)
-					pos_updates["reports_to_position"] = sup_pos
-				else:
-					pos_updates["reports_to_position"] = None
-
-				try:
-					frappe.db.set_value(
-						"Grievance Officer Position",
-						row.position,
-						pos_updates,
-						update_modified=False,
-					)
-				except Exception:
-					pass
 
 	def validate(self):
 		# Type- and provider-scoped desks predate these rules and are left alone.
@@ -272,7 +254,9 @@ def query_active_officer_assignments(
 	if distinct:
 		query = query.distinct()
 	if not include_reviewers:
-		query = query.where(c.role_level != ROLE_LEVEL_REVIEW_OFFICER)
+		chain = GrievanceRoleLevel.get_chain()
+		if chain:
+			query = query.where(c.role_level.isin([r.name for r in chain]))
 	if user:
 		query = query.where(c.user == user)
 	if role_level:
@@ -384,10 +368,6 @@ def find_officer_by_role_level(role_level, department=None, administrative_area=
 
 def top_rung():
 	"""The name of the last entry in GrievanceRoleLevel.get_chain(), or None."""
-	from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
-		GrievanceRoleLevel,
-	)
-
 	chain = GrievanceRoleLevel.get_chain()
 	return chain[-1].name if chain else None
 

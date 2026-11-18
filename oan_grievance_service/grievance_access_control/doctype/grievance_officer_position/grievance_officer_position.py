@@ -25,6 +25,16 @@ class GrievanceOfficerPosition(Document):
 		self.validate_hierarchy()
 		self.validate_leave()
 
+	def on_update(self):
+		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
+
+		clear_position_cache(self.occupant)
+
+	def on_trash(self):
+		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
+
+		clear_position_cache(self.occupant)
+
 	def validate_leave(self):
 		if self.on_leave and self.leave_from and self.leave_to:
 			if str(self.leave_to) < str(self.leave_from):

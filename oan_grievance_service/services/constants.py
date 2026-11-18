@@ -148,15 +148,6 @@ IVR_DEFAULT_DESCRIPTION = (
 
 # Accounts the officer API never manages, whatever their other roles.
 PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})
-# The role levels in the escalation chain and oversight roles.
-ROLE_LEVEL_NODAL_OFFICER = "nodal_officer"
-ROLE_LEVEL_SENIOR_NODAL_OFFICER = "senior_nodal_officer"
-ROLE_LEVEL_ZONAL_HEAD = "zonal_head"
-ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
-ROLE_LEVEL_REVIEW_OFFICER = "review_officer"
-# Role levels excluded from category assignment primary/secondary (L1/L2) desk seats:
-# a department head is the escalation rung, and a reviewer is read-only oversight.
-NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
 
 # Who may file on someone else's behalf: assisted submitters (Development Agents, call centre,
 # walk-in intake) and administrators. Officers do not file. The named submitter stays the
