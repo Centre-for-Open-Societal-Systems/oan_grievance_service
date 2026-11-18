@@ -814,7 +814,9 @@ def _season_records(names: list[str]) -> list[dict]:
 		fields=["parent", *SEASON_WINDOW_FIELDS],
 		order_by="idx asc",
 	):
-		windows.setdefault(row.parent, []).append({field: row.get(field) or None for field in SEASON_WINDOW_FIELDS})
+		windows.setdefault(row.parent, []).append(
+			{field: row.get(field) or None for field in SEASON_WINDOW_FIELDS}
+		)
 	counts = _counts(TYPE, "urgency_season", names)
 	return [
 		{
