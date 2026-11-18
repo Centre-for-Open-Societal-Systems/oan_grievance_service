@@ -62,7 +62,7 @@ CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_def
 # an administrator's too: a category head may rename or retire a type of their category, but not claim a
 # matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
 # Assignment) and the turnaround is the SLA configuration's, so neither is a field of the type.
-TYPE_ROUTING_FIELDS = ("external_referral", "resolution_path")
+TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
 TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS)
 # The code is set once, when the type is made.
 TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS)
@@ -98,7 +98,7 @@ class GrievanceTypeRecord(BaseModel):
 	has_grievances: bool
 	type_code: str | None = None
 	external_referral: str | None = None
-	resolution_path: str | None = None
+	entry_role_level: str | None = None
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -454,8 +454,8 @@ class CreateGrievanceType(Body):
 		description="Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.",
 	)
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH)
-	resolution_path: NonBlank | None = Field(
-		None, max_length=NAME_LENGTH, description="Name of a Grievance Resolution Path"
+	entry_role_level: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level"
 	)
 
 
@@ -466,8 +466,8 @@ class UpdateGrievanceType(Body):
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
 	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH, description="Null clears it")
-	resolution_path: NonBlank | None = Field(
-		None, max_length=NAME_LENGTH, description="Name of a Grievance Resolution Path. Null clears it."
+	entry_role_level: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level. Null clears it."
 	)
 
 
@@ -623,7 +623,7 @@ def create_grievance_type(
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
-	description="Change the name, active flag, external referral or resolution path. The service "
+	description="Change the name, active flag, external referral or entry role level. The service "
 	+ "category and type code cannot change. A type "
 	+ "cannot be reactivated while its category is inactive, and the catch-all Other type of the "
 	+ "default category cannot be deactivated.",

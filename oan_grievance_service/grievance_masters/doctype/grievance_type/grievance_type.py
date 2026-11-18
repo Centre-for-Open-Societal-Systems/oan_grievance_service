@@ -19,14 +19,14 @@ class GrievanceType(Document):
 		self.validate_fallback()
 
 	def validate_routing_defaults(self):
-		"""A type takes an active resolution path, and a type code is used once."""
+		"""A type's entry level is an active role level, and a type code is used once."""
 		if (
-			self.resolution_path
-			and (self.is_new() or self.has_value_changed("resolution_path"))
-			and not frappe.db.get_value("Grievance Resolution Path", self.resolution_path, "is_active")
+			self.entry_role_level
+			and (self.is_new() or self.has_value_changed("entry_role_level"))
+			and not frappe.db.get_value("Grievance Role Level", self.entry_role_level, "is_active")
 		):
 			frappe.throw(
-				_("Resolution path '{0}' is not active.").format(self.resolution_path),
+				_("Role level '{0}' is not active.").format(self.entry_role_level),
 				frappe.ValidationError,
 			)
 		if self.type_code and (self.is_new() or self.has_value_changed("type_code")):

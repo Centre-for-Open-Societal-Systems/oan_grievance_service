@@ -15,7 +15,7 @@
   "sec_routing_defaults",
   "external_referral",
   "col_routing",
-  "resolution_path"
+  "entry_role_level"
  ],
  "fields": [
   {
@@ -69,11 +69,11 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "How cases of this type are meant to be handled. Descriptive only: the levels that handle a case are the officers of the desks, not the path.",
-   "fieldname": "resolution_path",
+   "description": "The lowest level whose officers handle this type, e.g. senior_nodal_officer for a type that skips Kebele. Descriptive: the officers of the desks decide who gets a case.",
+   "fieldname": "entry_role_level",
    "fieldtype": "Link",
-   "label": "Resolution Path",
-   "options": "Grievance Resolution Path"
+   "label": "Entry Role Level",
+   "options": "Grievance Role Level"
   }
  ],
  "grid_page_length": 50,

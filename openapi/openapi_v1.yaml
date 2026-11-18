@@ -7716,7 +7716,7 @@ paths:
       tags:
       - Administration
       summary: Update a grievance type
-      description: Change the name, active flag, external referral or resolution path. The service category
+      description: Change the name, active flag, external referral or entry role level. The service category
         and type code cannot change. A type cannot be reactivated while its category is inactive, and
         the catch-all Other type of the default category cannot be deactivated.
       operationId: patch_api_v1_grievance_types_grievance_type
@@ -10618,7 +10618,7 @@ components:
           type: string
           default: null
           nullable: true
-        resolution_path:
+        entry_role_level:
           type: string
           default: null
           nullable: true
@@ -11936,12 +11936,12 @@ components:
           type: string
           default: null
           nullable: true
-        resolution_path:
+        entry_role_level:
           maxLength: 140
           minLength: 1
           type: string
           default: null
-          description: Name of a Grievance Resolution Path
+          description: Code of an active Grievance Role Level
           nullable: true
       required:
       - service_category
@@ -11964,12 +11964,12 @@ components:
           default: null
           description: Null clears it
           nullable: true
-        resolution_path:
+        entry_role_level:
           maxLength: 140
           minLength: 1
           type: string
           default: null
-          description: Name of a Grievance Resolution Path. Null clears it.
+          description: Code of an active Grievance Role Level. Null clears it.
           nullable: true
       type: object
     IvrGrievanceRequest:
