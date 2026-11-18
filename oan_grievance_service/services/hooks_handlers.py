@@ -25,7 +25,7 @@ def after_workflow_action(doc, from_state):
 
 	# A desk button arrives with no context; the Workflow still knows which
 	# action joins the two states, so the trail names it -- unless several do
-	# (Resolve and Partially Resolve), where guessing would record the wrong one.
+	# (Close Case and Auto Close), where guessing would record the wrong one.
 	if not context.action:
 		joining = {
 			row.action
