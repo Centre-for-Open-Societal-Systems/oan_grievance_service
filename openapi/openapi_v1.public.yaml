@@ -7624,6 +7624,175 @@ paths:
         description: Grievance Type identifier
       security:
       - BearerAuth: []
+  /v1/urgency-seasons:
+    get:
+      tags:
+      - Administration
+      summary: List urgency seasons
+      description: Every season with its Default, Belg Woreda and Specific Area windows in the Gregorian
+        calendar (which decides) and the Ethiopian one, its handling class and priority inside the window,
+        and how many grievance types follow it.
+      operationId: get_api_v1_urgency_seasons
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UrgencySeasonListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+  /v1/urgency-seasons/{season}:
+    patch:
+      tags:
+      - Administration
+      summary: Update an urgency season
+      description: Change a season's windows, handling class, priority or active flag. Takes effect for
+        cases filed afterwards; a case keeps the class it was filed with. A season used by an active urgent
+        type cannot be deactivated.
+      operationId: patch_api_v1_urgency_seasons_season
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UrgencySeasonResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: season
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Season identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUrgencySeason'
+  /v1/administrative-areas/{area}/belg:
+    patch:
+      tags:
+      - Administration
+      summary: Mark or unmark an area as Belg
+      description: 'Seasons with a Belg Woreda window use it for a Belg area and the areas inside it.
+        Set it on the woreda. No official Belg list is loaded: this is how it is maintained.'
+      operationId: patch_api_v1_administrative_areas_area_belg
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BelgAreaResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: area
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Area identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BelgAreaRequest'
   /v1/webhooks/ivr/grievances:
     post:
       tags:
@@ -10415,6 +10584,16 @@ components:
           type: string
           default: null
           nullable: true
+        is_sensitive:
+          default: false
+          type: boolean
+        is_urgent:
+          default: false
+          type: boolean
+        urgency_season:
+          type: string
+          default: null
+          nullable: true
       required:
       - grievance_type_id
       - type_name
@@ -10512,6 +10691,106 @@ components:
           $ref: '#/components/schemas/GrievanceTypeRecord'
       required:
       - grievance_type
+      type: object
+    SeasonWindowRecord:
+      properties:
+        applies_to:
+          type: string
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        start_month:
+          type: integer
+        start_day:
+          type: integer
+        end_month:
+          type: integer
+        end_day:
+          type: integer
+        eth_start_month:
+          type: string
+          default: null
+          nullable: true
+        eth_start_day:
+          type: integer
+          default: null
+          nullable: true
+        eth_end_month:
+          type: string
+          default: null
+          nullable: true
+        eth_end_day:
+          type: integer
+          default: null
+          nullable: true
+      required:
+      - applies_to
+      - start_month
+      - start_day
+      - end_month
+      - end_day
+      type: object
+    UrgencySeasonRecord:
+      properties:
+        season_name:
+          type: string
+        is_active:
+          type: boolean
+        all_year:
+          type: boolean
+        handling_class:
+          type: string
+        priority:
+          type: string
+        description:
+          type: string
+          default: null
+          nullable: true
+        windows:
+          items:
+            $ref: '#/components/schemas/SeasonWindowRecord'
+          type: array
+        grievance_type_count:
+          type: integer
+      required:
+      - season_name
+      - is_active
+      - all_year
+      - handling_class
+      - priority
+      - windows
+      - grievance_type_count
+      type: object
+    UrgencySeasonListData:
+      properties:
+        urgency_seasons:
+          items:
+            $ref: '#/components/schemas/UrgencySeasonRecord'
+          type: array
+      required:
+      - urgency_seasons
+      type: object
+    UrgencySeasonData:
+      properties:
+        urgency_season:
+          $ref: '#/components/schemas/UrgencySeasonRecord'
+      required:
+      - urgency_season
+      type: object
+    BelgAreaData:
+      properties:
+        administrative_area:
+          type: string
+        level_name:
+          type: string
+          default: null
+          nullable: true
+        is_belg:
+          type: boolean
+      required:
+      - administrative_area
+      - is_belg
       type: object
     GrievanceRegistrationExtras:
       description: 'Extra fields this app reads from the `POST /api/v1/auth/register` body.
@@ -11746,6 +12025,23 @@ components:
           default: null
           description: Code of an active Grievance Role Level
           nullable: true
+        is_sensitive:
+          type: boolean
+          default: null
+          description: Administrator only
+          nullable: true
+        is_urgent:
+          type: boolean
+          default: null
+          description: Administrator only. Needs urgency_season.
+          nullable: true
+        urgency_season:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          description: Name of a Grievance Urgency Season. Administrator only.
+          nullable: true
       required:
       - service_category
       - type_name
@@ -11774,6 +12070,142 @@ components:
           default: null
           description: Code of an active Grievance Role Level. Null clears it.
           nullable: true
+        is_sensitive:
+          description: Administrator only
+          type: boolean
+        is_urgent:
+          description: Administrator only. Needs urgency_season.
+          type: boolean
+        urgency_season:
+          maxLength: 140
+          minLength: 1
+          type: string
+          default: null
+          description: Administrator only. Null clears it.
+          nullable: true
+      type: object
+    SeasonWindowBody:
+      additionalProperties: false
+      properties:
+        applies_to:
+          default: Default
+          enum:
+          - Default
+          - Belg Woreda
+          - Specific Area
+          type: string
+        administrative_area:
+          minLength: 1
+          type: string
+          default: null
+          description: Only for Specific Area
+          nullable: true
+        start_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+        start_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+        end_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+        end_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+        eth_start_month:
+          enum:
+          - Meskerem
+          - Tikimt
+          - Hidar
+          - Tahsas
+          - Tir
+          - Yekatit
+          - Megabit
+          - Miyazya
+          - Ginbot
+          - Sene
+          - Hamle
+          - Nehase
+          - Pagume
+          type: string
+          default: null
+          nullable: true
+        eth_start_day:
+          maximum: 30
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        eth_end_month:
+          enum:
+          - Meskerem
+          - Tikimt
+          - Hidar
+          - Tahsas
+          - Tir
+          - Yekatit
+          - Megabit
+          - Miyazya
+          - Ginbot
+          - Sene
+          - Hamle
+          - Nehase
+          - Pagume
+          type: string
+          default: null
+          nullable: true
+        eth_end_day:
+          maximum: 30
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+      required:
+      - start_month
+      - start_day
+      - end_month
+      - end_day
+      type: object
+    UpdateUrgencySeason:
+      additionalProperties: false
+      description: Partial update. `windows`, when sent, replaces every window of the season.
+      properties:
+        is_active:
+          type: boolean
+        all_year:
+          type: boolean
+        handling_class:
+          enum:
+          - Urgent
+          - Standard
+          type: string
+        priority:
+          enum:
+          - Normal
+          - High
+          - Urgent
+          type: string
+        description:
+          maxLength: 560
+          type: string
+          default: null
+          nullable: true
+        windows:
+          items:
+            $ref: '#/components/schemas/SeasonWindowBody'
+          type: array
+      type: object
+    BelgAreaRequest:
+      additionalProperties: false
+      properties:
+        is_belg:
+          type: boolean
+      required:
+      - is_belg
       type: object
     IvrGrievanceRequest:
       additionalProperties: false
@@ -13229,3 +13661,78 @@ components:
       - status
       - data
       description: GrievanceTypeData response
+    UrgencySeasonListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/UrgencySeasonListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: UrgencySeasonListData response
+    UrgencySeasonResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/UrgencySeasonData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: UrgencySeasonData response
+    BelgAreaResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/BelgAreaData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: BelgAreaData response

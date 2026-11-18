@@ -676,6 +676,9 @@ def list_grievances(
 		"sla_due_date",
 		"state_deadline",
 		"on_hold_since",
+		"is_sensitive",
+		"handling_class",
+		"priority",
 		"creation as submitted_on",
 		"modified as updated_at",
 	]
@@ -763,7 +766,12 @@ def list_grievances(
 
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
-		item["department"] = item.get("assigned_dept")
+		sensitive = bool(item.get("is_sensitive"))
+		shown = _classification_view(item, is_staff)
+		for fieldname in ("is_sensitive", "handling_class", "priority"):
+			item.pop(fieldname, None)
+		item.update(shown)
+		item["department"] = item.get("assigned_dept") if is_staff or not sensitive else None
 		item["assigned_to_name"] = assignee_names.get(item.get("assigned_to"))
 		if not is_staff:
 			item["assigned_to"] = None
@@ -911,6 +919,21 @@ def _possible_duplicate(doc):
 	return view
 
 
+def _classification_view(source, is_staff) -> dict:
+	"""The sensitive, handling class and priority an officer sees on a case, from the case itself.
+
+	Never worked out here: `services/classification.py` wrote them at filing. A submitter is
+	shown none of them: that a case is classed sensitive is for the people who work it.
+	"""
+	if not is_staff:
+		return {}
+	return {
+		"is_sensitive": bool(source.get("is_sensitive")),
+		"handling_class": source.get("handling_class") or C.HANDLING_STANDARD,
+		"priority": source.get("priority") or C.PRIORITY_NORMAL,
+	}
+
+
 def _current_state(doc, extra=None):
 	"""The `current_state` block every mutating endpoint echoes back.
 
@@ -925,7 +948,8 @@ def _current_state(doc, extra=None):
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
 		"assigned_to_name": _assignee_name(doc),
-		"department": doc.assigned_dept,
+		"department": doc.assigned_dept if is_staff or not doc.is_sensitive else None,
+		**_classification_view(doc, is_staff),
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
 		"can_request_more_info": identity.is_reachable(doc),
@@ -1043,13 +1067,21 @@ def submit(**kwargs):
 	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
 	intake.dispatch_filed(doc)
 
+	# A sensitive case gives its submitter the PIN to check it with, and no hint of the desk.
+	from oan_grievance_service.services import classification
+
+	sensitive_receipt = (
+		{"status_pin": classification.pin_of(doc), "routing_rule": None}
+		if doc.is_sensitive
+		else {"routing_rule": getattr(doc, "routing_rule", None)}
+	)
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": public_status(doc.status),
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
-			"routing_rule": getattr(doc, "routing_rule", None),
+			**sensitive_receipt,
 			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 			"attachments": attachments,
 			"current_state": _current_state(doc),
@@ -1798,8 +1830,9 @@ def timeline(
 				else None,
 				"active_deferral_request": active_deferral_request,
 			},
+			**_classification_view(doc, is_staff),
 			"assignment": {
-				"department": doc.assigned_dept,
+				"department": doc.assigned_dept if is_staff or not doc.is_sensitive else None,
 				"assigned_to": doc.assigned_to if is_staff else None,
 				"assigned_to_name": _assignee_name(doc),
 				"routed_automatically": bool(doc.routed_automatically),

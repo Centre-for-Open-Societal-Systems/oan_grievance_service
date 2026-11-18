@@ -1676,6 +1676,55 @@
             "description": "Public endpoint to retrieve ancestor breadcrumbs for a selected administrative area node."
           },
           "response": []
+        },
+        {
+          "name": "Mark or unmark an area as Belg",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/administrative-areas/{{area}}/belg",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "administrative-areas",
+                "{{area}}",
+                "belg"
+              ]
+            },
+            "description": "Seasons with a Belg Woreda window use it for a Belg area and the areas inside it. Set it on the woreda. No official Belg list is loaded: this is how it is maintained.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_belg\": true\n}"
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -7652,6 +7701,97 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"external_ref_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        {
+          "name": "List urgency seasons",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/urgency-seasons",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "urgency-seasons"
+              ]
+            },
+            "description": "Every season with its Default, Belg Woreda and Specific Area windows in the Gregorian calendar (which decides) and the Ethiopian one, its handling class and priority inside the window, and how many grievance types follow it."
+          },
+          "response": []
+        },
+        {
+          "name": "Update an urgency season",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/urgency-seasons/{{season}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "urgency-seasons",
+                "{{season}}"
+              ]
+            },
+            "description": "Change a season's windows, handling class, priority or active flag. Takes effect for cases filed afterwards; a case keeps the class it was filed with. A season used by an active urgent type cannot be deactivated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": true,\n  \"all_year\": true,\n  \"handling_class\": \"Urgent\",\n  \"priority\": \"Normal\",\n  \"description\": \"Sample value\",\n  \"windows\": []\n}"
             }
           },
           "response": []

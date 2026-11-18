@@ -34,6 +34,7 @@ from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
 from oan_auth_service.api import operational_log as oplog
 
+from oan_grievance_service.services import classification
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
 
@@ -622,6 +623,27 @@ def _shown_ticket(grievance) -> str:
 	return tn.display(grievance.ticket_number) or grievance.name
 
 
+def sensitive_submitter_text(grievance) -> tuple[str, str]:
+	"""(message, subject) a sensitive case sends its submitter: the reference number and PIN only.
+
+	No officer, no office, no category, no date. The Routing Matrix allows 'Woreda office' at
+	most where an office must be named; nothing here needs one.
+	"""
+	ref = _shown_ticket(grievance)
+	pin = classification.pin_of(grievance)
+	subject = _("Grievance {0}").format(ref)
+	if not pin:
+		return subject, subject
+	return _("Grievance {0}. PIN: {1}").format(ref, pin), subject
+
+
+def _is_kebele_level_user(recipient) -> bool:
+	"""Whether `recipient` is a user seated only at Kebele level. An address is not."""
+	from oan_grievance_service import permissions
+
+	return bool(recipient) and permissions.is_kebele_level_officer(recipient)
+
+
 def _render_template(template: str | None, context: dict) -> str:
 	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
 	return frappe.render_template(template, context) if template else ""
@@ -672,6 +694,13 @@ def queue(grievance, event_code, recipient_override=None):
 		if not recipient:
 			continue
 
+		sensitive = bool(grievance.get("is_sensitive"))
+		# An override names an officer whatever the template's recipient says (escalation).
+		to_submitter = recipient_role == RECIPIENT_SUBMITTER and not recipient_override
+		if sensitive and not to_submitter and _is_kebele_level_user(recipient):
+			# A sensitive case is never mentioned to a Kebele-level officer.
+			continue
+
 		if notification.channel == CHANNEL_SYSTEM:
 			if not frappe.db.exists("User", recipient):
 				user = frappe.db.get_value("User", {"email": recipient}, "name")
@@ -689,8 +718,13 @@ def queue(grievance, event_code, recipient_override=None):
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			message = _render_template(notification.message, shown_context)
-			subject = _render_template(notification.subject, shown_context)
+			if sensitive and to_submitter:
+				# Never the template: it may name the officer, the office, the category or the
+				# deadline. A sensitive case tells its submitter the reference and PIN, nothing else.
+				message, subject = sensitive_submitter_text(grievance)
+			else:
+				message = _render_template(notification.message, shown_context)
+				subject = _render_template(notification.subject, shown_context)
 
 		rows.append(
 			frappe.get_doc(

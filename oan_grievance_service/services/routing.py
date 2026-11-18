@@ -333,7 +333,22 @@ def _available(officers):
 	return [o for o in officers if not getattr(o, "on_leave", 0)]
 
 
-def pick_officer_by_strategy(assignment_doc, grievance=None):
+def _is_kebele_level_seat(officer) -> bool:
+	"""Whether the officer's row on the desk is seated at Kebele level or below."""
+	area = getattr(officer, "administrative_area", None)
+	if not area:
+		return False
+	return frappe.db.get_value("Grievance Administrative Area", area, "level_name") in (
+		C.KEBELE_AND_BELOW_LEVELS
+	)
+
+
+def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
+	"""The officer of the desk who takes the case, or None.
+
+	`sensitive` bypasses the Kebele: seats at Kebele level or below are never candidates, so
+	the case goes to the lowest rung seated at Woreda level or above (the focal person).
+	"""
 	if not assignment_doc.get("officers"):
 		return None
 
@@ -341,7 +356,9 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		[
 			o
 			for o in assignment_doc.officers
-			if getattr(o, "active", 1) and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER
+			if getattr(o, "active", 1)
+			and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER
+			and not (sensitive and _is_kebele_level_seat(o))
 		]
 	)
 	if not eligible:
@@ -422,6 +439,7 @@ def apply_routing(grievance, commit_status=True):
 	from oan_grievance_service.services import lifecycle, notifications
 
 	doc = officer_user = None
+	sensitive = bool(_field_of(grievance, "is_sensitive"))
 	routing_on = auto_routing_enabled()
 	desks = ranked_assignments(grievance) if routing_on else assignments_for_unrouted()
 	for assignment in desks:
@@ -431,7 +449,9 @@ def apply_routing(grievance, commit_status=True):
 		if not (candidate.department_scope or candidate.category_scope):
 			continue
 		# No officer covers the case's region: any officer on the desk beats none.
-		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)
+		officer_user = pick_officer_by_strategy(candidate, grievance, sensitive) or pick_officer_by_strategy(
+			candidate, sensitive=sensitive
+		)
 		if officer_user:
 			doc = candidate
 			break

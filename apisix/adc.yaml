@@ -555,6 +555,7 @@ services:
     - /v1/sla-policy
     - /v1/submitters/search
     - /v1/submitters/search/details
+    - /v1/urgency-seasons
     methods:
     - GET
     plugins:
@@ -580,6 +581,7 @@ services:
       tier: officer-core
       auth: bearer
     uris:
+    - /v1/administrative-areas/:area/belg
     - /v1/category-assignments/:assignment
     - /v1/grievance-types/:grievance_type
     - /v1/notification-templates/:template
@@ -589,6 +591,7 @@ services:
     - /v1/service-categories/:category
     - /v1/sla-configurations/:config
     - /v1/sla-policy
+    - /v1/urgency-seasons/:season
     methods:
     - PATCH
     plugins:
@@ -765,6 +768,8 @@ services:
     - /v1/sla-policy/*
     - /v1/submitters
     - /v1/submitters/*
+    - /v1/urgency-seasons
+    - /v1/urgency-seasons/*
     methods:
     - OPTIONS
 - name: oan-grievance-realtime-v1

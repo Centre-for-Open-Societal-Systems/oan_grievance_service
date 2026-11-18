@@ -173,3 +173,40 @@ ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 # Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
 # here is the whole change if the answer is yes.
 REVIEWER_READ_ROLES = ADMIN_ROLES
+
+
+# Sensitive and urgent classification (STG-514). The handling class and priority a case carries are
+# decided once, at filing, by services/classification.py; these are the values it writes.
+HANDLING_STANDARD = "Standard"
+HANDLING_URGENT = "Urgent"
+HANDLING_CLASSES = (HANDLING_STANDARD, HANDLING_URGENT)
+PRIORITY_NORMAL = "Normal"
+PRIORITY_HIGH = "High"
+PRIORITY_URGENT = "Urgent"
+PRIORITIES = (PRIORITY_NORMAL, PRIORITY_HIGH, PRIORITY_URGENT)
+
+# Which of a season's windows applies to a case's area (Grievance Urgency Season Window.applies_to).
+WINDOW_DEFAULT = "Default"
+WINDOW_BELG = "Belg Woreda"
+WINDOW_AREA = "Specific Area"
+
+# The Ethiopian months, in calendar order. Pagume is the five or six day month at the year's end.
+ETHIOPIAN_MONTHS = (
+	"Meskerem",
+	"Tikimt",
+	"Hidar",
+	"Tahsas",
+	"Tir",
+	"Yekatit",
+	"Megabit",
+	"Miyazya",
+	"Ginbot",
+	"Sene",
+	"Hamle",
+	"Nehase",
+	"Pagume",
+)
+
+# `level_name` of the areas a Kebele-level officer is seated at: the Kebele and anything below it.
+# A sensitive case never reaches an officer whose every seat is one of these.
+KEBELE_AND_BELOW_LEVELS = frozenset({"Kebele", "Village", "Ward"})

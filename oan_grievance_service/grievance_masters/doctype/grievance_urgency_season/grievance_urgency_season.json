@@ -1,0 +1,158 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:season_name",
+ "creation": "2026-11-18 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "season_name",
+  "is_active",
+  "col_season",
+  "all_year",
+  "sec_effect",
+  "handling_class",
+  "col_effect",
+  "priority",
+  "sec_windows",
+  "windows",
+  "sec_notes",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "season_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Season",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "col_season",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "In force every day of the year (for example pest and disease). An all-year season has no windows.",
+   "fieldname": "all_year",
+   "fieldtype": "Check",
+   "label": "All Year"
+  },
+  {
+   "fieldname": "sec_effect",
+   "fieldtype": "Section Break",
+   "label": "Effect Inside the Window"
+  },
+  {
+   "default": "Urgent",
+   "description": "Handling class of a case of an Urgent sub-type filed inside the window. Outside it the case is Standard. Standard here means the season only raises priority.",
+   "fieldname": "handling_class",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Handling Class in Window",
+   "options": "Urgent\nStandard",
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_effect",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Urgent",
+   "description": "Priority of a case filed inside the window. Outside it the priority is Normal.",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Priority in Window",
+   "options": "Normal\nHigh\nUrgent",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.all_year",
+   "fieldname": "sec_windows",
+   "fieldtype": "Section Break",
+   "label": "Windows"
+  },
+  {
+   "description": "One Default window, at most one Belg Woreda window, and any number of Specific Area overrides.",
+   "fieldname": "windows",
+   "fieldtype": "Table",
+   "label": "Windows",
+   "options": "Grievance Urgency Season Window"
+  },
+  {
+   "fieldname": "sec_notes",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Masters",
+ "name": "Grievance Urgency Season",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Officer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Review Officer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Grievance Desk Head"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "season_name"
+}

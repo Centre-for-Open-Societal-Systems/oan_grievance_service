@@ -640,6 +640,12 @@ def escalate(grievance, reason=None, reassign=True):
 		log_unstaffed_for=grievance.name,
 		category=grievance.service_category,
 	)
+	if target and grievance.get("is_sensitive"):
+		from oan_grievance_service import permissions
+
+		# A sensitive case never lands on a Kebele-level officer: with nobody else above, it stays put.
+		if permissions.is_kebele_level_officer(target):
+			target = level = None
 	if not target:
 		changes = {"escalated": 1, **_first_escalation(grievance)}
 		audit.record_version(grievance, changes)

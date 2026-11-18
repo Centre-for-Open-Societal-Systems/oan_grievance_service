@@ -17,6 +17,35 @@ class GrievanceType(Document):
 		self.validate_routing_defaults()
 		self.validate_category()
 		self.validate_fallback()
+		self.validate_urgency()
+
+	def validate_urgency(self):
+		"""An Urgent type has a live season that makes its cases Urgent inside the window.
+
+		A type that is not Urgent may still follow a season, which then only raises priority
+		(harvest marketing), so the season is optional there.
+		"""
+		if not self.is_urgent:
+			return
+		if not self.urgency_season:
+			frappe.throw(
+				_("Grievance type '{0}' is Urgent, so it needs an urgency season.").format(self.type_name),
+				frappe.ValidationError,
+			)
+		active, handling = frappe.db.get_value(
+			"Grievance Urgency Season", self.urgency_season, ["is_active", "handling_class"]
+		)
+		if not active:
+			frappe.throw(
+				_("Urgency season '{0}' is inactive.").format(self.urgency_season), frappe.ValidationError
+			)
+		if handling != C.HANDLING_URGENT:
+			frappe.throw(
+				_("Urgency season '{0}' only raises priority, so it cannot make a type Urgent.").format(
+					self.urgency_season
+				),
+				frappe.ValidationError,
+			)
 
 	def validate_routing_defaults(self):
 		"""A type's entry level is an active role level, and a type code is used once."""

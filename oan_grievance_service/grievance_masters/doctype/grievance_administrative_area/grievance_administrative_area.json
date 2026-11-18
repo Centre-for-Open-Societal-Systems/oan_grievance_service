@@ -18,6 +18,7 @@
   "is_group",
   "depth",
   "is_active",
+  "is_belg",
   "sec_validity",
   "valid_from",
   "valid_to",
@@ -105,6 +106,13 @@
    "label": "Active"
   },
   {
+   "default": "0",
+   "description": "A Belg-season area: seasons with a Belg Woreda window use it here instead of their Default window. Applies to the areas inside it too. No official list exists yet, so none is preset.",
+   "fieldname": "is_belg",
+   "fieldtype": "Check",
+   "label": "Belg Area"
+  },
+  {
    "fieldname": "sec_validity",
    "fieldtype": "Section Break",
    "label": "Effective Dates"
@@ -155,7 +163,7 @@
  "index_web_pages_for_search": 1,
  "is_tree": 1,
  "links": [],
- "modified": "2026-10-07 10:00:07.000000",
+ "modified": "2026-11-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Administrative Area",
