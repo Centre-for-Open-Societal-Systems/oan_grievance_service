@@ -71,6 +71,21 @@ def chart_version(env):
 	return "0.0.1-develop.%s" % env["BUILD_NUMBER"]
 
 
+def app_version(env=None):
+	"""The Frappe/app version declared in Chart.yaml (appVersion), used as single source of truth."""
+	chart_yaml = ROOT / "helm" / CHART / "Chart.yaml"
+	text = chart_yaml.read_text(encoding="utf-8")
+	match = re.search(r"^appVersion:\s*[\"']?([^\"'\s]+)", text, re.M)
+	if not match:
+		raise ValueError("appVersion not found in %s" % chart_yaml)
+	return match.group(1)
+
+
+def app_version_build(env, work):
+	print(app_version(env))
+	return 0
+
+
 def version_build(env, work):
 	print(chart_version(env))
 	return 0
@@ -191,13 +206,14 @@ def main(argv=None, env=None):
 	env = dict(os.environ if env is None else env)
 	actions = {
 		"version": version_build,
+		"app-version": app_version_build,
 		"package": package_build,
 		"publish": publish_build,
 		"gateway-package": gateway_package_build,
 		"gateway-publish": gateway_publish_build,
 	}
 	if len(argv) != 1 or argv[0] not in actions:
-		print("usage: package_chart.py version|package|publish|gateway-package|gateway-publish")
+		print("usage: package_chart.py version|app-version|package|publish|gateway-package|gateway-publish")
 		return 1
 	work = Path(tempfile.mkdtemp(prefix="grievance-chart-"))
 	try:
