@@ -4,7 +4,7 @@ description: OAN Grievance Redressal Frappe app with oan_auth_service for OpenAg
   deploys the OAN frappe chart with the grievance defaults.
 type: application
 version: 0.1.0-dev.1
-appVersion: v16.56.0
+appVersion: v16.55.0
 keywords:
 - oan
 - openagrinet
