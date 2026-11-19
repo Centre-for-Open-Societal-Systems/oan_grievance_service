@@ -16,7 +16,7 @@ container, never on the Windows host.
 | Container runtime   | Docker Desktop (WSL 2 backend)              | 29.7.2                        |
 | Dev environment     | `frappe/frappe_docker` dev container        | `frappe/bench:latest`         |
 | Bench CLI           | frappe-bench                                | 5.31.0                        |
-| Framework           | Frappe                                      | 16.33.1 (`version-16`)        |
+| Framework           | Frappe                                      | `v16.56.0`                    |
 | Language            | Python                                      | 3.14.2 (app requires >= 3.14) |
 | Front-end toolchain | Node                                        | v24.13.0                      |
 | Database            | MariaDB                                     | 11.8.8                        |
@@ -143,7 +143,7 @@ roughly ten to fifteen minutes on a first run. That is normal, not a hang.
 
 ```bash
 cd /workspace/development
-bench init frappe-bench --skip-redis-config-generation --frappe-branch version-16
+bench init frappe-bench --skip-redis-config-generation --frappe-branch v16.56.0
 ```
 
 ### 3.7 Point bench at the compose services

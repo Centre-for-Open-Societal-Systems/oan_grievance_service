@@ -31,6 +31,7 @@ pipeline {
                     }
                     env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_REPO}:${env.IMMUTABLE_TAG}"
                     env.SEED_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_SEED_REPO}:${env.IMMUTABLE_TAG}"
+                    env.FRAPPE_BRANCH   = sh(returnStdout: true, script: 'python3 ci/package_chart.py app-version').trim()
 
                     def files = sh(returnStdout: true, script: 'git diff --name-only HEAD^1 HEAD || echo apisix/').trim().split('\n')
                     env.GATEWAY_CHANGED = files.any { it.startsWith('apisix/') || it.startsWith('openapi/') || it == 'helm/environments/dev/oan-grievance-gateway.yaml' } ? 'true' : 'false'
@@ -68,7 +69,7 @@ pipeline {
                         --secret id=apps_json,src="$WORKSPACE/apps.json" \
                         --build-arg CACHE_BUST="$BUILD_NUMBER" \
                         --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
-                        --build-arg FRAPPE_BRANCH=version-16 \
+                        --build-arg FRAPPE_BRANCH="$FRAPPE_BRANCH" \
                         --file images/layered/Containerfile \
                         -t "$FULL_IMAGE" \
                         -t "$IMAGE_REGISTRY/$ECR_REPO:develop" \
