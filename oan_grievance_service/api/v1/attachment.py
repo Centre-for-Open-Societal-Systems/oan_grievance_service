@@ -339,7 +339,7 @@ class ValidateUploadsRequest(BaseModel):
 @route("/validate", methods=("POST",), summary="Check files before they are attached", tier="citizen-intake")
 @validate_request(ValidateUploadsRequest)
 @handle_api_errors
-@require_permission("Grievance", "read")
+@require_permission("Grievance", "write")
 def validate_uploads(
 	grievance: str | None = None,
 	attached_checksums: str | list[str] | None = None,

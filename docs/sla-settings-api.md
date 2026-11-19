@@ -69,11 +69,11 @@ Send any of the three fields. Omitted fields stay as they are. The body must not
 { "max_deferral_days": 21, "auto_escalation_threshold": 80, "requires_supervisor_approval": false }
 ```
 
-| Field                          | Rule               |
-| :----------------------------- | :----------------- |
-| `max_deferral_days`            | integer, 1 to 30   |
-| `auto_escalation_threshold`    | integer, 1 to 100  |
-| `requires_supervisor_approval` | boolean            |
+| Field                          | Rule              |
+| :----------------------------- | :---------------- |
+| `max_deferral_days`            | integer, 1 to 30  |
+| `auto_escalation_threshold`    | integer, 1 to 100 |
+| `requires_supervisor_approval` | boolean           |
 
 What a change does:
 
