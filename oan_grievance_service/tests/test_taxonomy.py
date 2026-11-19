@@ -1,10 +1,20 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
+import importlib.util
+from pathlib import Path
 from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+
+_load_spec = importlib.util.spec_from_file_location(
+	"grievance_ci_seed_load",
+	Path(__file__).resolve().parents[2] / "ci" / "seed" / "load.py",
+)
+_seed_load = importlib.util.module_from_spec(_load_spec)
+_load_spec.loader.exec_module(_seed_load)
+existing_under_another_name = _seed_load.existing_under_another_name
 
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
 from oan_grievance_service.api.v1.category_assignment import create_assignment
@@ -33,6 +43,12 @@ from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_ty
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number
+from oan_grievance_service.setup.install import (
+	seed_categories,
+	seed_grievance_types,
+	seed_sla_configurations,
+	seed_unrouted_desk,
+)
 from oan_grievance_service.tests.fixtures import (
 	a_grievance,
 	a_leaf_area,
@@ -878,6 +894,83 @@ class TestTaxonomy(FrappeTestCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
 		frappe.set_user("Administrator")
 		self.assertFalse(frappe.db.exists("Grievance Service Category", "STG406 Refused"))
+
+	def test_canonical_fallback_and_unrouted_records(self):
+		"""Install seeds SYS for fallback category/type, unrouted desk, and fallback SLA config."""
+		seed_categories()
+		seed_grievance_types()
+		seed_unrouted_desk()
+		seed_sla_configurations()
+
+		# Category Other has code SYS and is default
+		cat = frappe.get_doc("Grievance Service Category", C.FALLBACK_SERVICE_CATEGORY)
+		self.assertEqual(cat.code, C.FALLBACK_CATEGORY_CODE)
+		self.assertEqual(cat.is_default, 1)
+
+		# Type SYS has code SYS and is named SYS
+		self.assertTrue(frappe.db.exists("Grievance Type", C.FALLBACK_TYPE_CODE))
+		t = frappe.get_doc("Grievance Type", C.FALLBACK_TYPE_CODE)
+		self.assertEqual(t.type_code, C.FALLBACK_TYPE_CODE)
+		self.assertEqual(t.service_category, C.FALLBACK_SERVICE_CATEGORY)
+		self.assertEqual(t.type_name, C.FALLBACK_GRIEVANCE_TYPE)
+
+		# Unrouted desk exists
+		unrouted_desks = frappe.get_all(
+			"Grievance RBAC Assignment",
+			filters={"department_scope": C.UNROUTED_DEPARTMENT},
+			pluck="name",
+		)
+		self.assertEqual(len(unrouted_desks), 1)
+
+		# SLA configuration for Other exists
+		other_slas = frappe.get_all(
+			"Grievance SLA Configuration",
+			filters={"service_category": C.FALLBACK_SERVICE_CATEGORY},
+			pluck="name",
+		)
+		self.assertEqual(len(other_slas), 1)
+
+		# Second seeding run is idempotent and does not create duplicate entries
+		seed_categories()
+		seed_grievance_types()
+		seed_unrouted_desk()
+		seed_sla_configurations()
+
+		self.assertEqual(
+			frappe.db.count("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
+			1,
+		)
+		self.assertEqual(
+			frappe.db.count("Grievance RBAC Assignment", {"department_scope": C.UNROUTED_DEPARTMENT}),
+			1,
+		)
+		self.assertEqual(
+			frappe.db.count("Grievance SLA Configuration", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
+			1,
+		)
+
+		# Verify seed deduplication logic (existing_under_another_name)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance SLA Configuration",
+				{"name": "GR-SLA-9999", "service_category": C.FALLBACK_SERVICE_CATEGORY},
+			),
+			other_slas[0],
+		)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance RBAC Assignment",
+				{"name": "GR-RBAC-9999", "department_scope": C.UNROUTED_DEPARTMENT},
+			),
+			unrouted_desks[0],
+		)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance Type",
+				{"name": "GTYPE-9999", "type_code": C.FALLBACK_TYPE_CODE},
+			),
+			C.FALLBACK_TYPE_CODE,
+		)
 
 
 def _ensure_default():
