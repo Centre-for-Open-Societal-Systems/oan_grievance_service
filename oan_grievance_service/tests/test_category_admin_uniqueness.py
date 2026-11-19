@@ -1,7 +1,7 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
-"""One active category admin (L3) per category and department, and what the refusal says."""
+"""One active category admin (L4) per category and department, and what the refusal says."""
 
 import frappe
 
@@ -19,7 +19,7 @@ class TestCategoryAdminUniqueness(RoleCase):
 		fields = {
 			"full_name": f"Admin {number}",
 			"designation": "Category Admin",
-			"level": "L3",
+			"level": "L4",
 			"department": department,
 			"email": f"{PREFIX}{number}@example.com",
 			"temporary_password": PASSWORD,

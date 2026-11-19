@@ -20,13 +20,15 @@ from frappe.query_builder import Case
 from frappe.query_builder.functions import Avg, Count, Max, Sum, UnixTimestamp
 
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.officer import (
+	CODE_LEVELS as LEVEL_BY_CODE,
+)
+from oan_grievance_service.services.officer import (
+	LEVEL_CODES,
+)
 
 DESK = "Grievance RBAC Assignment"
 OFFICER_ROW = "Grievance RBAC Assignment Officer"
-
-# Grievance Role Level codes seeded by setup/install.py, keyed by the tier the admin tabs show.
-LEVEL_CODES = {"L1": "nodal_officer", "L2": "senior_nodal_officer"}
-LEVEL_BY_CODE = {code: level for level, code in LEVEL_CODES.items()}
 
 
 def _roster(level: str | None, department: str | None):
@@ -34,7 +36,10 @@ def _roster(level: str | None, department: str | None):
 	Officer = frappe.qb.DocType(OFFICER_ROW)
 	Desk = frappe.qb.DocType(DESK)
 	User = frappe.qb.DocType("User")
-	codes = [LEVEL_CODES[level]] if level else list(LEVEL_CODES.values())
+	if level:
+		codes = [LEVEL_CODES[level]]
+	else:
+		codes = [LEVEL_CODES[lvl] for lvl in ("L1", "L2") if lvl in LEVEL_CODES]
 	query = (
 		frappe.qb.from_(Officer)
 		.join(Desk)

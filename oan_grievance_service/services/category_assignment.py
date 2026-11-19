@@ -16,10 +16,12 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+	GrievanceRoleLevel,
+)
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
 )
-from oan_grievance_service.services.constants import NON_ASSIGNEE_LEVELS
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 DOCTYPE = "Grievance RBAC Assignment"
@@ -57,31 +59,43 @@ def get_desk(name: str):
 	return frappe.get_doc(DOCTYPE, name)
 
 
-L1_ROLE_LEVEL = "nodal_officer"
-L2_ROLE_LEVEL = "senior_nodal_officer"
+def l1_role_level() -> str | None:
+	chain = GrievanceRoleLevel.get_chain() if hasattr(GrievanceRoleLevel, "get_chain") else []
+	return chain[0].name if chain else None
 
 
-def split_officers(rows: list, l1_level: str = L1_ROLE_LEVEL, l2_level: str = L2_ROLE_LEVEL):
+def l2_role_level() -> str | None:
+	chain = GrievanceRoleLevel.get_chain() if hasattr(GrievanceRoleLevel, "get_chain") else []
+	return chain[1].name if len(chain) > 1 else None
+
+
+def split_officers(rows: list, l1_level: str | None = None, l2_level: str | None = None):
 	"""The L1 and L2 seats of a desk, found by role level and not by position.
 
 	A desk can hold many officers, so list order says nothing about who is L2. The primary is
-	an active officer below the L2 level, one at the L1 level and an is_primary one first. The
-	secondary is an active officer at the L2 level: the one the primary reports to, else a
-	non-primary one, else the first. Anyone else is left alone.
+	an active officer at the L1 level (lowest rung). The secondary is an active officer at the
+	L2 level: the one the primary reports to, else a non-primary one, else the first.
+	Anyone else (Zonal Head, Department Head, Reviewers) is left alone.
 	"""
+	l1_level = l1_level or l1_role_level()
+	l2_level = l2_level or l2_role_level()
+
+	def is_l1(row) -> bool:
+		return bool(l1_level) and row.role_level == l1_level
 
 	def is_l2(row) -> bool:
 		return bool(l2_level) and row.role_level == l2_level
 
-	active = [row for row in rows if row.active and row.role_level not in NON_ASSIGNEE_LEVELS]
+	active = [row for row in rows if row.active]
 	firsts = sorted(
-		(row for row in active if not is_l2(row)),
-		key=lambda row: (row.role_level != l1_level, not row.is_primary),
+		(row for row in active if is_l1(row)),
+		key=lambda row: not row.is_primary,
 	)
 	primary = firsts[0] if firsts else None
 	supervisor = primary.reports_to if primary else None
 	seconds = sorted(
-		(row for row in active if is_l2(row)), key=lambda row: (row.user != supervisor, bool(row.is_primary))
+		(row for row in active if is_l2(row)),
+		key=lambda row: (row.user != supervisor, bool(row.is_primary)),
 	)
 	return primary, (seconds[0] if seconds else None)
 
@@ -221,9 +235,9 @@ def _write_desk(desk, state: dict, seats: tuple):
 	# officer sees the cases of everyone who reports to them. So L1 reports to L2, never the
 	# reverse. L2 is the escalation tier and has no supervisor on this desk.
 	l1, l2 = state.get("l1_officer"), state.get("l2_officer")
-	wanted = {l1: {"role_level": L1_ROLE_LEVEL, "is_primary": 1, "reports_to": l2}} if l1 else {}
+	wanted = {l1: {"role_level": l1_role_level(), "is_primary": 1, "reports_to": l2}} if l1 else {}
 	if l2:
-		wanted[l2] = {"role_level": L2_ROLE_LEVEL, "is_primary": 0, "reports_to": None}
+		wanted[l2] = {"role_level": l2_role_level(), "is_primary": 0, "reports_to": None}
 	vacated = {seat.user for seat in seats if seat and seat.user not in wanted}
 	_assert_nobody_reports_to(desk, vacated, keep=wanted)
 	for row in list(desk.officers):

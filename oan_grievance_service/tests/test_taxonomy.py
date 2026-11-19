@@ -492,7 +492,7 @@ class TestTaxonomy(FrappeTestCase):
 		self._category()
 		first, second = "nodal_officer", "senior_nodal_officer"
 		# The review officer rung is inactive: it is no step of the chain.
-		retired = C.ROLE_LEVEL_REVIEW_OFFICER
+		retired = "review_officer"
 		created = self._type(type_code="q51-01", external_referral="Input regulator", entry_role_level=first)
 		self.assertEqual(created["type_code"], "Q51-01")
 		self.assertEqual(

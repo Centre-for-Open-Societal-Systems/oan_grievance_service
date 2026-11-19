@@ -241,7 +241,7 @@ CATEGORIES = [
 # Each person's position on the desk, in the order they are created: a later one reports to the
 # one before it (L1 to the L2, the L2 to the Category Admin).
 POSITIONS = [
-	("admin", "Officer", "L3", "Category Admin"),
+	("admin", "Officer", "L4", "Category Admin"),
 	("l2", "Officer", "L2", "Senior Nodal Officer"),
 	("l1", "Officer", "L1", "Nodal Officer"),
 	("reviewer", "Reviewer", None, "Review Officer"),
@@ -339,9 +339,9 @@ def _seed_staff() -> list[str]:
 					department=department,
 					service_categories=[category],
 					phone=phone,
-					reports_to=above if role == "Officer" and level != "L3" else None,
+					reports_to=above if role == "Officer" and level != "L4" else None,
 					# The Category Admin opens the department, and its desk, for everyone after them.
-					create_department=level == "L3"
+					create_department=level == "L4"
 					and not frappe.db.exists("Grievance Department", department),
 				)
 				made.append(email)
