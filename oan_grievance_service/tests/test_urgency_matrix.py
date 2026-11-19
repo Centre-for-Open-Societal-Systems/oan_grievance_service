@@ -15,10 +15,14 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	GrievanceSLAConfiguration,
+	save_sla_configuration,
+)
 from oan_grievance_service.patches import apply_sensitive_urgent_matrix
+from oan_grievance_service.services import classification
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.setup import urgency_matrix as matrix
-from oan_grievance_service.tests.fixtures import a_service_category
 
 WORKBOOK = Path(
 	os.environ.get(
@@ -26,6 +30,10 @@ WORKBOOK = Path(
 		Path.home() / "frappe16-bench" / "RefferDocs" / "OAN_Grievance_Routing_Matrix_D2.xlsx",
 	)
 )
+
+
+def _window(rule):
+	return (rule["start_month"], rule["start_day"], rule["end_month"], rule["end_day"])
 
 
 class TestMatrixData(unittest.TestCase):
@@ -41,54 +49,33 @@ class TestMatrixData(unittest.TestCase):
 		self.assertNotIn("C16-02", matrix.SENSITIVE_TYPE_CODES)
 
 	def test_urgent_is_c01_c02_c07_and_c17_only(self):
-		self.assertEqual(
-			{code.split("-")[0] for code in matrix.URGENT_TYPE_CODES}, {"C01", "C02", "C07", "C17"}
-		)
-		self.assertEqual(len(matrix.URGENT_TYPE_CODES), 8 + 5 + 3 + 4)
+		self.assertEqual(set(matrix.URGENT_CATEGORY_CODES), {"C01", "C02", "C07", "C17"})
 
-	def test_c09_follows_its_season_without_being_urgent(self):
-		c09 = {code: row for code, row in matrix.TYPE_SEASONS.items() if code.startswith("C09")}
-		self.assertEqual(len(c09), 5)
-		self.assertTrue(all(urgent == 0 for urgent, _season in c09.values()))
-		self.assertFalse(any(code.startswith("C09") for code in matrix.URGENT_TYPE_CODES))
+	def test_c09_raises_priority_without_being_urgent(self):
+		(harvest,) = matrix.SLA_RULES["C09"]
+		self.assertEqual((harvest["is_urgent"], harvest["priority"]), (0, C.PRIORITY_HIGH))
+		self.assertEqual(_window(harvest), (10, 1, 12, 31))
 
-	def test_each_season_matches_the_seasonal_calendar(self):
-		seasons = {season["season_name"]: season for season in matrix.SEASONS}
-		meher = seasons["Meher input season"]
-		default, belg = meher["windows"]
-		self.assertEqual(
-			(default["start_month"], default["start_day"], default["end_month"], default["end_day"]),
-			(5, 15, 8, 31),
-		)
-		self.assertEqual(
-			(
-				default["eth_start_month"],
-				default["eth_start_day"],
-				default["eth_end_month"],
-				default["eth_end_day"],
-			),
-			("Ginbot", 7, "Nehase", 25),
-		)
-		self.assertEqual((belg["start_month"], belg["end_month"]), (2, 4))
-		self.assertEqual((belg["eth_start_month"], belg["eth_end_month"]), ("Tir", "Miyazya"))
-		for name in ("Irrigation season (dry season)", "Dry / irrigation season"):
-			window = seasons[name]["windows"][0]
-			self.assertEqual((window["start_month"], window["end_month"]), (10, 4))
-			self.assertEqual((window["eth_start_month"], window["eth_end_month"]), ("Tikimt", "Miyazya"))
-		harvest = seasons["Harvest marketing peak"]
-		self.assertEqual(
-			(harvest["handling_class"], harvest["priority"]), (C.HANDLING_STANDARD, C.PRIORITY_HIGH)
-		)
-		self.assertEqual(
-			(harvest["windows"][0]["eth_start_month"], harvest["windows"][0]["eth_end_month"]),
-			("Tikimt", "Tahsas"),
-		)
-		pest = seasons["Pest and disease outbreak (all year)"]
-		self.assertEqual((pest["all_year"], len(pest["windows"])), (1, 0))
+	def test_each_rule_matches_the_seasonal_calendar(self):
+		self.assertEqual(_window(matrix.SLA_RULES["C01"][0]), (5, 15, 8, 31))
+		self.assertEqual(_window(matrix.SLA_RULES["C02"][0]), (10, 1, 4, 30))
+		self.assertEqual(_window(matrix.SLA_RULES["C07"][0]), (10, 1, 4, 30))
+		self.assertEqual(_window(matrix.SLA_RULES["C17"][0]), (None, None, None, None))
 
-	def test_every_season_a_type_follows_exists(self):
-		names = {season["season_name"] for season in matrix.SEASONS}
-		self.assertTrue(all(season in names for _urgent, season in matrix.TYPE_SEASONS.values()))
+	def test_every_rule_is_a_valid_rule_for_the_whole_category(self):
+		rules = [frappe._dict(rule) for rules in matrix.SLA_RULES.values() for rule in rules]
+		for rule in rules:
+			with self.subTest(rule=rule.rule_label):
+				self.assertIsNone(classification.window_error(rule))
+				self.assertIsNone(rule.get("grievance_type"))
+				self.assertIsNone(rule.get("administrative_area"))
+				# The matrix gives no in-season turnaround, so the category's SLA days apply.
+				self.assertIsNone(rule.get("sla_days"))
+
+	def test_no_calendar_specific_values(self):
+		for rules in matrix.SLA_RULES.values():
+			for rule in rules:
+				self.assertFalse({key for key in rule if key.startswith("eth_")}, rule)
 
 
 @unittest.skipUnless(WORKBOOK.exists(), "the Routing Matrix workbook is not on this machine")
@@ -112,145 +99,62 @@ class TestMatrixAgainstTheWorkbook(unittest.TestCase):
 		flagged = {code for code, row in self.rows.items() if row["Sensitive Flag"] == "Yes"}
 		self.assertEqual(flagged, set(matrix.SENSITIVE_TYPE_CODES))
 
-	def test_the_urgent_column_is_the_urgent_list(self):
+	def test_the_urgent_column_is_every_sub_type_of_the_urgent_categories(self):
+		"""One rule per category is right only if the matrix flags all of its sub-types alike."""
 		flagged = {code for code, row in self.rows.items() if row["Urgent Flag"] == "Yes"}
-		self.assertEqual(flagged, set(matrix.URGENT_TYPE_CODES))
+		of_urgent_categories = {
+			code for code in self.rows if code.split("-")[0] in matrix.URGENT_CATEGORY_CODES
+		}
+		self.assertEqual(flagged, of_urgent_categories)
 
 	def test_every_urgent_row_names_a_season(self):
-		for code in matrix.URGENT_TYPE_CODES:
-			self.assertNotIn(self.rows[code]["Urgent Season"], (None, "—"), code)
+		for code, row in self.rows.items():
+			if row["Urgent Flag"] == "Yes":
+				self.assertNotIn(row["Urgent Season"], (None, "—"), code)
 
 
-class TestApplyMatrixPatch(FrappeTestCase):
-	"""The patch fills the columns on types a site already holds, and nothing else."""
-
-	def setUp(self):
-		frappe.set_user("Administrator")
-		self.category = a_service_category()
-		# A type code is unique, so any the site already holds (a seeded one) is set aside by
-		# the class-level rollback; the types here use codes that cannot be seeded.
-		self.saved = {}
-
-	def a_type(self, code):
-		existing = frappe.db.get_value("Grievance Type", {"type_code": code})
-		if existing:
-			frappe.db.set_value(
-				"Grievance Type", existing, "type_code", f"X{frappe.generate_hash(length=8)}"[:16]
-			)
-		return (
-			frappe.get_doc(
-				{
-					"doctype": "Grievance Type",
-					"type_name": f"{code} {frappe.generate_hash(length=6)}",
-					"service_category": self.category,
-					"type_code": code,
-				}
-			)
-			.insert(ignore_permissions=True)
-			.name
-		)
-
-	def values(self, name):
-		return frappe.db.get_value(
-			"Grievance Type", name, ["is_sensitive", "is_urgent", "urgency_season"], as_dict=True
-		)
-
-	def test_the_patch_flags_existing_types_and_creates_the_seasons(self):
-		sensitive, urgent, harvest, plain = (self.a_type(c) for c in ("C13-03", "C17-02", "C09-01", "C03-01"))
-		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(self.values(sensitive).is_sensitive, 1)
-		self.assertEqual(self.values(urgent).is_urgent, 1)
-		self.assertEqual(self.values(urgent).urgency_season, "Pest and disease outbreak (all year)")
-		self.assertEqual(
-			(self.values(harvest).is_urgent, self.values(harvest).urgency_season),
-			(0, "Harvest marketing peak"),
-		)
-		self.assertEqual(
-			(
-				self.values(plain).is_sensitive,
-				self.values(plain).is_urgent,
-				self.values(plain).urgency_season,
-			),
-			(0, 0, None),
-		)
-		for season in matrix.SEASONS:
-			self.assertTrue(frappe.db.exists("Grievance Urgency Season", season["season_name"]))
-
-	def test_the_patch_leaves_c16_02_and_c04_alone(self):
-		wrong_data, imposed = self.a_type("C16-02"), self.a_type("C04-05")
-		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(self.values(wrong_data).is_sensitive, 0)
-		self.assertEqual(self.values(imposed).is_sensitive, 0)
-
-	def test_the_patch_does_not_overwrite_an_administrators_season(self):
-		custom = frappe.get_doc(
-			{
-				"doctype": "Grievance Urgency Season",
-				"season_name": f"Custom {frappe.generate_hash(length=6)}",
-				"all_year": 1,
-				"handling_class": C.HANDLING_URGENT,
-				"priority": C.PRIORITY_HIGH,
-			}
-		).insert(ignore_permissions=True)
-		name = self.a_type("C01-03")
-		frappe.db.set_value("Grievance Type", name, {"urgency_season": custom.name, "is_urgent": 1})
-		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(self.values(name).urgency_season, custom.name)
-
-	def test_the_patch_is_safe_to_run_twice(self):
-		self.a_type("C15-01")
-		apply_sensitive_urgent_matrix.execute()
-		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(
-			frappe.db.count("Grievance Urgency Season", {"season_name": "Meher input season"}), 1
-		)
-
-
-ETHIOPIAN_EPOCH = 1724221  # Julian day number of Meskerem 1, year 1 (Amete Mihret)
-
-
-def ethiopian_to_gregorian(year, month, day):
-	"""A Gregorian date from an Ethiopian one. Only for checking the seeded dates."""
-	jdn = ETHIOPIAN_EPOCH + 365 * (year - 1) + year // 4 + 30 * C.ETHIOPIAN_MONTHS.index(month) + day - 1
-	return date.fromordinal(jdn - 1721425)
-
-
-class TestEthiopianDates(unittest.TestCase):
-	def test_the_converter_is_anchored_on_known_new_years(self):
-		self.assertEqual(ethiopian_to_gregorian(2018, "Meskerem", 1), date(2025, 9, 11))
-		self.assertEqual(ethiopian_to_gregorian(2016, "Meskerem", 1), date(2023, 9, 12))
-		self.assertEqual(ethiopian_to_gregorian(2015, "Pagume", 6), date(2023, 9, 11))
-
-	def test_both_c01_windows_name_the_same_days_in_both_calendars(self):
-		"""Meher and Belg are dated to the day; Ethiopian year 2018 is an ordinary one."""
-		meher = next(s for s in matrix.SEASONS if s["season_name"] == "Meher input season")
-		for window in meher["windows"]:
-			with self.subTest(window=window["applies_to"]):
-				start = ethiopian_to_gregorian(2018, window["eth_start_month"], window["eth_start_day"])
-				end = ethiopian_to_gregorian(2018, window["eth_end_month"], window["eth_end_day"])
-				self.assertEqual((start.month, start.day), (window["start_month"], window["start_day"]))
-				self.assertEqual((end.month, end.day), (window["end_month"], window["end_day"]))
-
-	def test_the_belg_window_is_tir_24_to_miyazya_22(self):
-		meher = next(s for s in matrix.SEASONS if s["season_name"] == "Meher input season")
-		belg = next(w for w in meher["windows"] if w["applies_to"] == C.WINDOW_BELG)
-		self.assertEqual(
-			(belg["eth_start_month"], belg["eth_start_day"], belg["eth_end_month"], belg["eth_end_day"]),
-			("Tir", 24, "Miyazya", 22),
-		)
-
-
-class TestApplyMatrixPatchValidates(FrappeTestCase):
-	"""The patch saves through the type, so validation and history run."""
+class MatrixPatchCase(FrappeTestCase):
+	"""Each test runs the patch on the site's own taxonomy and is rolled back afterwards."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		self.savepoint = "matrix_patch_validates"
+		self.savepoint = "matrix_patch"
 		frappe.db.savepoint(self.savepoint)
-		apply_sensitive_urgent_matrix.execute()  # makes the seasons when they are missing
 
 	def tearDown(self):
 		frappe.db.rollback(save_point=self.savepoint)
+
+	def category(self, code):
+		"""The category with this matrix code, with an active SLA configuration and no rules."""
+		name = frappe.db.get_value("Grievance Service Category", {"code": code})
+		if not name:
+			name = (
+				frappe.get_doc(
+					{
+						"doctype": "Grievance Service Category",
+						"category_name": f"{code} {frappe.generate_hash(length=6)}",
+						"code": code,
+						"is_active": 1,
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+		config = (
+			frappe.db.get_value("Grievance SLA Configuration", {"service_category": name, "active": 1})
+			or save_sla_configuration(name, 10).name
+		)
+		frappe.db.delete(
+			"Grievance SLA Rule",
+			{"parent": config, "parenttype": "Grievance SLA Configuration", "parentfield": "sla_rules"},
+		)
+		return name
+
+	def rules(self, code):
+		category = frappe.db.get_value("Grievance Service Category", {"code": code})
+		return frappe.get_doc(
+			"Grievance SLA Configuration", {"service_category": category, "active": 1}
+		).sla_rules
 
 	def a_type(self, code):
 		existing = frappe.db.get_value("Grievance Type", {"type_code": code})
@@ -261,7 +165,7 @@ class TestApplyMatrixPatchValidates(FrappeTestCase):
 				{
 					"doctype": "Grievance Type",
 					"type_name": f"{code} {frappe.generate_hash(length=6)}",
-					"service_category": a_service_category(),
+					"service_category": self.category(code.split("-")[0]),
 					"type_code": code,
 				}
 			)
@@ -269,32 +173,86 @@ class TestApplyMatrixPatchValidates(FrappeTestCase):
 			.name
 		)
 
-	def test_a_type_is_not_linked_to_a_season_an_administrator_retired(self):
-		frappe.db.set_value("Grievance Urgency Season", "Meher input season", "is_active", 0)
-		name = self.a_type("C01-04")
+
+class TestApplyMatrixPatch(MatrixPatchCase):
+	def test_the_patch_flags_the_sensitive_types(self):
+		sensitive, plain = self.a_type("C13-03"), self.a_type("C03-01")
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(frappe.db.get_value("Grievance Type", sensitive, "is_sensitive"), 1)
+		self.assertEqual(frappe.db.get_value("Grievance Type", plain, "is_sensitive"), 0)
+
+	def test_the_patch_leaves_c16_02_and_c04_alone(self):
+		wrong_data, imposed = self.a_type("C16-02"), self.a_type("C04-05")
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(frappe.db.get_value("Grievance Type", wrong_data, "is_sensitive"), 0)
+		self.assertEqual(frappe.db.get_value("Grievance Type", imposed, "is_sensitive"), 0)
+
+	def test_the_patch_adds_the_seasonal_rules(self):
+		for code in matrix.SLA_RULES:
+			self.category(code)
+		apply_sensitive_urgent_matrix.execute()
+		meher = self.rules("C01")[0]
+		self.assertEqual((meher.rule_label, meher.is_urgent), ("Meher input season", 1))
+		self.assertEqual((meher.start_month, meher.start_day, meher.end_month, meher.end_day), (5, 15, 8, 31))
+		harvest = self.rules("C09")[0]
+		self.assertEqual((harvest.is_urgent, harvest.priority), (0, C.PRIORITY_HIGH))
+		pest = self.rules("C17")[0]
+		self.assertEqual(pest.is_urgent, 1)
+		self.assertIsNone(classification.window_of(pest))
+
+	def test_a_case_filed_in_season_is_urgent_after_the_patch(self):
+		kind = self.a_type("C01-03")
 		apply_sensitive_urgent_matrix.execute()
 		self.assertEqual(
-			frappe.db.get_value("Grievance Type", name, ["is_urgent", "urgency_season"]), (0, None)
+			classification.classify(kind, None, date(2026, 7, 1)).handling_class, C.HANDLING_URGENT
+		)
+		self.assertEqual(
+			classification.classify(kind, None, date(2026, 3, 1)).handling_class, C.HANDLING_STANDARD
 		)
 
-	def test_a_type_is_not_made_urgent_by_a_priority_only_season(self):
-		frappe.db.set_value(
-			"Grievance Urgency Season", "Irrigation season (dry season)", "handling_class", "Standard"
-		)
-		name = self.a_type("C02-02")
+	def test_the_patch_does_not_overwrite_an_administrators_rules(self):
+		category = self.category("C01")
+		config = frappe.get_doc("Grievance SLA Configuration", {"service_category": category, "active": 1})
+		config.append("sla_rules", {"rule_label": "Own", "is_urgent": 1, "sla_days": 2})
+		config.save(ignore_permissions=True)
 		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(frappe.db.get_value("Grievance Type", name, "is_urgent"), 0)
+		self.assertEqual([rule.rule_label for rule in self.rules("C01")], ["Own"])
 
-	def test_the_other_types_are_still_applied_when_one_is_refused(self):
-		frappe.db.set_value("Grievance Urgency Season", "Meher input season", "is_active", 0)
-		refused, sensitive = self.a_type("C01-05"), self.a_type("C15-02")
+	def test_the_patch_is_safe_to_run_twice(self):
+		self.a_type("C15-01")
+		self.category("C17")
 		apply_sensitive_urgent_matrix.execute()
-		self.assertEqual(frappe.db.get_value("Grievance Type", refused, "is_urgent"), 0)
+		apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(len(self.rules("C17")), 1)
+
+	def test_the_others_are_still_applied_when_one_is_refused(self):
+		self.category("C01")
+		self.category("C17")
+		sensitive = self.a_type("C15-02")
+		c01 = frappe.db.get_value("Grievance Service Category", {"code": "C01"})
+		original = GrievanceSLAConfiguration.validate_sla_rules
+
+		def refuse_c01(doc):
+			if doc.service_category == c01:
+				raise frappe.ValidationError
+			return original(doc)
+
+		with mock.patch.object(GrievanceSLAConfiguration, "validate_sla_rules", refuse_c01):
+			apply_sensitive_urgent_matrix.execute()
+		self.assertEqual(len(self.rules("C01")), 0)
+		self.assertEqual(len(self.rules("C17")), 1)
 		self.assertEqual(frappe.db.get_value("Grievance Type", sensitive, "is_sensitive"), 1)
 
-	def test_the_change_is_in_the_types_history(self):
+	def test_the_change_is_in_the_history(self):
 		name = self.a_type("C13-02")
+		category = self.category("C17")
+		config = frappe.db.get_value(
+			"Grievance SLA Configuration", {"service_category": category, "active": 1}
+		)
 		# Frappe writes no Version while `in_test` is set; a migration's save does.
 		with mock.patch.object(frappe, "in_test", False):
 			apply_sensitive_urgent_matrix.execute()
 		self.assertTrue(frappe.db.exists("Version", {"ref_doctype": "Grievance Type", "docname": name}))
+		self.assertTrue(
+			frappe.db.exists("Version", {"ref_doctype": "Grievance SLA Configuration", "docname": config})
+		)

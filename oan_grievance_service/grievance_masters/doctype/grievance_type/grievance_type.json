@@ -14,9 +14,6 @@
   "is_active",
   "sec_classification",
   "is_sensitive",
-  "col_classification",
-  "is_urgent",
-  "urgency_season",
   "sec_routing_defaults",
   "external_referral",
   "col_routing",
@@ -61,7 +58,7 @@
   {
    "fieldname": "sec_classification",
    "fieldtype": "Section Break",
-   "label": "Sensitive and Urgent Handling"
+   "label": "Sensitive Handling"
   },
   {
    "default": "0",
@@ -70,25 +67,6 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Sensitive"
-  },
-  {
-   "fieldname": "col_classification",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "0",
-   "description": "Urgent handling inside the season's window, Standard outside it. Needs a season.",
-   "fieldname": "is_urgent",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "Urgent"
-  },
-  {
-   "description": "The window that makes this type Urgent, or only raises its priority when the season's handling class is Standard.",
-   "fieldname": "urgency_season",
-   "fieldtype": "Link",
-   "label": "Urgency Season",
-   "options": "Grievance Urgency Season"
   },
   {
    "fieldname": "sec_routing_defaults",
@@ -116,7 +94,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-18 13:00:00.000000",
+ "modified": "2026-11-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Type",

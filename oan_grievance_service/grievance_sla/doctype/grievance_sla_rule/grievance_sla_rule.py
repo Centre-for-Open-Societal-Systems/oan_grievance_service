@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class GrievanceUrgencySeasonWindow(Document):
+class GrievanceSLARule(Document):
 	pass

@@ -1,24 +1,104 @@
-"""Sensitive and urgent classification (STG-514): season windows, woreda overrides, Belg, flags."""
+"""Sensitive and urgent classification (STG-514): the SLA rules, their windows and what a case carries."""
 
+import secrets
 import unittest
 from datetime import date
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.services import classification
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
+from oan_grievance_service.services import classification, sla
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.classification import month_day_in_window
-from oan_grievance_service.tests.fixtures import (
-	a_leaf_area,
-	a_service_category,
-	an_administrative_area,
-)
+from oan_grievance_service.tests.fixtures import a_leaf_area, an_administrative_area
 
 MEHER = ((5, 15), (8, 31))
-BELG = ((2, 1), (4, 30))
+FEB_TO_APR = ((2, 1), (4, 30))
 DRY = ((10, 1), (4, 30))
 HARVEST = ((10, 1), (12, 31))
+BASE_SLA_DAYS = 15
+
+
+def _unique(label):
+	return f"{label} {frappe.generate_hash(length=6)}"
+
+
+def a_rule(window=None, *, area=None, grievance_type=None, urgent=False, priority=None, sla_days=None):
+	"""A rule row; `window` is ((start month, day), (end month, day)) or None for all year."""
+	(start_month, start_day), (end_month, end_day) = window or ((None, None), (None, None))
+	return {
+		"rule_label": _unique("Rule"),
+		"grievance_type": grievance_type,
+		"administrative_area": area,
+		"start_month": start_month,
+		"start_day": start_day,
+		"end_month": end_month,
+		"end_day": end_day,
+		"is_urgent": 1 if urgent else 0,
+		"priority": priority,
+		"sla_days": sla_days,
+	}
+
+
+def a_free_category_code():
+	from oan_grievance_service.services.ticket_number import ALPHABET, CATEGORY_WIDTH
+
+	taken = set(frappe.get_all("Grievance Service Category", pluck="code"))
+	while True:
+		code = "".join(secrets.choice(ALPHABET) for _ in range(CATEGORY_WIDTH))
+		# Leave the matrix's own codes (C01 to C19) to the seed.
+		if code not in taken and not (code[0] == "C" and code[1:].isdigit()):
+			return code
+
+
+def a_category(rules=(), sla_days=BASE_SLA_DAYS):
+	"""A new category with an active SLA configuration holding `rules`. Returns the category."""
+	category = (
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Service Category",
+				"category_name": _unique("Category"),
+				"code": a_free_category_code(),
+				"is_active": 1,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
+	config = save_sla_configuration(category, sla_days)
+	for rule in rules:
+		config.append("sla_rules", rule)
+	if rules:
+		config.save(ignore_permissions=True)
+	return category
+
+
+def set_rules(category, rules):
+	config = frappe.get_doc("Grievance SLA Configuration", {"service_category": category, "active": 1})
+	config.set("sla_rules", [])
+	for rule in rules:
+		config.append("sla_rules", rule)
+	config.save(ignore_permissions=True)
+	return config
+
+
+def a_type(category, sensitive=0):
+	return (
+		frappe.get_doc(
+			{
+				"doctype": "Grievance Type",
+				"type_name": _unique("Type"),
+				"service_category": category,
+				"is_active": 1,
+				"is_sensitive": sensitive,
+			}
+		)
+		.insert(ignore_permissions=True)
+		.name
+	)
 
 
 class TestWindowBoundaries(unittest.TestCase):
@@ -41,9 +121,9 @@ class TestWindowBoundaries(unittest.TestCase):
 			],
 		)
 
-	def test_belg_window_for_meher_input(self):
+	def test_february_to_april(self):
 		self.check(
-			BELG,
+			FEB_TO_APR,
 			[
 				(date(2026, 1, 31), False),
 				(date(2026, 2, 1), True),
@@ -59,20 +139,17 @@ class TestWindowBoundaries(unittest.TestCase):
 			[
 				(date(2026, 9, 30), False),
 				(date(2026, 10, 1), True),
-				(date(2026, 12, 15), True),
 				(date(2026, 12, 31), True),
 				# The year transition: the window is still open on 1 January.
 				(date(2027, 1, 1), True),
-				(date(2027, 2, 14), True),
 				(date(2027, 4, 30), True),
 				(date(2027, 5, 1), False),
-				(date(2027, 7, 1), False),
 			],
 		)
 
 	def test_leap_day_is_inside_a_window_that_spans_february(self):
 		self.assertTrue(month_day_in_window(date(2028, 2, 29), *DRY))
-		self.assertTrue(month_day_in_window(date(2028, 2, 29), *BELG))
+		self.assertTrue(month_day_in_window(date(2028, 2, 29), *FEB_TO_APR))
 		self.assertFalse(month_day_in_window(date(2028, 2, 29), *MEHER))
 
 	def test_harvest_marketing_peak(self):
@@ -81,7 +158,6 @@ class TestWindowBoundaries(unittest.TestCase):
 			[
 				(date(2026, 9, 30), False),
 				(date(2026, 10, 1), True),
-				(date(2026, 11, 15), True),
 				(date(2026, 12, 31), True),
 				(date(2027, 1, 1), False),
 			],
@@ -92,53 +168,91 @@ class TestWindowBoundaries(unittest.TestCase):
 		self.assertFalse(month_day_in_window(date(2026, 6, 2), (6, 1), (6, 1)))
 
 
-def _window(applies_to, window, area=None):
-	(start_month, start_day), (end_month, end_day) = window
-	return {
-		"applies_to": applies_to,
-		"administrative_area": area,
-		"start_month": start_month,
-		"start_day": start_day,
-		"end_month": end_month,
-		"end_day": end_day,
-	}
+class TestRuleShape(unittest.TestCase):
+	"""What makes a window a window, and which rules would tie. No database."""
 
+	def rule(self, window=None, **values):
+		return frappe._dict(a_rule(window, **values))
 
-def _unique(label):
-	return f"{label} {frappe.generate_hash(length=6)}"
+	def test_all_four_window_fields_or_none(self):
+		self.assertIsNone(classification.window_error(self.rule()))
+		self.assertIsNone(classification.window_error(self.rule(MEHER)))
+		half = self.rule(MEHER)
+		half.end_day = None
+		self.assertIsNotNone(classification.window_error(half))
 
+	def test_a_window_names_real_days(self):
+		self.assertIsNotNone(classification.window_error(self.rule(((13, 1), (2, 1)))))
+		self.assertIsNotNone(classification.window_error(self.rule(((2, 30), (3, 1)))))
+		self.assertIsNotNone(classification.window_error(self.rule(((4, 1), (4, 31)))))
+		# 29 February is a day of the year, every year: the window is checked against a leap year.
+		self.assertIsNone(classification.window_error(self.rule(((2, 29), (3, 1)))))
 
-def a_season(label, windows=(), **values):
-	doc = frappe.get_doc(
-		{
-			"doctype": "Grievance Urgency Season",
-			"season_name": _unique(label),
-			"is_active": 1,
-			"handling_class": C.HANDLING_URGENT,
-			"priority": C.PRIORITY_URGENT,
-			"windows": list(windows),
-			**values,
-		}
-	)
-	return doc.insert(ignore_permissions=True).name
+	def test_two_windows_for_the_same_scope_that_share_a_day_tie(self):
+		# October to April and March to May share March and April, across the year end.
+		self.assertIsNotNone(classification.overlapping_rules([self.rule(DRY), self.rule(((3, 1), (5, 31)))]))
+		self.assertIsNotNone(classification.overlapping_rules([self.rule(), self.rule()]))
 
+	def test_windows_that_do_not_share_a_day_do_not_tie(self):
+		self.assertIsNone(classification.overlapping_rules([self.rule(FEB_TO_APR), self.rule(MEHER)]))
 
-def a_type(season=None, urgent=0, sensitive=0):
-	return (
-		frappe.get_doc(
-			{
-				"doctype": "Grievance Type",
-				"type_name": _unique("Type"),
-				"service_category": a_service_category(),
-				"is_active": 1,
-				"is_urgent": urgent,
-				"is_sensitive": sensitive,
-				"urgency_season": season,
-			}
+	def test_a_window_and_an_all_year_rule_for_one_scope_do_not_tie(self):
+		self.assertIsNone(classification.overlapping_rules([self.rule(DRY), self.rule()]))
+
+	def test_rules_for_other_scopes_do_not_tie(self):
+		self.assertIsNone(
+			classification.overlapping_rules([self.rule(DRY), self.rule(DRY, area="Some woreda")])
 		)
-		.insert(ignore_permissions=True)
-		.name
-	)
+		self.assertIsNone(
+			classification.overlapping_rules([self.rule(DRY), self.rule(DRY, grievance_type="T-1")])
+		)
+
+
+class TestRuleValidation(FrappeTestCase):
+	"""The SLA configuration refuses rules that are not windows, or that tie."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.category = a_category()
+
+	def refused(self, rules):
+		with self.assertRaises(frappe.ValidationError):
+			set_rules(self.category, rules)
+
+	def test_a_half_window_is_refused(self):
+		rule = a_rule(MEHER)
+		rule["end_day"] = None
+		self.refused([rule])
+
+	def test_a_day_that_does_not_exist_is_refused(self):
+		self.refused([a_rule(((2, 30), (3, 1)))])
+
+	def test_a_type_of_another_category_is_refused(self):
+		other = a_type(a_category())
+		self.refused([a_rule(grievance_type=other, urgent=True)])
+
+	def test_two_rules_that_would_tie_are_refused(self):
+		self.refused([a_rule(DRY, urgent=True), a_rule(((3, 1), (5, 31)), priority=C.PRIORITY_HIGH)])
+		self.refused([a_rule(urgent=True), a_rule(sla_days=3)])
+
+	def test_negative_sla_days_are_refused(self):
+		self.refused([a_rule(sla_days=-1)])
+
+	def test_a_valid_set_of_rules_is_saved(self):
+		woreda = an_administrative_area(_unique("Woreda"), None, "Woreda")
+		kind = a_type(self.category)
+		config = set_rules(
+			self.category,
+			[
+				a_rule(FEB_TO_APR, urgent=True),
+				a_rule(MEHER, urgent=True, sla_days=3),
+				a_rule(urgent=True, grievance_type=kind),
+				a_rule(DRY, area=woreda, urgent=True),
+				a_rule(area=woreda),
+				a_rule(((2, 29), (2, 29)), area=woreda, grievance_type=kind, priority=C.PRIORITY_HIGH),
+			],
+		)
+		self.assertEqual(len(config.sla_rules), 6)
 
 
 class TestClassification(FrappeTestCase):
@@ -146,50 +260,39 @@ class TestClassification(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		frappe.set_user("Administrator")
-		region = frappe.db.get_value("Grievance Administrative Area", {"level_name": "Region"}, "name") or (
-			an_administrative_area(_unique("Region"), None, "Region")
-		)
-		# Two woredas, each with a kebele; one woreda is Belg, one carries a window override.
+		region = an_administrative_area(_unique("Region"), None, "Region")
 		cls.woreda = an_administrative_area(_unique("Woreda"), region, "Woreda")
 		cls.kebele = an_administrative_area(_unique("Kebele"), cls.woreda, "Kebele")
-		cls.belg_woreda = an_administrative_area(_unique("Belg woreda"), region, "Woreda", is_belg=1)
-		cls.belg_kebele = an_administrative_area(_unique("Belg kebele"), cls.belg_woreda, "Kebele")
-		cls.override_woreda = an_administrative_area(_unique("Override woreda"), region, "Woreda")
-		cls.override_kebele = an_administrative_area(
-			_unique("Override kebele"), cls.override_woreda, "Kebele"
-		)
+		# A woreda with its own early season (what a Belg woreda is), and one whose irrigation
+		# season is its own instead of the category's.
+		cls.early_woreda = an_administrative_area(_unique("Early woreda"), region, "Woreda")
+		cls.early_kebele = an_administrative_area(_unique("Early kebele"), cls.early_woreda, "Kebele")
+		cls.own_woreda = an_administrative_area(_unique("Own woreda"), region, "Woreda")
+		cls.own_kebele = an_administrative_area(_unique("Own kebele"), cls.own_woreda, "Kebele")
 
-		cls.meher = a_season(
-			"Meher",
-			[_window(C.WINDOW_DEFAULT, MEHER), _window(C.WINDOW_BELG, BELG)],
-		)
-		cls.c01 = a_type(cls.meher, urgent=1)
-		# C02 and C07 follow October to April, and a woreda may override it. Two seasons, one window.
-		cls.irrigation = a_season(
-			"Irrigation",
+		# C01: Meher everywhere, 3 days in season; February to April as well in the early woreda.
+		cls.inputs = a_category(
 			[
-				_window(C.WINDOW_DEFAULT, DRY),
-				_window(C.WINDOW_AREA, ((11, 1), (3, 31)), cls.override_woreda),
-			],
+				a_rule(MEHER, urgent=True, sla_days=3),
+				a_rule(FEB_TO_APR, area=cls.early_woreda, urgent=True),
+			]
 		)
-		cls.c02 = a_type(cls.irrigation, urgent=1)
-		cls.dry = a_season(
-			"Dry",
+		cls.c01 = a_type(cls.inputs)
+		# C02: October to April, but the own woreda follows November to March instead.
+		cls.irrigation = a_category(
 			[
-				_window(C.WINDOW_DEFAULT, DRY),
-				_window(C.WINDOW_AREA, ((12, 1), (2, 28)), cls.override_woreda),
-			],
+				a_rule(DRY, urgent=True),
+				a_rule(((11, 1), (3, 31)), area=cls.own_woreda, urgent=True),
+				a_rule(area=cls.own_woreda),
+			]
 		)
-		cls.c07 = a_type(cls.dry, urgent=1)
-		cls.harvest = a_season(
-			"Harvest",
-			[_window(C.WINDOW_DEFAULT, HARVEST)],
-			handling_class=C.HANDLING_STANDARD,
-			priority=C.PRIORITY_HIGH,
-		)
-		cls.c09 = a_type(cls.harvest, urgent=0)
-		cls.pest = a_season("Pest", all_year=1)
-		cls.c17 = a_type(cls.pest, urgent=1)
+		cls.c02 = a_type(cls.irrigation)
+		cls.markets = a_category([a_rule(HARVEST, priority=C.PRIORITY_HIGH)])
+		cls.c09 = a_type(cls.markets)
+		cls.pests = a_category([a_rule(urgent=True)])
+		cls.c17 = a_type(cls.pests)
+		cls.plain = a_category()
+		cls.plain_type = a_type(cls.plain)
 
 	def classify(self, grievance_type, area, on):
 		return classification.classify(grievance_type, area, on)
@@ -198,54 +301,37 @@ class TestClassification(FrappeTestCase):
 		self.assertEqual(result.handling_class, C.HANDLING_URGENT if urgent else C.HANDLING_STANDARD)
 		self.assertEqual(result.priority, C.PRIORITY_URGENT if urgent else C.PRIORITY_NORMAL)
 
-	# C01
-	def test_c01_follows_the_meher_window_in_a_normal_woreda(self):
+	def test_c01_follows_the_meher_window(self):
 		for day, urgent in [
 			(date(2026, 5, 14), False),
 			(date(2026, 5, 15), True),
 			(date(2026, 7, 10), True),
 			(date(2026, 8, 31), True),
 			(date(2026, 9, 1), False),
-			# February to April is not Meher: a normal woreda is Standard then.
 			(date(2026, 3, 1), False),
 		]:
 			with self.subTest(day=day.isoformat()):
 				self.assertUrgent(self.classify(self.c01, self.woreda, day), urgent)
 
-	def test_c01_in_a_belg_woreda_uses_february_to_april(self):
-		for day, urgent in [
-			(date(2026, 1, 31), False),
-			(date(2026, 2, 1), True),
-			(date(2026, 3, 15), True),
-			(date(2026, 4, 30), True),
-			(date(2026, 5, 1), False),
-			# The Meher window does not apply to a Belg woreda.
-			(date(2026, 6, 15), False),
-			(date(2026, 8, 31), False),
-		]:
-			with self.subTest(day=day.isoformat()):
-				self.assertUrgent(self.classify(self.c01, self.belg_woreda, day), urgent)
-
-	def test_a_kebele_inside_a_belg_woreda_is_belg(self):
-		self.assertUrgent(self.classify(self.c01, self.belg_kebele, date(2026, 3, 1)), True)
-		self.assertUrgent(self.classify(self.c01, self.belg_kebele, date(2026, 7, 1)), False)
+	def test_an_area_rule_adds_its_window_for_that_woreda_and_the_kebeles_inside(self):
+		for area in (self.early_woreda, self.early_kebele):
+			with self.subTest(area=area):
+				self.assertUrgent(self.classify(self.c01, area, date(2026, 1, 31)), False)
+				self.assertUrgent(self.classify(self.c01, area, date(2026, 2, 1)), True)
+				self.assertUrgent(self.classify(self.c01, area, date(2026, 4, 30)), True)
+				self.assertUrgent(self.classify(self.c01, area, date(2026, 5, 1)), False)
+				# Outside its own window the woreda still follows the category's rule.
+				self.assertUrgent(self.classify(self.c01, area, date(2026, 7, 1)), True)
 		self.assertUrgent(self.classify(self.c01, self.kebele, date(2026, 3, 1)), False)
 
-	def test_no_area_uses_the_default_window(self):
+	def test_no_area_matches_only_the_rules_without_one(self):
 		self.assertUrgent(self.classify(self.c01, None, date(2026, 7, 1)), True)
 		self.assertUrgent(self.classify(self.c01, None, date(2026, 3, 1)), False)
 
-	def test_marking_a_woreda_belg_changes_its_classification(self):
-		frappe.db.set_value("Grievance Administrative Area", self.woreda, "is_belg", 1)
-		self.addCleanup(frappe.db.set_value, "Grievance Administrative Area", self.woreda, "is_belg", 0)
-		self.assertUrgent(self.classify(self.c01, self.kebele, date(2026, 3, 1)), True)
-
-	# C02 and C07
-	def test_c02_default_window_with_the_year_transition(self):
+	def test_c02_with_the_year_transition(self):
 		for day, urgent in [
 			(date(2026, 9, 30), False),
 			(date(2026, 10, 1), True),
-			(date(2026, 12, 31), True),
 			(date(2027, 1, 1), True),
 			(date(2027, 4, 30), True),
 			(date(2027, 5, 1), False),
@@ -253,105 +339,90 @@ class TestClassification(FrappeTestCase):
 			with self.subTest(day=day.isoformat()):
 				self.assertUrgent(self.classify(self.c02, self.woreda, day), urgent)
 
-	def test_c02_woreda_override_replaces_the_default(self):
-		for day, urgent in [
-			(date(2026, 10, 15), False),  # default says yes, the override starts 1 November
-			(date(2026, 10, 31), False),
-			(date(2026, 11, 1), True),
-			(date(2027, 3, 31), True),
-			(date(2027, 4, 1), False),  # default says yes, the override ended 31 March
-			(date(2027, 4, 30), False),
-		]:
-			with self.subTest(day=day.isoformat()):
-				self.assertUrgent(self.classify(self.c02, self.override_woreda, day), urgent)
-		# A kebele inside the overriding woreda follows the override too.
-		self.assertUrgent(self.classify(self.c02, self.override_kebele, date(2026, 10, 15)), False)
-		self.assertUrgent(self.classify(self.c02, self.override_kebele, date(2026, 12, 1)), True)
+	def test_a_woreda_with_its_own_window_replaces_the_categorys(self):
+		for area in (self.own_woreda, self.own_kebele):
+			for day, urgent in [
+				(date(2026, 10, 15), False),  # the category says yes; the woreda's season starts in November
+				(date(2026, 11, 1), True),
+				(date(2027, 3, 31), True),
+				(date(2027, 4, 1), False),  # the category says yes; the woreda's ended in March
+				(date(2027, 7, 1), False),
+			]:
+				with self.subTest(area=area, day=day.isoformat()):
+					self.assertUrgent(self.classify(self.c02, area, day), urgent)
 
-	def test_c07_default_window_and_woreda_override(self):
-		self.assertUrgent(self.classify(self.c07, self.woreda, date(2026, 10, 1)), True)
-		self.assertUrgent(self.classify(self.c07, self.woreda, date(2027, 4, 30)), True)
-		self.assertUrgent(self.classify(self.c07, self.woreda, date(2027, 5, 1)), False)
-		for day, urgent in [
-			(date(2026, 11, 30), False),
-			(date(2026, 12, 1), True),
-			(date(2027, 2, 28), True),
-			(date(2027, 3, 1), False),
-		]:
-			with self.subTest(day=day.isoformat()):
-				self.assertUrgent(self.classify(self.c07, self.override_woreda, day), urgent)
-
-	def test_an_override_is_per_season(self):
-		"""C02's override for a woreda says nothing about C07's: each season has its own."""
-		self.assertUrgent(self.classify(self.c02, self.override_woreda, date(2026, 11, 15)), True)
-		self.assertUrgent(self.classify(self.c07, self.override_woreda, date(2026, 11, 15)), False)
-
-	def test_the_narrowest_override_wins(self):
-		inner = an_administrative_area(_unique("Inner"), self.override_woreda, "Kebele")
-		season = a_season(
-			"Nested",
+	def test_the_narrowest_area_wins(self):
+		inner = an_administrative_area(_unique("Inner"), self.own_woreda, "Kebele")
+		category = a_category(
 			[
-				_window(C.WINDOW_DEFAULT, DRY),
-				_window(C.WINDOW_AREA, ((11, 1), (3, 31)), self.override_woreda),
-				_window(C.WINDOW_AREA, ((1, 1), (1, 31)), inner),
-			],
+				a_rule(DRY, urgent=True),
+				a_rule(((11, 1), (3, 31)), area=self.own_woreda, urgent=True),
+				a_rule(area=self.own_woreda),
+				a_rule(((1, 1), (1, 31)), area=inner, urgent=True),
+				a_rule(area=inner),
+			]
 		)
-		urgent_type = a_type(season, urgent=1)
-		self.assertUrgent(self.classify(urgent_type, inner, date(2026, 11, 15)), False)
-		self.assertUrgent(self.classify(urgent_type, inner, date(2027, 1, 15)), True)
-		self.assertUrgent(self.classify(urgent_type, self.override_kebele, date(2026, 11, 15)), True)
+		kind = a_type(category)
+		self.assertUrgent(self.classify(kind, inner, date(2026, 11, 15)), False)
+		self.assertUrgent(self.classify(kind, inner, date(2027, 1, 15)), True)
+		self.assertUrgent(self.classify(kind, self.own_kebele, date(2026, 11, 15)), True)
 
-	# C17
+	def test_a_types_own_rule_wins_over_the_categorys(self):
+		category = a_category([a_rule(urgent=True, sla_days=5)])
+		quiet, loud = a_type(category), a_type(category)
+		set_rules(category, [a_rule(urgent=True, sla_days=5), a_rule(grievance_type=quiet)])
+		self.assertUrgent(self.classify(quiet, self.woreda, date(2026, 6, 1)), False)
+		self.assertIsNone(self.classify(quiet, self.woreda, date(2026, 6, 1)).sla_days)
+		self.assertUrgent(self.classify(loud, self.woreda, date(2026, 6, 1)), True)
+		self.assertEqual(self.classify(loud, self.woreda, date(2026, 6, 1)).sla_days, 5)
+
 	def test_c17_is_urgent_every_day_of_the_year(self):
 		for month in range(1, 13):
 			with self.subTest(month=month):
 				self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, month, 1)), True)
-		self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, 12, 31)), True)
-		self.assertUrgent(self.classify(self.c17, self.belg_woreda, date(2028, 2, 29)), True)
+		self.assertUrgent(self.classify(self.c17, self.early_woreda, date(2028, 2, 29)), True)
 
-	# C09
 	def test_c09_raises_priority_in_season_and_never_becomes_urgent(self):
 		for day, priority in [
 			(date(2026, 9, 30), C.PRIORITY_NORMAL),
 			(date(2026, 10, 1), C.PRIORITY_HIGH),
-			(date(2026, 11, 20), C.PRIORITY_HIGH),
 			(date(2026, 12, 31), C.PRIORITY_HIGH),
 			(date(2027, 1, 1), C.PRIORITY_NORMAL),
-			(date(2027, 6, 1), C.PRIORITY_NORMAL),
 		]:
 			with self.subTest(day=day.isoformat()):
 				result = self.classify(self.c09, self.woreda, day)
 				self.assertEqual(result.handling_class, C.HANDLING_STANDARD)
 				self.assertEqual(result.priority, priority)
 
-	def test_a_season_that_is_urgent_does_not_make_a_type_that_is_not_urgent_urgent(self):
-		not_urgent = a_type(self.meher, urgent=0)
-		result = self.classify(not_urgent, self.woreda, date(2026, 7, 1))
-		self.assertEqual(result.handling_class, C.HANDLING_STANDARD)
-		# The season still raises its priority, as it does for harvest marketing.
-		self.assertEqual(result.priority, C.PRIORITY_URGENT)
+	def test_a_rule_gives_its_sla_days_only_inside_its_window(self):
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).sla_days, 3)
+		self.assertIsNone(self.classify(self.c01, self.woreda, date(2026, 10, 1)).sla_days)
+		# An urgent rule that sets no SLA days keeps the category's.
+		self.assertIsNone(self.classify(self.c17, self.woreda, date(2026, 10, 1)).sla_days)
 
-	# Flags and inactive seasons
-	def test_a_type_with_no_season_is_standard_and_normal(self):
-		plain = a_type()
-		self.assertEqual(self.classify(plain, self.woreda, date(2026, 7, 1)), classification.STANDARD)
+	def test_a_category_with_no_rules_is_standard_and_normal(self):
+		result = self.classify(self.plain_type, self.woreda, date(2026, 7, 1))
+		self.assertUrgent(result, False)
+		self.assertIsNone(result.sla_days)
 
-	def test_sensitive_is_the_types_flag_whatever_the_date(self):
-		sensitive = a_type(sensitive=1)
+	def test_a_type_that_does_not_exist_is_standard_not_an_error(self):
+		self.assertEqual(
+			self.classify("No such type " + frappe.generate_hash(length=6), self.woreda, None),
+			classification.STANDARD,
+		)
+
+	def test_a_category_with_no_active_configuration_is_standard(self):
+		frappe.db.set_value("Grievance SLA Configuration", {"service_category": self.pests}, "active", 0)
+		self.addCleanup(
+			frappe.db.set_value, "Grievance SLA Configuration", {"service_category": self.pests}, "active", 1
+		)
+		self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, 6, 1)), False)
+
+	def test_sensitive_is_the_types_flag_whatever_the_rules(self):
+		sensitive = a_type(self.inputs, sensitive=1)
 		for day in (date(2026, 1, 1), date(2026, 7, 1)):
-			result = self.classify(sensitive, self.woreda, day)
-			self.assertTrue(result.is_sensitive)
-			self.assertEqual(result.handling_class, C.HANDLING_STANDARD)
+			self.assertTrue(self.classify(sensitive, self.woreda, day).is_sensitive)
 		self.assertFalse(self.classify(self.c01, self.woreda, date(2026, 7, 1)).is_sensitive)
-
-	def test_an_inactive_season_is_no_season(self):
-		season = a_season("Retired", [_window(C.WINDOW_DEFAULT, MEHER)])
-		urgent_type = a_type(season, urgent=1)
-		self.assertUrgent(self.classify(urgent_type, self.woreda, date(2026, 7, 1)), True)
-		# Retiring it is refused while an urgent type uses it, so the type is retired first.
-		frappe.db.set_value("Grievance Type", urgent_type, "is_active", 0)
-		frappe.db.set_value("Grievance Urgency Season", season, "is_active", 0)
-		self.assertUrgent(self.classify(urgent_type, self.woreda, date(2026, 7, 1)), False)
 
 	def test_the_filing_date_defaults_to_today(self):
 		today = frappe.utils.getdate()
@@ -359,26 +430,26 @@ class TestClassification(FrappeTestCase):
 			self.classify(self.c17, self.woreda, None), self.classify(self.c17, self.woreda, today)
 		)
 
-	def test_the_result_says_which_window_applied(self):
-		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).window, C.WINDOW_DEFAULT)
-		self.assertEqual(self.classify(self.c01, self.belg_woreda, date(2026, 3, 1)).window, C.WINDOW_BELG)
-		self.assertEqual(
-			self.classify(self.c02, self.override_woreda, date(2026, 12, 1)).window,
-			f"{C.WINDOW_AREA}: {self.override_woreda}",
-		)
-		self.assertEqual(self.classify(self.c17, self.woreda, date(2026, 5, 1)).window, "All year")
+	def test_the_result_names_the_rule(self):
+		rule = frappe.get_doc("Grievance SLA Configuration", {"service_category": self.inputs}).sla_rules[0]
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).rule, rule.rule_label)
+		self.assertIsNone(self.classify(self.c01, self.woreda, date(2026, 10, 1)).rule)
 
 
 class TestGrievanceClassification(FrappeTestCase):
-	"""The case carries what the classifier decided, fixed at filing."""
+	"""The case carries what the classifier decided, fixed at filing, and its SLA follows the rule."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
 
 	def a_case(self, grievance_type, **values):
 		from oan_grievance_service.tests.fixtures import a_grievance
 
-		return a_grievance(grievance_type=grievance_type, **values)
+		category = frappe.db.get_value("Grievance Type", grievance_type, "service_category")
+		return a_grievance(grievance_type=grievance_type, service_category=category, **values)
 
 	def test_a_sensitive_case_is_marked_and_gets_a_pin(self):
-		case = self.a_case(a_type(sensitive=1))
+		case = self.a_case(a_type(a_category(), sensitive=1))
 		self.assertEqual(case.is_sensitive, 1)
 		pin = classification.pin_of(case)
 		self.assertRegex(pin, r"^\d{6}$")
@@ -386,44 +457,88 @@ class TestGrievanceClassification(FrappeTestCase):
 		self.assertNotIn(pin, frappe.db.get_value("Grievance", case.name, "status_pin") or "")
 
 	def test_a_case_that_is_not_sensitive_has_no_pin(self):
-		case = self.a_case(a_type())
+		case = self.a_case(a_type(a_category()))
 		self.assertEqual(case.is_sensitive, 0)
 		self.assertIsNone(classification.pin_of(case))
 
 	def test_a_case_is_standard_and_normal_by_default(self):
-		case = self.a_case(a_type())
+		case = self.a_case(a_type(a_category()))
 		self.assertEqual((case.handling_class, case.priority), (C.HANDLING_STANDARD, C.PRIORITY_NORMAL))
 
-	def test_the_filing_date_picks_the_season(self):
-		season = a_season("Always", all_year=1)
-		urgent_type = a_type(season, urgent=1)
-		case = self.a_case(urgent_type)
+	def test_an_urgent_rule_makes_the_case_urgent(self):
+		case = self.a_case(a_type(a_category([a_rule(urgent=True)])))
 		self.assertEqual((case.handling_class, case.priority), (C.HANDLING_URGENT, C.PRIORITY_URGENT))
 
-	def test_a_case_keeps_its_class_when_the_season_changes(self):
-		season = a_season("Changing", all_year=1)
-		urgent_type = a_type(season, urgent=1)
-		case = self.a_case(urgent_type)
-		frappe.db.set_value("Grievance Urgency Season", season, "handling_class", C.HANDLING_STANDARD)
+	def test_the_rules_sla_days_set_the_cases_deadline(self):
+		case = self.a_case(a_type(a_category([a_rule(urgent=True, sla_days=3)])))
+		policy = sla.resolve_policy(case.service_category, case)
+		self.assertEqual(policy.sla_days, 3)
+		sla.start_clock(case)
 		case.reload()
-		case.closure_reason = "Saved again with the season changed."
+		self.assertEqual(case.sla_days, 3)
+		expected = sla.calculate_working_deadline(case.sla_start_at, 3, holiday_list_name=policy.holiday_list)
+		self.assertEqual(frappe.utils.get_datetime(case.sla_due_date), expected)
+
+	def test_outside_the_window_the_category_sla_days_apply(self):
+		category = a_category([a_rule(MEHER, urgent=True, sla_days=3)])
+		case = self.a_case(a_type(category))
+		# The rule is read at the filing date: one in season, one out of it.
+		case.creation = frappe.utils.get_datetime("2026-07-01 09:00:00")
+		self.assertEqual(sla.resolve_policy(category, case).sla_days, 3)
+		case.creation = frappe.utils.get_datetime("2026-10-01 09:00:00")
+		self.assertEqual(sla.resolve_policy(category, case).sla_days, BASE_SLA_DAYS)
+		self.assertEqual(sla.resolve_policy(category).sla_days, BASE_SLA_DAYS)
+
+	def test_a_case_keeps_its_class_when_the_rules_change(self):
+		category = a_category([a_rule(urgent=True)])
+		case = self.a_case(a_type(category))
+		set_rules(category, [])
+		case.reload()
+		case.closure_reason = "Saved again with the rules changed."
 		case.save(ignore_permissions=True)
 		self.assertEqual(case.handling_class, C.HANDLING_URGENT)
 
 	def test_the_derived_fields_cannot_be_edited(self):
-		case = self.a_case(a_type(sensitive=1))
+		case = self.a_case(a_type(a_category(), sensitive=1))
 		case.is_sensitive = 0
 		with self.assertRaises(frappe.ValidationError):
 			case.save(ignore_permissions=True)
 
 	def test_moving_a_case_to_a_sensitive_type_reclassifies_it(self):
-		case = self.a_case(a_type())
-		sensitive_type = a_type(sensitive=1)
-		case.grievance_type = sensitive_type
+		category = a_category()
+		case = self.a_case(a_type(category))
+		case.grievance_type = a_type(category, sensitive=1)
 		case.flags.change_request = "test-change-request"
 		case.save(ignore_permissions=True)
 		self.assertEqual(case.is_sensitive, 1)
 		self.assertRegex(classification.pin_of(case), r"^\d{6}$")
+
+	def test_moving_a_case_to_a_type_with_its_own_rule_moves_its_deadline(self):
+		category = a_category()
+		before, after = a_type(category), a_type(category)
+		set_rules(category, [a_rule(grievance_type=after, urgent=True, sla_days=2)])
+		case = self.a_case(before)
+		sla.start_clock(case)
+		case.reload()
+		self.assertEqual(case.sla_days, BASE_SLA_DAYS)
+		case.grievance_type = after
+		case.flags.change_request = "test-change-request"
+		case.save(ignore_permissions=True)
+		case.reload()
+		self.assertEqual((case.sla_days, case.handling_class), (2, C.HANDLING_URGENT))
+
+	def test_moving_a_case_between_types_with_the_same_sla_leaves_its_reminders(self):
+		category = a_category()
+		before, after = a_type(category), a_type(category)
+		case = self.a_case(before)
+		sla.start_clock(case)
+		case.db_set("reminder_50_sent", 1)
+		case.reload()
+		case.grievance_type = after
+		case.flags.change_request = "test-change-request"
+		case.save(ignore_permissions=True)
+		case.reload()
+		self.assertEqual((case.sla_days, case.reminder_50_sent), (BASE_SLA_DAYS, 1))
 
 	def test_a_new_pin_is_random_and_six_digits(self):
 		pins = {classification.new_pin() for _ in range(20)}
@@ -431,10 +546,10 @@ class TestGrievanceClassification(FrappeTestCase):
 		self.assertTrue(all(len(pin) == 6 and pin.isdigit() for pin in pins))
 
 	def test_classify_grievance_reads_the_documents_creation_date(self):
-		season = a_season("Filed in July", [_window(C.WINDOW_DEFAULT, MEHER)])
-		urgent_type = a_type(season, urgent=1)
+		category = a_category([a_rule(MEHER, urgent=True)])
 		doc = frappe.new_doc("Grievance")
-		doc.grievance_type = urgent_type
+		doc.grievance_type = a_type(category)
+		doc.service_category = category
 		doc.administrative_area = a_leaf_area()
 		doc.creation = "2026-07-01 09:00:00"
 		self.assertEqual(classification.classify_grievance(doc).handling_class, C.HANDLING_URGENT)

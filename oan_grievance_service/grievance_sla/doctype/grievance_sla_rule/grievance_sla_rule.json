@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "creation": "2026-11-19 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_label",
+  "grievance_type",
+  "administrative_area",
+  "sec_window",
+  "start_month",
+  "start_day",
+  "col_window",
+  "end_month",
+  "end_day",
+  "sec_effect",
+  "sla_days",
+  "is_urgent",
+  "priority"
+ ],
+ "fields": [
+  {
+   "description": "A name for the rule, for example Meher input season. Shown to administrators only.",
+   "fieldname": "rule_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label"
+  },
+  {
+   "description": "Blank applies to every type of the category. A type must belong to this configuration's category.",
+   "fieldname": "grievance_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance Type",
+   "options": "Grievance Type"
+  },
+  {
+   "description": "Blank applies everywhere. An area also covers every area inside it.",
+   "fieldname": "administrative_area",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Administrative Area",
+   "options": "Grievance Administrative Area"
+  },
+  {
+   "description": "A recurring window, the same every year. Leave all four blank for a rule that applies all year. A start after the end wraps the year end, for example October to April.",
+   "fieldname": "sec_window",
+   "fieldtype": "Section Break",
+   "label": "Seasonal Window"
+  },
+  {
+   "fieldname": "start_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Start Month (1-12)"
+  },
+  {
+   "fieldname": "start_day",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Start Day (1-31)"
+  },
+  {
+   "fieldname": "col_window",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "end_month",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "End Month (1-12)"
+  },
+  {
+   "fieldname": "end_day",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "End Day (1-31)"
+  },
+  {
+   "fieldname": "sec_effect",
+   "fieldtype": "Section Break",
+   "label": "When the Rule Matches"
+  },
+  {
+   "description": "Turnaround in working days for a case this rule matches. Blank keeps the category's SLA Days.",
+   "fieldname": "sla_days",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "SLA Days",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "The case is handled as Urgent.",
+   "fieldname": "is_urgent",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Urgent"
+  },
+  {
+   "description": "Blank: Urgent for an urgent rule, otherwise Normal. Set High to raise priority without urgent handling.",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "\nNormal\nHigh\nUrgent"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-19 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance SLA",
+ "name": "Grievance SLA Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

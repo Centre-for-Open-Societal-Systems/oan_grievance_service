@@ -4,25 +4,22 @@ Read from `OAN_Grievance_Routing_Matrix_D2.xlsx`: the Sensitive Flag, Urgent Fla
 Season columns of sheet "Grievance Routing", and the "Seasonal Calendar" of sheet
 "Configuration related". The same values are seeded for a new site from `openg2p-data`
 (`oan-seed/grievance`); `patches/apply_sensitive_urgent_matrix.py` applies them to a site that
-already holds the types.
+already holds the types and SLA configurations.
 
 What the matrix says, and where it stops:
 
 - Sensitive is Yes on exactly C13-01..04, C15-01..03 and C16-01. C16-02 (wrong personal data)
   is No. No C04 sub-type is flagged: "C04 if coercion" is free text in the Confidential path,
   not a flag, so it is an open point (a coercion case is filed as C13-03).
-- Urgent is Yes on C01-01..08, C02-01..05, C07-01..03 and C17-01..04. C09 is not Urgent: its
-  season only raises priority.
-- The Gregorian window decides; the Ethiopian one is recorded beside it for officers to read.
-- C01's two windows are dated to the day, and their Ethiopian dates are the same days: Meher is
-  15 May to 31 August (Ginbot 7 to Nehase 25), Belg is 1 February to 30 April (Tir 24 to
-  Miyazya 22). In the Ethiopian year before a Gregorian leap year the Ethiopian dates fall a day
-  later, which changes nothing: the Gregorian window decides.
-- The other windows are whole months in the matrix, so they run from the first to the last day
-  of the month, and the Ethiopian months are the matrix's own: 'Oct - Apr' is given as Tikimt to
-  Miyazya, which starts about ten days later and ends about eight days later than October to
-  April. The matrix owners have not said which is meant (an open point).
-- No official list of Belg woredas exists, so none is seeded: they are marked on the area.
+- Urgent is Yes on every sub-type of C01, C02, C07 and C17, so each is one rule for the whole
+  category on its SLA configuration. C09 is not Urgent: its rule only raises priority to High.
+- The windows are the Gregorian ones of the Seasonal Calendar, as recurring month and day.
+  Whole months run from the first to the last day of the month.
+- The matrix gives no in-season turnaround, so no rule sets `sla_days`: the category's own SLA
+  days apply until the owners set one on the rule.
+- C01's Belg window (February to April) is for Belg woredas only, and no official list of them
+  exists, so it is not seeded: it is a rule with that window for each woreda's area. The same
+  holds for a woreda's own C02 or C07 window.
 """
 
 from oan_grievance_service.services import constants as C
@@ -39,75 +36,28 @@ SENSITIVE_TYPE_CODES = (
 )
 
 
-def _window(applies_to, start, end, eth_start, eth_end):
-	"""A window from (month, day) pairs; the Ethiopian ones are (month name, day)."""
+def _rule(label, start=None, end=None, *, urgent=False, priority=None):
+	"""A rule for the whole category; `start` and `end` are (month, day), None for all year."""
 	return {
-		"applies_to": applies_to,
-		"start_month": start[0],
-		"start_day": start[1],
-		"end_month": end[0],
-		"end_day": end[1],
-		"eth_start_month": eth_start[0],
-		"eth_start_day": eth_start[1],
-		"eth_end_month": eth_end[0],
-		"eth_end_day": eth_end[1],
+		"rule_label": label,
+		"start_month": start[0] if start else None,
+		"start_day": start[1] if start else None,
+		"end_month": end[0] if end else None,
+		"end_day": end[1] if end else None,
+		"is_urgent": 1 if urgent else 0,
+		"priority": priority,
 	}
 
 
-SEASONS = (
-	{
-		"season_name": "Meher input season",
-		"all_year": 0,
-		"handling_class": C.HANDLING_URGENT,
-		"priority": C.PRIORITY_URGENT,
-		"description": "C01 agricultural inputs. Belg woredas use February to April instead.",
-		"windows": (
-			_window(C.WINDOW_DEFAULT, (5, 15), (8, 31), ("Ginbot", 7), ("Nehase", 25)),
-			_window(C.WINDOW_BELG, (2, 1), (4, 30), ("Tir", 24), ("Miyazya", 22)),
-		),
-	},
-	{
-		"season_name": "Irrigation season (dry season)",
-		"all_year": 0,
-		"handling_class": C.HANDLING_URGENT,
-		"priority": C.PRIORITY_URGENT,
-		"description": "C02 mechanization, farm technology and fuel. A woreda may override the window.",
-		"windows": (_window(C.WINDOW_DEFAULT, (10, 1), (4, 30), ("Tikimt", 1), ("Miyazya", 30)),),
-	},
-	{
-		"season_name": "Dry / irrigation season",
-		"all_year": 0,
-		"handling_class": C.HANDLING_URGENT,
-		"priority": C.PRIORITY_URGENT,
-		"description": "C07 irrigation and water. A woreda may override the window.",
-		"windows": (_window(C.WINDOW_DEFAULT, (10, 1), (4, 30), ("Tikimt", 1), ("Miyazya", 30)),),
-	},
-	{
-		"season_name": "Harvest marketing peak",
-		"all_year": 0,
-		"handling_class": C.HANDLING_STANDARD,
-		"priority": C.PRIORITY_HIGH,
-		"description": "C09 markets and buyer-seller disputes. Standard handling, High priority in the window.",
-		"windows": (_window(C.WINDOW_DEFAULT, (10, 1), (12, 31), ("Tikimt", 1), ("Tahsas", 30)),),
-	},
-	{
-		"season_name": "Pest and disease outbreak (all year)",
-		"all_year": 1,
-		"handling_class": C.HANDLING_URGENT,
-		"priority": C.PRIORITY_URGENT,
-		"description": "C17 pest and disease outbreak response. Urgent every day of the year.",
-		"windows": (),
-	},
-)
-
-# type code -> (is_urgent, season). Every type listed follows its season; only the Urgent ones
-# are made Urgent by it.
-TYPE_SEASONS = {
-	**{f"C01-0{n}": (1, "Meher input season") for n in range(1, 9)},
-	**{f"C02-0{n}": (1, "Irrigation season (dry season)") for n in range(1, 6)},
-	**{f"C07-0{n}": (1, "Dry / irrigation season") for n in range(1, 4)},
-	**{f"C09-0{n}": (0, "Harvest marketing peak") for n in range(1, 6)},
-	**{f"C17-0{n}": (1, "Pest and disease outbreak (all year)") for n in range(1, 5)},
+# category code -> its rules
+SLA_RULES = {
+	"C01": (_rule("Meher input season", (5, 15), (8, 31), urgent=True),),
+	"C02": (_rule("Irrigation season (dry season)", (10, 1), (4, 30), urgent=True),),
+	"C07": (_rule("Dry / irrigation season", (10, 1), (4, 30), urgent=True),),
+	"C09": (_rule("Harvest marketing peak", (10, 1), (12, 31), priority=C.PRIORITY_HIGH),),
+	"C17": (_rule("Pest and disease outbreak (all year)", urgent=True),),
 }
 
-URGENT_TYPE_CODES = tuple(code for code, (urgent, _season) in TYPE_SEASONS.items() if urgent)
+URGENT_CATEGORY_CODES = tuple(
+	code for code, rules in SLA_RULES.items() if any(rule["is_urgent"] for rule in rules)
+)

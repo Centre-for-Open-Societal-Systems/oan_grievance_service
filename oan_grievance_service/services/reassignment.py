@@ -416,8 +416,13 @@ def on_applied(grievance, request):
 	from oan_grievance_service.services import sla
 
 	changes = getattr(request, "changes", None) or []
-	if any(getattr(r, "fieldname", None) == "service_category" for r in changes):
+	changed = {getattr(r, "fieldname", None) for r in changes}
+	if "service_category" in changed:
 		sla.reset_clock(grievance)
+	elif "grievance_type" in changed:
+		# Same category, another type: a rule for that type may set other SLA days. The clock
+		# keeps its start; only the window's length follows the new type.
+		sla.follow_type_change(grievance)
 
 	new_desk = find_matching_assignment(grievance)
 	if new_desk:

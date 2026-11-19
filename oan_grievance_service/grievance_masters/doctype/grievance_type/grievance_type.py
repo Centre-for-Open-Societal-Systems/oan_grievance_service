@@ -7,8 +7,9 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
-# What makes a type sensitive or urgent: an administrator's to set (STG-514).
-HANDLING_FIELDS = ("is_sensitive", "is_urgent", "urgency_season")
+# What makes a type sensitive: an administrator's to set (STG-514). Urgency is not the type's:
+# it is a rule of the category's SLA configuration.
+HANDLING_FIELDS = ("is_sensitive",)
 
 
 class GrievanceType(Document):
@@ -21,10 +22,9 @@ class GrievanceType(Document):
 		self.validate_category()
 		self.validate_fallback()
 		self.validate_handling_set_by_an_administrator()
-		self.validate_urgency()
 
 	def validate_handling_set_by_an_administrator(self):
-		"""Only an administrator decides whether a type is Sensitive or Urgent, on every write path.
+		"""Only an administrator decides whether a type is Sensitive, on every write path.
 
 		A Desk Head may write the types of the categories they head (Desk, /api/resource, the
 		taxonomy API), so the rule lives here and not only in the endpoint: unflagging a sensitive
@@ -42,36 +42,8 @@ class GrievanceType(Document):
 
 		if not is_unrestricted():
 			frappe.throw(
-				_("Only an administrator can change whether a grievance type is sensitive or urgent."),
+				_("Only an administrator can change whether a grievance type is sensitive."),
 				frappe.PermissionError,
-			)
-
-	def validate_urgency(self):
-		"""An Urgent type has a live season that makes its cases Urgent inside the window.
-
-		A type that is not Urgent may still follow a season, which then only raises priority
-		(harvest marketing), so the season is optional there.
-		"""
-		if not self.is_urgent:
-			return
-		if not self.urgency_season:
-			frappe.throw(
-				_("Grievance type '{0}' is Urgent, so it needs an urgency season.").format(self.type_name),
-				frappe.ValidationError,
-			)
-		active, handling = frappe.db.get_value(
-			"Grievance Urgency Season", self.urgency_season, ["is_active", "handling_class"]
-		)
-		if not active:
-			frappe.throw(
-				_("Urgency season '{0}' is inactive.").format(self.urgency_season), frappe.ValidationError
-			)
-		if handling != C.HANDLING_URGENT:
-			frappe.throw(
-				_("Urgency season '{0}' only raises priority, so it cannot make a type Urgent.").format(
-					self.urgency_season
-				),
-				frappe.ValidationError,
 			)
 
 	def validate_routing_defaults(self):

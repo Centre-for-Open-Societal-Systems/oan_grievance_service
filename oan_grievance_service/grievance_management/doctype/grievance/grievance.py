@@ -46,7 +46,8 @@ FILED_FIELDS = (
 	"desired_outcome",
 )
 
-# Written by services/classification.py from the grievance type, never by a caller.
+# Written by services/classification.py from the grievance type and the category's SLA rules,
+# never by a caller.
 DERIVED_FIELDS = ("is_sensitive", "handling_class", "priority")
 
 # Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
@@ -227,7 +228,7 @@ class Grievance(Document):
 			duplicates.validate_main_ticket(self, self.duplicate_of)
 
 	def guard_derived_fields(self):
-		"""Sensitive, handling class and priority are derived: only the type decides them."""
+		"""Sensitive, handling class and priority are derived: the type and its SLA rules decide them."""
 		if self.has_value_changed("grievance_type"):
 			return
 		changed = [f for f in DERIVED_FIELDS if self.has_value_changed(f)]
@@ -240,8 +241,8 @@ class Grievance(Document):
 			)
 
 	def keep_classification_in_step_with_the_type(self):
-		"""A case moved to another type takes that type's flags, with its season read at the
-		original filing date: moving a case never changes the season it was filed in."""
+		"""A case moved to another type takes that type's flags and rules, read at the original
+		filing date: moving a case never changes the season it was filed in."""
 		if self.has_value_changed("grievance_type"):
 			classification.classify_grievance(self)
 
@@ -528,6 +529,11 @@ class Grievance(Document):
 			from oan_grievance_service.services import sla
 
 			sla.recalculate_sla_on_category_change(self)
+		elif self.has_value_changed("grievance_type"):
+			from oan_grievance_service.services import sla
+
+			# A rule of the SLA configuration may give the new type other SLA days.
+			sla.follow_type_change(self)
 
 	def react_to_approved_change(self):
 		"""Fields that move with a requested change."""
@@ -537,6 +543,8 @@ class Grievance(Document):
 
 		if self.has_value_changed("service_category"):
 			sla.recalculate_sla_on_category_change(self)
+		elif self.has_value_changed("grievance_type"):
+			sla.follow_type_change(self)
 
 		if self.has_value_changed("sla_due_date"):
 			# Reminders reopen against the new deadline. A case already climbing keeps its

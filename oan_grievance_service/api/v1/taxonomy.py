@@ -17,8 +17,6 @@ so they hold for the Desk as well as the API. What is here is request shape, the
 queries and the usage counts each record carries.
 """
 
-from typing import Literal
-
 import frappe
 from frappe import N_, _
 from oan_auth_service.api.router import prefixed
@@ -65,19 +63,13 @@ CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_def
 # matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
 # Assignment) and the turnaround is the SLA configuration's, so neither is a field of the type.
 TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
-# Sensitive, Urgent and the season behind them (STG-514) are the matrix owners' too: a category head
-# must not be able to hide a type from Kebele officers, or make a case urgent, by editing a flag.
-TYPE_HANDLING_TEXT_FIELDS = ("urgency_season",)
-TYPE_FLAG_FIELDS = ("is_sensitive", "is_urgent")
-TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS, *TYPE_HANDLING_TEXT_FIELDS, *TYPE_FLAG_FIELDS)
+# Sensitive (STG-514) is the matrix owners' too: a category head must not be able to hide a type from
+# Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is a rule
+# of the category's SLA configuration.
+TYPE_FLAG_FIELDS = ("is_sensitive",)
+TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 # The code is set once, when the type is made.
-TYPE_EDITABLE = (
-	"type_name",
-	"is_active",
-	*TYPE_ROUTING_FIELDS,
-	*TYPE_HANDLING_TEXT_FIELDS,
-	*TYPE_FLAG_FIELDS,
-)
+TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 
 
 # Service categories
@@ -112,8 +104,6 @@ class GrievanceTypeRecord(BaseModel):
 	external_referral: str | None = None
 	entry_role_level: str | None = None
 	is_sensitive: bool = False
-	is_urgent: bool = False
-	urgency_season: str | None = None
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -473,10 +463,6 @@ class CreateGrievanceType(Body):
 		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level"
 	)
 	is_sensitive: bool | None = Field(None, description="Administrator only")
-	is_urgent: bool | None = Field(None, description="Administrator only. Needs urgency_season.")
-	urgency_season: NonBlank | None = Field(
-		None, max_length=NAME_LENGTH, description="Name of a Grievance Urgency Season. Administrator only."
-	)
 
 
 class UpdateGrievanceType(Body):
@@ -489,11 +475,7 @@ class UpdateGrievanceType(Body):
 	entry_role_level: NonBlank | None = Field(
 		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level. Null clears it."
 	)
-	is_sensitive: bool = Field(None, description="Administrator only")
-	is_urgent: bool = Field(None, description="Administrator only. Needs urgency_season.")
-	urgency_season: NonBlank | None = Field(
-		None, max_length=NAME_LENGTH, description="Administrator only. Null clears it."
-	)
+	is_sensitive: bool | None = Field(None, description="Administrator only. Null clears it.")
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -703,252 +685,6 @@ def deactivate_grievance_type(grievance_type: str, **kwargs):
 	)
 
 
-# Urgency seasons
-# ---------------
-# The windows behind a type's Urgent flag, in both calendars, with the woreda overrides and the Belg
-# window. Reading a season is for the desk heads and reviewers who work the types; changing one, or
-# marking a Belg area, is an administrator's.
-
-SEASON = "Grievance Urgency Season"
-AREA = "Grievance Administrative Area"
-# What a PATCH may write on a season; the windows are replaced as a whole, separately.
-SEASON_EDITABLE = ("is_active", "all_year", "handling_class", "priority", "description")
-SEASON_WINDOW_FIELDS = (
-	"applies_to",
-	"administrative_area",
-	"start_month",
-	"start_day",
-	"end_month",
-	"end_day",
-	"eth_start_month",
-	"eth_start_day",
-	"eth_end_month",
-	"eth_end_day",
-)
-
-
-class SeasonWindowRecord(BaseModel):
-	applies_to: str
-	administrative_area: str | None = None
-	start_month: int
-	start_day: int
-	end_month: int
-	end_day: int
-	eth_start_month: str | None = None
-	eth_start_day: int | None = None
-	eth_end_month: str | None = None
-	eth_end_day: int | None = None
-
-
-class UrgencySeasonRecord(BaseModel):
-	season_name: str
-	is_active: bool
-	all_year: bool
-	handling_class: str
-	priority: str
-	description: str | None = None
-	windows: list[SeasonWindowRecord]
-	grievance_type_count: int
-
-
-class UrgencySeasonData(BaseModel):
-	urgency_season: UrgencySeasonRecord
-
-
-class UrgencySeasonListData(BaseModel):
-	urgency_seasons: list[UrgencySeasonRecord]
-	pagination: dict
-
-
-class ListUrgencySeasons(PageParams, Body):
-	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
-
-	is_active: bool | None = None
-
-	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
-
-
-class SeasonRef(Body):
-	season: NonBlank
-
-
-class SeasonWindowBody(Body):
-	applies_to: Literal["Default", "Belg Woreda", "Specific Area"] = "Default"
-	administrative_area: NonBlank | None = Field(None, description="Only for Specific Area")
-	start_month: int = Field(ge=1, le=12)
-	start_day: int = Field(ge=1, le=31)
-	end_month: int = Field(ge=1, le=12)
-	end_day: int = Field(ge=1, le=31)
-	eth_start_month: Literal[*C.ETHIOPIAN_MONTHS] | None = None
-	eth_start_day: int | None = Field(None, ge=1, le=30)
-	eth_end_month: Literal[*C.ETHIOPIAN_MONTHS] | None = None
-	eth_end_day: int | None = Field(None, ge=1, le=30)
-
-
-class UpdateUrgencySeason(Body):
-	"""Partial update. `windows`, when sent, replaces every window of the season."""
-
-	season: NonBlank
-	is_active: bool = None
-	all_year: bool = None
-	handling_class: Literal["Urgent", "Standard"] = None
-	priority: Literal["Normal", "High", "Urgent"] = None
-	description: str | None = Field(None, max_length=NAME_LENGTH * 4)
-	windows: list[SeasonWindowBody] = None
-
-
-class BelgAreaRequest(Body):
-	area: NonBlank
-	is_belg: bool
-
-
-class BelgAreaData(BaseModel):
-	administrative_area: str
-	level_name: str | None = None
-	is_belg: bool
-
-
-def _season_records(names: list[str]) -> list[dict]:
-	"""The named seasons as API records: three queries for the whole list, whatever its length."""
-	if not names:
-		return []
-	seasons = frappe.get_all(
-		SEASON,
-		filters={"name": ["in", names]},
-		fields=["name", "season_name", "is_active", "all_year", "handling_class", "priority", "description"],
-		order_by="name asc",
-	)
-	windows: dict[str, list[dict]] = {}
-	for row in frappe.get_all(
-		"Grievance Urgency Season Window",
-		filters={"parent": ["in", names], "parenttype": SEASON, "parentfield": "windows"},
-		fields=["parent", *SEASON_WINDOW_FIELDS],
-		order_by="idx asc",
-	):
-		windows.setdefault(row.parent, []).append(
-			{field: row.get(field) or None for field in SEASON_WINDOW_FIELDS}
-		)
-	counts = _counts(TYPE, "urgency_season", names)
-	return [
-		{
-			"season_name": season.season_name,
-			"is_active": bool(season.is_active),
-			"all_year": bool(season.all_year),
-			"handling_class": season.handling_class,
-			"priority": season.priority,
-			"description": season.description or None,
-			"windows": windows.get(season.name, []),
-			"grievance_type_count": counts.get(season.name, 0),
-		}
-		for season in seasons
-	]
-
-
-@route("/urgency-seasons", methods=("GET",), summary="List urgency seasons", tier="officer-core")
-@handle_api_errors
-@require_role(DESK_HEAD_READ_ROLES)
-@validate_request(ListUrgencySeasons)
-@api_doc(
-	summary="List urgency seasons",
-	description="Every season with its Default, Belg Woreda and Specific Area windows in the Gregorian "
-	+ "calendar (which decides) and the Ethiopian one, its handling class and priority inside the "
-	+ "window, and how many grievance types follow it.",
-	tags=["Administration"],
-	response_model=UrgencySeasonListData,
-)
-def list_urgency_seasons(
-	is_active: bool | str | None = None,
-	page: int | str = 1,
-	page_size: int | str = 20,
-	**kwargs,
-):
-	"""List the urgency seasons, by name, a page at a time."""
-	params = PageParams(page=page, page_size=page_size)
-	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
-	names = frappe.get_all(
-		SEASON,
-		filters=filters,
-		pluck="name",
-		order_by="name asc",
-		start=params.start,
-		limit=params.page_size,
-	)
-	return success_response(
-		data={
-			"urgency_seasons": _season_records(names),
-			"pagination": page_meta(_count(SEASON, filters, None), params.page, params.page_size),
-		},
-		message=_("Urgency seasons retrieved"),
-	)
-
-
-@route(
-	"/urgency-seasons/<season>", methods=("PATCH",), summary="Update an urgency season", tier="officer-core"
-)
-@handle_api_errors
-@require_permission(SEASON, "write")
-@validate_request(UpdateUrgencySeason, exclude_unset=True)
-@api_doc(
-	summary="Update an urgency season",
-	description="Change a season's windows, handling class, priority or active flag. Takes effect for "
-	+ "cases filed afterwards; a case keeps the class it was filed with. A season used by an "
-	+ "active urgent type cannot be deactivated.",
-	tags=["Administration"],
-	response_model=UrgencySeasonData,
-)
-def update_urgency_season(season: str, **kwargs):
-	"""Update a season. `kwargs` holds only the fields the client sent."""
-	doc = frappe.get_doc(SEASON, season)
-	windows = kwargs.pop("windows", None)
-	changes = _editable(kwargs, SEASON_EDITABLE)
-	if not changes and windows is None:
-		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	doc.update(changes)
-	if windows is not None:
-		doc.set("windows", [])
-		for row in windows:
-			doc.append("windows", {field: row.get(field) for field in SEASON_WINDOW_FIELDS})
-	doc.save()
-	return success_response(
-		data={"urgency_season": _season_records([doc.name])[0]}, message=_("Urgency season updated")
-	)
-
-
-@route(
-	"/administrative-areas/<area>/belg",
-	methods=("PATCH",),
-	summary="Mark an area as Belg",
-	tier="officer-core",
-)
-@handle_api_errors
-@require_permission(AREA, "write")
-@validate_request(BelgAreaRequest)
-@api_doc(
-	summary="Mark or unmark an area as Belg",
-	description="Seasons with a Belg Woreda window use it for a Belg area and the areas inside it. "
-	+ "Set it on the woreda. No official Belg list is loaded: this is how it is maintained.",
-	tags=["Administration"],
-	response_model=BelgAreaData,
-)
-def set_belg_area(area: str, is_belg: bool | str, **kwargs):
-	"""Mark or unmark an administrative area as Belg. Kebele level and below is refused."""
-	doc = frappe.get_doc(AREA, area)
-	if doc.level_name in C.KEBELE_AND_BELOW_LEVELS:
-		frappe.throw(
-			_("Mark the woreda, not {0}: the Belg setting covers the areas inside it.").format(
-				doc.level_name
-			),
-			frappe.ValidationError,
-		)
-	# `validate_request` has already parsed it to a bool.
-	doc.is_belg = int(is_belg)
-	doc.save()
-	return success_response(
-		data={"administrative_area": doc.name, "level_name": doc.level_name, "is_belg": bool(doc.is_belg)},
-		message=_("Belg setting updated"),
-	)
-
-
 # Helpers
 # -------
 
@@ -964,9 +700,16 @@ def _assert_may_set_admin_fields(sent: dict) -> None:
 
 
 def _editable(sent: dict, allowed: tuple[str, ...]) -> dict:
-	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores."""
+	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores.
+
+	A flag sent as null is cleared, as a Check field has no unset state.
+	"""
 	return {
-		fieldname: int(value) if isinstance(value, bool) else value
+		fieldname: int(bool(value))
+		if fieldname in TYPE_FLAG_FIELDS
+		else int(value)
+		if isinstance(value, bool)
+		else value
 		for fieldname, value in sent.items()
 		if fieldname in allowed
 	}

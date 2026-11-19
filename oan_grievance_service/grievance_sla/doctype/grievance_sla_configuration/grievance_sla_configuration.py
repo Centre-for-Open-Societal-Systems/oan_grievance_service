@@ -69,6 +69,39 @@ class GrievanceSLAConfiguration(Document):
 			frappe.throw(_("Holiday List '{0}' does not exist.").format(self.holiday_list))
 		self.validate_state_timers()
 		self.validate_level_turnarounds()
+		self.validate_sla_rules()
+
+	def validate_sla_rules(self):
+		"""Each rule is a real window (or all year), for this category's type.
+
+		Two rules that would tie for the same case are refused (see
+		`classification.overlapping_rules`): which one won would depend on row order.
+		"""
+		from oan_grievance_service.services import classification
+
+		for row in self.sla_rules:
+			error = classification.window_error(row)
+			if error:
+				frappe.throw(_("Rule {0}: {1}").format(row.idx, error))
+			if (row.sla_days or 0) < 0:
+				frappe.throw(_("Rule {0}: SLA Days cannot be negative.").format(row.idx))
+			if row.grievance_type:
+				category = frappe.db.get_value("Grievance Type", row.grievance_type, "service_category")
+				if category != self.service_category:
+					frappe.throw(
+						_("Rule {0}: {1} belongs to {2}, not {3}.").format(
+							row.idx, row.grievance_type, category, self.service_category
+						)
+					)
+		clash = classification.overlapping_rules(self.sla_rules)
+		if clash:
+			first, second = clash
+			frappe.throw(
+				_(
+					"Rules {0} and {1} are for the same type and area and share days of the year, so a "
+					"case could match both."
+				).format(first.idx, second.idx)
+			)
 
 	def validate_level_turnarounds(self):
 		"""A turnaround is a positive number of days, for an active level, set once per level and type.

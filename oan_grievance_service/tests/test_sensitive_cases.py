@@ -12,6 +12,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1 import grievance as grievance_api
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
 from oan_grievance_service.services import classification, notifications, reassignment, routing
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
@@ -77,8 +80,8 @@ class SensitiveFixture(FrappeTestCase):
 		)
 		desk.save(ignore_permissions=True)
 
-		self.sensitive_type = a_type(sensitive=1)
-		self.ordinary_type = a_type()
+		self.sensitive_type = a_type(self.category, sensitive=1)
+		self.ordinary_type = a_type(self.category)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -578,7 +581,7 @@ class TestSensitiveReassignment(SensitiveFixture):
 
 	def test_a_move_to_another_ordinary_type_keeps_the_kebele_officer(self):
 		case = self.an_ordinary_case_with_the_kebele_officer()
-		changes = reassignment.resolve(case, department=self.department, grievance_type=a_type())
+		changes = reassignment.resolve(case, department=self.department, grievance_type=a_type(self.category))
 		self.assertNotIn("assigned_to", changes)
 
 	def test_the_resolved_move_saves_with_the_focal_person(self):
@@ -599,16 +602,17 @@ class TestSensitiveReassignment(SensitiveFixture):
 
 class TestOfficerView(SensitiveFixture):
 	def test_an_officer_sees_the_flags_the_backend_decided(self):
-		season = frappe.get_doc(
-			{
-				"doctype": "Grievance Urgency Season",
-				"season_name": f"Always {frappe.generate_hash(length=6)}",
-				"all_year": 1,
-				"handling_class": C.HANDLING_URGENT,
-				"priority": C.PRIORITY_URGENT,
-			}
-		).insert(ignore_permissions=True)
-		urgent_sensitive = a_type(season.name, urgent=1, sensitive=1)
+		urgent_sensitive = a_type(self.category, sensitive=1)
+		# An all-year urgent rule for the type, on the category's SLA configuration.
+		config = (
+			frappe.db.get_value(
+				"Grievance SLA Configuration", {"service_category": self.category, "active": 1}
+			)
+			or save_sla_configuration(self.category, 10).name
+		)
+		config = frappe.get_doc("Grievance SLA Configuration", config)
+		config.append("sla_rules", {"grievance_type": urgent_sensitive, "is_urgent": 1})
+		config.save(ignore_permissions=True)
 		case = a_grievance(
 			grievance_type=urgent_sensitive,
 			administrative_area=self.kebele,

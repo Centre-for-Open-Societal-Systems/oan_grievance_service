@@ -20,7 +20,7 @@ Scheduling lives in tasks.py; this module only answers what a run should do.
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import frappe
@@ -141,8 +141,23 @@ def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name:
 	return cur_dt
 
 
-def resolve_policy(service_category) -> SLAPolicy | None:
-	"""One policy per service category. Grievance type does not narrow the SLA."""
+def resolve_policy(service_category, grievance=None) -> SLAPolicy | None:
+	"""One policy per service category.
+
+	With `grievance`, the SLA days are the case's: a seasonal or urgent rule of the category
+	that matches the case (its type, area and filing date) may set its own `sla_days`, for
+	example 3 days in season against 15 out of it. Without it, the category's own days.
+	"""
+	policy = _category_policy(service_category)
+	if policy is None or grievance is None:
+		return policy
+	from oan_grievance_service.services import classification
+
+	days = classification.sla_days_for(grievance, service_category)
+	return replace(policy, sla_days=days) if days else policy
+
+
+def _category_policy(service_category) -> SLAPolicy | None:
 	rows = frappe.get_all(
 		"Grievance SLA Configuration",
 		filters={
@@ -185,7 +200,7 @@ def start_clock(grievance):
 	if grievance.sla_due_date:
 		return
 
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -216,7 +231,7 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	the creation / start date, taking into account any banked hold time and holidays.
 	"""
 	cat = new_category or grievance.service_category
-	policy = resolve_policy(cat)
+	policy = resolve_policy(cat, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -247,9 +262,22 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	)
 
 
+def follow_type_change(grievance):
+	"""Re-length the SLA window when a case moves to another type of the same category.
+
+	Only when a rule gives the new type other SLA days than the case has: otherwise nothing moves,
+	and the reminders already sent stay sent.
+	"""
+	if not grievance.sla_due_date:
+		return
+	policy = resolve_policy(grievance.service_category, grievance)
+	if policy and policy.sla_days and policy.sla_days != grievance.sla_days:
+		recalculate_sla_on_category_change(grievance)
+
+
 def reset_clock(grievance):
 	"""Restart the SLA window from now when category changes on reassignment."""
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	now = now_datetime()
 	updates = {
 		"sla_start_at": now,
