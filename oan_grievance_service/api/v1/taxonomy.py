@@ -597,9 +597,14 @@ def create_grievance_type(
 			**admin_fields,
 		}
 	)
+	# PostgreSQL aborts the whole transaction when the insert hits the unique index, so the lookup
+	# below would fail too; rolling back to this savepoint keeps the transaction usable.
+	savepoint = "create_grievance_type"
+	frappe.db.savepoint(savepoint)
 	try:
 		doc.insert()
 	except frappe.UniqueValidationError:
+		frappe.db.rollback(save_point=savepoint)
 		# Two creates with one type code can both pass validation, and the unique index decides.
 		code = (admin_fields["type_code"] or "").strip().upper()
 		if code and frappe.db.exists(TYPE, {"type_code": code}):

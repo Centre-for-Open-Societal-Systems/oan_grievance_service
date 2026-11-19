@@ -795,9 +795,18 @@ def _desk_users(name) -> set[str]:
 
 @contextmanager
 def _keep_transaction():
-	"""API errors call frappe.db.rollback(), which would erase this test's fixtures."""
+	"""API errors call frappe.db.rollback(), which would erase this test's fixtures.
+
+	A rollback to a savepoint still runs: it undoes only the failed statement, and on PostgreSQL
+	it is what keeps the transaction usable after one.
+	"""
 	original = frappe.db.rollback
-	frappe.db.rollback = lambda *args, **kwargs: None
+
+	def rollback(*args, save_point=None, **kwargs):
+		if save_point:
+			original(save_point=save_point, **kwargs)
+
+	frappe.db.rollback = rollback
 	try:
 		yield
 	finally:
