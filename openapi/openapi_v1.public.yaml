@@ -286,7 +286,9 @@ paths:
         \ string) for status,\nservice_category/category, administrative_area/location/region/zone/woreda/kebele,\n\
         grievance_type, department, and submission_channel.\n\nStatus filters use the queue cards (All,\
         \ Submitted, Reopened, In Progress, More Info\nNeeded, Rejected, Resolved, Closed; officers also\
-        \ get Assigned). Workflow\nstages that are not a card are reported as the card they roll up into."
+        \ get Assigned). Workflow\nstages that are not a card are reported as the card they roll up into.\n\
+        \nOrdered by submission date, most recent first, unless `sort_by` / `sort_order` say otherwise.\n\
+        Escalated cases come first whatever the order."
       operationId: get_api_v1_grievances
       responses:
         '200':
@@ -597,7 +599,7 @@ paths:
         in: query
         required: false
         schema:
-          default: asc
+          default: desc
           type: string
       security:
       - BearerAuth: []
@@ -1533,12 +1535,17 @@ paths:
         \ (e.g. 'Inputs').\n    category (str, optional): Alias for service_category.\n    department\
         \ (str, optional): Department ID. Limits service_categories to that department's\n        category\
         \ assignments and, for staff, fetches its assigned officers.\n    administrative_area (str, optional):\
-        \ Administrative area to scope officer assignments.\n\nReturns:\n    departments: Departments\
-        \ with a staffed desk\n    statuses: Grievance lifecycle statuses with metadata\n    service_categories:\
-        \ Active service categories with a staffed desk (only the department's when `department` is given)\n\
-        \    grievance_types: Active grievance types (optionally filtered by service_category)\n    submission_channels:\
-        \ Active intake channels\n    officers: Active officers under the specified department and/or\
-        \ service category (staff only, present only if either is passed)"
+        \ Administrative area to scope officer assignments.\n    ticket_number (str, optional): The case\
+        \ being reassigned. Scopes officers to its region\n        and category and leaves out the category\
+        \ admin.\n\nReturns:\n    departments: Departments with a staffed desk\n    statuses: Grievance\
+        \ lifecycle statuses with metadata\n    service_categories: Active service categories with a staffed\
+        \ desk (only the department's when `department` is given)\n    grievance_types: Active grievance\
+        \ types (optionally filtered by service_category)\n    submission_channels: Active intake channels\n\
+        \    officers: Active officers under the specified department and/or service category (staff only,\
+        \ present only if either is passed)\n\nWith `ticket_number` the officers are the assignees that\
+        \ case can be reassigned to: only\nofficers whose region covers the case's administrative area\
+        \ (the case's own area wins over\n`administrative_area`), in the case's category unless another\
+        \ is named, and never the\ncategory admin (the top rung), who is not an assignee for a reassignment."
       operationId: get_api_v1_grievances_options
       responses:
         '200':
@@ -1604,6 +1611,69 @@ paths:
         description: Administrative area ID to filter officer assignments
       security:
       - BearerAuth: []
+  /v1/attachments/validate:
+    post:
+      tags:
+      - Attachments
+      summary: Check files before they are attached
+      description: 'Run every upload check on the files now, and store nothing.
+
+
+        For a form to call as each file is attached, so a file that would be refused is refused
+
+        at once, not when the grievance or response is finally sent: wrong or disguised type, too
+
+        large, unreadable, password-protected or signed PDF, or a duplicate (by SHA-256) of a file
+
+        already on the case or among `attached_checksums`. The same checks run again when the
+
+        files are sent for real. Returns each file''s type, size and `checksum_sha256`.'
+      operationId: post_api_v1_attachments_validate
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrievanceActionResultResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateUploadsRequest'
   /v1/attachments:
     post:
       tags:
@@ -10913,6 +10983,25 @@ components:
           default: null
           nullable: true
       type: object
+    ValidateUploadsRequest:
+      additionalProperties: true
+      properties:
+        grievance:
+          type: string
+          default: null
+          description: Ticket number of the case the files will be attached to; omit for a new filing
+          nullable: true
+        attached_checksums:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          default: null
+          description: checksum_sha256 of the files the form has already validated and holds, as a list
+            or comma-separated, so a second copy of one is refused
+          nullable: true
+      type: object
     SubmitDocumentsRequest:
       additionalProperties: true
       properties:
@@ -11542,11 +11631,12 @@ components:
       description: Partial update. Omitted fields stay as they are.
       properties:
         max_deferral_days:
-          description: Most days any single deferral may add to the SLA clock
+          description: Most days any single deferral may add to the SLA clock. 30 at most
+          maximum: 30
           minimum: 1
           type: integer
         auto_escalation_threshold:
-          description: Percent of the SLA window consumed before escalation. 100 is at the deadline
+          description: Stored and returned. Escalation always waits for the full SLA window
           maximum: 100
           minimum: 1
           type: integer

@@ -74,6 +74,7 @@ EVENT_REOPENED = "grievance_reopened"
 EVENT_AUTO_CLOSED = "auto_closed_no_response"
 EVENT_CLOSED = "grievance_closed"
 EVENT_STATUS_REJECTED = "status_rejected"
+EVENT_SLA_REMINDER_20 = "sla_reminder_20"
 EVENT_SLA_REMINDER_50 = "sla_reminder_50"
 EVENT_SLA_REMINDER_80 = "sla_reminder_80"
 EVENT_SLA_AT_RISK = "sla_at_risk_report"
@@ -85,8 +86,9 @@ EVENT_DEADLINE_EXTENDED = "deadline_extended"
 
 # FSD Appendix C event ids (EC-001 to EC-019), keyed by event code. EC-017 (SLA breach,
 # L2) has no code of its own; the escalation ladder sends a single EVENT_SLA_BREACH for
-# every level, which is EC-016's. EVENT_CLOSED, EVENT_STATUS_REJECTED and
-# EVENT_ANONYMITY_DISCLOSURE_REQUESTED and EVENT_DEADLINE_EXTENDED are not in Appendix C.
+# every level, which is EC-016's. EVENT_CLOSED, EVENT_STATUS_REJECTED,
+# EVENT_ANONYMITY_DISCLOSURE_REQUESTED, EVENT_DEADLINE_EXTENDED and EVENT_SLA_REMINDER_20
+# are not in Appendix C.
 EVENT_EC_ID = {
 	EVENT_SUBMISSION_RECEIVED: "EC-001",
 	EVENT_DUPLICATE_DETECTED: "EC-002",
@@ -115,10 +117,17 @@ DEFAULT_STATE_TIMERS = (
 	(STATE_RESOLVED, 7 * 24, "Auto Close"),
 	(STATE_MORE_INFO_NEEDED, 7 * 24, "Auto Close"),
 )
-# Reminder thresholds as a percentage of the SLA window.
-SLA_REMINDER_THRESHOLDS = (50, 80)
+# Reminder thresholds as a percentage of the SLA window, and the event each one sends.
+SLA_REMINDER_THRESHOLDS = (20, 50, 80)
+SLA_REMINDER_EVENTS = {
+	20: EVENT_SLA_REMINDER_20,
+	50: EVENT_SLA_REMINDER_50,
+	80: EVENT_SLA_REMINDER_80,
+}
 # Global default ceiling on a single deferral.
 DEFAULT_MAX_DEFERRAL_DAYS = 30
+# Business rule: no deferral may push a deadline out by more than this, whatever the policy says.
+MAX_DEFERRAL_DAYS_LIMIT = 30
 # Global default share of the SLA window consumed before a case escalates: at the deadline.
 DEFAULT_ESCALATION_THRESHOLD = 100
 

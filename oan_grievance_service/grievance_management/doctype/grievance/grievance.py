@@ -505,7 +505,7 @@ class Grievance(Document):
 			before = self.get_doc_before_save()
 			if before and before.sla_due_date:
 				shift = get_datetime(self.sla_due_date) - get_datetime(before.sla_due_date)
-				updates = {"reminder_50_sent": 0, "reminder_80_sent": 0}
+				updates = sla.cleared_reminder_flags()
 				if self.escalated and self.next_escalation_at:
 					updates["next_escalation_at"] = get_datetime(self.next_escalation_at) + shift
 				self.db_set(updates, update_modified=False)

@@ -1106,6 +1106,46 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		self.assertLess(esc_idx, normal_idx, "Escalated grievance must appear before non-escalated grievance")
 
+	def test_list_grievances_is_newest_submission_first_by_default(self):
+		"""STG-516: with no sort asked for, the most recently submitted case comes first."""
+		import uuid
+
+		import frappe.api
+		from frappe.utils import add_days, now_datetime
+
+		frappe.set_user("Administrator")
+		test_tag = f"tag_{uuid.uuid4().hex[:8]}"
+		names = []
+		for days_ago in (3, 1, 2):
+			doc = frappe.get_doc(
+				{
+					"doctype": "Grievance",
+					"submission_channel": "Mobile App",
+					"submitter_type": "Individual Farmer",
+					"submitter_name": f"Citizen {days_ago} {test_tag}",
+					"contact_mobile": "+251911998877",
+					"administrative_area": self.area,
+					"service_category": "Inputs",
+					"grievance_type": self.gtype.name,
+					"description": f"Case filed {days_ago} days ago {test_tag}",
+					"workflow_state": "Submitted",
+					"status": "Submitted",
+				}
+			).insert(ignore_permissions=True)
+			doc.db_set("creation", add_days(now_datetime(), -days_ago), update_modified=False)
+			names.append((days_ago, doc.name))
+
+		res = frappe.api.handle(make_test_request(f"/api/v1/grievances?search={test_tag}", method="GET"))
+		self.assertEqual(res.status_code, 200)
+		listed = [item["name"] for item in json.loads(res.get_data(as_text=True))["data"]["items"]]
+		self.assertEqual(listed, [name for _days, name in sorted(names)])
+
+		res = frappe.api.handle(
+			make_test_request(f"/api/v1/grievances?search={test_tag}&sort_order=asc", method="GET")
+		)
+		listed = [item["name"] for item in json.loads(res.get_data(as_text=True))["data"]["items"]]
+		self.assertEqual(listed, [name for _days, name in sorted(names, reverse=True)])
+
 	def test_attachment_routes_present_in_spec(self):
 		"""Attachment endpoints must be present in OpenAPI."""
 		from pathlib import Path
