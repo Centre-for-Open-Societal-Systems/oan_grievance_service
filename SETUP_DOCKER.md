@@ -15,7 +15,7 @@ Two kinds of command appear below:
 
 | Component / Layer      | Name                    | Version / Branch               | Purpose                                                                             |
 | ---------------------- | ----------------------- | ------------------------------ | ----------------------------------------------------------------------------------- |
-| **Base Framework**     | `frappe`                | `version-16` (`16.0.0`)        | Full-stack low-code framework, ORM, Desk, and migrations engine                     |
+| **Base Framework**     | `frappe`                | `v16.55.0`                     | Full-stack low-code framework, ORM, Desk, and migrations engine                     |
 | **Auth Service**       | `oan_auth_service`      | `develop` (`>=0.0.1`)          | Core dependency: JWT authentication, signing key resolution, user self-registration |
 | **Grievance Service**  | `oan_grievance_service` | `develop` (`0.0.1`)            | Grievance intake, auto-routing, SLA tracking, and escalations                       |
 | **Runtime Language**   | Python                  | `3.14.2`                       | Backend execution environment                                                       |
@@ -87,7 +87,7 @@ DOCKER_BUILDKIT=1 docker build \
   --secret id=apps_json,src=apps.json \
   --build-arg CACHE_BUST="$(date +%s)" \
   --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
-  --build-arg FRAPPE_BRANCH=version-16 \
+  --build-arg FRAPPE_BRANCH=v16.55.0 \
   --file images/layered/Containerfile \
   --tag custom-oan-grievance:latest \
   .
@@ -396,7 +396,7 @@ DOCKER_BUILDKIT=1 docker build \
   --secret id=apps_json,src=apps.json \
   --build-arg CACHE_BUST="$(date +%s)" \
   --build-arg FRAPPE_PATH=https://github.com/frappe/frappe \
-  --build-arg FRAPPE_BRANCH=version-16 \
+  --build-arg FRAPPE_BRANCH=v16.55.0 \
   --file images/layered/Containerfile \
   --tag custom-oan-grievance:latest \
   .
