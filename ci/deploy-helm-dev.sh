@@ -38,6 +38,34 @@ DEPLOYED=$(helm -n "${NS}" history grievance -o json 2>/dev/null \
   | python3 -c 'import json, sys; print(next((h["revision"] for h in json.load(sys.stdin) if h["status"] == "deployed"), ""))' \
   2>/dev/null || true)
 
+# forceCreate makes the create-site job drop the site's database, which Postgres refuses while the pods of
+# the running release hold connections to it (ObjectInUse), and the job still reports success. So a forceCreate
+# deploy stops the Frappe workloads first and restores their replica counts when the script ends. The
+# autoscalers do not act on a Deployment at 0, and Helm leaves replicas alone when the chart does not change them.
+FRAPPE_SELECTOR="app.kubernetes.io/instance=grievance"
+FRAPPE_REPLICAS=""
+if grep -q 'forceCreate: true' "${VALUES}"; then
+  FRAPPE_REPLICAS=$(kubectl -n "${NS}" get deploy -l "${FRAPPE_SELECTOR}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}={.spec.replicas}{"\n"}{end}')
+  restore_frappe_replicas() {
+    for entry in ${FRAPPE_REPLICAS}; do
+      kubectl -n "${NS}" scale deploy "${entry%%=*}" --replicas="$(( ${entry##*=} > 0 ? ${entry##*=} : 1 ))" || true
+    done
+  }
+  trap restore_frappe_replicas EXIT
+  if [ -n "${FRAPPE_REPLICAS}" ]; then
+    echo "=== forceCreate: stopping the Frappe workloads so the site database can be dropped ==="
+    kubectl -n "${NS}" scale deploy -l "${FRAPPE_SELECTOR}" --replicas=0
+    for _ in $(seq 60); do
+      # Only ReplicaSet pods: completed job pods stay around and would never leave.
+      running=$(kubectl -n "${NS}" get pods -l "${FRAPPE_SELECTOR}" -o json \
+        | python3 -c 'import json, sys; print(sum(o["kind"] == "ReplicaSet" for p in json.load(sys.stdin)["items"] for o in p["metadata"].get("ownerReferences", [])))')
+      [ "${running}" = "0" ] && break
+      sleep 3
+    done
+  fi
+fi
+
 # A cancelled build sends SIGTERM: helm marks the upgrade failed and exits, and the script goes on to
 # print the reason and roll back instead of dying with it.
 trap 'echo "=== deploy cancelled ==="' TERM INT
