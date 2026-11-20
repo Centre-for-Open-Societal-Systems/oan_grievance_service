@@ -2791,6 +2791,54 @@
             "description": "Remove an attachment the submitter added by mistake.\n\nOnly while the case is still open: once it is resolved or closed, the evidence\nis part of what the decision rested on and removing it would rewrite the record\nafter the fact."
           },
           "response": []
+        },
+        {
+          "name": "Check files before they are attached",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/attachments/validate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "attachments",
+                "validate"
+              ]
+            },
+            "description": "Run every upload check on the files now, and store nothing.\n\nFor a form to call as each file is attached, so a file that would be refused is refused\nat once, not when the grievance or response is finally sent: wrong or disguised type, too\nlarge, unreadable, password-protected or signed PDF, or a duplicate (by SHA-256) of a file\nalready on the case or among `attached_checksums`. The same checks run again when the\nfiles are sent for real. Returns each file's type, size and `checksum_sha256`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grievance\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
         }
       ]
     },

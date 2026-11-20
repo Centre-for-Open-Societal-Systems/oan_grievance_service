@@ -52,6 +52,9 @@ class GrievanceChangeRequest(Document):
 		self.decided_by = None
 		self.decided_at = None
 		self.snapshot_changes(grievance)
+		if is_deferral(self):
+			check_deferral_requester(self.requested_by, grievance)
+			check_no_other_deferral(grievance)
 		self.log("Requested", self.requested_by)
 
 		from oan_grievance_service.services import reassignment
@@ -123,6 +126,9 @@ class GrievanceChangeRequest(Document):
 			if self.status not in DECIDED:
 				frappe.throw(_("A request can only be approved or rejected."), title=_("Invalid Decision"))
 			self.check_decider(frappe.session.user)
+			if self.status == "Approved" and is_deferral(self):
+				# A request raised before the earlier deferral was applied must not stack on it.
+				check_no_other_deferral(self._grievance(), exclude=self.name, pending=False)
 			self.decide(self.status, frappe.session.user)
 
 	def on_update(self):
@@ -264,6 +270,88 @@ def as_text(grievance, fieldname, value):
 
 def _changes_key(doc):
 	return sorted((row.fieldname, row.new_value or "") for row in doc.get("changes") or [])
+
+
+def is_deferral(request) -> bool:
+	"""Whether the request moves the SLA deadline."""
+	return any(row.fieldname == "sla_due_date" for row in request.get("changes") or [])
+
+
+def check_deferral_requester(user, grievance):
+	"""Only the first-rung Nodal Officer (L1) on the case's desk may defer its SLA, or an admin.
+
+	A senior officer (the L1's supervisor, L2 and up) decides a deferral and does not raise one:
+	before this they could, and their own request was approved on the spot, so the only check on
+	a deadline being extended was skipped.
+	"""
+	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+		holds_rung,
+	)
+	from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+		GrievanceRoleLevel,
+	)
+
+	if is_unrestricted(user):
+		return
+	chain = GrievanceRoleLevel.get_chain()
+	first = chain[0] if chain else None
+	if first and holds_rung(
+		user,
+		first.name,
+		department=grievance.assigned_dept,
+		area=grievance.administrative_area,
+		category=grievance.service_category,
+	):
+		return
+	frappe.throw(
+		_("Only the {0} (L1) handling this grievance can defer its SLA.").format(
+			_(first.level_name or first.name) if first else _("Nodal Officer")
+		),
+		frappe.PermissionError,
+		title=_("Deferral Not Permitted"),
+	)
+
+
+def check_no_other_deferral(grievance, exclude=None, pending=True):
+	"""One deferral per SLA window: refuse another once one is applied, or (with `pending`) waiting.
+
+	A reopen starts a fresh window (`sla.reset_clock` moves `sla_start_at`), so a deferral
+	approved before it does not count against the new one.
+	"""
+	request, item = (
+		frappe.qb.DocType("Grievance Change Request"),
+		frappe.qb.DocType("Grievance Change Request Item"),
+	)
+	in_window = (
+		request.decided_at >= grievance.sla_start_at
+		if grievance.sla_start_at
+		else request.decided_at.isnotnull()
+	)
+	counted = (request.status == "Approved") & in_window
+	if pending:
+		counted = counted | (request.status == "Pending")
+	query = (
+		frappe.qb.from_(request)
+		.inner_join(item)
+		.on(item.parent == request.name)
+		.select(request.status)
+		.where(request.grievance == grievance.name)
+		.where(item.fieldname == "sla_due_date")
+		.where(counted)
+	)
+	if exclude:
+		query = query.where(request.name != exclude)
+	statuses = set(query.run(pluck=True))
+	if "Approved" in statuses:
+		frappe.throw(
+			_("The SLA of this grievance has already been deferred. Only one deferral is allowed."),
+			title=_("Already Deferred"),
+		)
+	if "Pending" in statuses:
+		frappe.throw(
+			_("A deferral request for this grievance is already awaiting a decision."),
+			title=_("Deferral Already Requested"),
+		)
 
 
 def approver_for(requester, grievance):

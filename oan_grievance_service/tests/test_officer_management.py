@@ -134,6 +134,57 @@ class TestOfficerManagement(FrappeTestCase):
 		self.assertIsNone(cleared["reports_to"])
 		self.assertIsNone(get_officer_supervisor(l1["name"]))
 
+	def _l2_of(self, category, label):
+		return self._create(
+			f"{PREFIX}{label}-l2@example.com",
+			level="L2",
+			designation="Senior Nodal Officer",
+			service_categories=[category],
+		)["name"]
+
+	def _refused_l1(self, **extra):
+		with _keep_transaction():
+			result = create_officer(
+				**{
+					"full_name": "Tigist Alemu",
+					"level": "L1",
+					"department": "S430",
+					"email": f"{PREFIX}l1@example.com",
+					"service_categories": [self.inputs],
+					"temporary_password": "Temp1234",
+					**extra,
+				}
+			)
+		self.assertEqual(result.get("code"), "VALIDATION_ERROR", msg=result)
+		return result
+
+	def test_an_l1_reports_only_to_an_l2_of_their_own_category(self):
+		"""STG-516: an Inputs nodal officer cannot be given a Credit L2 as supervisor."""
+		refused = self._refused_l1(reports_to=self._l2_of(self.credit, "credit"))
+		self.assertIn(self.inputs, refused["message"])
+		self.assertFalse(
+			frappe.db.exists("Grievance RBAC Assignment Officer", {"user": f"{PREFIX}l1@example.com"})
+		)
+
+		officer = self._create(reports_to=self._l2_of(self.inputs, "inputs"))
+		self.assertTrue(officer["reports_to"])
+
+	def test_an_l1_of_several_categories_needs_a_supervisor_on_each(self):
+		self._refused_l1(
+			reports_to=self._l2_of(self.inputs, "inputs"), service_categories=[self.inputs, self.credit]
+		)
+		officer = self._create(reports_to=self.l2_seed, service_categories=[self.inputs, self.credit])
+		self.assertEqual(officer["reports_to"], self.l2_seed)
+
+	def test_moving_an_l1_to_a_category_their_supervisor_lacks_is_refused(self):
+		l1 = self._create(reports_to=self._l2_of(self.inputs, "inputs"))["name"]
+		with _keep_transaction():
+			moved = update_officer(l1, service_categories=[self.inputs, self.credit])
+		self.assertEqual(moved.get("code"), "VALIDATION_ERROR", msg=moved)
+
+		moved = update_officer(l1, service_categories=[self.inputs, self.credit], reports_to=self.l2_seed)
+		self.assertEqual(moved["status"], "success", msg=moved)
+
 	def test_region_lives_on_the_officer_row(self):
 		area = a_leaf_area()
 		officer = self._create(region=area)

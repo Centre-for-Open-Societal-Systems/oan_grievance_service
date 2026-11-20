@@ -686,6 +686,128 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 				}
 			).insert(ignore_permissions=True)
 
+	def _raise_deferral(self, user, days, subject="Extend SLA Deadline"):
+		"""A deferral of `days` from the case's current deadline, raised as `user`."""
+		frappe.set_user(user)
+		self.grievance.reload()
+		new_deadline = add_days(self.grievance.sla_due_date, days)
+		return frappe.get_doc(
+			{
+				"doctype": "Grievance Change Request",
+				"grievance": self.grievance.name,
+				"subject": subject,
+				"reason": "Awaiting soil lab sample results",
+				"changes": [{"fieldname": "sla_due_date", "new_value": str(new_deadline)}],
+			}
+		).insert(ignore_permissions=True)
+
+	def _decide(self, request, user, status="Approved"):
+		frappe.set_user(user)
+		request.reload()
+		request.status = status
+		request.save(ignore_permissions=True)
+		return request
+
+	def test_only_the_l1_nodal_officer_may_defer_the_sla(self):
+		"""STG-516: the L1's supervisor (L2) and the department head cannot defer, even on their own authority."""
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		for senior in (self.senior, self.head):
+			with self.subTest(senior=senior), self.assertRaises(frappe.PermissionError):
+				self._raise_deferral(senior, 5)
+		self.assertFalse(frappe.db.exists("Grievance Change Request", {"grievance": self.grievance.name}))
+
+		request = self._raise_deferral(self.officer1, 5)
+		self.assertEqual(request.status, "Pending")
+		self.assertEqual(request.pending_with, self.senior)
+
+	def test_admin_may_still_defer_the_sla(self):
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		request = self._raise_deferral("Administrator", 5)
+		self.assertEqual(request.status, "Approved")
+
+	def test_defer_sla_endpoint_refuses_a_supervisor(self):
+		"""The backend refuses it on the API too, not only when the UI hides the button."""
+		import frappe.api
+
+		from oan_grievance_service.tests.test_category_assignment import _keep_transaction
+		from oan_grievance_service.tests.test_router import make_test_request
+
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		frappe.set_user(self.senior)
+		with _keep_transaction():
+			res = frappe.api.handle(
+				make_test_request(
+					f"/api/v1/grievances/{self.grievance.ticket_number}/defer-sla",
+					method="POST",
+					data={"additional_days": 5, "reason": "Waiting for the soil laboratory to send results"},
+				)
+			)
+		self.assertEqual(res.status_code, 403, res.get_data(as_text=True))
+		self.assertFalse(frappe.db.exists("Grievance Change Request", {"grievance": self.grievance.name}))
+
+	def test_no_further_deferral_once_one_is_applied(self):
+		"""STG-516: after a 7-day deferral is applied, a 30-day one can be neither raised nor approved."""
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		self._decide(self._raise_deferral(self.officer1, 7), self.senior)
+
+		with self.assertRaises(frappe.ValidationError) as raised:
+			self._raise_deferral(self.officer1, 30)
+		self.assertIn("already been deferred", str(raised.exception))
+
+	def test_no_second_deferral_while_one_is_pending(self):
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		self._raise_deferral(self.officer1, 7)
+		with self.assertRaises(frappe.ValidationError) as raised:
+			self._raise_deferral(self.officer1, 3)
+		self.assertIn("already awaiting a decision", str(raised.exception))
+
+	def test_pending_deferral_cannot_be_approved_after_another_was_applied(self):
+		"""Two requests raised before this rule existed: approving the second is refused."""
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		first = self._raise_deferral(self.officer1, 7)
+		# Park the first so the second can be raised, as data from before the rule would be.
+		frappe.db.set_value("Grievance Change Request", first.name, "status", "Rejected")
+		second = self._raise_deferral(self.officer1, 7)
+		frappe.db.set_value("Grievance Change Request", first.name, "status", "Pending")
+
+		self._decide(first, self.senior)
+		with self.assertRaises(frappe.ValidationError) as raised:
+			self._decide(second, self.senior)
+		self.assertIn("already been deferred", str(raised.exception))
+
+	def test_reopened_case_may_be_deferred_again(self):
+		"""A reopen starts a fresh SLA window, which has its own one deferral."""
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		self._decide(self._raise_deferral(self.officer1, 7), self.senior)
+		self.grievance.db_set("sla_start_at", add_to_date(now_datetime(), seconds=1), update_modified=False)
+		frappe.db.set_value(
+			"Grievance Change Request",
+			{"grievance": self.grievance.name},
+			"decided_at",
+			add_to_date(now_datetime(), minutes=-5),
+		)
+		self.assertEqual(self._raise_deferral(self.officer1, 7).status, "Pending")
+
+	def test_deferral_above_30_days_refused_even_when_the_policy_allows_more(self):
+		"""STG-516: 30 days is the business limit, whatever the stored ceiling says."""
+		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		frappe.db.set_single_value("Grievance Deferral Policy", "max_deferral_days", 60)
+		frappe.clear_document_cache("Grievance Deferral Policy", "Grievance Deferral Policy")
+		try:
+			with self.assertRaises(frappe.ValidationError) as raised:
+				self._raise_deferral(self.officer1, 31)
+			self.assertIn("may not exceed 30 days", str(raised.exception))
+			self.assertEqual(self._raise_deferral(self.officer1, 30).status, "Pending")
+		finally:
+			frappe.db.rollback()
+			frappe.clear_document_cache("Grievance Deferral Policy", "Grievance Deferral Policy")
+
+	def test_deferral_ceiling_cannot_be_set_above_30_days(self):
+		policy = frappe.get_doc("Grievance Deferral Policy")
+		policy.max_deferral_days = 31
+		with self.assertRaises(frappe.ValidationError):
+			policy.save(ignore_permissions=True)
+
 	# ---------------------------------------------------------
 	# Forwarding & Escalation Tests
 	# ---------------------------------------------------------

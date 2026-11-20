@@ -185,6 +185,10 @@ class TestSlaMessages(FrappeTestCase):
 			{"max_deferral_days": "Max deferral days must be at least 1."},
 		)
 		self.assertEqual(
+			_errors(Update, max_deferral_days=31),
+			{"max_deferral_days": "Max deferral days must not exceed 30."},
+		)
+		self.assertEqual(
 			_errors(Update, auto_escalation_threshold=0),
 			{"auto_escalation_threshold": "Auto escalation threshold must be at least 1."},
 		)

@@ -29,6 +29,8 @@ class GrievanceDeferralPolicy(Document):
 	def validate(self):
 		if self.max_deferral_days is not None and self.max_deferral_days < 0:
 			frappe.throw(_("The deferral ceiling cannot be negative."))
+		if (self.max_deferral_days or 0) > C.MAX_DEFERRAL_DAYS_LIMIT:
+			frappe.throw(_("The deferral ceiling cannot exceed {0} days.").format(C.MAX_DEFERRAL_DAYS_LIMIT))
 		if (self.auto_escalation_threshold or 0) > 100:
 			frappe.throw(_("The auto escalation threshold cannot exceed 100%."))
 
@@ -39,9 +41,9 @@ def get_policy():
 
 
 def max_deferral_days():
-	"""Ceiling on a single deferral request."""
+	"""Ceiling on a single deferral request, never above the 30-day business limit."""
 	configured = get_policy().max_deferral_days
-	return configured if configured else C.DEFAULT_MAX_DEFERRAL_DAYS
+	return min(configured or C.DEFAULT_MAX_DEFERRAL_DAYS, C.MAX_DEFERRAL_DAYS_LIMIT)
 
 
 def requires_supervisor_approval():

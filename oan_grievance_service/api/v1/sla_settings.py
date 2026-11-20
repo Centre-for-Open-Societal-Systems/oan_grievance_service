@@ -47,7 +47,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	get_active_config,
 )
 from oan_grievance_service.services import category_assignment, classification
-from oan_grievance_service.services.constants import ADMIN_READ_ROLES
+from oan_grievance_service.services.constants import ADMIN_READ_ROLES, MAX_DEFERRAL_DAYS_LIMIT
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1")
@@ -103,13 +103,16 @@ class UpdateGlobalSlaPolicy(Body):
 	"""Partial update. Omitted fields stay as they are."""
 
 	max_deferral_days: int = Field(
-		default=None, ge=1, description="Most days any single deferral may add to the SLA clock"
+		default=None,
+		ge=1,
+		le=MAX_DEFERRAL_DAYS_LIMIT,
+		description="Most days any single deferral may add to the SLA clock. 30 at most",
 	)
 	auto_escalation_threshold: int = Field(
 		default=None,
 		ge=1,
 		le=100,
-		description="Percent of the SLA window consumed before escalation. 100 is at the deadline",
+		description="Stored and returned. Escalation always waits for the full SLA window",
 	)
 	requires_supervisor_approval: bool = Field(
 		default=None,

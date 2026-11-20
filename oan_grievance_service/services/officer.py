@@ -217,6 +217,7 @@ def create(
 		desks, missing = _category_desks(department, service_categories, allow_missing=is_head)
 		if is_head and role == DEFAULT_ROLE:
 			_assert_head_free(department, desks, region=placement.get("administrative_area"))
+	_assert_supervisor_covers(placement["reports_to"], level, [desk.name for desk in desks], missing)
 
 	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
@@ -341,6 +342,16 @@ def update(user_id: str, changes: dict) -> str:
 				else getattr(current, "region", None)
 			)
 			_assert_head_free(department, desks, user_id, region=resolved_region)
+	if role == DEFAULT_ROLE:
+		# A new supervisor, or new desks under the one they already have, must still match. A level
+		# change clears the supervisor (`_change_level`), so row_changes is read first.
+		supervisor = (
+			row_changes.get("reports_to")
+			if "reports_to" in row_changes
+			else next((row.reports_to for row in _rows([user_id], role) if row.reports_to), None)
+		)
+		if "reports_to" in row_changes or target != current.desks or missing:
+			_assert_supervisor_covers(supervisor, level, target, missing)
 	on_new = {**_placement(role, level, status or current.status), "designation": designation}
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
@@ -874,6 +885,52 @@ def _resolve_supervisor(user_id: str | None, level: str | None) -> str | None:
 			frappe.ValidationError,
 		)
 	return user_id
+
+
+def _assert_supervisor_covers(
+	supervisor: str | None, level: str | None, desk_names, extra_categories=()
+) -> None:
+	"""The supervisor must sit, above the officer, on a desk of each of the officer's categories.
+
+	`_resolve_supervisor` only asks that they hold a higher rung somewhere, which let an L1 of
+	one category report to an L2 of another (STG-516). Escalation follows `reports_to` from any
+	of the officer's desks, so a supervisor missing one of those categories would be handed
+	cases they cannot open. `extra_categories` are categories whose desk is opened on save.
+	"""
+	if not supervisor or _is_head(level):
+		return
+	categories = set(extra_categories)
+	if desk_names:
+		categories |= set(
+			frappe.get_all(DESK, filters={"name": ["in", list(desk_names)]}, pluck="category_scope")
+		)
+	categories.discard(None)
+	categories.discard("")
+	if not categories:
+		return
+
+	chain = GrievanceRoleLevel.get_chain()
+	order = {r.name: r.level_order for r in chain}
+	my_order = order.get(LEVEL_CODES.get(level) if level in LEVEL_CODES else level)
+	higher = [r.name for r in chain if my_order is None or r.level_order > my_order]
+	supervisor_desks = frappe.get_all(
+		ROW,
+		filters={"user": supervisor, "parenttype": DESK, "active": 1, "role_level": ["in", higher]},
+		pluck="parent",
+	)
+	covered = (
+		set(frappe.get_all(DESK, filters={"name": ["in", supervisor_desks]}, pluck="category_scope"))
+		if supervisor_desks
+		else set()
+	)
+	missing = sorted(categories - covered)
+	if missing:
+		frappe.throw(
+			_(
+				"{0} is not a senior officer for {1}. Choose a supervisor from the same service category."
+			).format(supervisor, ", ".join(missing)),
+			frappe.ValidationError,
+		)
 
 
 def _sync_desk_head_role(user_id: str) -> None:

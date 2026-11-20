@@ -812,13 +812,9 @@ def _filed_at(rng, moment):
 
 
 def _escalation_at(category, start):
-	"""When the escalation clock will point, for a case whose SLA starts at `start`."""
+	"""When the escalation clock will point, for a case whose SLA starts at `start`: its deadline."""
 	policy = sla.resolve_policy(category)
-	due = sla.calculate_working_deadline(start, policy.sla_days, holiday_list_name=policy.holiday_list)
-	threshold = policy.auto_escalation_threshold or sla.auto_escalation_threshold()
-	if 0 < threshold < 100:
-		return start + (due - start) * threshold / 100
-	return due
+	return sla.calculate_working_deadline(start, policy.sla_days, holiday_list_name=policy.holiday_list)
 
 
 def _timeline(rng, opened, steps, category):

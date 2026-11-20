@@ -57,8 +57,8 @@ An installation that never saved the policy returns the defaults: 30 days, 100 %
 
 | Field                          | Type | Meaning                                                                                       | Card control                      |
 | :----------------------------- | :--- | :-------------------------------------------------------------------------------------------- | :-------------------------------- |
-| `max_deferral_days`            | int  | Most days any single deferral request may add to the SLA clock                                | Max SLA Deferral (days)           |
-| `auto_escalation_threshold`    | int  | Percent of the SLA window consumed before a case escalates. 100 is at the deadline            | Auto-escalate Threshold (%)       |
+| `max_deferral_days`            | int  | Most days a deferral may add to the SLA clock, 30 at most                                     | Max SLA Deferral (days)           |
+| `auto_escalation_threshold`    | int  | Stored and returned. Escalation always waits for the full SLA window (see below)              | Auto-escalate Threshold (%)       |
 | `requires_supervisor_approval` | bool | `true`: a senior officer decides a deferral. `false`: the assigned officer approves their own | Deferral Approval Policy (radios) |
 
 ### `PATCH /api/v1/sla-policy`
@@ -69,16 +69,16 @@ Send any of the three fields. Omitted fields stay as they are. The body must not
 { "max_deferral_days": 21, "auto_escalation_threshold": 80, "requires_supervisor_approval": false }
 ```
 
-| Field                          | Rule               |
-| :----------------------------- | :----------------- |
-| `max_deferral_days`            | integer, 1 or more |
-| `auto_escalation_threshold`    | integer, 1 to 100  |
-| `requires_supervisor_approval` | boolean            |
+| Field                          | Rule              |
+| :----------------------------- | :---------------- |
+| `max_deferral_days`            | integer, 1 to 30  |
+| `auto_escalation_threshold`    | integer, 1 to 100 |
+| `requires_supervisor_approval` | boolean           |
 
 What a change does:
 
-- `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval.
-- `auto_escalation_threshold` is the default for **every category that does not set a threshold of its own**. It is read when a case's escalation is armed, so it applies to cases that start, resume, change category or are re-armed after the change. Cases already armed keep their time.
+- `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval. No deferral may exceed 30 days, whatever the ceiling: a higher value is refused with 400.
+- `auto_escalation_threshold` no longer changes when a case escalates (STG-516). A case escalates automatically only once its full SLA window has elapsed, so the first escalation is armed at the SLA deadline. Before, a value below 100 armed it that share of the way into the window (3 % of a one-day SLA escalated a case 43 minutes after filing). The warnings before the deadline are the 20 %, 50 % and 80 % reminders. The value is still stored and returned, pending a decision on whether to drop it.
 
 A category can still set its own threshold in the Desk (`Grievance SLA Configuration`, field Auto Escalation Threshold). That is an override, and 0 means "follow the global one". The SLA tab does not edit it.
 

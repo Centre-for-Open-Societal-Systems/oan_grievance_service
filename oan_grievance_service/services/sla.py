@@ -1,6 +1,6 @@
 """SLA and escalation management.
 
-Reminders at 50% and 80% of the window, and escalation up the role-level chain on
+Reminders at 20%, 50% and 80% of the window, and escalation up the role-level chain on
 breach.
 
 The clock starts from the creation date/time of the grievance.
@@ -223,6 +223,16 @@ def start_clock(grievance):
 	)
 
 
+def reminder_flag(threshold):
+	"""The Grievance field that records the reminder for `threshold` percent as sent."""
+	return f"reminder_{threshold}_sent"
+
+
+def cleared_reminder_flags():
+	"""Every reminder flag reset, for a window that starts again or a deadline that moves."""
+	return {reminder_flag(threshold): 0 for threshold in C.SLA_REMINDER_THRESHOLDS}
+
+
 def recalculate_sla_on_category_change(grievance, old_category=None, new_category=None):
 	"""Recalculate SLA due date and escalation timestamps when category changes.
 
@@ -245,8 +255,7 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 		"sla_days": policy.sla_days,
 		"sla_start_at": started,
 		"sla_due_date": new_due,
-		"reminder_50_sent": 0,
-		"reminder_80_sent": 0,
+		**cleared_reminder_flags(),
 	}
 
 	grievance.db_set(updates, update_modified=False)
@@ -281,8 +290,7 @@ def reset_clock(grievance):
 	updates = {
 		"sla_start_at": now,
 		"total_hold_time": 0,
-		"reminder_50_sent": 0,
-		"reminder_80_sent": 0,
+		**cleared_reminder_flags(),
 		"escalated": 0,
 	}
 	if policy and policy.sla_days:
@@ -303,7 +311,7 @@ def reset_clock(grievance):
 def arm_escalation(grievance, policy=None):
 	"""Point the escalation clock at the first bump.
 
-	Until a case has escalated once the next bump is a fraction of its window, so this
+	Until a case has escalated once the next bump is its SLA deadline, so this
 	is re-run whenever the deadline moves (resume from hold, approved deferral, category change). Once
 	the case starts climbing, the rung's own hours own the schedule and the deadline is
 	no longer the thing being waited on.
@@ -325,18 +333,11 @@ def arm_escalation(grievance, policy=None):
 		grievance.db_set("next_escalation_at", None, update_modified=False)
 		return
 
-	start = get_datetime(grievance.sla_start_at) if grievance.sla_start_at else None
-	due = get_datetime(grievance.sla_due_date)
-	threshold = policy.auto_escalation_threshold or auto_escalation_threshold()
-
-	if start and 0 < threshold < 100:
-		# Hand the case up before the deadline, while there is still time to save it.
-		consumed = (due - start).total_seconds() * threshold / 100
-		at = add_to_date(start, seconds=int(consumed))
-	else:
-		at = due
-
-	grievance.db_set("next_escalation_at", at, update_modified=False)
+	# A case escalates automatically only once its full SLA window has elapsed (STG-516), so the
+	# first bump is the deadline itself. The threshold used to arm it that share of the way into
+	# the window: 3% of a one-day SLA escalated a case 43 minutes after it was filed. The warning
+	# before the deadline is the 20/50/80% reminders, not an escalation.
+	grievance.db_set("next_escalation_at", get_datetime(grievance.sla_due_date), update_modified=False)
 
 
 def open_hold_seconds(grievance):

@@ -443,6 +443,7 @@ services:
     uris:
     - /v1/attachments
     - /v1/attachments/:attachment_id
+    - /v1/attachments/validate
     - /v1/grievances
     - /v1/grievances/:ticket_number/action
     - /v1/grievances/:ticket_number/attachments
