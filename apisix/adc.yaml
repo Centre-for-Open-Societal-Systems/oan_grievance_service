@@ -44,8 +44,11 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions
+    - /v1/admin/roles/:role
+    - /v1/admin/users/:user_id
     - /v1/admin/users/:user_id/roles/:role
     - /v1/admin/users/:user_id/sessions
+    - /v1/admin/users/:user_id/user-permissions/:name
     methods:
     - DELETE
     plugins:
@@ -72,10 +75,13 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions
+    - /v1/admin/permissions/catalogue
     - /v1/admin/roles
+    - /v1/admin/roles/:role
     - /v1/admin/users
     - /v1/admin/users/:user_id
     - /v1/admin/users/:user_id/roles
+    - /v1/admin/users/:user_id/user-permissions
     methods:
     - GET
     plugins:
@@ -101,6 +107,7 @@ services:
       tier: auth-admin
       auth: bearer
     uris:
+    - /v1/admin/roles/:role
     - /v1/admin/users/:user_id
     methods:
     - PATCH
@@ -128,9 +135,11 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions/reset
+    - /v1/admin/roles
     - /v1/admin/users
     - /v1/admin/users/:user_id/roles
     - /v1/admin/users/:user_id/temporary-password
+    - /v1/admin/users/:user_id/user-permissions
     methods:
     - POST
     plugins:
