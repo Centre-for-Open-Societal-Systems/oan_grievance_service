@@ -48,7 +48,7 @@ helm upgrade --install oan-grievance-gateway apisix/k8s -n develop \
   -f <oan-helm>/environments/dev/values/oan-grievance-gateway.yaml
 ```
 
-A develop build that changes `apisix/**`, `openapi/**` or `helm/environments/dev/oan-grievance-gateway.yaml` packages this
+Every develop build packages this
 chart as `oan-grievance-gateway-<version>.tgz` (`ci/package_chart.py gateway-package`), installs that archive with
 `ci/deploy-gateway.sh`, and publishes it to `repository/develop/` of oan-helm (`gateway-publish`). The version is the
 build's `0.0.1-develop.N`, so a published archive can be installed by name and version without a checkout:

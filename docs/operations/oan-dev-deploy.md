@@ -77,7 +77,7 @@ Never commit the kubeconfig, its token or `ca.crt`.
 
 The stage `develop → gateway (apisix)` runs `ci/deploy-gateway.sh` and installs the chart `apisix/k8s` as the
 release `grievance-gateway` in namespace `grievance`, with `helm/environments/dev/oan-grievance-gateway.yaml`.
-It runs after the app deploy, and only when `apisix/**`, `openapi/**` or that values file changed. The routes
+It runs after the app deploy, on every develop build. The routes
 match the host `grievance-service.development.oanstaging.com` and reach the Frappe Services of the `grievance`
 release in the same cluster (gunicorn port 8000, socket.io port 9000).
 
