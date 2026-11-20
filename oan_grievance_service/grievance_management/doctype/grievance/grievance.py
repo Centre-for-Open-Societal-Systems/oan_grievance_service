@@ -7,8 +7,8 @@ from frappe.model.document import Document
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
+from oan_grievance_service.services import classification, hooks_handlers, identity, ticket_number
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import hooks_handlers, identity, ticket_number
 
 MIN_DESCRIPTION_LENGTH = 20
 MAX_DESCRIPTION_LENGTH = 5000
@@ -45,6 +45,10 @@ FILED_FIELDS = (
 	"description",
 	"desired_outcome",
 )
+
+# Written by services/classification.py from the grievance type and the category's SLA rules,
+# never by a caller.
+DERIVED_FIELDS = ("is_sensitive", "handling_class", "priority")
 
 # Operational levels that may own a grievance. Macro containers (Country/Region/Zone)
 # are rejected even when is_group=0; Woreda may be is_group=1 when it has child kebeles.
@@ -196,10 +200,13 @@ class Grievance(Document):
 		if self.is_new():
 			self.validate_filing()
 			self.set_administrative_area_metadata()
+			classification.classify_grievance(self)
 		else:
 			self.guard_terminal_state()
 			self.guard_filed_fields()
 			self.guard_requestable_fields()
+			self.guard_derived_fields()
+			self.keep_classification_in_step_with_the_type()
 		self.validate_classification_is_active()
 		self.validate_duplicate_link()
 		self.guard_assignee_has_desk()
@@ -220,11 +227,45 @@ class Grievance(Document):
 
 			duplicates.validate_main_ticket(self, self.duplicate_of)
 
+	def guard_derived_fields(self):
+		"""Sensitive, handling class and priority are derived: the type and its SLA rules decide them."""
+		if self.has_value_changed("grievance_type"):
+			return
+		changed = [f for f in DERIVED_FIELDS if self.has_value_changed(f)]
+		if changed:
+			frappe.throw(
+				_("{0} is set from the grievance type and cannot be edited.").format(
+					", ".join(_(self.meta.get_label(f)) for f in changed)
+				),
+				title=_("Derived Fields Are Fixed"),
+			)
+
+	def keep_classification_in_step_with_the_type(self):
+		"""A case moved to another type takes that type's flags and rules, read at the original
+		filing date: moving a case never changes the season it was filed in."""
+		if self.has_value_changed("grievance_type"):
+			classification.classify_grievance(self)
+
 	def guard_assignee_has_desk(self):
 		"""A case goes only to an officer who sits on an active desk. Anyone else would own
-		a case that no routing, escalation or reassignment rule can place."""
-		if self.assigned_to and (self.is_new() or self.has_value_changed("assigned_to")):
+		a case that no routing, escalation or reassignment rule can place. A sensitive case
+		never goes to a Kebele-level officer."""
+		if not self.assigned_to:
+			return
+		assignee_changed = self.is_new() or self.has_value_changed("assigned_to")
+		if assignee_changed:
 			self.assert_officer_has_desk(self.assigned_to)
+		# Also when the case has just become sensitive (moved to a sensitive type) with its officer
+		# kept: it must not stay with an officer who can no longer open it.
+		if self.is_sensitive and (assignee_changed or self.has_value_changed("is_sensitive")):
+			from oan_grievance_service import permissions
+
+			if permissions.is_kebele_level_officer(self.assigned_to):
+				frappe.throw(
+					_("A sensitive case cannot be assigned to a Kebele-level officer."),
+					frappe.ValidationError,
+					title=_("Invalid Officer"),
+				)
 
 	@staticmethod
 	def assert_officer_has_desk(officer):
@@ -488,6 +529,11 @@ class Grievance(Document):
 			from oan_grievance_service.services import sla
 
 			sla.recalculate_sla_on_category_change(self)
+		elif self.has_value_changed("grievance_type"):
+			from oan_grievance_service.services import sla
+
+			# A rule of the SLA configuration may give the new type other SLA days.
+			sla.follow_type_change(self)
 
 	def react_to_approved_change(self):
 		"""Fields that move with a requested change."""
@@ -497,6 +543,8 @@ class Grievance(Document):
 
 		if self.has_value_changed("service_category"):
 			sla.recalculate_sla_on_category_change(self)
+		elif self.has_value_changed("grievance_type"):
+			sla.follow_type_change(self)
 
 		if self.has_value_changed("sla_due_date"):
 			# Reminders reopen against the new deadline. A case already climbing keeps its

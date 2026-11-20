@@ -6355,6 +6355,354 @@ paths:
         description: Source Name identifier
       security:
       - BearerAuth: []
+  /v1/sla-rules:
+    get:
+      tags:
+      - Administration
+      summary: List SLA rules
+      description: 'The SLA rules, by service category and then oldest first. Filter by service_category
+        (id, name or code), grievance_type, administrative_area, is_urgent or is_base. Every rule sets
+        sla_days, is_urgent and priority for the cases it matches on their filing date. A rule may name
+        a grievance_type of its category, an administrative_area (covering the areas inside it) and a
+        recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
+        a start after the end wraps the year end, for example 10/1 to 4/30). The category''s base rule
+        (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches, a category
+        needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching
+        rule wins: a type''s rule before the category''s, a narrower area before a wider one, a windowed
+        rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and
+        area may not share a day. A change applies to cases filed afterwards.'
+      operationId: get_api_v1_sla_rules
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: grievance_type
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: administrative_area
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: is_urgent
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+      - name: is_base
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+      security:
+      - BearerAuth: []
+    post:
+      tags:
+      - Administration
+      summary: Create an SLA rule
+      description: 'Add one rule to a service category. service_category, sla_days and priority are required;
+        is_urgent defaults to false. A category''s first rule must be its base rule (no type, area or
+        window); creating a category with sla_days, or setting sla_days on /sla-configurations, makes
+        it. Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing
+        date. A rule may name a grievance_type of its category, an administrative_area (covering the areas
+        inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none
+        for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category''s
+        base rule (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches,
+        a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific
+        matching rule wins: a type''s rule before the category''s, a narrower area before a wider one,
+        a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same
+        type and area may not share a day. A change applies to cases filed afterwards.'
+      operationId: post_api_v1_sla_rules
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSlaRule'
+  /v1/sla-rules/{rule_id}:
+    get:
+      tags:
+      - Administration
+      summary: Get an SLA rule
+      description: One rule. The id is the Grievance SLA Rule's name.
+      operationId: get_api_v1_sla_rules_rule_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Rule Id identifier
+      security:
+      - BearerAuth: []
+    patch:
+      tags:
+      - Administration
+      summary: Update an SLA rule
+      description: 'Change any field of one rule but service_category. Omitted fields stay as they are;
+        null clears rule_label, grievance_type, administrative_area or a window field (all four null makes
+        the rule all year). sla_days, is_urgent and priority cannot be cleared. The base rule cannot be
+        narrowed. Cases already filed keep the SLA and class they were filed with. Every rule sets sla_days,
+        is_urgent and priority for the cases it matches on their filing date. A rule may name a grievance_type
+        of its category, an administrative_area (covering the areas inside it) and a recurring window
+        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
+        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
+        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
+        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
+        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
+        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
+        share a day. A change applies to cases filed afterwards.'
+      operationId: patch_api_v1_sla_rules_rule_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Rule Id identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSlaRule'
+    delete:
+      tags:
+      - Administration
+      summary: Delete an SLA rule
+      description: 'Remove one rule. The base rule cannot be deleted (VALIDATION_ERROR): change its sla_days
+        instead. Cases already filed keep the SLA and class a rule gave them: the case stores them, not
+        the rule. Frappe keeps a copy of the deleted rule in Deleted Documents.'
+      operationId: delete_api_v1_sla_rules_rule_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Rule Id identifier
+      security:
+      - BearerAuth: []
   /v1/sla-policy:
     get:
       tags:
@@ -6545,6 +6893,8 @@ paths:
       description: Change sla_days, auto_escalate or notify_on_breach on one service category's SLA configuration.
         Omitted fields stay as they are. The values are shared with every department serving the category
         and with its category assignments, so a change here shows there. The service category is fixed.
+        sla_days is written to the category's base SLA rule (the one with no type, area or window, see
+        /sla-rules), so it is the days wherever no narrower rule matches.
       operationId: patch_api_v1_sla_configurations_config
       responses:
         '200':
@@ -10272,6 +10622,80 @@ components:
       - job_id
       - queued
       type: object
+    SlaRuleRecord:
+      properties:
+        name:
+          type: string
+        service_category:
+          type: string
+        is_base:
+          type: boolean
+        rule_label:
+          type: string
+          default: null
+          nullable: true
+        grievance_type:
+          type: string
+          default: null
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          nullable: true
+        start_month:
+          type: integer
+          default: null
+          nullable: true
+        start_day:
+          type: integer
+          default: null
+          nullable: true
+        end_month:
+          type: integer
+          default: null
+          nullable: true
+        end_day:
+          type: integer
+          default: null
+          nullable: true
+        sla_days:
+          type: integer
+        is_urgent:
+          type: boolean
+        priority:
+          type: string
+        modified:
+          type: string
+          default: null
+          nullable: true
+      required:
+      - name
+      - service_category
+      - is_base
+      - sla_days
+      - is_urgent
+      - priority
+      type: object
+    SlaRuleListData:
+      properties:
+        rules:
+          items:
+            $ref: '#/components/schemas/SlaRuleRecord'
+          type: array
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - rules
+      - pagination
+      type: object
+    SlaRuleData:
+      properties:
+        rule:
+          $ref: '#/components/schemas/SlaRuleRecord'
+      required:
+      - rule
+      type: object
     GlobalSlaPolicyRecord:
       properties:
         max_deferral_days:
@@ -10308,6 +10732,9 @@ components:
           type: array
         sla_days:
           type: integer
+          default: null
+          description: 'The category''s base SLA rule''s days. null: it has none'
+          nullable: true
         auto_escalate:
           type: boolean
         notify_on_breach:
@@ -10320,7 +10747,6 @@ components:
       - name
       - service_category
       - departments
-      - sla_days
       - auto_escalate
       - notify_on_breach
       type: object
@@ -10419,6 +10845,9 @@ components:
           type: string
           default: null
           nullable: true
+        is_sensitive:
+          default: false
+          type: boolean
       required:
       - grievance_type_id
       - type_name
@@ -11537,6 +11966,139 @@ components:
         is_active:
           type: boolean
       type: object
+    CreateSlaRule:
+      additionalProperties: false
+      properties:
+        rule_label:
+          maxLength: 140
+          type: string
+          default: null
+          description: A name for administrators
+          nullable: true
+        grievance_type:
+          minLength: 1
+          type: string
+          default: null
+          description: 'A type of the rule''s category. Blank: every type'
+          nullable: true
+        administrative_area:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Covers the areas inside it. Blank: everywhere'
+          nullable: true
+        start_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        start_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          description: All four window fields, or none for all year
+          nullable: true
+        service_category:
+          description: Id, name or code of the category
+          minLength: 1
+          type: string
+        sla_days:
+          description: Working days for a case this rule matches
+          minimum: 1
+          type: integer
+        is_urgent:
+          default: false
+          type: boolean
+        priority:
+          enum:
+          - Normal
+          - High
+          - Urgent
+          type: string
+      required:
+      - service_category
+      - sla_days
+      - priority
+      type: object
+    UpdateSlaRule:
+      additionalProperties: false
+      description: Partial update. Omitted fields stay as they are; null clears a scope field.
+      properties:
+        rule_label:
+          maxLength: 140
+          type: string
+          default: null
+          description: A name for administrators
+          nullable: true
+        grievance_type:
+          minLength: 1
+          type: string
+          default: null
+          description: 'A type of the rule''s category. Blank: every type'
+          nullable: true
+        administrative_area:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Covers the areas inside it. Blank: everywhere'
+          nullable: true
+        start_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        start_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          description: All four window fields, or none for all year
+          nullable: true
+        sla_days:
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        is_urgent:
+          type: boolean
+          default: null
+          nullable: true
+        priority:
+          enum:
+          - Normal
+          - High
+          - Urgent
+          type: string
+          default: null
+          nullable: true
+      type: object
     UpdateGlobalSlaPolicy:
       additionalProperties: false
       description: Partial update. Omitted fields stay as they are.
@@ -11752,6 +12314,11 @@ components:
           default: null
           description: Code of an active Grievance Role Level
           nullable: true
+        is_sensitive:
+          type: boolean
+          default: null
+          description: Administrator only
+          nullable: true
       required:
       - service_category
       - type_name
@@ -11779,6 +12346,11 @@ components:
           type: string
           default: null
           description: Code of an active Grievance Role Level. Null clears it.
+          nullable: true
+        is_sensitive:
+          type: boolean
+          default: null
+          description: Administrator only. Null clears it.
           nullable: true
       type: object
     IvrGrievanceRequest:
@@ -13035,6 +13607,56 @@ components:
       - status
       - data
       description: ServiceProviderSyncQueued response
+    SlaRuleListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SlaRuleListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: SlaRuleListData response
+    SlaRuleResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SlaRuleData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: SlaRuleData response
     GlobalSlaPolicyResponse:
       type: object
       properties:

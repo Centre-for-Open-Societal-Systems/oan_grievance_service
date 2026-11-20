@@ -1,7 +1,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.services import sla
+from oan_grievance_service.services import classification, sla
 
 
 class TestGrievanceSLAConfiguration(FrappeTestCase):
@@ -24,6 +24,8 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 			"Grievance SLA Configuration", filters={"service_category": self.cat_name}, pluck="name"
 		):
 			frappe.delete_doc("Grievance SLA Configuration", name, force=True)
+		# The SLA days live on the category's base SLA rule, which a configuration needs.
+		classification.set_base_days(self.cat_name, 10)
 
 	def tearDown(self):
 		frappe.db.rollback()
@@ -33,7 +35,6 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 			{
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_name,
-				"sla_days": 10,
 				"first_response_hours": 8,
 				"update_cadence_hours": 72,
 				"remand_execution_hours": 36,
@@ -47,6 +48,7 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 
 		policy = sla.resolve_policy(self.cat_name)
 		self.assertIsNotNone(policy)
+		self.assertEqual(policy.sla_days, 10)
 		self.assertEqual(policy.first_response_hours, 8)
 		self.assertEqual(policy.update_cadence_hours, 72)
 		self.assertEqual(policy.remand_execution_hours, 36)
@@ -56,7 +58,6 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 			{
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_name,
-				"sla_days": 5,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -66,21 +67,13 @@ class TestGrievanceSLAConfiguration(FrappeTestCase):
 		self.assertEqual(doc.remand_execution_hours, 24)
 
 	def test_sla_configuration_negative_validation(self):
-		doc = frappe.get_doc(
-			{
-				"doctype": "Grievance SLA Configuration",
-				"service_category": self.cat_name,
-				"sla_days": 0,
-				"active": 1,
-			}
-		)
-		self.assertRaises(frappe.ValidationError, doc.insert)
+		# Zero SLA days are refused on the base rule, where the days are kept.
+		self.assertRaises(frappe.ValidationError, classification.set_base_days, self.cat_name, 0)
 
 		doc_neg = frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_name,
-				"sla_days": 5,
 				"first_response_hours": -1,
 				"active": 1,
 			}

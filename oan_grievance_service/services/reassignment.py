@@ -311,13 +311,28 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 					)
 
 	# 4. Officer
+	# Sensitivity follows the type the case is moving to, not the one it has: a case moved to a
+	# sensitive type must leave a Kebele-level officer, and must not be handed to one.
+	from oan_grievance_service.permissions import is_kebele_level_officer
+
+	sensitive = (
+		bool(frappe.db.get_value("Grievance Type", chosen_type, "is_sensitive"))
+		if chosen_type
+		else bool(grievance.get("is_sensitive"))
+	)
 	chosen_desk = candidate_desks[0]
 	if officer:
+		if sensitive and is_kebele_level_officer(officer):
+			frappe.throw(
+				_("A sensitive case cannot be assigned to a Kebele-level officer."),
+				frappe.ValidationError,
+				title=_("Invalid Officer"),
+			)
 		chosen_officer = officer
 	else:
 		current_officer = grievance.assigned_to
 		chosen_officer = None
-		if current_officer:
+		if current_officer and not (sensitive and is_kebele_level_officer(current_officer)):
 			surviving = {d.get("name"): d for d in candidate_desks}
 			kept = [
 				surviving[cd.get("name")]
@@ -329,7 +344,7 @@ def resolve(grievance, department=None, officer=None, actor=None, category=None,
 
 		if not chosen_officer:
 			desk_doc = frappe.get_doc("Grievance RBAC Assignment", chosen_desk.get("name"))
-			chosen_officer = pick_officer_by_strategy(desk_doc, grievance)
+			chosen_officer = pick_officer_by_strategy(desk_doc, grievance, sensitive=sensitive)
 			if not chosen_officer:
 				frappe.throw(_("No active officer; name one."), frappe.ValidationError, title=_("No Officer"))
 
@@ -401,8 +416,13 @@ def on_applied(grievance, request):
 	from oan_grievance_service.services import sla
 
 	changes = getattr(request, "changes", None) or []
-	if any(getattr(r, "fieldname", None) == "service_category" for r in changes):
+	changed = {getattr(r, "fieldname", None) for r in changes}
+	if "service_category" in changed:
 		sla.reset_clock(grievance)
+	elif "grievance_type" in changed:
+		# Same category, another type: a rule for that type may set other SLA days. The clock
+		# keeps its start; only the window's length follows the new type.
+		sla.follow_type_change(grievance)
 
 	new_desk = find_matching_assignment(grievance)
 	if new_desk:

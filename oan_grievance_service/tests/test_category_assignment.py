@@ -62,10 +62,12 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(officers["nodal_officer"].is_primary, 1)
 		self.assertEqual(officers["senior_nodal_officer"].user, self.l2)
 
-		sla_days, auto_escalate = frappe.db.get_value(
-			"Grievance SLA Configuration",
-			{"service_category": self.category},
-			["sla_days", "auto_escalate"],
+		auto_escalate = frappe.db.get_value(
+			"Grievance SLA Configuration", {"service_category": self.category}, "auto_escalate"
+		)
+		# The days are the category's base SLA rule's.
+		sla_days = frappe.db.get_value(
+			"Grievance SLA Rule", {"service_category": self.category, "is_base": 1}, "sla_days"
 		)
 		self.assertEqual(sla_days, 14)
 		self.assertEqual(auto_escalate, 1)
@@ -749,7 +751,6 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self._assignment()
 		extra = frappe.new_doc("Grievance SLA Configuration")
 		extra.service_category = self.category
-		extra.sla_days = 3
 		with self.assertRaises(frappe.DuplicateEntryError):
 			extra.insert()
 		extra.active = 0

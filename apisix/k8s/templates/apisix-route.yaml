@@ -1013,6 +1013,7 @@ spec:
       - /v1/grievance-types/:grievance_type
       - /v1/response-templates/:template
       - /v1/service-categories/:category
+      - /v1/sla-rules/:rule_id
       methods:
       - DELETE
     plugins:
@@ -1102,6 +1103,8 @@ spec:
       - /v1/service-providers/:provider_id
       - /v1/sla-configurations
       - /v1/sla-policy
+      - /v1/sla-rules
+      - /v1/sla-rules/:rule_id
       - /v1/submitters/search
       - /v1/submitters/search/details
       methods:
@@ -1171,6 +1174,7 @@ spec:
       - /v1/service-categories/:category
       - /v1/sla-configurations/:config
       - /v1/sla-policy
+      - /v1/sla-rules/:rule_id
       methods:
       - PATCH
     plugins:
@@ -1243,6 +1247,7 @@ spec:
       - /v1/response-templates
       - /v1/service-categories
       - /v1/service-provider-sources/:source_name/sync
+      - /v1/sla-rules
       - /v1/submitters/:profile_id/block
       - /v1/submitters/:profile_id/unblock
       methods:
@@ -1479,6 +1484,8 @@ spec:
       - /v1/sla-configurations/*
       - /v1/sla-policy
       - /v1/sla-policy/*
+      - /v1/sla-rules
+      - /v1/sla-rules/*
       - /v1/submitters
       - /v1/submitters/*
       methods:

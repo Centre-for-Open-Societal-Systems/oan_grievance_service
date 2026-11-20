@@ -50,6 +50,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 	is_in_area_subtree,
 )
 from oan_grievance_service.services.constants import (
+	KEBELE_AND_BELOW_LEVELS,
 	ROLE_ADMIN,
 	ROLE_ASSISTED_SUBMITTER,
 	ROLE_DESK_HEAD,
@@ -100,6 +101,39 @@ def can_see_identity(grievance, user=None):
 	if not submitter or user == "Guest":
 		return False
 	return bool(frappe.db.exists("Grievance Submitter Profile", {"name": submitter, "user": user}))
+
+
+def is_kebele_level_officer(user=None) -> bool:
+	"""Whether every active desk seat of `user` is at Kebele level or below.
+
+	Such an officer never reads or works a sensitive case. A seat with no area (a national
+	or ATI desk) or at Woreda level and above makes the user a Woreda-level officer, who may.
+	Someone with no seat at all is not a Kebele officer; the other rules decide what they read.
+	The level of a seat is the level of the area on the officer's row on the desk.
+	"""
+	seats = active_scopes(user or frappe.session.user)
+	if not seats:
+		return False
+	areas = {seat.get("administrative_area_scope") for seat in seats}
+	if None in areas or "" in areas:
+		return False
+	levels = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"name": ["in", list(areas)]},
+		fields=["name", "level_name"],
+	)
+	level_of = {row.name: row.level_name for row in levels}
+	return all(level_of.get(area) in KEBELE_AND_BELOW_LEVELS for area in areas)
+
+
+# The SQL for "this case is not sensitive". `coalesce` because a column added by a migration is
+# NULL until backfilled.
+_NOT_SENSITIVE = "coalesce(`tabGrievance`.is_sensitive, 0) = 0"
+
+
+def _barred_from_sensitive(doc, user) -> bool:
+	"""Whether `doc` is a sensitive case that `user`, as an officer, must not reach."""
+	return bool(doc.get("is_sensitive")) and is_kebele_level_officer(user)
 
 
 def _quote(values):
@@ -229,18 +263,33 @@ def grievance_query_conditions(user=None):
 		return ""
 
 	clauses = []
+	# An officer seated only at Kebele level reads no sensitive case, through any arm below.
+	barred = (
+		_NOT_SENSITIVE
+		if roles & {ROLE_REVIEW_OFFICER, ROLE_OFFICER} and is_kebele_level_officer(user)
+		else None
+	)
 
 	if ROLE_REVIEW_OFFICER in roles:
-		clauses.append(_reviewer_clause(user))
+		reviewer = _reviewer_clause(user)
+		clauses.append(f"({reviewer} and {barred})" if barred else reviewer)
 
 	# A submitter reaches their own cases, and the assisted submissions they
 	# filed on someone else's behalf. Both arms belong to the one Submitter role.
+	# A sensitive case is never reached through the person who filed it for someone
+	# (a development agent may be the person complained about): only through the
+	# submitter's own profile, or the account that filed it for itself.
 	if roles & SUBMITTER_ROLES:
 		profiles = profiles_of(user)
 		if profiles:
 			clauses.append(f"`tabGrievance`.submitter in ({_quote(profiles)})")
-		clauses.append(f"`tabGrievance`.assisted_by_officer = {frappe.db.escape(user)}")
-		clauses.append(f"`tabGrievance`.owner = {frappe.db.escape(user)}")
+		clauses.append(
+			f"(`tabGrievance`.assisted_by_officer = {frappe.db.escape(user)} and {_NOT_SENSITIVE})"
+		)
+		clauses.append(
+			f"(`tabGrievance`.owner = {frappe.db.escape(user)} and "
+			f"({_NOT_SENSITIVE} or coalesce(`tabGrievance`.assisted_by_officer, '') = ''))"
+		)
 
 	# Grievance Officer: sees cases assigned to self/subordinates and cases within configured scope
 	if ROLE_OFFICER in roles:
@@ -252,7 +301,8 @@ def grievance_query_conditions(user=None):
 			"`tabGrievance`.name in (select grievance from `tabGrievance Change Request` "
 			f"where status = 'Pending' and pending_with = {frappe.db.escape(user)})"
 		)
-		clauses.append("(" + " or ".join(scope_clauses) + ")")
+		officer = "(" + " or ".join(scope_clauses) + ")"
+		clauses.append(f"({officer} and {barred})" if barred else officer)
 
 	if not clauses:
 		return "1 = 0"
@@ -282,7 +332,10 @@ def has_grievance_permission(doc, ptype="read", user=None):
 	if roles & UNRESTRICTED_ROLES:
 		return True
 
-	if ROLE_REVIEW_OFFICER in roles and ptype == "read":
+	# An officer seated only at Kebele level reaches no sensitive case, by any route below.
+	barred = bool(roles & {ROLE_REVIEW_OFFICER, ROLE_OFFICER}) and _barred_from_sensitive(doc, user)
+
+	if ROLE_REVIEW_OFFICER in roles and ptype == "read" and not barred:
 		if _is_placed(user) and _scope_covers(doc, active_scopes(user)):
 			return True
 
@@ -290,15 +343,20 @@ def has_grievance_permission(doc, ptype="read", user=None):
 		owner = doc.get("owner")
 		submitter = doc.get("submitter")
 		assisted = doc.get("assisted_by_officer")
-		owns = (bool(submitter) and submitter in profiles_of(user)) or (bool(owner) and owner == user)
-		if owns or assisted == user:
+		# A sensitive case is reached through the submitter's own profile, or by the account that
+		# filed it for itself. Whoever filed it on someone's behalf does not keep access.
+		sensitive = bool(doc.get("is_sensitive"))
+		owns = (bool(submitter) and submitter in profiles_of(user)) or (
+			bool(owner) and owner == user and not (sensitive and assisted)
+		)
+		if owns or (assisted == user and not sensitive):
 			if ptype == "read":
 				return True
 			from oan_grievance_service.services.sla import terminal_states
 
 			return ptype == "write" and doc.get("workflow_state") not in terminal_states()
 
-	if ROLE_OFFICER not in roles:
+	if ROLE_OFFICER not in roles or barred:
 		return False
 
 	team = get_subordinate_officers(user)

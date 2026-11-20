@@ -1652,6 +1652,7 @@ def _import_all_api_modules() -> None:
 		"oan_grievance_service.api.v1.response_config",
 		"oan_grievance_service.api.v1.service_provider",
 		"oan_grievance_service.api.v1.service_provider_source",
+		"oan_grievance_service.api.v1.sla_rules",
 		"oan_grievance_service.api.v1.sla_settings",
 		"oan_grievance_service.api.v1.submitter",
 		"oan_grievance_service.api.v1.taxonomy",
