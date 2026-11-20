@@ -327,13 +327,13 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "Normal",
+   "description": "Urgent for an urgent case, blank otherwise. Set from the matching SLA rule at filing.",
    "fieldname": "priority",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Priority",
-   "options": "Normal\nHigh\nUrgent",
+   "options": "\nUrgent",
    "read_only": 1
   },
   {
@@ -561,7 +561,7 @@
  "is_submittable": 0,
  "links": [],
  "max_attachments": 5,
- "modified": "2026-11-18 12:00:00.000000",
+ "modified": "2026-11-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance",

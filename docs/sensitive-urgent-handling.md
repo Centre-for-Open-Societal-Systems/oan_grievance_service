@@ -1,6 +1,6 @@
 # Sensitive and urgent handling (STG-514)
 
-A grievance sub-type can be **Sensitive**. A case's **SLA days**, **urgency** and **priority** come from one place, the **SLA rules** of its category, and can differ by sub-type, by area and by season. The service decides this once, when the case is filed, and the case carries the answer. Nothing in the portal works out a season.
+A grievance sub-type can be **Sensitive**. A case's **SLA days** and **urgency** (with its **priority**, which follows urgency) come from one place, the **SLA rules** of its category, and can differ by sub-type, by area and by season. The service decides this once, when the case is filed, and the case carries the answer. Nothing in the portal works out a season.
 
 The service holds the mechanism only. The Ethiopian values (the Routing Matrix D2's Sensitive Flag, Urgent Flag and Urgent Season columns, and its Seasonal Calendar) are data in the `openg2p-data` seed (`oan-seed/grievance`), not in this app.
 
@@ -10,7 +10,7 @@ The service holds the mechanism only. The Ethiopian values (the Routing Matrix D
 | ------------------ | ---------------------------------------- | ----------------------------------- |
 | `is_sensitive`     | 0 or 1                                   | the type's `is_sensitive`           |
 | `handling_class`   | `Standard`, `Urgent`                     | the matching SLA rule's `is_urgent` |
-| `priority`         | `Normal`, `High`, `Urgent`               | the matching SLA rule's `priority`  |
+| `priority`         | `Urgent` or blank                        | Urgent when the case is Urgent      |
 | `sla_days`         | working days                             | the matching SLA rule's `sla_days`  |
 | `status_pin`       | encrypted 6 digits, sensitive cases only | issued at filing                    |
 
@@ -18,7 +18,7 @@ The service holds the mechanism only. The Ethiopian values (the Routing Matrix D
 
 ## SLA rules
 
-The SLA rules (doctype Grievance SLA Rule, `/api/v1/sla-rules`) are the one source of SLA days, urgency and priority. Each rule is its own record linked to a service category, and **every rule carries all three**: there is no blank that inherits from somewhere else.
+The SLA rules (doctype Grievance SLA Rule, `/api/v1/sla-rules`) are the one source of SLA days and urgency. Each rule is its own record linked to a service category, and **every rule carries both**: there is no blank that inherits from somewhere else. **Priority has one value, Urgent**: an urgent rule gives its cases priority Urgent, any other rule no priority. It is never set on its own (Normal and High were removed; the `drop_normal_and_high_priority` patch cleared them).
 
 - The category's **base rule** names no type, no area and no window. It is the category's SLA wherever no narrower rule matches. Every category with an SLA has one: creating a category (or an SLA configuration) with `sla_days` makes it, a narrower rule cannot be added before it, and it cannot be deleted or narrowed. Its `sla_days` is what `/sla-configurations`, `/category-assignments` and `/service-categories` show and set as the category's `sla_days`.
 - A **narrower rule** names a type, an area or a recurring window, and replaces the base rule's values where it matches.
@@ -27,17 +27,17 @@ The SLA rules (doctype Grievance SLA Rule, `/api/v1/sla-rules`) are the one sour
 
 There is no separate season record and no calendar of its own: a window is a recurring month and day, the same every year, so any country's season can be written in it.
 
-| Field                                              | Meaning                                                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `service_category`                                 | required: the category whose cases the rule is for. Fixed once the rule is created                               |
-| `rule_label`                                       | a name for administrators, for example "Meher input season"                                                      |
-| `is_base`                                          | set by the system: the rule names no type, area or window                                                        |
-| `grievance_type`                                   | optional: only this type of the category                                                                         |
-| `administrative_area`                              | optional: only cases in this area or an area inside it                                                           |
-| `start_month`, `start_day`, `end_month`, `end_day` | optional: a recurring window; all four or none (none is all year)                                                |
-| `sla_days`                                         | required: the turnaround in working days when the rule matches                                                   |
-| `is_urgent`                                        | the case is handled as Urgent                                                                                    |
-| `priority`                                         | required: `Normal`, `High` or `Urgent`. `High` raises priority without urgent handling (the harvest peak's case) |
+| Field                                              | Meaning                                                                            |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `service_category`                                 | required: the category whose cases the rule is for. Fixed once the rule is created |
+| `rule_label`                                       | a name for administrators, for example "Meher input season"                        |
+| `is_base`                                          | set by the system: the rule names no type, area or window                          |
+| `grievance_type`                                   | optional: only this type of the category                                           |
+| `administrative_area`                              | optional: only cases in this area or an area inside it                             |
+| `start_month`, `start_day`, `end_month`, `end_day` | optional: a recurring window; all four or none (none is all year)                  |
+| `sla_days`                                         | required: the turnaround in working days when the rule matches                     |
+| `is_urgent`                                        | the case is handled as Urgent                                                      |
+| `priority`                                         | read only: `Urgent` for an urgent rule, blank otherwise (set from `is_urgent`)     |
 
 ### Which rule applies
 
@@ -50,7 +50,7 @@ the rule applied = the most specific matching rule:
                    then the narrowest area (no area is the widest),
                    then a windowed rule before an all-year one
                    (the base rule matches every case of the category)
-no rule at all   = the category has no SLA: Standard, Normal, no deadline
+no rule at all   = the category has no SLA: Standard, no priority, no deadline
 ```
 
 - A window may wrap the year end (October to April). Only month and day are compared, so the year never matters and 29 February needs no special case. Both ends are inside the window.
@@ -86,7 +86,7 @@ A rule change applies to cases filed afterwards. A case keeps the class and SLA 
 
 ### Upgrading a site
 
-The `move_sla_days_to_base_rules` patch (last in `patches.txt`) gives every category with an active SLA configuration its base rule, with the `sla_days` the configuration had, Standard and Normal, so every deadline stays what it was. A category that already has a base rule keeps it. The rule is named `<category code>-BASE`, the name the seed gives it, so loading the seed afterwards adds no second copy. Frappe keeps the old column; nothing reads it after the patch.
+The `move_sla_days_to_base_rules` patch (last in `patches.txt`) gives every category with an active SLA configuration its base rule, with the `sla_days` the configuration had, Standard and no priority, so every deadline stays what it was. A category that already has a base rule keeps it. The rule is named `<category code>-BASE`, the name the seed gives it, so loading the seed afterwards adds no second copy. Frappe keeps the old column; nothing reads it after the patch.
 
 The app does not set the Sensitive flags or the seasonal rules of the matrix on an existing site: they are in the `openg2p-data` seed. A site that already holds the types gets them through the API (or by loading the seed's `Grievance_SLA_Rule.json`).
 
@@ -94,15 +94,15 @@ The app does not set the Sensitive flags or the seasonal rules of the matrix on 
 
 All under the Administration tag. Reads: Grievance Admin, System Manager, Review Officer. Writes: DocPerm on Grievance SLA Rule (Grievance Admin, System Manager).
 
-| Method and path                      | What it does                                                                                                                                                      |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/v1/sla-rules`              | list, paginated; filters `service_category` (id, name or code), `grievance_type`, `administrative_area`, `is_urgent`, `is_base`                                   |
-| `POST /api/v1/sla-rules`             | create one rule; `service_category`, `sla_days` and `priority` are required, `is_urgent` defaults to false. A category's first rule must be its base rule         |
-| `GET /api/v1/sla-rules/{rule_id}`    | one rule                                                                                                                                                          |
-| `PATCH /api/v1/sla-rules/{rule_id}`  | change any field but `service_category`; omitted fields stay, `null` clears a scope field (all four window fields `null` is all year). The base rule stays a base |
-| `DELETE /api/v1/sla-rules/{rule_id}` | delete one rule; returns it as it was. The base rule cannot be deleted                                                                                            |
+| Method and path                      | What it does                                                                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/sla-rules`              | list, paginated; filters `service_category` (id, name or code), `grievance_type`, `administrative_area`, `is_urgent`, `is_base`                                                                          |
+| `POST /api/v1/sla-rules`             | create one rule; `service_category` and `sla_days` are required, `is_urgent` defaults to false (`true` = Urgent, priority Urgent); `priority` is not sent. A category's first rule must be its base rule |
+| `GET /api/v1/sla-rules/{rule_id}`    | one rule                                                                                                                                                                                                 |
+| `PATCH /api/v1/sla-rules/{rule_id}`  | change any field but `service_category`; omitted fields stay, `null` clears a scope field (all four window fields `null` is all year). The base rule stays a base                                        |
+| `DELETE /api/v1/sla-rules/{rule_id}` | delete one rule; returns it as it was. The base rule cannot be deleted                                                                                                                                   |
 
-Each returns the rule as `{name, service_category, is_base, rule_label, grievance_type, administrative_area, start_month, start_day, end_month, end_day, sla_days, is_urgent, priority, modified}` (`rule`, or `rules` with `pagination` for the list). A window that is not a window, a type of another category, an unknown area or category, a rule that would tie with another, a narrower rule without a base rule, and deleting or narrowing the base rule are `VALIDATION_ERROR`; an unknown id is `NOT_FOUND`.
+Each returns the rule as `{name, service_category, is_base, rule_label, grievance_type, administrative_area, start_month, start_day, end_month, end_day, sla_days, is_urgent, priority, modified}`, `priority` being `"Urgent"` or `null` (`rule`, or `rules` with `pagination` for the list). A window that is not a window, a type of another category, an unknown area or category, a rule that would tie with another, a narrower rule without a base rule, and deleting or narrowing the base rule are `VALIDATION_ERROR`; an unknown id is `NOT_FOUND`.
 
 `/sla-configurations`, `/category-assignments` and `/service-categories` keep their `sla_days` field: it reads and writes the category's base rule.
 
@@ -112,7 +112,7 @@ The values of the Routing Matrix D2 are in the `openg2p-data` seed, not here:
 
 - **Sensitive**: exactly C13-01 to C13-04, C15-01 to C15-03 and C16-01. C16-02 (wrong personal data) is not.
 - **Base rules**: one per category, with the matrix's turnaround. C17 (pest and disease outbreak) is urgent all year, so its base rule is urgent.
-- **Seasonal rules**: C01 Meher (15 May to 31 August, urgent), C02 and C07 dry / irrigation season (1 October to 30 April, urgent), C09 harvest marketing peak (1 October to 31 December, priority High, not urgent). The matrix gives no in-season turnaround, so each carries its category's days until the owners set them.
+- **Seasonal rules**: C01 Meher (15 May to 31 August, urgent), C02 and C07 dry / irrigation season (1 October to 30 April, urgent), C09 harvest marketing peak (1 October to 31 December, not urgent; it lost its High priority when priority became Urgent only). The matrix gives no in-season turnaround, so each carries its category's days until the owners set them.
 - **C04**: no sub-type is flagged. See open points.
 
 ## Sensitive cases
@@ -149,8 +149,8 @@ The PIN is never stored in clear by this app. The Grievance Notification Log, wh
 - **The subject of a grievance.** No field names the person complained about (change plan, section 3 item 15), so the service cannot exclude them by identity. The Kebele bypass covers the case where they are a DA or Kebele officer; a subject who is a Woreda officer on the same desk is not excluded.
 - **Belg woredas and woreda overrides.** No official list exists, so none is seeded. C01's February to April window for Belg woredas, and a woreda's own C02 or C07 window, are rules with that woreda's area, added when the list exists.
 - **C15-03 (pesticide safety).** Stays on the Gender and Safety desk, as the matrix has it. Moving it to Crop Protection is only proposed. The desk of a sub-type is the desks' business (`Grievance RBAC Assignment`), so the move needs no code, and it stays sensitive wherever it goes.
-- **Priority for Urgent handling.** The matrix does not say. The change report (CR-03) says the case priority is Urgent inside the window, so the seeded urgent rules set priority Urgent.
+- **Priority for Urgent handling.** The matrix does not say. The change report (CR-03) says the case priority is Urgent inside the window, so an urgent rule gives priority Urgent. Priority has no other value since Normal and High were removed.
 
 ## Existing records
 
-The new columns default to Standard, Normal and not sensitive, so cases filed before this change stay as they are and nobody loses access. A type that was already sensitive in practice (a desk without Kebele officers) still routes as before, but is only protected by the new rules once its type is flagged and a case is filed under it. A case already filed keeps its deadline: rules apply when a clock starts or is recalculated, and the migration patch gives each category a base rule with the SLA days it had.
+The new columns default to Standard, no priority and not sensitive, so cases filed before this change stay as they are and nobody loses access. A type that was already sensitive in practice (a desk without Kebele officers) still routes as before, but is only protected by the new rules once its type is flagged and a case is filed under it. A case already filed keeps its deadline: rules apply when a clock starts or is recalculated, and the migration patch gives each category a base rule with the SLA days it had.

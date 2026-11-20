@@ -6525,15 +6525,16 @@ paths:
       summary: List SLA rules
       description: 'The SLA rules, by service category and then oldest first. Filter by service_category
         (id, name or code), grievance_type, administrative_area, is_urgent or is_base. Every rule sets
-        sla_days, is_urgent and priority for the cases it matches on their filing date. A rule may name
-        a grievance_type of its category, an administrative_area (covering the areas inside it) and a
-        recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
-        a start after the end wraps the year end, for example 10/1 to 4/30). The category''s base rule
-        (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches, a category
-        needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching
-        rule wins: a type''s rule before the category''s, a narrower area before a wider one, a windowed
-        rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and
-        area may not share a day. A change applies to cases filed afterwards.'
+        sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the
+        case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type
+        of its category, an administrative_area (covering the areas inside it) and a recurring window
+        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
+        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
+        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
+        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
+        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
+        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
+        share a day. A change applies to cases filed afterwards.'
       operationId: get_api_v1_sla_rules
       responses:
         '200':
@@ -6633,18 +6634,20 @@ paths:
       tags:
       - Administration
       summary: Create an SLA rule
-      description: 'Add one rule to a service category. service_category, sla_days and priority are required;
-        is_urgent defaults to false. A category''s first rule must be its base rule (no type, area or
-        window); creating a category with sla_days, or setting sla_days on /sla-configurations, makes
-        it. Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing
-        date. A rule may name a grievance_type of its category, an administrative_area (covering the areas
-        inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none
-        for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category''s
-        base rule (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches,
-        a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific
-        matching rule wins: a type''s rule before the category''s, a narrower area before a wider one,
-        a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same
-        type and area may not share a day. A change applies to cases filed afterwards.'
+      description: 'Add one rule to a service category. service_category and sla_days are required; is_urgent
+        defaults to false (true makes the case Urgent, with priority Urgent). priority is not sent: it
+        follows is_urgent. A category''s first rule must be its base rule (no type, area or window); creating
+        a category with sla_days, or setting sla_days on /sla-configurations, makes it. Every rule sets
+        sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the
+        case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type
+        of its category, an administrative_area (covering the areas inside it) and a recurring window
+        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
+        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
+        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
+        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
+        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
+        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
+        share a day. A change applies to cases filed afterwards.'
       operationId: post_api_v1_sla_rules
       responses:
         '200':
@@ -6754,17 +6757,18 @@ paths:
       summary: Update an SLA rule
       description: 'Change any field of one rule but service_category. Omitted fields stay as they are;
         null clears rule_label, grievance_type, administrative_area or a window field (all four null makes
-        the rule all year). sla_days, is_urgent and priority cannot be cleared. The base rule cannot be
-        narrowed. Cases already filed keep the SLA and class they were filed with. Every rule sets sla_days,
-        is_urgent and priority for the cases it matches on their filing date. A rule may name a grievance_type
-        of its category, an administrative_area (covering the areas inside it) and a recurring window
-        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
-        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
-        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
-        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
-        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
-        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
-        share a day. A change applies to cases filed afterwards.'
+        the rule all year). sla_days and is_urgent cannot be cleared; priority follows is_urgent and is
+        not sent. The base rule cannot be narrowed. Cases already filed keep the SLA and class they were
+        filed with. Every rule sets sla_days and is_urgent for the cases it matches on their filing date;
+        an urgent rule gives the case priority Urgent, any other rule no priority (priority is read only).
+        A rule may name a grievance_type of its category, an administrative_area (covering the areas inside
+        it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for
+        all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category''s
+        base rule (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches,
+        a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific
+        matching rule wins: a type''s rule before the category''s, a narrower area before a wider one,
+        a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same
+        type and area may not share a day. A change applies to cases filed afterwards.'
       operationId: patch_api_v1_sla_rules_rule_id
       responses:
         '200':
@@ -10881,6 +10885,11 @@ components:
           type: boolean
         priority:
           type: string
+          enum:
+          - Urgent
+          default: null
+          description: Urgent for an urgent rule, null otherwise. Read only
+          nullable: true
         modified:
           type: string
           default: null
@@ -10891,7 +10900,6 @@ components:
       - is_base
       - sla_days
       - is_urgent
-      - priority
       type: object
     SlaRuleListData:
       properties:
@@ -12229,17 +12237,11 @@ components:
           type: integer
         is_urgent:
           default: false
+          description: 'true: Urgent handling and priority Urgent'
           type: boolean
-        priority:
-          enum:
-          - Normal
-          - High
-          - Urgent
-          type: string
       required:
       - service_category
       - sla_days
-      - priority
       type: object
     UpdateSlaRule:
       additionalProperties: false
@@ -12296,14 +12298,7 @@ components:
         is_urgent:
           type: boolean
           default: null
-          nullable: true
-        priority:
-          enum:
-          - Normal
-          - High
-          - Urgent
-          type: string
-          default: null
+          description: 'true: Urgent handling and priority Urgent'
           nullable: true
       type: object
     UpdateGlobalSlaPolicy:

@@ -1,6 +1,6 @@
 """The configuration API of sensitive, urgent and seasonal handling (STG-514).
 
-Sensitive is a flag of the grievance type. SLA days, urgency and priority are the category's SLA
+Sensitive is a flag of the grievance type. SLA days and urgency (priority follows it) are the category's SLA
 rules, one record each, at /sla-rules; /sla-configurations shows and sets the base rule's days.
 """
 
@@ -31,6 +31,8 @@ from oan_grievance_service.tests.test_classification import BASE_SLA_DAYS, a_bar
 
 IRRIGATION = {"start_month": 10, "start_day": 1, "end_month": 4, "end_day": 30}
 MARCH_TO_MAY = {"start_month": 3, "start_day": 1, "end_month": 5, "end_day": 31}
+# A window that shares no day with IRRIGATION (October to April).
+MARCH_TO_MAY_ELSEWHERE = {"start_month": 5, "start_day": 1, "end_month": 6, "end_day": 30}
 RULE = "Grievance SLA Rule"
 
 
@@ -107,7 +109,7 @@ class TestGrievanceTypeSensitiveFlag(ApiFixture):
 
 class TestSlaRulesApi(ApiFixture):
 	def create(self, **fields):
-		fields = {"sla_days": 3, "priority": "Normal", **fields}
+		fields = {"sla_days": 3, **fields}
 		result = create_rule(service_category=self.category, **fields)
 		self.assertEqual(result["status"], "success", msg=result)
 		return result["data"]["rule"]
@@ -130,7 +132,6 @@ class TestSlaRulesApi(ApiFixture):
 			**IRRIGATION,
 			sla_days=3,
 			is_urgent=True,
-			priority="Urgent",
 		)
 		self.assertEqual(
 			{
@@ -156,29 +157,48 @@ class TestSlaRulesApi(ApiFixture):
 		self.assertTrue(base["is_base"])
 		self.assertEqual(
 			(base["sla_days"], base["is_urgent"], base["priority"], base["start_month"]),
-			(BASE_SLA_DAYS, False, "Normal", None),
+			(BASE_SLA_DAYS, False, None, None),
 		)
 
-	def test_sla_days_and_priority_are_required(self):
-		self.refused(lambda: create_rule(service_category=self.category, **IRRIGATION, priority="Normal"))
-		self.refused(lambda: create_rule(service_category=self.category, **IRRIGATION, sla_days=3))
+	def test_sla_days_are_required_and_neither_they_nor_urgency_can_be_cleared(self):
+		self.refused(lambda: create_rule(service_category=self.category, **IRRIGATION))
 		rule = self.create(**IRRIGATION)
-		for field in ("sla_days", "priority", "is_urgent"):
+		for field in ("sla_days", "is_urgent"):
 			with self.subTest(field=field):
 				self.refused(lambda field=field: update_rule(rule["name"], **{field: None}))
 
+	def test_priority_is_urgent_for_an_urgent_rule_and_null_otherwise(self):
+		urgent = self.create(**IRRIGATION, is_urgent=True)
+		plain = self.create(**MARCH_TO_MAY_ELSEWHERE)
+		self.assertEqual((urgent["is_urgent"], urgent["priority"]), (True, "Urgent"))
+		self.assertEqual((plain["is_urgent"], plain["priority"]), (False, None))
+		# It follows the urgency when that changes.
+		self.assertIsNone(update_rule(urgent["name"], is_urgent=False)["data"]["rule"]["priority"])
+		self.assertEqual(update_rule(plain["name"], is_urgent=True)["data"]["rule"]["priority"], "Urgent")
+		self.assertEqual(frappe.db.get_value(RULE, plain["name"], ["is_urgent", "priority"]), (1, "Urgent"))
+
+	def test_priority_is_not_an_input(self):
+		# It has one value and follows is_urgent, so a client never sends it, whatever the value.
+		for value in ("Urgent", "Normal", "High", None):
+			with self.subTest(value=value):
+				self.refused(
+					lambda value=value: create_rule(
+						service_category=self.category, **IRRIGATION, sla_days=3, priority=value
+					)
+				)
+		rule = self.create(**IRRIGATION)
+		self.refused(lambda: update_rule(rule["name"], priority="Urgent"))
+
 	def test_the_category_may_be_named_by_its_code(self):
 		code = frappe.db.get_value("Grievance Service Category", self.category, "code")
-		result = create_rule(service_category=code, **IRRIGATION, sla_days=3, priority="Normal")
+		result = create_rule(service_category=code, **IRRIGATION, sla_days=3)
 		self.assertEqual(result["data"]["rule"]["service_category"], self.category, msg=result)
 
 	def test_the_list_filters_by_category_urgency_and_base(self):
 		base = self.base()
-		urgent = self.create(**IRRIGATION, is_urgent=True, priority="Urgent")
-		high = self.create(start_month=5, start_day=1, end_month=6, end_day=30, priority="High")
-		elsewhere = create_rule(service_category=a_category(), **IRRIGATION, sla_days=3, priority="Normal")[
-			"data"
-		]["rule"]
+		urgent = self.create(**IRRIGATION, is_urgent=True)
+		high = self.create(start_month=5, start_day=1, end_month=6, end_day=30)
+		elsewhere = create_rule(service_category=a_category(), **IRRIGATION, sla_days=3)["data"]["rule"]
 
 		listed = list_rules(service_category=self.category)["data"]
 		self.assertEqual(
@@ -192,7 +212,7 @@ class TestSlaRulesApi(ApiFixture):
 		self.assertNotIn(elsewhere["name"], [row["name"] for row in listed["rules"]])
 
 	def test_a_patch_changes_only_what_it_sends(self):
-		rule = self.create(rule_label="Dry", **IRRIGATION, is_urgent=True, priority="Urgent")
+		rule = self.create(rule_label="Dry", **IRRIGATION, is_urgent=True)
 		updated = update_rule(rule["name"], sla_days=4)["data"]["rule"]
 		self.assertEqual((updated["sla_days"], updated["rule_label"], updated["is_urgent"]), (4, "Dry", True))
 		self.assertEqual((updated["start_month"], updated["priority"]), (10, "Urgent"))
@@ -228,24 +248,25 @@ class TestSlaRulesApi(ApiFixture):
 		self.refused(lambda: delete_rule(base["name"]))
 		self.refused(lambda: update_rule(base["name"], **IRRIGATION))
 		# Its values change like any rule's.
-		updated = update_rule(base["name"], sla_days=9, is_urgent=True, priority="Urgent")["data"]["rule"]
-		self.assertEqual((updated["sla_days"], updated["is_urgent"], updated["is_base"]), (9, True, True))
+		updated = update_rule(base["name"], sla_days=9, is_urgent=True)["data"]["rule"]
+		self.assertEqual(
+			(updated["sla_days"], updated["is_urgent"], updated["priority"], updated["is_base"]),
+			(9, True, "Urgent", True),
+		)
 
 	def test_a_category_needs_its_base_rule_before_a_narrower_one(self):
 		bare = a_bare_category()
-		self.refused(lambda: create_rule(service_category=bare, **IRRIGATION, sla_days=3, priority="Normal"))
+		self.refused(lambda: create_rule(service_category=bare, **IRRIGATION, sla_days=3))
 		# Its base rule first, then the narrower one.
+		self.assertEqual(create_rule(service_category=bare, sla_days=7)["status"], "success")
 		self.assertEqual(
-			create_rule(service_category=bare, sla_days=7, priority="Normal")["status"], "success"
-		)
-		self.assertEqual(
-			create_rule(service_category=bare, **IRRIGATION, sla_days=3, priority="Normal")["status"],
+			create_rule(service_category=bare, **IRRIGATION, sla_days=3)["status"],
 			"success",
 		)
 
 	def test_each_change_applies_to_the_next_case(self):
 		kind = a_type(self.category)
-		rule = self.create(**IRRIGATION, is_urgent=True, priority="Urgent", sla_days=3)
+		rule = self.create(**IRRIGATION, is_urgent=True, sla_days=3)
 		inside = classification.classify(kind, None, date(2026, 11, 15))
 		self.assertEqual((inside.handling_class, inside.sla_days), (C.HANDLING_URGENT, 3))
 		outside = classification.classify(kind, None, date(2026, 6, 15))
@@ -263,37 +284,30 @@ class TestSlaRulesApi(ApiFixture):
 			{"start_month": 2, "start_day": 30, "end_month": 3, "end_day": 1},
 			{"start_month": 2, "start_day": 1},
 			{"start_month": 13, "start_day": 1, "end_month": 3, "end_day": 1},
-			{**IRRIGATION, "priority": "Critical"},
 			{**IRRIGATION, "sla_days": 0},
 			{"administrative_area": "No such area"},
 		):
 			with self.subTest(fields=fields):
 				self.refused(
 					lambda fields=fields: create_rule(
-						service_category=self.category, **{"sla_days": 3, "priority": "Normal", **fields}
+						service_category=self.category, **{"sla_days": 3, **fields}
 					)
 				)
-		self.refused(lambda: create_rule(service_category="No such category", sla_days=3, priority="Normal"))
-		self.refused(lambda: create_rule(sla_days=3, priority="Normal"))
+		self.refused(lambda: create_rule(service_category="No such category", sla_days=3))
+		self.refused(lambda: create_rule(sla_days=3))
 
 	def test_a_rule_that_would_tie_is_a_validation_error(self):
-		self.create(**IRRIGATION, is_urgent=True, priority="Urgent")
-		self.refused(
-			lambda: create_rule(service_category=self.category, **MARCH_TO_MAY, sla_days=3, priority="Normal")
-		)
+		self.create(**IRRIGATION, is_urgent=True)
+		self.refused(lambda: create_rule(service_category=self.category, **MARCH_TO_MAY, sla_days=3))
 		# A second base rule ties with the first.
-		self.refused(lambda: create_rule(service_category=self.category, sla_days=3, priority="Normal"))
+		self.refused(lambda: create_rule(service_category=self.category, sla_days=3))
 		# Moving a rule onto another's days is refused too.
 		later = self.create(start_month=6, start_day=1, end_month=8, end_day=31)
 		self.refused(lambda: update_rule(later["name"], start_month=3))
 
 	def test_a_type_of_another_category_is_a_validation_error(self):
 		other = a_type(a_category())
-		self.refused(
-			lambda: create_rule(
-				service_category=self.category, grievance_type=other, sla_days=3, priority="Normal"
-			)
-		)
+		self.refused(lambda: create_rule(service_category=self.category, grievance_type=other, sla_days=3))
 
 	def test_an_officer_neither_reads_nor_writes_rules(self):
 		rule = self.create(**IRRIGATION)
@@ -301,9 +315,7 @@ class TestSlaRulesApi(ApiFixture):
 		for call in (
 			lambda: list_rules(),
 			lambda: get_rule(rule["name"]),
-			lambda: create_rule(
-				service_category=self.category, **MARCH_TO_MAY, sla_days=3, priority="Normal"
-			),
+			lambda: create_rule(service_category=self.category, **MARCH_TO_MAY, sla_days=3),
 			lambda: update_rule(rule["name"], sla_days=2),
 			lambda: delete_rule(rule["name"]),
 		):
