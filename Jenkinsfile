@@ -32,9 +32,6 @@ pipeline {
                     env.FULL_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_REPO}:${env.IMMUTABLE_TAG}"
                     env.SEED_IMAGE      = "${env.IMAGE_REGISTRY}/${env.ECR_SEED_REPO}:${env.IMMUTABLE_TAG}"
                     env.FRAPPE_BRANCH   = sh(returnStdout: true, script: 'python3 ci/package_chart.py app-version').trim()
-
-                    def files = sh(returnStdout: true, script: 'git diff --name-only HEAD^1 HEAD || echo apisix/').trim().split('\n')
-                    env.GATEWAY_CHANGED = files.any { it.startsWith('apisix/') || it.startsWith('openapi/') || it == 'helm/environments/dev/oan-grievance-gateway.yaml' } ? 'true' : 'false'
                     echo "Branch ${env.BRANCH_NAME} -> tag ${env.IMMUTABLE_TAG}, image ${env.FULL_IMAGE}"
                 }
             }
@@ -145,15 +142,11 @@ pipeline {
             }
         }
 
-        // The routes chart (apisix/k8s) is packaged and published like the app chart, but only for a build that
-        // changed the spec, the routes or the gateway values: those are the builds that install it.
+        // The routes chart (apisix/k8s) is packaged and published like the app chart, on every develop build.
         stage('Package gateway chart') {
             when {
                 beforeAgent true
-                allOf {
-                    branch 'develop'
-                    expression { env.GATEWAY_CHANGED == 'true' }
-                }
+                branch 'develop'
             }
             steps {
                 sh 'python3 ci/package_chart.py gateway-package'
@@ -175,14 +168,10 @@ pipeline {
         }
 
         // develop -> APISIX routes (chart apisix/k8s) on the oan_dev node, after the app deploy.
-        // Runs only when the spec, the generated routes or the gateway values changed.
         stage('develop → gateway (apisix)') {
             when {
                 beforeAgent true
-                allOf {
-                    branch 'develop'
-                    expression { env.GATEWAY_CHANGED == 'true' }
-                }
+                branch 'develop'
             }
             agent { label 'oan-ci-deploy' }
             options { timeout(time: 15, unit: 'MINUTES') }
@@ -230,10 +219,7 @@ pipeline {
         stage('Publish gateway chart') {
             when {
                 beforeAgent true
-                allOf {
-                    branch 'develop'
-                    expression { env.GATEWAY_CHANGED == 'true' }
-                }
+                branch 'develop'
             }
             steps {
                 // UNSTABLE, not failed: the routes are already installed.

@@ -343,7 +343,22 @@ def _available(officers):
 	]
 
 
-def pick_officer_by_strategy(assignment_doc, grievance=None):
+def _is_kebele_level_seat(officer) -> bool:
+	"""Whether the officer's row on the desk is seated at Kebele level or below."""
+	area = getattr(officer, "administrative_area", None)
+	if not area:
+		return False
+	return frappe.db.get_value("Grievance Administrative Area", area, "level_name") in (
+		C.KEBELE_AND_BELOW_LEVELS
+	)
+
+
+def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
+	"""The officer of the desk who takes the case, or None.
+
+	`sensitive` bypasses the Kebele: seats at Kebele level or below are never candidates, so
+	the case goes to the lowest rung seated at Woreda level or above (the focal person).
+	"""
 	if not assignment_doc.get("officers"):
 		return None
 
@@ -391,6 +406,8 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 			user
 			and getattr(o, "active", 1)
 			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
+			# Read after the position filled in the row's area.
+			and not (sensitive and _is_kebele_level_seat(o))
 		):
 			candidates.append(o)
 
@@ -475,6 +492,7 @@ def apply_routing(grievance, commit_status=True):
 	from oan_grievance_service.services import lifecycle, notifications
 
 	doc = officer_user = None
+	sensitive = bool(_field_of(grievance, "is_sensitive"))
 	routing_on = auto_routing_enabled()
 	desks = ranked_assignments(grievance) if routing_on else assignments_for_unrouted()
 	tried_specific_desk = False
@@ -486,10 +504,10 @@ def apply_routing(grievance, commit_status=True):
 			continue
 		if candidate.department_scope != C.UNROUTED_DEPARTMENT:
 			tried_specific_desk = True
-			officer_user = pick_officer_by_strategy(candidate, grievance)
+			officer_user = pick_officer_by_strategy(candidate, grievance, sensitive)
 		else:
 			# Triage desk catches cases without area filter
-			officer_user = pick_officer_by_strategy(candidate)
+			officer_user = pick_officer_by_strategy(candidate, sensitive=sensitive)
 		if officer_user:
 			doc = candidate
 			break

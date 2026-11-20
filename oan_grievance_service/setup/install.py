@@ -675,13 +675,45 @@ def seed_grievance_types():
 	for name, category in GRIEVANCE_TYPES:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
+		if is_catch_all:
+			if frappe.db.exists("Grievance Type", C.FALLBACK_TYPE_CODE):
+				if not frappe.db.get_value("Grievance Type", C.FALLBACK_TYPE_CODE, "type_code"):
+					frappe.db.set_value(
+						"Grievance Type", C.FALLBACK_TYPE_CODE, "type_code", C.FALLBACK_TYPE_CODE
+					)
+				continue
+			existing_by_tuple = frappe.db.get_value(
+				"Grievance Type",
+				{"service_category": category, "type_name": name},
+				["name", "type_code"],
+				as_dict=True,
+			)
+			if existing_by_tuple:
+				if existing_by_tuple.name != C.FALLBACK_TYPE_CODE:
+					frappe.rename_doc(
+						"Grievance Type", existing_by_tuple.name, C.FALLBACK_TYPE_CODE, force=True
+					)
+				if existing_by_tuple.type_code != C.FALLBACK_TYPE_CODE:
+					frappe.db.set_value(
+						"Grievance Type", C.FALLBACK_TYPE_CODE, "type_code", C.FALLBACK_TYPE_CODE
+					)
+				continue
+			row = {
+				"doctype": "Grievance Type",
+				"name": C.FALLBACK_TYPE_CODE,
+				"type_name": name,
+				"service_category": category,
+				"type_code": C.FALLBACK_TYPE_CODE,
+				"is_active": 1,
+			}
+			frappe.get_doc(row).insert(ignore_permissions=True, set_name=C.FALLBACK_TYPE_CODE)
+			made.append(name)
+			continue
+
 		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
 			continue
 		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
-		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
-		if is_catch_all:
-			# Keyed on its code like every other type, so the seed data finds it by name.
-			row["type_code"] = C.FALLBACK_TYPE_CODE
 		frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
 		made.append(name)
 	return made
@@ -943,18 +975,21 @@ def seed_role_levels():
 
 
 def seed_categories():
-	"""Seed the service categories if they are absent.
-
-	Converting the code of a category that already exists is a one-time data
-	migration, not seeding, so it lives in
-	`patches/convert_service_category_codes_to_base32.py` instead.
-	"""
+	"""Seed the service categories if they are absent."""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
 		# An admin may have renamed a seeded category; its code still marks it as seeded.
 		if frappe.db.exists("Grievance Service Category", name) or frappe.db.exists(
 			"Grievance Service Category", {"code": code}
 		):
+			if name == C.FALLBACK_SERVICE_CATEGORY and frappe.db.exists("Grievance Service Category", name):
+				current_code = frappe.db.get_value("Grievance Service Category", name, "code")
+				if current_code != code and not frappe.db.exists(
+					"Grievance Service Category", {"code": code}
+				):
+					frappe.db.set_value(
+						"Grievance Service Category", name, "code", code, update_modified=False
+					)
 			continue
 		frappe.get_doc(
 			{
@@ -992,6 +1027,7 @@ def seed_unrouted_desk():
 			}
 		).insert(ignore_permissions=True)
 		made.append("officer")
+
 	if not frappe.db.exists("Grievance RBAC Assignment", {"department_scope": C.UNROUTED_DEPARTMENT}):
 		frappe.get_doc(
 			{
@@ -1005,6 +1041,7 @@ def seed_unrouted_desk():
 					{
 						"user": C.UNROUTED_OFFICER,
 						"role_level": "department_head",
+						"designation": "other officer",
 						"is_primary": 1,
 						"active": 1,
 					}

@@ -63,9 +63,13 @@ CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_def
 # matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
 # Assignment) and the turnaround is the SLA configuration's, so neither is a field of the type.
 TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
-TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS)
+# Sensitive (STG-514) is the matrix owners' too: a category head must not be able to hide a type from
+# Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is a rule
+# of the category's SLA configuration.
+TYPE_FLAG_FIELDS = ("is_sensitive",)
+TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 # The code is set once, when the type is made.
-TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS)
+TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 
 
 # Service categories
@@ -99,6 +103,7 @@ class GrievanceTypeRecord(BaseModel):
 	type_code: str | None = None
 	external_referral: str | None = None
 	entry_role_level: str | None = None
+	is_sensitive: bool = False
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -457,6 +462,7 @@ class CreateGrievanceType(Body):
 	entry_role_level: NonBlank | None = Field(
 		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level"
 	)
+	is_sensitive: bool | None = Field(None, description="Administrator only")
 
 
 class UpdateGrievanceType(Body):
@@ -469,6 +475,7 @@ class UpdateGrievanceType(Body):
 	entry_role_level: NonBlank | None = Field(
 		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level. Null clears it."
 	)
+	is_sensitive: bool | None = Field(None, description="Administrator only. Null clears it.")
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -491,7 +498,12 @@ def _type_records(docs: list) -> list[dict]:
 			"service_category": doc.service_category,
 			"is_active": bool(doc.is_active),
 			"has_grievances": doc.name in grievances,
-			**{field: _routing_value(doc, field) for field in TYPE_ADMIN_FIELDS},
+			**{
+				field: _routing_value(doc, field)
+				for field in TYPE_ADMIN_FIELDS
+				if field not in TYPE_FLAG_FIELDS
+			},
+			**{field: bool(doc.get(field)) for field in TYPE_FLAG_FIELDS},
 		}
 		for doc in docs
 	]
@@ -693,9 +705,16 @@ def _assert_may_set_admin_fields(sent: dict) -> None:
 
 
 def _editable(sent: dict, allowed: tuple[str, ...]) -> dict:
-	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores."""
+	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores.
+
+	A flag sent as null is cleared, as a Check field has no unset state.
+	"""
 	return {
-		fieldname: int(value) if isinstance(value, bool) else value
+		fieldname: int(bool(value))
+		if fieldname in TYPE_FLAG_FIELDS
+		else int(value)
+		if isinstance(value, bool)
+		else value
 		for fieldname, value in sent.items()
 		if fieldname in allowed
 	}

@@ -20,7 +20,7 @@ Scheduling lives in tasks.py; this module only answers what a run should do.
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import frappe
@@ -141,8 +141,23 @@ def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name:
 	return cur_dt
 
 
-def resolve_policy(service_category) -> SLAPolicy | None:
-	"""One policy per service category. Grievance type does not narrow the SLA."""
+def resolve_policy(service_category, grievance=None) -> SLAPolicy | None:
+	"""One policy per service category: its active SLA configuration, with the SLA days of its rules.
+
+	The days come only from the category's Grievance SLA Rules (`classification.sla_days_for`).
+	With `grievance`, they are the rule that matches the case (its type, area and filing date),
+	for example 3 days in season against 15 out of it; without it, the base rule's. A category
+	with no rule has 0 days: no deadline, as before for a category without an SLA.
+	"""
+	policy = _category_policy(service_category)
+	if policy is None:
+		return None
+	from oan_grievance_service.services import classification
+
+	return replace(policy, sla_days=classification.sla_days_for(service_category, grievance) or 0)
+
+
+def _category_policy(service_category) -> SLAPolicy | None:
 	rows = frappe.get_all(
 		"Grievance SLA Configuration",
 		filters={
@@ -151,7 +166,6 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 		},
 		fields=[
 			"name",
-			"sla_days",
 			"auto_escalate",
 			"auto_escalation_threshold",
 			"notify_on_breach",
@@ -168,7 +182,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 	r = rows[0]
 	return SLAPolicy(
 		name=r.name,
-		sla_days=r.sla_days or 0,
+		sla_days=0,  # filled in by resolve_policy from the rules
 		auto_escalate=bool(r.auto_escalate),
 		# The category's own threshold wins; 0 means it follows the installation-wide one.
 		auto_escalation_threshold=r.auto_escalation_threshold or auto_escalation_threshold(),
@@ -185,7 +199,7 @@ def start_clock(grievance):
 	if grievance.sla_due_date:
 		return
 
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -226,7 +240,7 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	the creation / start date, taking into account any banked hold time and holidays.
 	"""
 	cat = new_category or grievance.service_category
-	policy = resolve_policy(cat)
+	policy = resolve_policy(cat, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -256,9 +270,22 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	)
 
 
+def follow_type_change(grievance):
+	"""Re-length the SLA window when a case moves to another type of the same category.
+
+	Only when the rule that matches the new type gives other SLA days than the case has: otherwise
+	nothing moves, and the reminders already sent stay sent. The clock keeps its start.
+	"""
+	if not grievance.sla_due_date:
+		return
+	policy = resolve_policy(grievance.service_category, grievance)
+	if policy and policy.sla_days and policy.sla_days != grievance.sla_days:
+		recalculate_sla_on_category_change(grievance)
+
+
 def reset_clock(grievance):
 	"""Restart the SLA window from now when category changes on reassignment."""
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	now = now_datetime()
 	updates = {
 		"sla_start_at": now,
@@ -641,6 +668,12 @@ def escalate(grievance, reason=None, reassign=True):
 		log_unstaffed_for=grievance.name,
 		category=grievance.service_category,
 	)
+	if target and grievance.get("is_sensitive"):
+		from oan_grievance_service import permissions
+
+		# A sensitive case never lands on a Kebele-level officer: with nobody else above, it stays put.
+		if permissions.is_kebele_level_officer(target):
+			target = level = None
 	if not target:
 		changes = {"escalated": 1, **_first_escalation(grievance)}
 		audit.record_version(grievance, changes)

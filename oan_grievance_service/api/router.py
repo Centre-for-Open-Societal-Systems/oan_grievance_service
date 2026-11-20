@@ -101,6 +101,7 @@ def _register() -> None:
 		response_config,
 		service_provider,
 		service_provider_source,
+		sla_rules,
 		sla_settings,
 		submitter,
 		taxonomy,

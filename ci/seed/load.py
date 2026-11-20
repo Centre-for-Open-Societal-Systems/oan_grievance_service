@@ -64,11 +64,63 @@ def insert(row, doctype):
 		child.db_insert()
 
 
+def existing_under_another_name(doctype, row):
+	"""Return the name of an existing document matching natural business keys, if any."""
+	if doctype == "Grievance Service Category":
+		code = row.get("code")
+		category_name = row.get("category_name") or row.get("name")
+		if code and frappe.db.exists("Grievance Service Category", {"code": code}):
+			return frappe.db.get_value("Grievance Service Category", {"code": code})
+		if category_name and frappe.db.exists("Grievance Service Category", {"category_name": category_name}):
+			return frappe.db.get_value("Grievance Service Category", {"category_name": category_name})
+
+	elif doctype == "Grievance Type":
+		type_code = row.get("type_code")
+		service_category = row.get("service_category")
+		type_name = row.get("type_name")
+		if type_code and frappe.db.exists("Grievance Type", {"type_code": type_code}):
+			return frappe.db.get_value("Grievance Type", {"type_code": type_code})
+		if (
+			service_category
+			and type_name
+			and frappe.db.exists(
+				"Grievance Type", {"service_category": service_category, "type_name": type_name}
+			)
+		):
+			return frappe.db.get_value(
+				"Grievance Type", {"service_category": service_category, "type_name": type_name}
+			)
+
+	elif doctype == "Grievance SLA Configuration":
+		service_category = row.get("service_category")
+		if service_category and frappe.db.exists(
+			"Grievance SLA Configuration", {"service_category": service_category}
+		):
+			return frappe.db.get_value("Grievance SLA Configuration", {"service_category": service_category})
+
+	elif doctype == "Grievance SLA Rule":
+		# A category has one base rule (no type, area or window), whatever it is named: the
+		# app's install or the STG-514 patch may have made it before the seed is loaded.
+		service_category = row.get("service_category")
+		base = {"service_category": service_category, "is_base": 1}
+		if row.get("is_base") and service_category and frappe.db.exists("Grievance SLA Rule", base):
+			return frappe.db.get_value("Grievance SLA Rule", base)
+
+	elif doctype == "Grievance RBAC Assignment":
+		department_scope = row.get("department_scope")
+		if department_scope == "Unrouted" and frappe.db.exists(
+			"Grievance RBAC Assignment", {"department_scope": "Unrouted"}
+		):
+			return frappe.db.get_value("Grievance RBAC Assignment", {"department_scope": "Unrouted"})
+
+	return None
+
+
 def load_doctype(doctype, rows, password):
 	created = failed = 0
 	for row in rows:
 		name = row["name"]
-		if frappe.db.exists(doctype, name):
+		if frappe.db.exists(doctype, name) or existing_under_another_name(doctype, row):
 			continue
 		frappe.db.savepoint("seed_row")
 		try:

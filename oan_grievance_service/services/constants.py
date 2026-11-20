@@ -175,3 +175,19 @@ ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 # Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
 # here is the whole change if the answer is yes.
 REVIEWER_READ_ROLES = ADMIN_ROLES
+
+
+# Sensitive and urgent classification (STG-514). The handling class and priority a case carries are
+# decided once, at filing, by services/classification.py from the type and the category's SLA
+# rules; these are the values it writes.
+HANDLING_STANDARD = "Standard"
+HANDLING_URGENT = "Urgent"
+HANDLING_CLASSES = (HANDLING_STANDARD, HANDLING_URGENT)
+PRIORITY_NORMAL = "Normal"
+PRIORITY_HIGH = "High"
+PRIORITY_URGENT = "Urgent"
+PRIORITIES = (PRIORITY_NORMAL, PRIORITY_HIGH, PRIORITY_URGENT)
+
+# `level_name` of the areas a Kebele-level officer is seated at: the Kebele and anything below it.
+# A sensitive case never reaches an officer whose every seat is one of these.
+KEBELE_AND_BELOW_LEVELS = frozenset({"Kebele", "Village", "Ward"})

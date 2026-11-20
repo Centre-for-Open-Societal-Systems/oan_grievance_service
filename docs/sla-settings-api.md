@@ -24,7 +24,7 @@ Auth, the success and error envelopes, and the strictness rules (unknown body fi
 
 ## 2. Same data as Category Assignments (STG-404)
 
-`sla_days` and `auto_escalate` on `/api/v1/category-assignments` and on `/api/v1/sla-configurations` are **one stored value**, not two. Both read and write the category's `Grievance SLA Configuration`. Departments that serve the same category share that row, so:
+`sla_days` and `auto_escalate` on `/api/v1/category-assignments` and on `/api/v1/sla-configurations` are **one stored value**, not two. Both read and write the category's `Grievance SLA Configuration`, except `sla_days`, which is stored on the category's base `Grievance SLA Rule` (STG-514, see [sensitive-urgent-handling.md](sensitive-urgent-handling.md)): the SLA rules are the one source of SLA days, and these endpoints read and write the base rule's. Departments that serve the same category share that row, so:
 
 - a PATCH here shows up in `GET /api/v1/category-assignments` on the next read, and the other way round;
 - a configuration lists every department with an active category assignment for its category in `departments`;

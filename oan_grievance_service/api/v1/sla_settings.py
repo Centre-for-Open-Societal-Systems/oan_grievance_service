@@ -9,8 +9,10 @@ Two surfaces, each backed by one record:
   a deferral, and the default auto-escalate threshold.
 - `/api/v1/sla-configurations` is the per-category windows: `sla_days`, `auto_escalate` and
   `notify_on_breach`. These are the same values the Category Assignments tab shows as
-  `sla_days` and `auto_escalate`, stored once on the category's SLA configuration and
-  shared by every department that serves the category.
+  `sla_days` and `auto_escalate`, stored once per category and shared by every department that
+  serves it. `sla_days` is stored on the category's base Grievance SLA Rule (STG-514), the one
+  source of SLA days; this endpoint reads and writes that rule, and `/api/v1/sla-rules` holds
+  the narrower rules.
 
 Handlers stay thin. Field and range checks live in the doctypes' `validate()`, so they hold
 for the Desk as well as the API. What is here is request shape and the projection of the records.
@@ -44,7 +46,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.griev
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	get_active_config,
 )
-from oan_grievance_service.services import category_assignment
+from oan_grievance_service.services import category_assignment, classification
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, MAX_DEFERRAL_DAYS_LIMIT
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
@@ -55,7 +57,6 @@ SLA_CONFIGURATION = "Grievance SLA Configuration"
 CONFIGURATION_FIELDS = [
 	"name",
 	"service_category",
-	"sla_days",
 	"auto_escalate",
 	"notify_on_breach",
 	"modified",
@@ -64,7 +65,8 @@ CONFIGURATION_FIELDS = [
 # The only fields a PATCH may write. The request schema already forbids anything else; this
 # keeps that true if a schema ever grows a field the document should not take from a client.
 POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval")
-CONFIGURATION_EDITABLE = ("sla_days", "auto_escalate", "notify_on_breach")
+# `sla_days` is written to the category's base Grievance SLA Rule, not to the configuration.
+CONFIGURATION_EDITABLE = ("auto_escalate", "notify_on_breach")
 
 
 class GlobalSlaPolicyRecord(BaseModel):
@@ -82,7 +84,7 @@ class SlaConfigurationRecord(BaseModel):
 	name: str
 	service_category: str
 	departments: list[str]
-	sla_days: int
+	sla_days: int | None = Field(None, description="The category's base SLA rule's days. null: it has none")
 	auto_escalate: bool
 	notify_on_breach: bool
 	modified: str | None = None
@@ -156,8 +158,10 @@ def _policy_data() -> dict:
 
 
 def _configuration_records(rows: list) -> list[dict]:
-	"""Project SLA rows to API records with one query for the departments of the whole page."""
+	"""Project SLA rows to API records with one query each for the departments and the SLA days
+	(the base rules) of the whole page."""
 	departments: dict[str, list[str]] = {row.service_category: [] for row in rows}
+	days = classification.base_days(departments)
 	if departments:
 		for desk in frappe.get_all(
 			category_assignment.DOCTYPE,
@@ -174,7 +178,7 @@ def _configuration_records(rows: list) -> list[dict]:
 			name=row.name,
 			service_category=row.service_category,
 			departments=departments[row.service_category],
-			sla_days=row.sla_days,
+			sla_days=days.get(row.service_category),
 			auto_escalate=bool(row.auto_escalate),
 			notify_on_breach=bool(row.notify_on_breach),
 			modified=_text(row.modified),
@@ -303,7 +307,9 @@ def list_sla_configurations(
 	description="Change sla_days, auto_escalate or notify_on_breach on one service category's SLA "
 	+ "configuration. Omitted fields stay as they are. The values are shared with every department "
 	+ "serving the category and with its category assignments, so a change here shows there. "
-	+ "The service category is fixed.",
+	+ "The service category is fixed. sla_days is written to the category's base SLA rule (the "
+	+ "one with no type, area or window, see /sla-rules), so it is the days wherever no narrower "
+	+ "rule matches.",
 	tags=["Administration"],
 	response_model=SlaConfigurationData,
 )
@@ -312,8 +318,12 @@ def update_sla_configuration(config: str, **kwargs):
 	doc = get_active_config(config)
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
-	doc.update({key: kwargs[key] for key in CONFIGURATION_EDITABLE if key in kwargs})
-	doc.save()
+	if "sla_days" in kwargs:
+		classification.set_base_days(doc.service_category, kwargs["sla_days"])
+	values = {key: kwargs[key] for key in CONFIGURATION_EDITABLE if key in kwargs}
+	if values:
+		doc.update(values)
+		doc.save()
 	return success_response(
 		data={"sla_configuration": _configuration_record(doc.name)},
 		message=_("SLA configuration updated"),

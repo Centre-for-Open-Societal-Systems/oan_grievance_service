@@ -34,6 +34,7 @@ from frappe.translate import get_user_lang, print_language
 from frappe.utils import now_datetime, strip_html_tags, validate_email_address
 from oan_auth_service.api import operational_log as oplog
 
+from oan_grievance_service.services import classification
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
 
@@ -632,6 +633,48 @@ def _shown_ticket(grievance) -> str:
 	return tn.display(grievance.ticket_number) or grievance.name
 
 
+# Stands in for a sensitive case's PIN in everything stored here. The PIN itself is put back only
+# into the text that leaves the system (`_outbound_message`).
+PIN_MASK = "******"
+
+
+def sensitive_submitter_text(grievance, reveal_pin=False) -> tuple[str, str]:
+	"""(message, subject) a sensitive case sends its submitter: the reference number and PIN only.
+
+	No officer, no office, no category, no date. The Routing Matrix allows 'Woreda office' at
+	most where an office must be named; nothing here needs one. The PIN is masked unless
+	`reveal_pin`: the Grievance Notification Log, which officers can read, never holds it.
+	"""
+	ref = _shown_ticket(grievance)
+	pin = classification.pin_of(grievance)
+	subject = _("Grievance {0}").format(ref)
+	if not pin:
+		return subject, subject
+	return _("Grievance {0}. PIN: {1}").format(ref, pin if reveal_pin else PIN_MASK), subject
+
+
+def _outbound_message(row, grievance) -> str:
+	"""The text a queued row sends: its logged message, with a sensitive case's PIN put back.
+
+	Only the exact masked message `queue` wrote for the case's submitter is unmasked, so no other
+	row, and no template text, ever gets the PIN.
+	"""
+	if not grievance.get("is_sensitive"):
+		return row.message
+	with print_language(row.language):
+		masked, _subject = sensitive_submitter_text(grievance)
+		if row.message != masked:
+			return row.message
+		return sensitive_submitter_text(grievance, reveal_pin=True)[0]
+
+
+def _is_kebele_level_user(recipient) -> bool:
+	"""Whether `recipient` is a user seated only at Kebele level. An address is not."""
+	from oan_grievance_service import permissions
+
+	return bool(recipient) and permissions.is_kebele_level_officer(recipient)
+
+
 def _render_template(template: str | None, context: dict) -> str:
 	# nosemgrep: frappe-semgrep-rules.rules.security.frappe-ssti
 	return frappe.render_template(template, context) if template else ""
@@ -682,6 +725,13 @@ def queue(grievance, event_code, recipient_override=None):
 		if not recipient:
 			continue
 
+		sensitive = bool(grievance.get("is_sensitive"))
+		# An override names an officer whatever the template's recipient says (escalation).
+		to_submitter = recipient_role == RECIPIENT_SUBMITTER and not recipient_override
+		if sensitive and not to_submitter and _is_kebele_level_user(recipient):
+			# A sensitive case is never mentioned to a Kebele-level officer.
+			continue
+
 		if notification.channel == CHANNEL_SYSTEM:
 			if not frappe.db.exists("User", recipient):
 				user = frappe.db.get_value("User", {"email": recipient}, "name")
@@ -699,8 +749,13 @@ def queue(grievance, event_code, recipient_override=None):
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			message = _render_template(notification.message, shown_context)
-			subject = _render_template(notification.subject, shown_context)
+			if sensitive and to_submitter:
+				# Never the template: it may name the officer, the office, the category or the
+				# deadline. A sensitive case tells its submitter the reference and PIN, nothing else.
+				message, subject = sensitive_submitter_text(grievance)
+			else:
+				message = _render_template(notification.message, shown_context)
+				subject = _render_template(notification.subject, shown_context)
 
 		rows.append(
 			frappe.get_doc(
@@ -837,10 +892,11 @@ def _send_email_row(row, grievance):
 		communication_type="Automated Message",
 	).get("name")
 
+	# The Communication shows on the case, so it keeps the masked text; only the mail carries the PIN.
 	frappe.sendmail(
 		recipients=[address],
 		subject=row.subject or f"Grievance {_shown_ticket(grievance)}",
-		message=row.message,
+		message=_outbound_message(row, grievance),
 		reference_doctype="Grievance",
 		reference_name=grievance.name,
 		communication=communication,
@@ -868,7 +924,7 @@ def _send_sms_row(row, grievance):
 		raise ValueError("No SMS gateway configured in SMS Settings; message not sent.")
 
 	before = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
-	_send_sms([mobile], strip_html_tags(row.message), success_msg=False)
+	_send_sms([mobile], strip_html_tags(_outbound_message(row, grievance)), success_msg=False)
 	after = frappe.db.get_value("SMS Log", {}, "name", order_by="creation desc")
 
 	delivered = bool(after and after != before)
@@ -903,7 +959,8 @@ def _send_system_row(row, grievance):
 			"document_name": grievance.name,
 			"subject": row.subject or _shown_ticket(grievance),
 			"title": row.subject or _shown_ticket(grievance),
-			"description": row.message,
+			# Core's Notification Log is read by its recipient only, the submitter themselves.
+			"description": _outbound_message(row, grievance),
 			"from_user": from_user,
 		},
 		# Our own log dedupes on (grievance, event, recipient, channel); this stops a

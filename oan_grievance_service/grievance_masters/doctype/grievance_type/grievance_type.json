@@ -12,6 +12,8 @@
   "service_category",
   "col_gtype",
   "is_active",
+  "sec_classification",
+  "is_sensitive",
   "sec_routing_defaults",
   "external_referral",
   "col_routing",
@@ -54,6 +56,19 @@
    "label": "Active"
   },
   {
+   "fieldname": "sec_classification",
+   "fieldtype": "Section Break",
+   "label": "Sensitive Handling"
+  },
+  {
+   "default": "0",
+   "description": "Skips the Kebele and the subject, goes to the Ethics, Female/Safety or Data Protection focal person, and shows the submitter only the reference number and PIN.",
+   "fieldname": "is_sensitive",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Sensitive"
+  },
+  {
    "fieldname": "sec_routing_defaults",
    "fieldtype": "Section Break",
    "label": "Routing Defaults"
@@ -79,7 +94,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-17 12:00:00.000000",
+ "modified": "2026-11-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Masters",
  "name": "Grievance Type",
@@ -194,5 +209,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "type_name"
+ "title_field": "type_name",
+ "track_changes": 1
 }

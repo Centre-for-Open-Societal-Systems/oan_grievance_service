@@ -9,7 +9,8 @@ This module holds what spans entities: projecting a rule onto the desk's officer
 and writing the category's Grievance SLA Configuration.
 
 The SLA row is per category, not per desk. If departments A and B both serve category X,
-changing `sla_days` through A's rule changes B's too.
+changing `sla_days` through A's rule changes B's too. The days themselves are stored on the
+category's base Grievance SLA Rule.
 """
 
 import frappe
@@ -104,16 +105,21 @@ def active_sla_rows(categories) -> dict:
 	"""The SLA row runtime uses for each category: active, latest modified first.
 
 	`sla.resolve_policy` reads the same way, so what the API shows and edits is what routing
-	enforces even if legacy data holds more than one active row for a category.
+	enforces even if legacy data holds more than one active row for a category. `sla_days` is
+	the category's base Grievance SLA Rule's, the one place SLA days are stored.
 	"""
+	from oan_grievance_service.services import classification
+
 	rows = frappe.get_all(
 		SLA_DOCTYPE,
 		filters={"service_category": ["in", list(categories)], "active": 1},
-		fields=["name", "service_category", "sla_days", "auto_escalate"],
+		fields=["name", "service_category", "auto_escalate"],
 		order_by=SLA_ORDER,
 	)
+	days = classification.base_days({row.service_category for row in rows})
 	by_category = {}
 	for row in rows:
+		row.sla_days = days.get(row.service_category)
 		by_category.setdefault(row.service_category, row)
 	return by_category
 
