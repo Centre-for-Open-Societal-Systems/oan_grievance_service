@@ -23,9 +23,7 @@
   "sec_state_timers",
   "state_timers",
   "sec_level_turnarounds",
-  "level_turnarounds",
-  "sec_sla_rules",
-  "sla_rules"
+  "level_turnarounds"
  ],
  "fields": [
   {
@@ -136,24 +134,12 @@
    "fieldtype": "Table",
    "label": "Level Turnarounds",
    "options": "Grievance SLA Level Turnaround"
-  },
-  {
-   "description": "Rules that change a case's SLA Days, urgency and priority, for a type, an area (with the areas inside it) or a recurring window of the year. They are matched once, on the filing date; the most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. A case no rule matches keeps SLA Days above, Standard and Normal.",
-   "fieldname": "sec_sla_rules",
-   "fieldtype": "Section Break",
-   "label": "Seasonal and Urgent Rules"
-  },
-  {
-   "fieldname": "sla_rules",
-   "fieldtype": "Table",
-   "label": "Rules",
-   "options": "Grievance SLA Rule"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-19 10:00:00.000000",
+ "modified": "2026-10-08 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",

@@ -12,9 +12,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1 import grievance as grievance_api
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
 from oan_grievance_service.services import classification, notifications, reassignment, routing
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import ticket_number as tn
@@ -603,16 +600,15 @@ class TestSensitiveReassignment(SensitiveFixture):
 class TestOfficerView(SensitiveFixture):
 	def test_an_officer_sees_the_flags_the_backend_decided(self):
 		urgent_sensitive = a_type(self.category, sensitive=1)
-		# An all-year urgent rule for the type, on the category's SLA configuration.
-		config = (
-			frappe.db.get_value(
-				"Grievance SLA Configuration", {"service_category": self.category, "active": 1}
-			)
-			or save_sla_configuration(self.category, 10).name
-		)
-		config = frappe.get_doc("Grievance SLA Configuration", config)
-		config.append("sla_rules", {"grievance_type": urgent_sensitive, "is_urgent": 1})
-		config.save(ignore_permissions=True)
+		# An all-year urgent rule for the type.
+		frappe.get_doc(
+			{
+				"doctype": "Grievance SLA Rule",
+				"service_category": self.category,
+				"grievance_type": urgent_sensitive,
+				"is_urgent": 1,
+			}
+		).insert(ignore_permissions=True)
 		case = a_grievance(
 			grievance_type=urgent_sensitive,
 			administrative_area=self.kebele,

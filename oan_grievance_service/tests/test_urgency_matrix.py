@@ -16,9 +16,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	GrievanceSLAConfiguration,
 	save_sla_configuration,
 )
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_rule.grievance_sla_rule import GrievanceSLARule
 from oan_grievance_service.patches import apply_sensitive_urgent_matrix
 from oan_grievance_service.services import classification
 from oan_grievance_service.services import constants as C
@@ -30,6 +30,7 @@ WORKBOOK = Path(
 		Path.home() / "frappe16-bench" / "RefferDocs" / "OAN_Grievance_Routing_Matrix_D2.xlsx",
 	)
 )
+RULE = "Grievance SLA Rule"
 
 
 def _window(rule):
@@ -140,21 +141,19 @@ class MatrixPatchCase(FrappeTestCase):
 				.insert(ignore_permissions=True)
 				.name
 			)
-		config = (
-			frappe.db.get_value("Grievance SLA Configuration", {"service_category": name, "active": 1})
-			or save_sla_configuration(name, 10).name
-		)
-		frappe.db.delete(
-			"Grievance SLA Rule",
-			{"parent": config, "parenttype": "Grievance SLA Configuration", "parentfield": "sla_rules"},
-		)
+		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1}):
+			save_sla_configuration(name, 10)
+		frappe.db.delete(RULE, {"service_category": name})
 		return name
 
 	def rules(self, code):
 		category = frappe.db.get_value("Grievance Service Category", {"code": code})
-		return frappe.get_doc(
-			"Grievance SLA Configuration", {"service_category": category, "active": 1}
-		).sla_rules
+		return [
+			frappe.get_doc(RULE, name)
+			for name in frappe.get_all(
+				RULE, filters={"service_category": category}, pluck="name", order_by="creation asc"
+			)
+		]
 
 	def a_type(self, code):
 		existing = frappe.db.get_value("Grievance Type", {"type_code": code})
@@ -212,9 +211,15 @@ class TestApplyMatrixPatch(MatrixPatchCase):
 
 	def test_the_patch_does_not_overwrite_an_administrators_rules(self):
 		category = self.category("C01")
-		config = frappe.get_doc("Grievance SLA Configuration", {"service_category": category, "active": 1})
-		config.append("sla_rules", {"rule_label": "Own", "is_urgent": 1, "sla_days": 2})
-		config.save(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": RULE,
+				"service_category": category,
+				"rule_label": "Own",
+				"is_urgent": 1,
+				"sla_days": 2,
+			}
+		).insert(ignore_permissions=True)
 		apply_sensitive_urgent_matrix.execute()
 		self.assertEqual([rule.rule_label for rule in self.rules("C01")], ["Own"])
 
@@ -230,29 +235,22 @@ class TestApplyMatrixPatch(MatrixPatchCase):
 		self.category("C17")
 		sensitive = self.a_type("C15-02")
 		c01 = frappe.db.get_value("Grievance Service Category", {"code": "C01"})
-		original = GrievanceSLAConfiguration.validate_sla_rules
+		original = GrievanceSLARule.validate
 
 		def refuse_c01(doc):
 			if doc.service_category == c01:
 				raise frappe.ValidationError
 			return original(doc)
 
-		with mock.patch.object(GrievanceSLAConfiguration, "validate_sla_rules", refuse_c01):
+		with mock.patch.object(GrievanceSLARule, "validate", refuse_c01):
 			apply_sensitive_urgent_matrix.execute()
 		self.assertEqual(len(self.rules("C01")), 0)
 		self.assertEqual(len(self.rules("C17")), 1)
 		self.assertEqual(frappe.db.get_value("Grievance Type", sensitive, "is_sensitive"), 1)
 
-	def test_the_change_is_in_the_history(self):
+	def test_the_sensitive_flag_change_is_in_the_types_history(self):
 		name = self.a_type("C13-02")
-		category = self.category("C17")
-		config = frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": category, "active": 1}
-		)
 		# Frappe writes no Version while `in_test` is set; a migration's save does.
 		with mock.patch.object(frappe, "in_test", False):
 			apply_sensitive_urgent_matrix.execute()
 		self.assertTrue(frappe.db.exists("Version", {"ref_doctype": "Grievance Type", "docname": name}))
-		self.assertTrue(
-			frappe.db.exists("Version", {"ref_doctype": "Grievance SLA Configuration", "docname": config})
-		)

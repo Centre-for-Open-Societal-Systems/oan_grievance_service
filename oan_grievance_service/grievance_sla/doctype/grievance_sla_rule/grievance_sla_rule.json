@@ -1,11 +1,14 @@
 {
  "actions": [],
+ "autoname": "format:GR-SLR-{#####}",
  "creation": "2026-11-19 10:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "service_category",
   "rule_label",
+  "col_scope",
   "grievance_type",
   "administrative_area",
   "sec_window",
@@ -21,6 +24,18 @@
  ],
  "fields": [
   {
+   "description": "The category whose cases this rule is for. Fixed once the rule is created.",
+   "fieldname": "service_category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Service Category",
+   "options": "Grievance Service Category",
+   "reqd": 1,
+   "search_index": 1,
+   "set_only_once": 1
+  },
+  {
    "description": "A name for the rule, for example Meher input season. Shown to administrators only.",
    "fieldname": "rule_label",
    "fieldtype": "Data",
@@ -28,10 +43,15 @@
    "label": "Label"
   },
   {
-   "description": "Blank applies to every type of the category. A type must belong to this configuration's category.",
+   "fieldname": "col_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Blank applies to every type of the category. A type must belong to the rule's category.",
    "fieldname": "grievance_type",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Grievance Type",
    "options": "Grievance Type"
   },
@@ -40,6 +60,7 @@
    "fieldname": "administrative_area",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Administrative Area",
    "options": "Grievance Administrative Area"
   },
@@ -52,13 +73,11 @@
   {
    "fieldname": "start_month",
    "fieldtype": "Int",
-   "in_list_view": 1,
    "label": "Start Month (1-12)"
   },
   {
    "fieldname": "start_day",
    "fieldtype": "Int",
-   "in_list_view": 1,
    "label": "Start Day (1-31)"
   },
   {
@@ -68,22 +87,21 @@
   {
    "fieldname": "end_month",
    "fieldtype": "Int",
-   "in_list_view": 1,
    "label": "End Month (1-12)"
   },
   {
    "fieldname": "end_day",
    "fieldtype": "Int",
-   "in_list_view": 1,
    "label": "End Day (1-31)"
   },
   {
+   "description": "A case this rule matches is classified once, on its filing date. Of the rules that match a case the most specific wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one.",
    "fieldname": "sec_effect",
    "fieldtype": "Section Break",
    "label": "When the Rule Matches"
   },
   {
-   "description": "Turnaround in working days for a case this rule matches. Blank keeps the category's SLA Days.",
+   "description": "Turnaround in working days for a case this rule matches. Blank keeps the SLA Days of the category's SLA configuration.",
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -96,6 +114,7 @@
    "fieldname": "is_urgent",
    "fieldtype": "Check",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Urgent"
   },
   {
@@ -107,16 +126,79 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "istable": 1,
  "links": [],
- "modified": "2026-11-19 10:00:00.000000",
+ "modified": "2026-11-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Rule",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "role": "Grievance Admin",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 1,
+   "share": 1,
+   "print": 1,
+   "email": 1
+  },
+  {
+   "role": "Grievance Review Officer",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 1,
+   "export": 0,
+   "share": 0,
+   "print": 1,
+   "email": 0
+  }
+ ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "rule_label",
+ "track_changes": 1
 }

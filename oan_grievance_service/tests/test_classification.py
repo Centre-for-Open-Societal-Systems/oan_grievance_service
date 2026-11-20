@@ -20,6 +20,7 @@ FEB_TO_APR = ((2, 1), (4, 30))
 DRY = ((10, 1), (4, 30))
 HARVEST = ((10, 1), (12, 31))
 BASE_SLA_DAYS = 15
+RULE = "Grievance SLA Rule"
 
 
 def _unique(label):
@@ -55,7 +56,7 @@ def a_free_category_code():
 
 
 def a_category(rules=(), sla_days=BASE_SLA_DAYS):
-	"""A new category with an active SLA configuration holding `rules`. Returns the category."""
+	"""A new category with an active SLA configuration and `rules`. Returns the category."""
 	category = (
 		frappe.get_doc(
 			{
@@ -68,21 +69,26 @@ def a_category(rules=(), sla_days=BASE_SLA_DAYS):
 		.insert(ignore_permissions=True)
 		.name
 	)
-	config = save_sla_configuration(category, sla_days)
-	for rule in rules:
-		config.append("sla_rules", rule)
-	if rules:
-		config.save(ignore_permissions=True)
+	save_sla_configuration(category, sla_days)
+	add_rules(category, rules)
 	return category
 
 
+def add_rules(category, rules):
+	"""Insert each rule for the category, in order. Returns their names."""
+	return [
+		frappe.get_doc({"doctype": RULE, "service_category": category, **rule})
+		.insert(ignore_permissions=True)
+		.name
+		for rule in rules
+	]
+
+
 def set_rules(category, rules):
-	config = frappe.get_doc("Grievance SLA Configuration", {"service_category": category, "active": 1})
-	config.set("sla_rules", [])
-	for rule in rules:
-		config.append("sla_rules", rule)
-	config.save(ignore_permissions=True)
-	return config
+	"""Replace every rule of the category with `rules`. Returns their names."""
+	for name in frappe.get_all(RULE, filters={"service_category": category}, pluck="name"):
+		frappe.delete_doc(RULE, name, ignore_permissions=True, force=True)
+	return add_rules(category, rules)
 
 
 def a_type(category, sensitive=0):
@@ -209,7 +215,7 @@ class TestRuleShape(unittest.TestCase):
 
 
 class TestRuleValidation(FrappeTestCase):
-	"""The SLA configuration refuses rules that are not windows, or that tie."""
+	"""A rule that is not a window, or that would tie with another of its category, is refused."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -238,10 +244,29 @@ class TestRuleValidation(FrappeTestCase):
 	def test_negative_sla_days_are_refused(self):
 		self.refused([a_rule(sla_days=-1)])
 
+	def test_a_rule_is_not_tied_with_itself_when_it_is_saved_again(self):
+		(name,) = add_rules(self.category, [a_rule(DRY, urgent=True)])
+		rule = frappe.get_doc(RULE, name)
+		rule.sla_days = 3
+		rule.save(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value(RULE, name, "sla_days"), 3)
+
+	def test_a_rule_moved_onto_anothers_days_is_refused(self):
+		add_rules(self.category, [a_rule(DRY, urgent=True)])
+		(name,) = add_rules(self.category, [a_rule(MEHER, urgent=True)])
+		rule = frappe.get_doc(RULE, name)
+		rule.start_month, rule.start_day = 3, 1
+		with self.assertRaises(frappe.ValidationError):
+			rule.save(ignore_permissions=True)
+
+	def test_rules_of_other_categories_never_tie(self):
+		add_rules(self.category, [a_rule(DRY, urgent=True)])
+		add_rules(a_category(), [a_rule(DRY, urgent=True)])
+
 	def test_a_valid_set_of_rules_is_saved(self):
 		woreda = an_administrative_area(_unique("Woreda"), None, "Woreda")
 		kind = a_type(self.category)
-		config = set_rules(
+		names = set_rules(
 			self.category,
 			[
 				a_rule(FEB_TO_APR, urgent=True),
@@ -252,7 +277,8 @@ class TestRuleValidation(FrappeTestCase):
 				a_rule(((2, 29), (2, 29)), area=woreda, grievance_type=kind, priority=C.PRIORITY_HIGH),
 			],
 		)
-		self.assertEqual(len(config.sla_rules), 6)
+		self.assertEqual(len(names), 6)
+		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 6)
 
 
 class TestClassification(FrappeTestCase):
@@ -411,12 +437,12 @@ class TestClassification(FrappeTestCase):
 			classification.STANDARD,
 		)
 
-	def test_a_category_with_no_active_configuration_is_standard(self):
+	def test_the_rules_belong_to_the_category_not_to_its_sla_configuration(self):
 		frappe.db.set_value("Grievance SLA Configuration", {"service_category": self.pests}, "active", 0)
 		self.addCleanup(
 			frappe.db.set_value, "Grievance SLA Configuration", {"service_category": self.pests}, "active", 1
 		)
-		self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, 6, 1)), False)
+		self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, 6, 1)), True)
 
 	def test_sensitive_is_the_types_flag_whatever_the_rules(self):
 		sensitive = a_type(self.inputs, sensitive=1)
@@ -431,8 +457,10 @@ class TestClassification(FrappeTestCase):
 		)
 
 	def test_the_result_names_the_rule(self):
-		rule = frappe.get_doc("Grievance SLA Configuration", {"service_category": self.inputs}).sla_rules[0]
-		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).rule, rule.rule_label)
+		label = frappe.db.get_value(
+			RULE, {"service_category": self.inputs, "administrative_area": ["is", "not set"]}, "rule_label"
+		)
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).rule, label)
 		self.assertIsNone(self.classify(self.c01, self.woreda, date(2026, 10, 1)).rule)
 
 

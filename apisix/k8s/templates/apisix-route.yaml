@@ -1003,6 +1003,7 @@ spec:
       - /v1/category-assignments/:assignment
       - /v1/grievance-types/:grievance_type
       - /v1/response-templates/:template
+      - /v1/seasonal-rules/:rule_id
       - /v1/service-categories/:category
       methods:
       - DELETE
@@ -1086,6 +1087,8 @@ spec:
       - /v1/orgs/:org_id
       - /v1/response-templates
       - /v1/response-templates/:template
+      - /v1/seasonal-rules
+      - /v1/seasonal-rules/:rule_id
       - /v1/service-categories
       - /v1/service-categories/:category
       - /v1/service-provider-sources
@@ -1159,6 +1162,7 @@ spec:
       - /v1/officers/:officer
       - /v1/orgs/:org_id/status
       - /v1/response-templates/:template
+      - /v1/seasonal-rules/:rule_id
       - /v1/service-categories/:category
       - /v1/sla-configurations/:config
       - /v1/sla-policy
@@ -1232,6 +1236,7 @@ spec:
       - /v1/officers
       - /v1/officers/:officer/password-resets
       - /v1/response-templates
+      - /v1/seasonal-rules
       - /v1/service-categories
       - /v1/service-provider-sources/:source_name/sync
       - /v1/submitters/:profile_id/block
@@ -1460,6 +1465,8 @@ spec:
       - /v1/orgs/*
       - /v1/response-templates
       - /v1/response-templates/*
+      - /v1/seasonal-rules
+      - /v1/seasonal-rules/*
       - /v1/service-categories
       - /v1/service-categories/*
       - /v1/service-provider-sources

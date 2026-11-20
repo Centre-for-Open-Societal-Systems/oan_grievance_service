@@ -7,10 +7,11 @@ reads the answer from the case (`is_sensitive`, `handling_class`, `priority`, `s
 type or category. The UI never works a season out for itself.
 
 - Sensitive: the type's `is_sensitive` flag.
-- Urgent, priority and SLA days: the rules (`sla_rules`, Grievance SLA Rule) on the active
-  Grievance SLA Configuration of the case's category. A rule may name a grievance type, an
+- Urgent, priority and SLA days: the Grievance SLA Rule records of the case's category (one
+  record per rule, `/api/v1/seasonal-rules`). A rule may name a grievance type, an
   administrative area (which covers the areas inside it) and a recurring window of the year,
-  and sets any of `sla_days`, `is_urgent` and `priority`.
+  and sets any of `sla_days`, `is_urgent` and `priority`. A rule's `sla_days` replaces the SLA
+  days of the category's Grievance SLA Configuration for the case (see `sla.resolve_policy`).
 
 A rule matches a case when everything it names matches: the case's type, an area that contains
 the case's area, and a filing date inside its window. Of the matching rules the most specific
@@ -40,10 +41,10 @@ from frappe.utils import getdate, now_datetime
 from oan_grievance_service.services import constants as C
 
 PIN_LENGTH = 6
-SLA_CONFIGURATION = "Grievance SLA Configuration"
 RULE = "Grievance SLA Rule"
 RULE_FIELDS = (
-	"idx",
+	"name",
+	"service_category",
 	"rule_label",
 	"grievance_type",
 	"administrative_area",
@@ -170,24 +171,14 @@ def overlapping_rules(rules) -> tuple | None:
 # --------
 
 
-def rules_of(service_category: str | None) -> list:
-	"""The rules of the category's active SLA configuration, in table order. Empty when none."""
+def rules_of(service_category: str | None, exclude: str | None = None) -> list:
+	"""The rules of the category, oldest first. Empty when none. `exclude` leaves one rule out."""
 	if not service_category:
 		return []
-	config = frappe.db.get_value(
-		SLA_CONFIGURATION,
-		{"service_category": service_category, "active": 1},
-		"name",
-		order_by="modified desc",
-	)
-	if not config:
-		return []
-	return frappe.get_all(
-		RULE,
-		filters={"parent": config, "parenttype": SLA_CONFIGURATION, "parentfield": "sla_rules"},
-		fields=list(RULE_FIELDS),
-		order_by="idx asc",
-	)
+	filters = {"service_category": service_category}
+	if exclude:
+		filters["name"] = ["!=", exclude]
+	return frappe.get_all(RULE, filters=filters, fields=list(RULE_FIELDS), order_by="creation asc, name asc")
 
 
 def _area_bounds(areas) -> dict[str, tuple[int, int]]:
@@ -225,7 +216,8 @@ def match_rule(rules, grievance_type: str | None, area: str | None, on: date):
 		if window and (window_error(rule) or not month_day_in_window(on, *window)):
 			continue
 		# Larger is more specific: the type's own rule, then the narrowest area, then a window.
-		key = (1 if rule.get("grievance_type") else 0, -span, 1 if window else 0, -(rule.get("idx") or 0))
+		# Validation keeps two rules from tying; were they to, the older one would win.
+		key = (1 if rule.get("grievance_type") else 0, -span, 1 if window else 0)
 		if best_key is None or key > best_key:
 			best, best_key = rule, key
 	return best
@@ -259,7 +251,7 @@ def classify(
 		handling_class=C.HANDLING_URGENT if urgent else C.HANDLING_STANDARD,
 		priority=rule.priority or (C.PRIORITY_URGENT if urgent else C.PRIORITY_NORMAL),
 		sla_days=rule.sla_days or None,
-		rule=rule.rule_label or f"#{rule.idx}",
+		rule=rule.rule_label or rule.name,
 	)
 
 

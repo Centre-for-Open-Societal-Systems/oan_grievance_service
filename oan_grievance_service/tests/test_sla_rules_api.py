@@ -1,7 +1,7 @@
 """The configuration API of sensitive, urgent and seasonal handling (STG-514).
 
-Sensitive is a flag of the grievance type. Urgency, priority and seasonal SLA days are rules on the
-category's SLA configuration (`rules` of /sla-configurations).
+Sensitive is a flag of the grievance type. Urgency, priority and seasonal SLA days are rules of the
+category, one record each, at /seasonal-rules.
 """
 
 from datetime import date
@@ -10,7 +10,14 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1.sla_settings import list_sla_configurations, update_sla_configuration
+from oan_grievance_service.api.v1.seasonal_rules import (
+	create_rule,
+	delete_rule,
+	get_rule,
+	list_rules,
+	update_rule,
+)
+from oan_grievance_service.api.v1.sla_settings import list_sla_configurations
 from oan_grievance_service.api.v1.taxonomy import (
 	create_grievance_type,
 	list_grievance_types,
@@ -23,6 +30,7 @@ from oan_grievance_service.tests.test_category_assignment import _keep_transacti
 from oan_grievance_service.tests.test_classification import a_category, a_type
 
 IRRIGATION = {"start_month": 10, "start_day": 1, "end_month": 4, "end_day": 30}
+MARCH_TO_MAY = {"start_month": 3, "start_day": 1, "end_month": 5, "end_day": 31}
 
 
 class ApiFixture(FrappeTestCase):
@@ -32,9 +40,6 @@ class ApiFixture(FrappeTestCase):
 		self.savepoint = "sla_rules_api"
 		frappe.db.savepoint(self.savepoint)
 		self.category = a_category()
-		self.config = frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": self.category, "active": 1}
-		)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -99,105 +104,166 @@ class TestGrievanceTypeSensitiveFlag(ApiFixture):
 		self.assertTrue(classification.classify(kind).is_sensitive)
 
 
-class TestSlaRulesApi(ApiFixture):
-	def configuration(self):
-		listed = list_sla_configurations(service_category=self.category)["data"]["sla_configurations"]
-		return next(row for row in listed if row["name"] == self.config)
+class TestSeasonalRulesApi(ApiFixture):
+	def create(self, **fields):
+		result = create_rule(service_category=self.category, **fields)
+		self.assertEqual(result["status"], "success", msg=result)
+		return result["data"]["rule"]
 
-	def test_a_configuration_with_no_rules_lists_none(self):
-		self.assertEqual(self.configuration()["rules"], [])
+	def refused(self, call, code="VALIDATION_ERROR"):
+		with _keep_transaction():
+			result = call()
+		self.assertEqual(result.get("code"), code, msg=result)
 
-	def test_rules_are_set_and_listed(self):
+	def test_a_rule_is_created_and_read_back(self):
 		woreda = an_administrative_area(f"Woreda {frappe.generate_hash(length=5)}", None, "Woreda")
 		kind = a_type(self.category)
-		result = update_sla_configuration(
-			self.config,
-			rules=[
-				{"rule_label": "Dry season", **IRRIGATION, "is_urgent": True, "sla_days": 3},
-				{
-					"administrative_area": woreda,
-					"start_month": 11,
-					"start_day": 1,
-					"end_month": 3,
-					"end_day": 31,
-					"is_urgent": True,
-				},
-				{"administrative_area": woreda},
-				{"grievance_type": kind, "priority": "High"},
-			],
+		rule = self.create(
+			rule_label="Dry season",
+			grievance_type=kind,
+			administrative_area=woreda,
+			**IRRIGATION,
+			sla_days=3,
+			is_urgent=True,
 		)
-		self.assertEqual(result["status"], "success", msg=result)
-		rules = result["data"]["sla_configuration"]["rules"]
-		self.assertEqual(len(rules), 4)
 		self.assertEqual(
-			(rules[0]["rule_label"], rules[0]["start_month"], rules[0]["is_urgent"], rules[0]["sla_days"]),
-			("Dry season", 10, True, 3),
+			{
+				key: rule[key]
+				for key in ("service_category", "rule_label", "grievance_type", "administrative_area")
+			},
+			{
+				"service_category": self.category,
+				"rule_label": "Dry season",
+				"grievance_type": kind,
+				"administrative_area": woreda,
+			},
 		)
-		self.assertEqual((rules[1]["administrative_area"], rules[1]["end_month"]), (woreda, 3))
 		self.assertEqual(
-			(rules[2]["is_urgent"], rules[2]["start_month"], rules[2]["priority"]), (False, None, None)
+			(rule["start_month"], rule["end_day"], rule["sla_days"], rule["is_urgent"], rule["priority"]),
+			(10, 30, 3, True, None),
 		)
-		self.assertEqual((rules[3]["grievance_type"], rules[3]["priority"]), (kind, "High"))
-		self.assertEqual(self.configuration()["rules"], rules)
+		self.assertEqual(get_rule(rule["name"])["data"]["rule"], rule)
 
-	def test_the_rules_change_the_next_case_without_code(self):
+	def test_a_rule_that_names_nothing_is_all_year_for_the_whole_category(self):
+		rule = self.create()
+		self.assertEqual(
+			[rule[key] for key in ("grievance_type", "administrative_area", "start_month", "sla_days")],
+			[None] * 4,
+		)
+		self.assertFalse(rule["is_urgent"])
+
+	def test_the_category_may_be_named_by_its_code(self):
+		code = frappe.db.get_value("Grievance Service Category", self.category, "code")
+		result = create_rule(service_category=code, is_urgent=True)
+		self.assertEqual(result["data"]["rule"]["service_category"], self.category, msg=result)
+
+	def test_the_list_filters_by_category_and_urgency(self):
+		urgent = self.create(**IRRIGATION, is_urgent=True)
+		high = self.create(priority="High")
+		elsewhere = create_rule(service_category=a_category(), is_urgent=True)["data"]["rule"]
+
+		listed = list_rules(service_category=self.category)["data"]
+		self.assertEqual([row["name"] for row in listed["rules"]], [urgent["name"], high["name"]])
+		self.assertEqual(listed["pagination"]["total_count"], 2)
+		only_urgent = list_rules(service_category=self.category, is_urgent=True)["data"]["rules"]
+		self.assertEqual([row["name"] for row in only_urgent], [urgent["name"]])
+		self.assertNotIn(elsewhere["name"], [row["name"] for row in listed["rules"]])
+
+	def test_a_patch_changes_only_what_it_sends(self):
+		rule = self.create(rule_label="Dry", **IRRIGATION, is_urgent=True)
+		result = update_rule(rule["name"], sla_days=4)
+		updated = result["data"]["rule"]
+		self.assertEqual((updated["sla_days"], updated["rule_label"], updated["is_urgent"]), (4, "Dry", True))
+		self.assertEqual(updated["start_month"], 10)
+
+	def test_null_clears_a_field_and_a_null_window_is_all_year(self):
+		rule = self.create(rule_label="Dry", **IRRIGATION, is_urgent=True, sla_days=3)
+		result = update_rule(
+			rule["name"], start_month=None, start_day=None, end_month=None, end_day=None, sla_days=None
+		)
+		updated = result["data"]["rule"]
+		self.assertEqual(
+			[updated[key] for key in ("start_month", "start_day", "end_month", "end_day", "sla_days")],
+			[None] * 5,
+			msg=result,
+		)
+		self.assertIsNone(classification.window_of(frappe.get_doc("Grievance SLA Rule", rule["name"])))
+
+	def test_the_category_of_a_rule_is_fixed(self):
+		rule = self.create(is_urgent=True)
+		self.refused(lambda: update_rule(rule["name"], service_category=a_category()))
+		self.refused(lambda: update_rule(rule["name"]))
+
+	def test_a_rule_is_deleted(self):
+		rule = self.create(is_urgent=True)
+		result = delete_rule(rule["name"])
+		self.assertEqual(result["data"]["rule"]["name"], rule["name"], msg=result)
+		self.assertFalse(frappe.db.exists("Grievance SLA Rule", rule["name"]))
+		self.refused(lambda: get_rule(rule["name"]), "NOT_FOUND")
+		self.refused(lambda: delete_rule(rule["name"]), "NOT_FOUND")
+		self.refused(lambda: update_rule(rule["name"], sla_days=2), "NOT_FOUND")
+
+	def test_each_change_applies_to_the_next_case(self):
 		kind = a_type(self.category)
-		update_sla_configuration(self.config, rules=[{**IRRIGATION, "is_urgent": True, "sla_days": 3}])
+		rule = self.create(**IRRIGATION, is_urgent=True, sla_days=3)
 		inside = classification.classify(kind, None, date(2026, 11, 15))
 		self.assertEqual((inside.handling_class, inside.sla_days), (C.HANDLING_URGENT, 3))
 		outside = classification.classify(kind, None, date(2026, 6, 15))
 		self.assertEqual((outside.handling_class, outside.sla_days), (C.HANDLING_STANDARD, None))
 
-	def test_rules_are_replaced_as_a_whole(self):
-		update_sla_configuration(self.config, rules=[{**IRRIGATION, "is_urgent": True}, {"priority": "High"}])
-		result = update_sla_configuration(self.config, rules=[{"is_urgent": True}])
-		self.assertEqual(len(result["data"]["sla_configuration"]["rules"]), 1)
+		update_rule(rule["name"], sla_days=5)
+		self.assertEqual(classification.classify(kind, None, date(2026, 11, 15)).sla_days, 5)
+		delete_rule(rule["name"])
+		self.assertEqual(
+			classification.classify(kind, None, date(2026, 11, 15)).handling_class, C.HANDLING_STANDARD
+		)
 
-	def test_empty_or_null_removes_every_rule(self):
-		for empty in ([], None):
-			update_sla_configuration(self.config, rules=[{"is_urgent": True}])
-			result = update_sla_configuration(self.config, rules=empty)
-			self.assertEqual(result["data"]["sla_configuration"]["rules"], [], msg=result)
-
-	def test_other_fields_leave_the_rules_alone(self):
-		update_sla_configuration(self.config, rules=[{"is_urgent": True}])
-		result = update_sla_configuration(self.config, sla_days=9)
-		self.assertEqual(result["data"]["sla_configuration"]["sla_days"], 9)
-		self.assertEqual(len(result["data"]["sla_configuration"]["rules"]), 1)
-
-	def test_an_invalid_window_is_a_validation_error(self):
-		for rule in (
+	def test_an_invalid_rule_is_a_validation_error(self):
+		for fields in (
 			{"start_month": 2, "start_day": 30, "end_month": 3, "end_day": 1},
 			{"start_month": 2, "start_day": 1},
 			{"start_month": 13, "start_day": 1, "end_month": 3, "end_day": 1},
 			{"priority": "Critical"},
 			{"sla_days": 0},
+			{"administrative_area": "No such area"},
 		):
-			with self.subTest(rule=rule), _keep_transaction():
-				result = update_sla_configuration(self.config, rules=[rule])
-				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+			with self.subTest(fields=fields):
+				self.refused(lambda fields=fields: create_rule(service_category=self.category, **fields))
+		self.refused(lambda: create_rule(service_category="No such category"))
+		self.refused(lambda: create_rule(is_urgent=True))
 
-	def test_rules_that_would_tie_are_a_validation_error(self):
-		with _keep_transaction():
-			result = update_sla_configuration(
-				self.config,
-				rules=[
-					{**IRRIGATION, "is_urgent": True},
-					{"start_month": 3, "start_day": 1, "end_month": 5, "end_day": 31},
-				],
-			)
-		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+	def test_a_rule_that_would_tie_is_a_validation_error(self):
+		self.create(**IRRIGATION, is_urgent=True)
+		self.refused(lambda: create_rule(service_category=self.category, **MARCH_TO_MAY))
+		# Moving a rule onto another's days is refused too.
+		later = self.create(start_month=6, start_day=1, end_month=8, end_day=31)
+		self.refused(lambda: update_rule(later["name"], start_month=3))
 
 	def test_a_type_of_another_category_is_a_validation_error(self):
 		other = a_type(a_category())
-		with _keep_transaction():
-			result = update_sla_configuration(
-				self.config, rules=[{"grievance_type": other, "is_urgent": True}]
-			)
-		self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+		self.refused(lambda: create_rule(service_category=self.category, grievance_type=other))
 
-	def test_only_a_writer_of_the_configuration_sets_rules(self):
+	def test_an_officer_neither_reads_nor_writes_rules(self):
+		rule = self.create(is_urgent=True)
 		frappe.set_user(a_user_with_role("Grievance Officer", "slarules"))
-		with _keep_transaction():
-			result = update_sla_configuration(self.config, rules=[{"is_urgent": True}])
-		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+		for call in (
+			lambda: list_rules(),
+			lambda: get_rule(rule["name"]),
+			lambda: create_rule(service_category=self.category),
+			lambda: update_rule(rule["name"], sla_days=2),
+			lambda: delete_rule(rule["name"]),
+		):
+			self.refused(call, "PERMISSION_DENIED")
+
+	def test_a_review_officer_reads_but_does_not_write(self):
+		rule = self.create(is_urgent=True)
+		frappe.set_user(a_user_with_role(C.ROLE_REVIEW_OFFICER, "slarules"))
+		self.assertEqual(get_rule(rule["name"])["status"], "success")
+		self.refused(lambda: update_rule(rule["name"], sla_days=2), "PERMISSION_DENIED")
+		self.refused(lambda: delete_rule(rule["name"]), "PERMISSION_DENIED")
+
+	def test_the_sla_configuration_no_longer_carries_rules(self):
+		self.create(is_urgent=True)
+		listed = list_sla_configurations(service_category=self.category)["data"]["sla_configurations"]
+		self.assertTrue(listed)
+		self.assertNotIn("rules", listed[0])

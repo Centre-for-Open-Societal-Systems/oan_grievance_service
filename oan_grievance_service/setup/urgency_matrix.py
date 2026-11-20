@@ -11,8 +11,8 @@ What the matrix says, and where it stops:
 - Sensitive is Yes on exactly C13-01..04, C15-01..03 and C16-01. C16-02 (wrong personal data)
   is No. No C04 sub-type is flagged: "C04 if coercion" is free text in the Confidential path,
   not a flag, so it is an open point (a coercion case is filed as C13-03).
-- Urgent is Yes on every sub-type of C01, C02, C07 and C17, so each is one rule for the whole
-  category on its SLA configuration. C09 is not Urgent: its rule only raises priority to High.
+- Urgent is Yes on every sub-type of C01, C02, C07 and C17, so each is one rule (a Grievance SLA
+  Rule) for the whole category. C09 is not Urgent: its rule only raises priority to High.
 - The windows are the Gregorian ones of the Seasonal Calendar, as recurring month and day.
   Whole months run from the first to the last day of the month.
 - The matrix gives no in-season turnaround, so no rule sets `sla_days`: the category's own SLA

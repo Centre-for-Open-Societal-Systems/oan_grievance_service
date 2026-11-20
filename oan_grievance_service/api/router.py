@@ -99,6 +99,7 @@ def _register() -> None:
 		organization,
 		profile,
 		response_config,
+		seasonal_rules,
 		service_provider,
 		service_provider_source,
 		sla_settings,

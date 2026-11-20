@@ -10,16 +10,13 @@ Two surfaces, each backed by one record:
 - `/api/v1/sla-configurations` is the per-category windows: `sla_days`, `auto_escalate` and
   `notify_on_breach`. These are the same values the Category Assignments tab shows as
   `sla_days` and `auto_escalate`, stored once on the category's SLA configuration and
-  shared by every department that serves the category. Its `rules` are the seasonal and
-  urgent rules (STG-514) that change `sla_days`, urgency and priority for the cases they match.
+  shared by every department that serves the category.
 
 Handlers stay thin. Field and range checks live in the doctypes' `validate()`, so they hold
 for the Desk as well as the API. What is here is request shape and the projection of the records.
 The settings are read when a case's clock is armed, so a
 change applies to cases that start, resume or re-arm after it, and leaves armed cases alone.
 """
-
-from typing import Literal
 
 import frappe
 from frappe import N_, _
@@ -68,53 +65,6 @@ CONFIGURATION_FIELDS = [
 # keeps that true if a schema ever grows a field the document should not take from a client.
 POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval")
 CONFIGURATION_EDITABLE = ("sla_days", "auto_escalate", "notify_on_breach")
-# A seasonal or urgent rule of a configuration (Grievance SLA Rule, STG-514). `rules` is written as a
-# whole: the list sent replaces every rule of the configuration.
-RULE = "Grievance SLA Rule"
-RULE_FIELDS = (
-	"rule_label",
-	"grievance_type",
-	"administrative_area",
-	"start_month",
-	"start_day",
-	"end_month",
-	"end_day",
-	"sla_days",
-	"is_urgent",
-	"priority",
-)
-
-
-class SlaRuleRecord(BaseModel):
-	rule_label: str | None = None
-	grievance_type: str | None = None
-	administrative_area: str | None = None
-	start_month: int | None = None
-	start_day: int | None = None
-	end_month: int | None = None
-	end_day: int | None = None
-	sla_days: int | None = None
-	is_urgent: bool = False
-	priority: str | None = None
-
-
-class SlaRuleBody(Body):
-	"""One rule. Name a type, an area and a window only to narrow it; all are optional."""
-
-	rule_label: str | None = Field(None, max_length=140, description="A name for administrators")
-	grievance_type: NonBlank | None = Field(None, description="A type of this category. Blank: every type")
-	administrative_area: NonBlank | None = Field(
-		None, description="Covers the areas inside it. Blank: everywhere"
-	)
-	start_month: int | None = Field(None, ge=1, le=12)
-	start_day: int | None = Field(None, ge=1, le=31)
-	end_month: int | None = Field(None, ge=1, le=12)
-	end_day: int | None = Field(None, ge=1, le=31, description="All four window fields, or none for all year")
-	sla_days: int | None = Field(None, ge=1, description="Blank keeps the category's sla_days")
-	is_urgent: bool = False
-	priority: Literal["Normal", "High", "Urgent"] | None = Field(
-		None, description="Blank: Urgent for an urgent rule, otherwise Normal"
-	)
 
 
 class GlobalSlaPolicyRecord(BaseModel):
@@ -135,7 +85,6 @@ class SlaConfigurationRecord(BaseModel):
 	sla_days: int
 	auto_escalate: bool
 	notify_on_breach: bool
-	rules: list[SlaRuleRecord] = []
 	modified: str | None = None
 
 
@@ -177,9 +126,6 @@ class UpdateSlaConfiguration(Body):
 	sla_days: int = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = None
 	notify_on_breach: bool = None
-	rules: list[SlaRuleBody] | None = Field(
-		None, description="Replaces every seasonal and urgent rule. [] or null removes them all."
-	)
 
 
 class ListSlaConfigurations(PageParams, Body):
@@ -206,29 +152,8 @@ def _policy_data() -> dict:
 	}
 
 
-def _rules_of(names: list[str]) -> dict[str, list[dict]]:
-	"""The rules of each named configuration, in table order, with one query for all of them."""
-	rules: dict[str, list[dict]] = {name: [] for name in names}
-	if not names:
-		return rules
-	for row in frappe.get_all(
-		RULE,
-		filters={"parent": ["in", names], "parenttype": SLA_CONFIGURATION, "parentfield": "sla_rules"},
-		fields=["parent", *RULE_FIELDS],
-		order_by="parent asc, idx asc",
-	):
-		rules[row.parent].append(
-			SlaRuleRecord(
-				**{field: row.get(field) or None for field in RULE_FIELDS if field != "is_urgent"},
-				is_urgent=bool(row.is_urgent),
-			).model_dump()
-		)
-	return rules
-
-
 def _configuration_records(rows: list) -> list[dict]:
 	"""Project SLA rows to API records with one query for the departments of the whole page."""
-	rules = _rules_of([row.name for row in rows])
 	departments: dict[str, list[str]] = {row.service_category: [] for row in rows}
 	if departments:
 		for desk in frappe.get_all(
@@ -249,7 +174,6 @@ def _configuration_records(rows: list) -> list[dict]:
 			sla_days=row.sla_days,
 			auto_escalate=bool(row.auto_escalate),
 			notify_on_breach=bool(row.notify_on_breach),
-			rules=rules[row.name],
 			modified=_text(row.modified),
 		).model_dump()
 		for row in rows
@@ -373,16 +297,10 @@ def list_sla_configurations(
 @validate_request(UpdateSlaConfiguration, exclude_unset=True)
 @api_doc(
 	summary="Update a category's SLA settings",
-	description="Change sla_days, auto_escalate, notify_on_breach or the seasonal and urgent rules on "
-	+ "one service category's SLA configuration. Omitted fields stay as they are. The values are "
-	+ "shared with every department serving the category and with its category assignments, so a "
-	+ "change here shows there. The service category is fixed. "
-	+ "rules replaces every rule. A rule may name a grievance_type of the category, an "
-	+ "administrative_area (covering the areas inside it) and a recurring window (start_month, "
-	+ "start_day, end_month, end_day; a start after the end wraps the year end), and sets sla_days, "
-	+ "is_urgent and priority for the cases it matches on their filing date. The most specific "
-	+ "matching rule wins. Two rules for the same type and area may not share a day. Rules apply to "
-	+ "cases filed afterwards.",
+	description="Change sla_days, auto_escalate or notify_on_breach on one service category's SLA "
+	+ "configuration. Omitted fields stay as they are. The values are shared with every department "
+	+ "serving the category and with its category assignments, so a change here shows there. "
+	+ "The service category is fixed.",
 	tags=["Administration"],
 	response_model=SlaConfigurationData,
 )
@@ -392,16 +310,6 @@ def update_sla_configuration(config: str, **kwargs):
 	if not kwargs:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
 	doc.update({key: kwargs[key] for key in CONFIGURATION_EDITABLE if key in kwargs})
-	if "rules" in kwargs:
-		doc.set("sla_rules", [])
-		for rule in kwargs["rules"] or []:
-			doc.append(
-				"sla_rules",
-				{
-					**{field: rule.get(field) for field in RULE_FIELDS},
-					"is_urgent": 1 if rule.get("is_urgent") else 0,
-				},
-			)
 	doc.save()
 	return success_response(
 		data={"sla_configuration": _configuration_record(doc.name)},
