@@ -445,7 +445,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 	def test_low_threshold_no_longer_escalates_before_the_deadline(self):
 		"""Devtest: filed 1:13 PM, escalated 2:02 PM on a one-day SLA. A 3% threshold armed the
 		bump 43 minutes in; now the first escalation waits for the deadline."""
-		self.sla_a.db_set({"sla_days": 1, "auto_escalation_threshold": 3}, update_modified=False)
+		self.sla_a.db_set("auto_escalation_threshold", 3, update_modified=False)
 		filed = add_to_date(now_datetime(), minutes=-49)
 		g = self._case_with_clock(filed, add_days(filed, 1))
 		g.db_set("next_escalation_at", None, update_modified=False)
@@ -463,7 +463,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 
 	def test_escalation_fires_once_the_sla_has_elapsed(self):
 		"""A one-day SLA escalates on the sweep after the day is up, whatever the threshold."""
-		self.sla_a.db_set({"sla_days": 1, "auto_escalation_threshold": 80}, update_modified=False)
+		self.sla_a.db_set("auto_escalation_threshold", 80, update_modified=False)
 		filed = add_to_date(now_datetime(), hours=-25)
 		g = self._case_with_clock(filed, add_days(filed, 1))
 		sla.arm_escalation(g)
