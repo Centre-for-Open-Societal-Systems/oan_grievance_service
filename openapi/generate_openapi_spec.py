@@ -1074,6 +1074,48 @@ data(
 )
 
 data(
+	"RoleLevelRecord",
+	OBJ(
+		{
+			"level_code": S(example="nodal_officer", description="Unique role level identifier/code"),
+			"level_name": S(example="Kebele Nodal Officer", description="Human-readable display name"),
+			"level_order": I(example=10, description="Escalation order rank (lower is more junior)"),
+			"escalation_hours": I(
+				example=48,
+				nullable=True,
+				description="Hours a breached grievance rests before climbing upward; 0 or null is terminal",
+			),
+			"is_active": B(example=True, description="Whether this level is active in the escalation chain"),
+			"description": S(example="L1. Kebele-level coordination point for grievances.", nullable=True),
+		},
+		required=["level_code", "level_name", "level_order", "is_active"],
+		description="Escalation hierarchy role level record",
+	),
+)
+
+data(
+	"RoleLevelDetailData",
+	OBJ(
+		{"role_level": REF("RoleLevelRecord")},
+		required=["role_level"],
+		description="Single role level detail",
+	),
+)
+
+data(
+	"RoleLevelListData",
+	OBJ(
+		{
+			"role_levels": ARR(REF("RoleLevelRecord")),
+			"total": I(example=5, description="Total matching records"),
+			"pagination": REF("PaginationMeta"),
+		},
+		required=["role_levels", "total", "pagination"],
+		description="List of grievance role levels with pagination",
+	),
+)
+
+data(
 	"CategoryAssignmentData",
 	OBJ(
 		{"assignment": REF("CategoryAssignment")},
@@ -1203,6 +1245,8 @@ ENVELOPES = {
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
 	),
+	"RoleLevelResponse": make_envelope("RoleLevelDetailData", description="Role level response"),
+	"RoleLevelListResponse": make_envelope("RoleLevelListData", description="Role level list response"),
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
@@ -1523,6 +1567,8 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"create_assignment": "CategoryAssignmentResponse",
 		"update_assignment": "CategoryAssignmentResponse",
 		"deactivate_assignment": "CategoryAssignmentResponse",
+		"list_role_levels": "RoleLevelListResponse",
+		"get_role_level": "RoleLevelResponse",
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
@@ -1547,6 +1593,7 @@ API_MODULES = [
 			"organization",
 			"profile",
 			"response_config",
+			"role_level",
 			"service_provider",
 			"service_provider_source",
 			"sla_settings",
@@ -1626,6 +1673,7 @@ PATH_PARAM_DOCS = {
 	"ticket_number": "Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)",
 	"attachment": "Unique attachment record ID",
 	"area_id_or_path": "Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')",
+	"level_code": "Unique grievance role level code (e.g. 'nodal_officer', 'department_head')",
 }
 
 

@@ -556,6 +556,8 @@ services:
     - /v1/orgs/:org_id
     - /v1/response-templates
     - /v1/response-templates/:template
+    - /v1/role-levels
+    - /v1/role-levels/:level_code
     - /v1/service-categories
     - /v1/service-categories/:category
     - /v1/service-provider-sources
@@ -767,6 +769,8 @@ services:
     - /v1/orgs/*
     - /v1/response-templates
     - /v1/response-templates/*
+    - /v1/role-levels
+    - /v1/role-levels/*
     - /v1/service-categories
     - /v1/service-categories/*
     - /v1/service-provider-sources

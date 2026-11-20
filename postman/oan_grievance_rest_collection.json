@@ -7912,6 +7912,114 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        {
+          "name": "List grievance role levels",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/role-levels",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "role-levels"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "None",
+                  "description": "Filter by active status",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "None",
+                  "description": "Search term matching level code, name, or description",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists escalation hierarchy role levels, ordered by rank (level_order asc), including their codes, names, escalation hours, and active statuses. Filterable by active status and search string."
+          },
+          "response": []
+        },
+        {
+          "name": "Get a grievance role level",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/role-levels/{{level_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "role-levels",
+                "{{level_code}}"
+              ]
+            },
+            "description": "Fetch a single grievance role level by its code, including its display name, escalation rank, breach hours, active status, and description."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

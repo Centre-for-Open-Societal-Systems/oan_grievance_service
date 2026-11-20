@@ -6238,6 +6238,143 @@ paths:
       x-gateway-tier: officer-core
       security:
       - BearerAuth: []
+  /api/v1/role-levels:
+    get:
+      tags:
+      - Administration
+      summary: List grievance role levels
+      description: Lists escalation hierarchy role levels, ordered by rank (level_order asc), including their codes, names, escalation hours, and active statuses. Filterable by active status and search string.
+      operationId: get_api_v1_role_levels
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleLevelListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: is_active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: Filter by active status
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Search term matching level code, name, or description
+      security:
+      - BearerAuth: []
+      x-legacy-rpc-method: oan_grievance_service.api.v1.role_level.list_role_levels
+      x-gateway-tier: officer-core
+  /api/v1/role-levels/{level_code}:
+    get:
+      tags:
+      - Administration
+      summary: Get a grievance role level
+      description: Fetch a single grievance role level by its code, including its display name, escalation rank, breach hours, active status, and description.
+      operationId: get_api_v1_role_levels_level_code
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleLevelResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: level_code
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Unique grievance role level code (e.g. 'nodal_officer', 'department_head')
+      security:
+      - BearerAuth: []
+      x-legacy-rpc-method: oan_grievance_service.api.v1.role_level.get_role_level
+      x-gateway-tier: officer-core
   /api/v1/service-providers:
     get:
       tags:
@@ -10033,6 +10170,66 @@ components:
       - department
       - active
       description: Category-to-department routing rule
+    RoleLevelRecord:
+      type: object
+      description: Escalation hierarchy role level record
+      properties:
+        level_code:
+          type: string
+          example: nodal_officer
+          description: Unique role level identifier/code
+        level_name:
+          type: string
+          example: Kebele Nodal Officer
+          description: Human-readable display name
+        level_order:
+          type: integer
+          example: 10
+          description: Escalation order rank (lower is more junior)
+        escalation_hours:
+          type: integer
+          example: 48
+          nullable: true
+          description: Hours a breached grievance rests before climbing upward; 0 or null is terminal
+        is_active:
+          type: boolean
+          example: true
+          description: Whether this level is active in the escalation chain
+        description:
+          type: string
+          example: L1. Kebele-level coordination point for grievances.
+          nullable: true
+      required:
+      - level_code
+      - level_name
+      - level_order
+      - is_active
+    RoleLevelDetailData:
+      type: object
+      description: Single role level detail
+      properties:
+        role_level:
+          $ref: '#/components/schemas/RoleLevelRecord'
+      required:
+      - role_level
+    RoleLevelListData:
+      type: object
+      description: List of grievance role levels with pagination
+      properties:
+        role_levels:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleLevelRecord'
+        total:
+          type: integer
+          example: 5
+          description: Total matching records
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+      required:
+      - role_levels
+      - total
+      - pagination
     CategoryAssignmentData:
       type: object
       properties:
@@ -13339,6 +13536,56 @@ components:
       - status
       - data
       description: Category assignment list response
+    RoleLevelResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/RoleLevelDetailData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Role level response
+    RoleLevelListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/RoleLevelListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: Role level list response
     DashboardChartResponse:
       type: object
       properties:
