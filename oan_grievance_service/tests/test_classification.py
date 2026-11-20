@@ -1,4 +1,8 @@
-"""Sensitive and urgent classification (STG-514): the SLA rules, their windows and what a case carries."""
+"""Sensitive and urgent classification (STG-514): the SLA rules, their windows and what a case carries.
+
+The SLA rules are the one source of SLA days: every category with an SLA has a base rule (no type,
+area or window), and narrower rules override it where they match.
+"""
 
 import secrets
 import unittest
@@ -27,8 +31,14 @@ def _unique(label):
 	return f"{label} {frappe.generate_hash(length=6)}"
 
 
-def a_rule(window=None, *, area=None, grievance_type=None, urgent=False, priority=None, sla_days=None):
-	"""A rule row; `window` is ((start month, day), (end month, day)) or None for all year."""
+def a_rule(
+	window=None, *, area=None, grievance_type=None, urgent=False, priority=None, sla_days=BASE_SLA_DAYS
+):
+	"""A rule row; `window` is ((start month, day), (end month, day)) or None for all year.
+
+	Every rule carries SLA days, urgency and priority; the priority defaults to Urgent for an urgent
+	rule and Normal otherwise, as a convenience of this helper only.
+	"""
 	(start_month, start_day), (end_month, end_day) = window or ((None, None), (None, None))
 	return {
 		"rule_label": _unique("Rule"),
@@ -39,7 +49,7 @@ def a_rule(window=None, *, area=None, grievance_type=None, urgent=False, priorit
 		"end_month": end_month,
 		"end_day": end_day,
 		"is_urgent": 1 if urgent else 0,
-		"priority": priority,
+		"priority": priority or (C.PRIORITY_URGENT if urgent else C.PRIORITY_NORMAL),
 		"sla_days": sla_days,
 	}
 
@@ -55,9 +65,9 @@ def a_free_category_code():
 			return code
 
 
-def a_category(rules=(), sla_days=BASE_SLA_DAYS):
-	"""A new category with an active SLA configuration and `rules`. Returns the category."""
-	category = (
+def a_bare_category():
+	"""A new category with no SLA configuration and no rule."""
+	return (
 		frappe.get_doc(
 			{
 				"doctype": "Grievance Service Category",
@@ -69,25 +79,40 @@ def a_category(rules=(), sla_days=BASE_SLA_DAYS):
 		.insert(ignore_permissions=True)
 		.name
 	)
+
+
+def a_category(rules=(), sla_days=BASE_SLA_DAYS):
+	"""A new category with an active SLA configuration, its base rule of `sla_days`, and `rules`.
+
+	A rule in `rules` with no type, area or window replaces the base rule's values.
+	"""
+	category = a_bare_category()
 	save_sla_configuration(category, sla_days)
 	add_rules(category, rules)
 	return category
 
 
 def add_rules(category, rules):
-	"""Insert each rule for the category, in order. Returns their names."""
-	return [
-		frappe.get_doc({"doctype": RULE, "service_category": category, **rule})
-		.insert(ignore_permissions=True)
-		.name
-		for rule in rules
-	]
+	"""Add each rule to the category, in order; a base-scope rule updates the base rule. Returns the names."""
+	names = []
+	for rule in rules:
+		if classification.is_base(frappe._dict(rule)):
+			doc = frappe.get_doc(RULE, {"service_category": category, "is_base": 1})
+			doc.update(rule)
+			doc.save(ignore_permissions=True)
+		else:
+			doc = frappe.get_doc({"doctype": RULE, "service_category": category, **rule})
+			doc.insert(ignore_permissions=True)
+		names.append(doc.name)
+	return names
 
 
 def set_rules(category, rules):
-	"""Replace every rule of the category with `rules`. Returns their names."""
-	for name in frappe.get_all(RULE, filters={"service_category": category}, pluck="name"):
+	"""Make `rules` the category's rules: the others go and the base rule is reset to Standard,
+	Normal and the base SLA days, unless `rules` sets it. Returns the names of `rules`."""
+	for name in frappe.get_all(RULE, filters={"service_category": category, "is_base": 0}, pluck="name"):
 		frappe.delete_doc(RULE, name, ignore_permissions=True, force=True)
+	add_rules(category, [a_rule()])
 	return add_rules(category, rules)
 
 
@@ -175,7 +200,7 @@ class TestWindowBoundaries(unittest.TestCase):
 
 
 class TestRuleShape(unittest.TestCase):
-	"""What makes a window a window, and which rules would tie. No database."""
+	"""What makes a window a window, which rules would tie, and which rule is a base rule. No database."""
 
 	def rule(self, window=None, **values):
 		return frappe._dict(a_rule(window, **values))
@@ -213,9 +238,15 @@ class TestRuleShape(unittest.TestCase):
 			classification.overlapping_rules([self.rule(DRY), self.rule(DRY, grievance_type="T-1")])
 		)
 
+	def test_only_a_rule_that_names_nothing_is_a_base_rule(self):
+		self.assertTrue(classification.is_base(self.rule(urgent=True, sla_days=3)))
+		for narrower in (self.rule(DRY), self.rule(area="Some woreda"), self.rule(grievance_type="T-1")):
+			self.assertFalse(classification.is_base(narrower))
+
 
 class TestRuleValidation(FrappeTestCase):
-	"""A rule that is not a window, or that would tie with another of its category, is refused."""
+	"""A rule that is not a window, that would tie with another of its category, or that leaves the
+	category without its base rule, is refused."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -224,6 +255,9 @@ class TestRuleValidation(FrappeTestCase):
 	def refused(self, rules):
 		with self.assertRaises(frappe.ValidationError):
 			set_rules(self.category, rules)
+
+	def base(self, category=None):
+		return frappe.get_doc(RULE, {"service_category": category or self.category, "is_base": 1})
 
 	def test_a_half_window_is_refused(self):
 		rule = a_rule(MEHER)
@@ -238,11 +272,14 @@ class TestRuleValidation(FrappeTestCase):
 		self.refused([a_rule(grievance_type=other, urgent=True)])
 
 	def test_two_rules_that_would_tie_are_refused(self):
+		woreda = an_administrative_area(_unique("Woreda"), None, "Woreda")
 		self.refused([a_rule(DRY, urgent=True), a_rule(((3, 1), (5, 31)), priority=C.PRIORITY_HIGH)])
-		self.refused([a_rule(urgent=True), a_rule(sla_days=3)])
+		self.refused([a_rule(area=woreda, urgent=True), a_rule(area=woreda, sla_days=3)])
 
-	def test_negative_sla_days_are_refused(self):
-		self.refused([a_rule(sla_days=-1)])
+	def test_sla_days_are_required_and_positive(self):
+		for days in (None, 0, -1):
+			with self.subTest(days=days):
+				self.refused([a_rule(DRY, sla_days=days)])
 
 	def test_a_rule_is_not_tied_with_itself_when_it_is_saved_again(self):
 		(name,) = add_rules(self.category, [a_rule(DRY, urgent=True)])
@@ -278,7 +315,47 @@ class TestRuleValidation(FrappeTestCase):
 			],
 		)
 		self.assertEqual(len(names), 6)
-		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 6)
+		# The six, and the base rule.
+		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 7)
+
+	def test_a_category_with_an_sla_has_its_base_rule(self):
+		base = self.base()
+		self.assertEqual((base.is_base, base.sla_days, base.is_urgent), (1, BASE_SLA_DAYS, 0))
+		self.assertEqual(base.priority, C.PRIORITY_NORMAL)
+
+	def test_saving_the_sla_again_changes_the_base_rule_not_adds_one(self):
+		save_sla_configuration(self.category, 9)
+		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 1)
+		self.assertEqual(self.base().sla_days, 9)
+
+	def test_a_second_base_rule_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc({"doctype": RULE, "service_category": self.category, **a_rule(sla_days=3)}).insert(
+				ignore_permissions=True
+			)
+
+	def test_a_narrower_rule_needs_the_base_rule_first(self):
+		bare = a_bare_category()
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc({"doctype": RULE, "service_category": bare, **a_rule(DRY, urgent=True)}).insert(
+				ignore_permissions=True
+			)
+
+	def test_the_base_rule_cannot_be_deleted(self):
+		with self.assertRaises(frappe.ValidationError):
+			frappe.delete_doc(RULE, self.base().name, ignore_permissions=True)
+
+	def test_the_base_rule_cannot_be_narrowed(self):
+		base = self.base()
+		base.start_month, base.start_day, base.end_month, base.end_day = 10, 1, 4, 30
+		with self.assertRaises(frappe.ValidationError):
+			base.save(ignore_permissions=True)
+
+	def test_an_sla_configuration_needs_the_base_rule(self):
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc(
+				{"doctype": "Grievance SLA Configuration", "service_category": a_bare_category(), "active": 1}
+			).insert(ignore_permissions=True)
 
 
 class TestClassification(FrappeTestCase):
@@ -304,7 +381,8 @@ class TestClassification(FrappeTestCase):
 			]
 		)
 		cls.c01 = a_type(cls.inputs)
-		# C02: October to April, but the own woreda follows November to March instead.
+		# C02: October to April, but the own woreda follows November to March instead: its own
+		# season, and its own all-year row for the rest of the year.
 		cls.irrigation = a_category(
 			[
 				a_rule(DRY, urgent=True),
@@ -315,6 +393,7 @@ class TestClassification(FrappeTestCase):
 		cls.c02 = a_type(cls.irrigation)
 		cls.markets = a_category([a_rule(HARVEST, priority=C.PRIORITY_HIGH)])
 		cls.c09 = a_type(cls.markets)
+		# C17: urgent all year, so its base rule is urgent.
 		cls.pests = a_category([a_rule(urgent=True)])
 		cls.c17 = a_type(cls.pests)
 		cls.plain = a_category()
@@ -365,7 +444,7 @@ class TestClassification(FrappeTestCase):
 			with self.subTest(day=day.isoformat()):
 				self.assertUrgent(self.classify(self.c02, self.woreda, day), urgent)
 
-	def test_a_woreda_with_its_own_window_replaces_the_categorys(self):
+	def test_a_woreda_with_its_own_rows_replaces_the_categorys_season(self):
 		for area in (self.own_woreda, self.own_kebele):
 			for day, urgent in [
 				(date(2026, 10, 15), False),  # the category says yes; the woreda's season starts in November
@@ -396,9 +475,9 @@ class TestClassification(FrappeTestCase):
 	def test_a_types_own_rule_wins_over_the_categorys(self):
 		category = a_category([a_rule(urgent=True, sla_days=5)])
 		quiet, loud = a_type(category), a_type(category)
-		set_rules(category, [a_rule(urgent=True, sla_days=5), a_rule(grievance_type=quiet)])
+		add_rules(category, [a_rule(grievance_type=quiet, sla_days=12)])
 		self.assertUrgent(self.classify(quiet, self.woreda, date(2026, 6, 1)), False)
-		self.assertIsNone(self.classify(quiet, self.woreda, date(2026, 6, 1)).sla_days)
+		self.assertEqual(self.classify(quiet, self.woreda, date(2026, 6, 1)).sla_days, 12)
 		self.assertUrgent(self.classify(loud, self.woreda, date(2026, 6, 1)), True)
 		self.assertEqual(self.classify(loud, self.woreda, date(2026, 6, 1)).sla_days, 5)
 
@@ -420,16 +499,32 @@ class TestClassification(FrappeTestCase):
 				self.assertEqual(result.handling_class, C.HANDLING_STANDARD)
 				self.assertEqual(result.priority, priority)
 
-	def test_a_rule_gives_its_sla_days_only_inside_its_window(self):
+	def test_the_sla_days_are_the_matching_rules(self):
 		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).sla_days, 3)
-		self.assertIsNone(self.classify(self.c01, self.woreda, date(2026, 10, 1)).sla_days)
-		# An urgent rule that sets no SLA days keeps the category's.
-		self.assertIsNone(self.classify(self.c17, self.woreda, date(2026, 10, 1)).sla_days)
+		# Outside the window, the base rule's.
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 10, 1)).sla_days, BASE_SLA_DAYS)
+		self.assertEqual(self.classify(self.c17, self.woreda, date(2026, 10, 1)).sla_days, BASE_SLA_DAYS)
 
-	def test_a_category_with_no_rules_is_standard_and_normal(self):
+	def test_a_category_with_only_its_base_rule_is_standard_and_normal(self):
 		result = self.classify(self.plain_type, self.woreda, date(2026, 7, 1))
 		self.assertUrgent(result, False)
+		self.assertEqual(result.sla_days, BASE_SLA_DAYS)
+
+	def test_a_category_with_no_rule_has_no_sla(self):
+		bare = a_bare_category()
+		result = self.classify(a_type(bare), self.woreda, date(2026, 7, 1))
+		self.assertUrgent(result, False)
 		self.assertIsNone(result.sla_days)
+		self.assertIsNone(classification.sla_days_for(bare))
+
+	def test_a_case_with_no_type_gets_the_rules_for_the_whole_category(self):
+		case = frappe._dict(
+			grievance_type=None, administrative_area=self.woreda, creation="2026-07-01 09:00:00"
+		)
+		self.assertEqual(classification.sla_days_for(self.inputs, case), 3)
+		case.creation = "2026-10-01 09:00:00"
+		self.assertEqual(classification.sla_days_for(self.inputs, case), BASE_SLA_DAYS)
+		self.assertEqual(classification.sla_days_for(self.inputs), BASE_SLA_DAYS)
 
 	def test_a_type_that_does_not_exist_is_standard_not_an_error(self):
 		self.assertEqual(
@@ -457,11 +552,10 @@ class TestClassification(FrappeTestCase):
 		)
 
 	def test_the_result_names_the_rule(self):
-		label = frappe.db.get_value(
-			RULE, {"service_category": self.inputs, "administrative_area": ["is", "not set"]}, "rule_label"
-		)
-		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).rule, label)
-		self.assertIsNone(self.classify(self.c01, self.woreda, date(2026, 10, 1)).rule)
+		meher = frappe.db.get_value(RULE, {"service_category": self.inputs, "start_month": 5}, "rule_label")
+		base = frappe.db.get_value(RULE, {"service_category": self.inputs, "is_base": 1}, "rule_label")
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 7, 1)).rule, meher)
+		self.assertEqual(self.classify(self.c01, self.woreda, date(2026, 10, 1)).rule, base)
 
 
 class TestGrievanceClassification(FrappeTestCase):
@@ -507,7 +601,7 @@ class TestGrievanceClassification(FrappeTestCase):
 		expected = sla.calculate_working_deadline(case.sla_start_at, 3, holiday_list_name=policy.holiday_list)
 		self.assertEqual(frappe.utils.get_datetime(case.sla_due_date), expected)
 
-	def test_outside_the_window_the_category_sla_days_apply(self):
+	def test_outside_the_window_the_base_rules_sla_days_apply(self):
 		category = a_category([a_rule(MEHER, urgent=True, sla_days=3)])
 		case = self.a_case(a_type(category))
 		# The rule is read at the filing date: one in season, one out of it.
@@ -516,6 +610,11 @@ class TestGrievanceClassification(FrappeTestCase):
 		case.creation = frappe.utils.get_datetime("2026-10-01 09:00:00")
 		self.assertEqual(sla.resolve_policy(category, case).sla_days, BASE_SLA_DAYS)
 		self.assertEqual(sla.resolve_policy(category).sla_days, BASE_SLA_DAYS)
+
+	def test_a_category_with_a_configuration_but_no_rule_has_no_deadline(self):
+		category = a_category()
+		frappe.db.delete(RULE, {"service_category": category})
+		self.assertEqual(sla.resolve_policy(category).sla_days, 0)
 
 	def test_a_case_keeps_its_class_when_the_rules_change(self):
 		category = a_category([a_rule(urgent=True)])
@@ -544,7 +643,7 @@ class TestGrievanceClassification(FrappeTestCase):
 	def test_moving_a_case_to_a_type_with_its_own_rule_moves_its_deadline(self):
 		category = a_category()
 		before, after = a_type(category), a_type(category)
-		set_rules(category, [a_rule(grievance_type=after, urgent=True, sla_days=2)])
+		add_rules(category, [a_rule(grievance_type=after, urgent=True, sla_days=2)])
 		case = self.a_case(before)
 		sla.start_clock(case)
 		case.reload()

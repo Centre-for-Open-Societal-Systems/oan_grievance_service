@@ -142,19 +142,19 @@ def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name:
 
 
 def resolve_policy(service_category, grievance=None) -> SLAPolicy | None:
-	"""One policy per service category.
+	"""One policy per service category: its active SLA configuration, with the SLA days of its rules.
 
-	With `grievance`, the SLA days are the case's: a seasonal or urgent rule of the category
-	that matches the case (its type, area and filing date) may set its own `sla_days`, for
-	example 3 days in season against 15 out of it. Without it, the category's own days.
+	The days come only from the category's Grievance SLA Rules (`classification.sla_days_for`).
+	With `grievance`, they are the rule that matches the case (its type, area and filing date),
+	for example 3 days in season against 15 out of it; without it, the base rule's. A category
+	with no rule has 0 days: no deadline, as before for a category without an SLA.
 	"""
 	policy = _category_policy(service_category)
-	if policy is None or grievance is None:
-		return policy
+	if policy is None:
+		return None
 	from oan_grievance_service.services import classification
 
-	days = classification.sla_days_for(grievance, service_category)
-	return replace(policy, sla_days=days) if days else policy
+	return replace(policy, sla_days=classification.sla_days_for(service_category, grievance) or 0)
 
 
 def _category_policy(service_category) -> SLAPolicy | None:
@@ -166,7 +166,6 @@ def _category_policy(service_category) -> SLAPolicy | None:
 		},
 		fields=[
 			"name",
-			"sla_days",
 			"auto_escalate",
 			"auto_escalation_threshold",
 			"notify_on_breach",
@@ -183,7 +182,7 @@ def _category_policy(service_category) -> SLAPolicy | None:
 	r = rows[0]
 	return SLAPolicy(
 		name=r.name,
-		sla_days=r.sla_days or 0,
+		sla_days=0,  # filled in by resolve_policy from the rules
 		auto_escalate=bool(r.auto_escalate),
 		# The category's own threshold wins; 0 means it follows the installation-wide one.
 		auto_escalation_threshold=r.auto_escalation_threshold or auto_escalation_threshold(),
@@ -265,8 +264,8 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 def follow_type_change(grievance):
 	"""Re-length the SLA window when a case moves to another type of the same category.
 
-	Only when a rule gives the new type other SLA days than the case has: otherwise nothing moves,
-	and the reminders already sent stay sent.
+	Only when the rule that matches the new type gives other SLA days than the case has: otherwise
+	nothing moves, and the reminders already sent stay sent. The clock keeps its start.
 	"""
 	if not grievance.sla_due_date:
 		return

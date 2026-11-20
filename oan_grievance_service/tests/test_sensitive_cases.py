@@ -600,13 +600,16 @@ class TestSensitiveReassignment(SensitiveFixture):
 class TestOfficerView(SensitiveFixture):
 	def test_an_officer_sees_the_flags_the_backend_decided(self):
 		urgent_sensitive = a_type(self.category, sensitive=1)
-		# An all-year urgent rule for the type.
+		# The category's base rule, and an all-year urgent rule for the type.
+		classification.set_base_days(self.category, 10)
 		frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Rule",
 				"service_category": self.category,
 				"grievance_type": urgent_sensitive,
+				"sla_days": 10,
 				"is_urgent": 1,
+				"priority": C.PRIORITY_URGENT,
 			}
 		).insert(ignore_permissions=True)
 		case = a_grievance(

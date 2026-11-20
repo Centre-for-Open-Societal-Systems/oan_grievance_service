@@ -1,17 +1,17 @@
 """Sensitive and urgent classification of a grievance (STG-514).
 
 This module is the only place that decides what a case is: Sensitive or not, Urgent or
-Standard handling, its priority, and the SLA days a seasonal rule gives it. Everything else
-reads the answer from the case (`is_sensitive`, `handling_class`, `priority`, `sla_days`), which
-`classify_grievance` and the SLA clock write at filing, and again if the case moves to another
-type or category. The UI never works a season out for itself.
+Standard handling, its priority, and its SLA days. Everything else reads the answer from the
+case (`is_sensitive`, `handling_class`, `priority`, `sla_days`), which `classify_grievance` and
+the SLA clock write at filing, and again if the case moves to another type or category. The UI
+never works a season out for itself.
 
 - Sensitive: the type's `is_sensitive` flag.
-- Urgent, priority and SLA days: the Grievance SLA Rule records of the case's category (one
-  record per rule, `/api/v1/seasonal-rules`). A rule may name a grievance type, an
-  administrative area (which covers the areas inside it) and a recurring window of the year,
-  and sets any of `sla_days`, `is_urgent` and `priority`. A rule's `sla_days` replaces the SLA
-  days of the category's Grievance SLA Configuration for the case (see `sla.resolve_policy`).
+- SLA days, urgency and priority: the Grievance SLA Rule records of the case's category
+  (`/api/v1/sla-rules`), the one source of the SLA. Every rule carries all three. A rule may
+  name a grievance type, an administrative area (which covers the areas inside it) and a
+  recurring window of the year. The category's **base rule** names none of them: it is the
+  category's SLA wherever nothing narrower matches, so every category with an SLA has one.
 
 A rule matches a case when everything it names matches: the case's type, an area that contains
 the case's area, and a filing date inside its window. Of the matching rules the most specific
@@ -19,9 +19,8 @@ wins: one that names the type before one for the whole category, then the narrow
 area is the widest), then a windowed rule before an all-year one. Two windowed rules, or two
 all-year rules, for the same type and area may not share a day, so the winner is never a tie.
 
-A rule that sets nothing (no SLA days, not urgent, no priority) still wins where it matches: it
-says "standard here". That is how a woreda gets its own window instead of the category's: a
-windowed urgent rule for the woreda, and an all-year rule for it that sets nothing.
+A woreda that keeps its own season instead of the category's has its own rows: a windowed rule
+for its season and an all-year rule for the rest of the year.
 
 A window is a start and end month and day, the same every year. A start after the end wraps the
 year end (October to April). Only month and day are compared, so the year never matters, any
@@ -46,6 +45,7 @@ RULE_FIELDS = (
 	"name",
 	"service_category",
 	"rule_label",
+	"is_base",
 	"grievance_type",
 	"administrative_area",
 	"start_month",
@@ -232,7 +232,8 @@ def classify(
 	"""The classification of a case of `grievance_type` in `area`, filed on `on` (default today).
 
 	The rules are the category's: `service_category` when given (the case's), else the type's own.
-	A type that does not exist is Standard, Normal and not sensitive, never an error.
+	A type that does not exist, or a category with no rule, is Standard, Normal and not sensitive,
+	never an error.
 	"""
 	if not grievance_type:
 		return STANDARD
@@ -245,11 +246,10 @@ def classify(
 	rule = match_rule(rules_of(service_category or flags.service_category), grievance_type, area, on)
 	if not rule:
 		return Classification(bool(flags.is_sensitive), C.HANDLING_STANDARD, C.PRIORITY_NORMAL)
-	urgent = bool(rule.is_urgent)
 	return Classification(
 		is_sensitive=bool(flags.is_sensitive),
-		handling_class=C.HANDLING_URGENT if urgent else C.HANDLING_STANDARD,
-		priority=rule.priority or (C.PRIORITY_URGENT if urgent else C.PRIORITY_NORMAL),
+		handling_class=C.HANDLING_URGENT if rule.is_urgent else C.HANDLING_STANDARD,
+		priority=rule.priority or C.PRIORITY_NORMAL,
 		sla_days=rule.sla_days or None,
 		rule=rule.rule_label or rule.name,
 	)
@@ -272,17 +272,76 @@ def classify_grievance(doc) -> Classification:
 	return result
 
 
-def sla_days_for(grievance, service_category: str | None = None) -> int | None:
-	"""The SLA days a rule gives this case, or None to keep the category's own `sla_days`.
+def sla_days_for(service_category: str | None, grievance=None) -> int | None:
+	"""The SLA days of the category, or of a case of it: the only place SLA days are read.
 
-	Read at the filing date, like the rest of the classification.
+	For a case, the days of the rule that matches it at its filing date, like the rest of the
+	classification; a case with no type yet matches only rules for the whole category. Without a
+	case, the base rule's days. None when the category has no rule: it has no SLA.
 	"""
-	return classify(
-		grievance.get("grievance_type"),
-		grievance.get("administrative_area"),
-		grievance.get("creation"),
-		service_category or grievance.get("service_category"),
-	).sla_days
+	if grievance is None:
+		rule = base_rule(service_category)
+	else:
+		rule = match_rule(
+			rules_of(service_category),
+			grievance.get("grievance_type"),
+			grievance.get("administrative_area"),
+			getdate(grievance.get("creation") or now_datetime()),
+		)
+	return (rule.sla_days or None) if rule else None
+
+
+def is_base(rule) -> bool:
+	"""A rule that names no type, no area and no window: the category's SLA everywhere else."""
+	return not (rule.get("grievance_type") or rule.get("administrative_area") or window_of(rule))
+
+
+def base_rule(service_category: str | None):
+	"""The category's base rule, or None."""
+	if not service_category:
+		return None
+	return frappe.db.get_value(
+		RULE, {"service_category": service_category, "is_base": 1}, list(RULE_FIELDS), as_dict=True
+	)
+
+
+def base_days(categories) -> dict[str, int]:
+	"""The base rule's SLA days of each category that has one, in one query."""
+	if not categories:
+		return {}
+	return {
+		row.service_category: row.sla_days
+		for row in frappe.get_all(
+			RULE,
+			filters={"service_category": ["in", list(categories)], "is_base": 1},
+			fields=["service_category", "sla_days"],
+		)
+	}
+
+
+def set_base_days(service_category: str, sla_days: int):
+	"""Write the category's SLA days on its base rule, creating it (Standard, Normal) if missing.
+
+	A save, so the rule's validation and version history run.
+	"""
+	name = frappe.db.get_value(RULE, {"service_category": service_category, "is_base": 1})
+	if name:
+		rule = frappe.get_doc(RULE, name)
+		if rule.sla_days == sla_days:
+			return rule
+		rule.sla_days = sla_days
+		rule.save()
+		return rule
+	return frappe.get_doc(
+		{
+			"doctype": RULE,
+			"service_category": service_category,
+			"rule_label": _("Base"),
+			"sla_days": sla_days,
+			"is_urgent": 0,
+			"priority": C.PRIORITY_NORMAL,
+		}
+	).insert()
 
 
 # PIN

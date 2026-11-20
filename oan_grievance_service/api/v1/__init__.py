@@ -28,8 +28,8 @@ Endpoints
                                     (/api/v1/orgs, /api/v1/orgs/me, /api/v1/orgs/<id>/status)
     v1.sla_settings                 global SLA policy and per-category SLA windows
                                     (/api/v1/sla-policy, /api/v1/sla-configurations)
-    v1.seasonal_rules               seasonal and urgent SLA rules, one record per rule
-                                    (/api/v1/seasonal-rules)
+    v1.sla_rules                    SLA rules: a category's SLA days, urgency and priority by
+                                    type, area and season, one record per rule (/api/v1/sla-rules)
     v1.service_provider             service provider directory search for the grievance form
                                     (/api/v1/service-providers)
     v1.service_provider_source      sources the directory is synced from, and a one-off sync

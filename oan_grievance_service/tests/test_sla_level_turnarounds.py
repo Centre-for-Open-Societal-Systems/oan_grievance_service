@@ -17,7 +17,6 @@ def _config(rows, category=None):
 		{
 			"doctype": SLA_DOCTYPE,
 			"service_category": category or a_service_category(),
-			"sla_days": 5,
 			"active": 0,
 			"level_turnarounds": rows,
 		}

@@ -8,6 +8,7 @@
  "field_order": [
   "service_category",
   "rule_label",
+  "is_base",
   "col_scope",
   "grievance_type",
   "administrative_area",
@@ -41,6 +42,16 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Label"
+  },
+  {
+   "default": "0",
+   "description": "Set by the system: the rule names no type, no area and no window. It is the category's SLA wherever no narrower rule matches. Every category with an SLA has one; it cannot be deleted or narrowed.",
+   "fieldname": "is_base",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Base Rule",
+   "read_only": 1
   },
   {
    "fieldname": "col_scope",
@@ -101,12 +112,13 @@
    "label": "When the Rule Matches"
   },
   {
-   "description": "Turnaround in working days for a case this rule matches. Blank keeps the SLA Days of the category's SLA configuration.",
+   "description": "Turnaround in working days for a case this rule matches.",
    "fieldname": "sla_days",
    "fieldtype": "Int",
    "in_list_view": 1,
    "label": "SLA Days",
-   "non_negative": 1
+   "non_negative": 1,
+   "reqd": 1
   },
   {
    "default": "0",
@@ -118,16 +130,19 @@
    "label": "Urgent"
   },
   {
-   "description": "Blank: Urgent for an urgent rule, otherwise Normal. Set High to raise priority without urgent handling.",
+   "default": "Normal",
+   "description": "The case's priority. High raises priority without urgent handling.",
    "fieldname": "priority",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Priority",
-   "options": "\nNormal\nHigh\nUrgent"
+   "options": "Normal\nHigh\nUrgent",
+   "reqd": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-20 10:00:00.000000",
+ "modified": "2026-11-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Rule",

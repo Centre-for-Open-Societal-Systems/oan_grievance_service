@@ -31,8 +31,8 @@ from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_ty
 	GrievanceType,
 	get_fallback_type,
 )
+from oan_grievance_service.services import classification, ticket_number
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import ticket_number
 from oan_grievance_service.tests.fixtures import (
 	a_grievance,
 	a_leaf_area,
@@ -145,11 +145,12 @@ class TestTaxonomy(FrappeTestCase):
 		sla_row = frappe.db.get_value(
 			"Grievance SLA Configuration",
 			{"service_category": name, "active": 1},
-			["name", "sla_days", "auto_escalate", "notify_on_breach", "active"],
+			["name", "auto_escalate", "notify_on_breach", "active"],
 			as_dict=True,
 		)
 		self.assertIsNotNone(sla_row)
-		self.assertEqual(sla_row.sla_days, 14)
+		# The days are the category's base SLA rule's.
+		self.assertEqual(classification.sla_days_for(name), 14)
 		self.assertEqual(sla_row.auto_escalate, 1)
 		self.assertEqual(sla_row.notify_on_breach, 0)
 		self.assertEqual(sla_row.active, 1)
@@ -169,10 +170,10 @@ class TestTaxonomy(FrappeTestCase):
 		code = "Q90"
 		res = create_service_category(category_name=name, code=code)
 		self.assertEqual(res["status"], "success", msg=res)
-		sla_days = frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": name, "active": 1}, "sla_days"
+		self.assertTrue(
+			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
 		)
-		self.assertEqual(sla_days, C.DEFAULT_SLA_DAYS)
+		self.assertEqual(classification.sla_days_for(name), C.DEFAULT_SLA_DAYS)
 
 	def test_missing_category_is_not_found(self):
 		for result in (
