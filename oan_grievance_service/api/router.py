@@ -97,6 +97,7 @@ def _register() -> None:
 		officer,
 		officer_statistics,
 		organization,
+		positions,
 		profile,
 		response_config,
 		role_level,

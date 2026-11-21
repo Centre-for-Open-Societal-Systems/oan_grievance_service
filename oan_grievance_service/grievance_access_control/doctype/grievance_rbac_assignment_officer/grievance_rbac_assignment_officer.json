@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "assignment",
   "position",
   "user",
   "role_level",
@@ -21,6 +22,14 @@
  ],
  "fields": [
   {
+   "fieldname": "assignment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assignment",
+   "options": "Grievance Position Assignment",
+   "description": "The person's assignment to the position. User, area and position follow it."
+  },
+  {
    "description": "Organizational post/seat serving this desk",
    "fieldname": "position",
    "fieldtype": "Link",
@@ -29,7 +38,7 @@
    "options": "Grievance Officer Position"
   },
   {
-   "fetch_from": "position.occupant",
+   "fetch_from": "assignment.user",
    "fieldname": "user",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -58,7 +67,7 @@
   },
   {
    "description": "Region (or any area) this officer covers, including its sub-tree. Blank covers every area. The nearest enclosing area wins when routing.",
-   "fetch_from": "position.administrative_area",
+   "fetch_from": "assignment.administrative_area",
    "fieldname": "administrative_area",
    "fieldtype": "Link",
    "hidden": 1,
@@ -129,7 +138,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-11-18 00:00:00.000000",
+ "modified": "2026-11-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance RBAC Assignment Officer",

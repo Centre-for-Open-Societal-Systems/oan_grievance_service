@@ -9,20 +9,10 @@
  "field_order": [
   "position_title",
   "role_level",
-  "administrative_area",
   "col_post",
   "designation",
-  "occupant",
   "reports_to_position",
-  "active",
-  "sec_capacity_leave",
-  "max_open_cases",
-  "col_status",
-  "on_leave",
-  "sec_leave",
-  "leave_from",
-  "col_leave",
-  "leave_to"
+  "active"
  ],
  "fields": [
   {
@@ -42,13 +32,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "administrative_area",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Administrative Area",
-   "options": "Grievance Administrative Area"
-  },
-  {
    "fieldname": "col_post",
    "fieldtype": "Column Break"
   },
@@ -56,14 +39,6 @@
    "fieldname": "designation",
    "fieldtype": "Data",
    "label": "Designation"
-  },
-  {
-   "fieldname": "occupant",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Occupant (User)",
-   "options": "User"
   },
   {
    "fieldname": "reports_to_position",
@@ -77,55 +52,12 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Active"
-  },
-  {
-   "fieldname": "sec_capacity_leave",
-   "fieldtype": "Section Break",
-   "label": "Capacity & Status"
-  },
-  {
-   "default": "0",
-   "description": "0 means no cap. Used by Least Loaded routing.",
-   "fieldname": "max_open_cases",
-   "fieldtype": "Int",
-   "label": "Max Open Cases"
-  },
-  {
-   "fieldname": "col_status",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "0",
-   "fieldname": "on_leave",
-   "fieldtype": "Check",
-   "in_list_view": 1,
-   "label": "On Leave"
-  },
-  {
-   "depends_on": "eval:doc.on_leave",
-   "fieldname": "sec_leave",
-   "fieldtype": "Section Break",
-   "label": "Leave Schedule"
-  },
-  {
-   "fieldname": "leave_from",
-   "fieldtype": "Date",
-   "label": "Leave From"
-  },
-  {
-   "fieldname": "col_leave",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "leave_to",
-   "fieldtype": "Date",
-   "label": "Leave To"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-18 00:00:00.000000",
+ "modified": "2026-11-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Access Control",
  "name": "Grievance Officer Position",

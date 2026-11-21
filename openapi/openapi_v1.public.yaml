@@ -5773,6 +5773,218 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetOrganizationStatus'
+  /v1/positions:
+    get:
+      tags:
+      - Administration
+      summary: List officer positions
+      description: Positions are roles such as Crop DA or Woreda Crop SMS, each with a role level and
+        the position it reports to. `holders` counts the people holding one. Filterable by role level,
+        active status and a search string.
+      operationId: get_api_v1_positions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: role_level
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Role level code
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: Filter by active status
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Matches title, designation or ID
+      security:
+      - BearerAuth: []
+  /v1/position-assignments:
+    get:
+      tags:
+      - Administration
+      summary: List position assignments
+      description: Who holds which position, and where. An assignment with no user is waiting on the first
+        sign-in of its email. Filterable by position, role level, area (including the areas under it),
+        email, active status, unclaimed, and `mine` for the caller's own.
+      operationId: get_api_v1_position_assignments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: position
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Position ID
+      - name: role_level
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Role level code of the position
+      - name: administrative_area
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Area; also matches assignments in the areas under it
+      - name: email
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Exact email, case-insensitive
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: Filter by active status
+      - name: unclaimed
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: 'True: waiting on a first sign-in. False: held by a user'
+      - name: mine
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: 'True: only the caller''s own assignments'
+      security:
+      - BearerAuth: []
   /v1/response-templates:
     get:
       tags:
@@ -10633,6 +10845,120 @@ components:
       - organizations
       - pagination
       type: object
+    PositionRecord:
+      properties:
+        position_id:
+          description: Position ID (e.g. POS-00200)
+          type: string
+        position_title:
+          description: Display title
+          type: string
+        designation:
+          type: string
+          default: null
+          description: Designation, e.g. Crop DA
+          nullable: true
+        role_level:
+          type: string
+          default: null
+          description: Role level code
+          nullable: true
+        reports_to_position:
+          type: string
+          default: null
+          description: Position this one reports to
+          nullable: true
+        active:
+          description: Whether the position is in use
+          type: boolean
+        holders:
+          description: Active assignments of this position
+          type: integer
+      required:
+      - position_id
+      - position_title
+      - active
+      - holders
+      type: object
+    PositionListData:
+      properties:
+        positions:
+          items:
+            $ref: '#/components/schemas/PositionRecord'
+          type: array
+        total:
+          type: integer
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - positions
+      - total
+      - pagination
+      type: object
+    AssignmentRecord:
+      properties:
+        assignment_id:
+          description: Assignment ID (e.g. PA-00001)
+          type: string
+        position_id:
+          description: Position held
+          type: string
+        position_title:
+          type: string
+          default: null
+          description: Title of the position held
+          nullable: true
+        role_level:
+          type: string
+          default: null
+          description: Role level code of the position
+          nullable: true
+        administrative_area:
+          type: string
+          default: null
+          description: Area served; empty is everywhere
+          nullable: true
+        user:
+          type: string
+          default: null
+          description: Holder; empty until their first sign-in
+          nullable: true
+        email:
+          type: string
+          default: null
+          description: Email their first sign-in is matched on
+          nullable: true
+        active:
+          type: boolean
+        on_leave:
+          type: boolean
+        max_open_cases:
+          description: 0 means no cap
+          type: integer
+      required:
+      - assignment_id
+      - position_id
+      - active
+      - on_leave
+      - max_open_cases
+      type: object
+    AssignmentListData:
+      properties:
+        assignments:
+          items:
+            $ref: '#/components/schemas/AssignmentRecord'
+          type: array
+        total:
+          type: integer
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - assignments
+      - total
+      - pagination
+      type: object
     AdminResponseTemplateRecord:
       properties:
         template:
@@ -13668,6 +13994,56 @@ components:
       - status
       - data
       description: OrganizationListData response
+    PositionListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/PositionListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: PositionListData response
+    AssignmentListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/AssignmentListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: AssignmentListData response
     AdminResponseTemplateListResponse:
       type: object
       properties:

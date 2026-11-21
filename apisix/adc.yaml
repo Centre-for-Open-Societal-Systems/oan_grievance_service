@@ -44,11 +44,8 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions
-    - /v1/admin/roles/:role
-    - /v1/admin/users/:user_id
     - /v1/admin/users/:user_id/roles/:role
     - /v1/admin/users/:user_id/sessions
-    - /v1/admin/users/:user_id/user-permissions/:name
     methods:
     - DELETE
     plugins:
@@ -75,13 +72,10 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions
-    - /v1/admin/permissions/catalogue
     - /v1/admin/roles
-    - /v1/admin/roles/:role
     - /v1/admin/users
     - /v1/admin/users/:user_id
     - /v1/admin/users/:user_id/roles
-    - /v1/admin/users/:user_id/user-permissions
     methods:
     - GET
     plugins:
@@ -107,7 +101,6 @@ services:
       tier: auth-admin
       auth: bearer
     uris:
-    - /v1/admin/roles/:role
     - /v1/admin/users/:user_id
     methods:
     - PATCH
@@ -135,11 +128,9 @@ services:
       auth: bearer
     uris:
     - /v1/admin/permissions/reset
-    - /v1/admin/roles
     - /v1/admin/users
     - /v1/admin/users/:user_id/roles
     - /v1/admin/users/:user_id/temporary-password
-    - /v1/admin/users/:user_id/user-permissions
     methods:
     - POST
     plugins:
@@ -554,6 +545,8 @@ services:
     - /v1/officers/status-counts
     - /v1/orgs
     - /v1/orgs/:org_id
+    - /v1/position-assignments
+    - /v1/positions
     - /v1/response-templates
     - /v1/response-templates/:template
     - /v1/role-levels
@@ -767,6 +760,10 @@ services:
     - /v1/officers/*
     - /v1/orgs
     - /v1/orgs/*
+    - /v1/position-assignments
+    - /v1/position-assignments/*
+    - /v1/positions
+    - /v1/positions/*
     - /v1/response-templates
     - /v1/response-templates/*
     - /v1/role-levels
