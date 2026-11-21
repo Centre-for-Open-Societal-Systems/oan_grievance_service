@@ -944,7 +944,7 @@ class TestGatewayContract(FrappeTestCase):
 		self.assertEqual(spec["components"]["securitySchemes"]["FrappeTokenAuth"]["name"], "Authorization")
 
 	def test_gateway_passes_the_frappe_token_through_on_the_charts(self):
-		from oan_auth_service.openapi_generator import tier_overrides
+		from oan_auth_service.openapi_generator import api_upstream, tier_overrides
 
 		generator = self._generator()
 		gw = generator.gw
@@ -969,7 +969,9 @@ class TestGatewayContract(FrappeTestCase):
 				routes,
 				app=generator.APP,
 				tiers=generator.TIERS,
-				api_upstream=generator.API_UPSTREAM,
+				api_upstream=api_upstream(
+					"OAN_GRIEVANCE_UPSTREAM_HOST", "OAN_GRIEVANCE_UPSTREAM_PORT", generator.SITE_NAME
+				),
 				service_plugins={},
 			)
 		# Frappe checks the key; the gateway only limits by address and adds no auth.
