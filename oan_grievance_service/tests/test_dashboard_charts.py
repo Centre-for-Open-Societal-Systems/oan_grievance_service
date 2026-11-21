@@ -944,13 +944,14 @@ class TestGatewayContract(FrappeTestCase):
 		self.assertEqual(spec["components"]["securitySchemes"]["FrappeTokenAuth"]["name"], "Authorization")
 
 	def test_gateway_passes_the_frappe_token_through_on_the_charts(self):
+		from oan_auth_service.openapi_generator import tier_overrides
+
 		generator = self._generator()
 		gw = generator.gw
 		spec = gw.load_spec(generator.SPEC_PATH)
+		overrides = tier_overrides(gw.load_spec(generator.INTERNAL_SPEC_PATH))
 		routes = [
-			r
-			for r in gw.reconcile(gw.spec_routes(spec), generator.tier_overrides())
-			if r["path"].startswith("/v1/charts/")
+			r for r in gw.reconcile(gw.spec_routes(spec), overrides) if r["path"].startswith("/v1/charts/")
 		]
 		import os
 
