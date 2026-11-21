@@ -135,7 +135,11 @@ scheduler_events = {
 
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 on_user_registered = ["oan_grievance_service.api.v1.profile.on_user_registered_hook"]
-oan_auth_on_delegated_login = ["oan_grievance_service.api.v1.profile.on_delegated_login_hook"]
+oan_auth_on_delegated_login = [
+	"oan_grievance_service.api.v1.profile.on_delegated_login_hook",
+	# An officer's first sign-in takes the position assignments waiting on their email.
+	"oan_grievance_service.grievance_access_control.positions.claim_on_login",
+]
 
 # Scopes oan_auth_service's /v1/admin/* endpoints (users, roles, permissions) to the roles and
 # doctypes named "Grievance" or "Grievance <...>". Without it those endpoints answer 400.

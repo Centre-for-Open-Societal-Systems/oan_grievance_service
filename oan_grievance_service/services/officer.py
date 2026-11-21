@@ -235,9 +235,9 @@ def create(
 	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
 	if status == "On Leave":
-		_set_positions(user.name, {"on_leave": 1})
+		_set_assignments(user.name, {"on_leave": 1})
 	elif status == "Inactive":
-		_set_positions(user.name, {"active": 0})
+		_set_assignments(user.name, {"active": 0})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
@@ -359,31 +359,49 @@ def update(user_id: str, changes: dict) -> str:
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
 		account.set_enabled(user_id, True)
-	pos_updates = {}
-	if "designation" in changes:
-		pos_updates["designation"] = designation
-	if level != current.level:
-		pos_updates["role_level"] = LEVEL_CODES.get(level, level)
-	if "region" in changes:
-		pos_updates["administrative_area"] = row_changes.get("administrative_area")
-	if "reports_to" in changes:
-		sup = row_changes.get("reports_to")
-		pos_updates["reports_to_position"] = (
-			frappe.db.get_value("Grievance Officer Position", {"occupant": sup, "active": 1}, "name")
-			if sup
-			else None
+	# A position is shared by everyone who holds it, so a new level or designation moves
+	# this person's assignments to the position that has them, made if there is none.
+	held_updates = {}
+	if "designation" in changes or level != current.level:
+		role_level = LEVEL_CODES.get(level, level)
+		desig = designation or role_level.replace("_", " ").title()
+		held_updates["position"] = frappe.db.get_value(
+			"Grievance Officer Position", {"role_level": role_level, "designation": desig}, "name"
+		) or (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Officer Position",
+					"position_title": desig,
+					"designation": desig,
+					"role_level": role_level,
+					"active": 1,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
 		)
+	if "region" in changes:
+		held_updates["administrative_area"] = row_changes.get("administrative_area")
 	if "status" in changes:
-		pos_updates["on_leave"] = 1 if changes["status"] == "On Leave" else 0
+		held_updates["on_leave"] = 1 if changes["status"] == "On Leave" else 0
 		if changes["status"] == "Inactive":
-			pos_updates["active"] = 0
-	if pos_updates:
+			held_updates["active"] = 0
+	if held_updates:
 		if status and status != "Inactive":
-			pos_updates["active"] = 1
-		for pos_name in _desk_positions(user_id, current.desks | target):
-			pos_doc = frappe.get_doc("Grievance Officer Position", pos_name)
-			pos_doc.update(pos_updates)
-			pos_doc.save(ignore_permissions=True)
+			held_updates["active"] = 1
+		for name in frappe.get_all(
+			"Grievance RBAC Assignment Officer",
+			filters={
+				"parent": ["in", list(current.desks | target) or [""]],
+				"user": user_id,
+				"assignment": ["is", "set"],
+			},
+			pluck="assignment",
+			distinct=True,
+		):
+			held = frappe.get_doc("Grievance Position Assignment", name)
+			held.update(held_updates)
+			held.save(ignore_permissions=True)
 		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
 
 		clear_position_cache(user_id)
@@ -992,26 +1010,14 @@ def _narrow(records: list, department: str | None, categories: list[str] | None)
 	return records
 
 
-def _desk_positions(user_id: str, desk_names) -> list[str]:
-	"""The Positions that `user_id`'s rows on these desks point to, not every seat they hold."""
-	if not desk_names:
-		return []
-	return frappe.get_all(
-		"Grievance RBAC Assignment Officer",
-		filters={"parent": ["in", list(desk_names)], "user": user_id, "position": ["is", "set"]},
-		pluck="position",
-		distinct=True,
-	)
-
-
-def _set_positions(user_id: str, values: dict):
-	"""Save `values` onto every Position `user_id` occupies, so Position validation runs."""
+def _set_assignments(user_id: str, values: dict):
+	"""Save `values` onto every Position Assignment `user_id` holds, so its validation runs."""
 	from oan_grievance_service.grievance_access_control.positions import clear_position_cache
 
-	for name in frappe.get_all("Grievance Officer Position", filters={"occupant": user_id}, pluck="name"):
-		pos = frappe.get_doc("Grievance Officer Position", name)
-		pos.update(values)
-		pos.save(ignore_permissions=True)
+	for name in frappe.get_all("Grievance Position Assignment", filters={"user": user_id}, pluck="name"):
+		held = frappe.get_doc("Grievance Position Assignment", name)
+		held.update(values)
+		held.save(ignore_permissions=True)
 	clear_position_cache(user_id)
 
 
@@ -1033,30 +1039,8 @@ def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict |
 			desk.remove(mine)
 	elif mine:
 		mine.update(values)
-		if not mine.get("position") and mine.get("role_level"):
-			pos_filter = {
-				"occupant": user_id,
-				"role_level": mine.get("role_level"),
-				"active": 1,
-			}
-			if mine.get("administrative_area"):
-				pos_filter["administrative_area"] = mine.get("administrative_area")
-			pos_name = frappe.db.get_value("Grievance Officer Position", pos_filter, "name")
-			if pos_name:
-				mine.position = pos_name
 	else:
 		row_dict = {"user": user_id, **(on_new or {}), **values}
-		if not row_dict.get("position") and row_dict.get("role_level"):
-			pos_filter = {
-				"occupant": user_id,
-				"role_level": row_dict.get("role_level"),
-				"active": 1,
-			}
-			if row_dict.get("administrative_area"):
-				pos_filter["administrative_area"] = row_dict.get("administrative_area")
-			pos_name = frappe.db.get_value("Grievance Officer Position", pos_filter, "name")
-			if pos_name:
-				row_dict["position"] = pos_name
 		desk.append("officers", row_dict)
 	desk.assigned_by = frappe.session.user
 	desk.save()

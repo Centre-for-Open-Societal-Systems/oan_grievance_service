@@ -35,63 +35,88 @@ class GrievanceRBACAssignment(Document):
 		self.ensure_positions_for_officers()
 
 	def ensure_positions_for_officers(self):
+		"""Tie every officer row to a Position Assignment and fill the row from it.
+
+		A row given only a user (and maybe a level and area) gets that user's matching
+		assignment, created along with a position for the level when there is none.
+		"""
+		from oan_grievance_service.grievance_access_control.positions import supervisor_of
+
 		for row in self.officers:
-			if row.get("position"):
-				pos = frappe.db.get_value(
-					"Grievance Officer Position",
-					row.position,
-					[
-						"occupant",
-						"role_level",
-						"administrative_area",
-						"designation",
-						"position_title",
-						"reports_to_position",
-					],
-					as_dict=True,
-				)
-				if pos:
-					# Fill only what the row lacks: Position edits reach linked rows through
-					# the Position's own sync, and a row re-levelled on the desk must keep it.
-					row.user = row.user or pos.occupant
-					row.role_level = row.role_level or pos.role_level
-					row.administrative_area = row.administrative_area or pos.administrative_area
-					row.designation = row.designation or pos.designation or pos.position_title
-					if pos.reports_to_position and not row.reports_to:
-						row.reports_to = frappe.db.get_value(
-							"Grievance Officer Position", pos.reports_to_position, "occupant"
-						)
-			elif row.get("user"):
-				filters = {"occupant": row.user, "active": 1}
-				if row.get("role_level"):
-					filters["role_level"] = row.role_level
+			if not row.get("assignment") and row.get("user"):
+				filters = {"user": row.user, "active": 1}
+				if row.get("position"):
+					filters["position"] = row.position
+				elif row.get("role_level"):
+					filters["position"] = [
+						"in",
+						frappe.get_all(
+							"Grievance Officer Position", filters={"role_level": row.role_level}, pluck="name"
+						),
+					]
 				if row.get("administrative_area"):
 					filters["administrative_area"] = row.administrative_area
-				pos_name = frappe.db.get_value(
-					"Grievance Officer Position",
-					filters,
-					"name",
-				)
-				if not pos_name:
-					occupant = row.user if frappe.db.get_value("User", row.user, "enabled") else None
+				row.assignment = frappe.db.get_value("Grievance Position Assignment", filters, "name")
+				if not row.assignment and frappe.db.get_value("User", row.user, "enabled"):
 					role_lvl = row.get("role_level")
 					if not role_lvl:
 						chain = GrievanceRoleLevel.get_chain()
 						role_lvl = chain[0].name if chain else "nodal_officer"
 					desig = row.get("designation") or role_lvl.replace("_", " ").title()
-					pos_doc = frappe.get_doc(
-						{
-							"doctype": "Grievance Officer Position",
-							"position_title": f"{desig} - {row.user}",
-							"role_level": role_lvl,
-							"administrative_area": row.get("administrative_area"),
-							"occupant": occupant,
-							"designation": desig,
-							"active": 1,
-						}
-					).insert(ignore_permissions=True)
-					pos_name = pos_doc.name
-				row.position = pos_name
+					position = row.get("position") or frappe.db.get_value(
+						"Grievance Officer Position", {"role_level": role_lvl, "designation": desig}, "name"
+					)
+					if not position:
+						position = (
+							frappe.get_doc(
+								{
+									"doctype": "Grievance Officer Position",
+									"position_title": desig,
+									"role_level": role_lvl,
+									"designation": desig,
+									"active": 1,
+								}
+							)
+							.insert(ignore_permissions=True)
+							.name
+						)
+					row.assignment = (
+						frappe.get_doc(
+							{
+								"doctype": "Grievance Position Assignment",
+								"position": position,
+								"user": row.user,
+								"administrative_area": row.get("administrative_area"),
+								"active": 1,
+							}
+						)
+						.insert(ignore_permissions=True)
+						.name
+					)
+			if not row.get("assignment"):
+				continue
+			held = frappe.db.get_value(
+				"Grievance Position Assignment",
+				row.assignment,
+				["user", "position", "administrative_area"],
+				as_dict=True,
+			)
+			if not held:
+				continue
+			pos = frappe.db.get_value(
+				"Grievance Officer Position",
+				held.position,
+				["role_level", "designation", "position_title"],
+				as_dict=True,
+			)
+			# Fill only what the row lacks: assignment and position edits reach linked rows
+			# through their own sync, and a row re-levelled on the desk must keep it.
+			row.user = row.user or held.user
+			row.position = held.position
+			row.administrative_area = row.administrative_area or held.administrative_area
+			row.role_level = row.role_level or pos.role_level
+			row.designation = row.designation or pos.designation or pos.position_title
+			row.reports_to = row.reports_to or supervisor_of(held.position, row.administrative_area)
 
 	def validate(self):
 		# Type- and provider-scoped desks predate these rules and are left alone.
@@ -475,15 +500,12 @@ def get_officer_supervisor(user, department=None, administrative_area=None, stri
 	)
 	rows = [r for r in rows if r.reports_to]
 	if not rows:
-		from oan_grievance_service.grievance_access_control.positions import positions_of
+		from oan_grievance_service.grievance_access_control.positions import positions_of, supervisor_of
 
-		for pos in positions_of(user):
-			if pos.get("reports_to_position"):
-				sup = frappe.db.get_value(
-					"Grievance Officer Position", pos["reports_to_position"], "occupant"
-				)
-				if sup:
-					return sup
+		for held in positions_of(user):
+			sup = supervisor_of(held.position, held.administrative_area)
+			if sup:
+				return sup
 		return None
 
 	best = covering_rows(rows, department, category, administrative_area)

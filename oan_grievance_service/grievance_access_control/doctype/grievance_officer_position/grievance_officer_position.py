@@ -1,13 +1,13 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""Officer Position representing the organizational seat/post in the hierarchy.
+"""Officer Position: a role in the hierarchy, such as Crop DA or Woreda Crop SMS.
 
-A position belongs to an administrative area jurisdiction, holds a role level,
-and may optionally have an occupant (User). Positions are seeded upfront and remain
-stable across staff turnover and leaves. Department scoping is defined on the Desk
-(Grievance RBAC Assignment), allowing a single position (e.g. KAO Head or Woreda SMS)
-to serve multiple department desks without duplicate positions.
+A position holds a role level and the position it reports to. The people who hold it,
+and where, are its Grievance Position Assignments, so one position serves every area
+and every holder. Department scoping is defined on the Desk (Grievance RBAC Assignment),
+allowing a single position (e.g. KAO Head or Woreda SMS) to serve multiple department
+desks without duplicate positions.
 """
 
 import frappe
@@ -25,77 +25,28 @@ class GrievanceOfficerPosition(Document):
 			self.position_title = self.designation
 		elif not self.designation and self.position_title:
 			self.designation = self.position_title
-		self.validate_occupant()
 		self.validate_hierarchy()
-		self.validate_leave()
 
 	def on_update(self):
 		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
 
-		clear_position_cache(self.occupant)
+		clear_position_cache()
 		self.sync_desk_rows()
 
 	def sync_desk_rows(self):
 		"""Keep desk membership child rows synchronized when position facts change."""
-		desig = self.designation or self.position_title
 		Officer = frappe.qb.DocType("Grievance RBAC Assignment Officer")
-		query = (
+		(
 			frappe.qb.update(Officer)
 			.set(Officer.role_level, self.role_level)
-			.set(Officer.administrative_area, self.administrative_area)
-			.set(Officer.designation, desig)
+			.set(Officer.designation, self.designation or self.position_title)
 			.where(Officer.position == self.name)
-		)
-		if self.occupant:
-			query = query.set(Officer.user, self.occupant)
-		if self.reports_to_position:
-			sup_occupant = frappe.db.get_value(
-				"Grievance Officer Position", self.reports_to_position, "occupant"
-			)
-			if sup_occupant:
-				query = query.set(Officer.reports_to, sup_occupant)
-		query.run()
+		).run()
 
 	def on_trash(self):
 		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
 
-		clear_position_cache(self.occupant)
-
-	def validate_leave(self):
-		if self.on_leave and self.leave_from and self.leave_to:
-			if str(self.leave_to) < str(self.leave_from):
-				frappe.throw(
-					_("Leave To date '{0}' cannot be earlier than Leave From date '{1}'.").format(
-						self.leave_to, self.leave_from
-					),
-					frappe.ValidationError,
-				)
-
-	def is_currently_on_leave(self, as_of_date: str | None = None) -> bool:
-		if not self.on_leave:
-			return False
-		today = as_of_date or frappe.utils.today()
-		if self.leave_from and str(self.leave_from) > today:
-			return False
-		if self.leave_to and str(self.leave_to) < today:
-			return False
-		return True
-
-	def validate_occupant(self):
-		if not self.occupant:
-			return
-
-		if not frappe.db.exists("User", self.occupant):
-			frappe.throw(
-				_("Occupant user '{0}' does not exist.").format(self.occupant), frappe.ValidationError
-			)
-
-		# Ensure user is enabled
-		if not frappe.db.get_value("User", self.occupant, "enabled"):
-			frappe.throw(
-				_("Occupant user '{0}' is disabled in the system.").format(self.occupant),
-				frappe.ValidationError,
-			)
+		clear_position_cache()
 
 	def validate_hierarchy(self):
 		if not self.reports_to_position:
@@ -107,7 +58,7 @@ class GrievanceOfficerPosition(Document):
 		sup = frappe.db.get_value(
 			"Grievance Officer Position",
 			self.reports_to_position,
-			["name", "role_level", "administrative_area", "reports_to_position"],
+			["name", "role_level", "reports_to_position"],
 			as_dict=True,
 		)
 		if not sup:
@@ -146,29 +97,6 @@ class GrievanceOfficerPosition(Document):
 					frappe.ValidationError,
 				)
 
-		# Area containment check: supervisor's area must be an ancestor of or equal to this position's area
-		if (
-			self.administrative_area
-			and sup.administrative_area
-			and self.administrative_area != sup.administrative_area
-		):
-			from oan_grievance_service.services.routing import _extract_case_area_bounds
-
-			pos_bounds = _extract_case_area_bounds(self)
-			sup_bounds = _extract_case_area_bounds(sup)
-			if pos_bounds and sup_bounds:
-				_area_name, p_lft, p_rgt = pos_bounds
-				_sup_area_name, s_lft, s_rgt = sup_bounds
-				if not (s_lft <= p_lft and p_rgt <= s_rgt):
-					frappe.throw(
-						_("Supervisor position area '{0}' does not cover this position's area '{1}'.").format(
-							sup.administrative_area, self.administrative_area
-						),
-						frappe.ValidationError,
-					)
-
 
 def on_doctype_update():
 	frappe.db.add_index("Grievance Officer Position", ["role_level", "active"])
-	frappe.db.add_index("Grievance Officer Position", ["administrative_area"])
-	frappe.db.add_index("Grievance Officer Position", ["occupant"])

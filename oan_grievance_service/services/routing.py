@@ -362,26 +362,22 @@ def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
 	if not assignment_doc.get("officers"):
 		return None
 
-	pos_names = [o.position for o in assignment_doc.officers if getattr(o, "position", None)]
-	positions_by_name = {}
-	sup_occupants = {}
-	if pos_names:
-		positions = frappe.get_all(
-			"Grievance Officer Position",
-			filters={"name": ["in", pos_names]},
-			fields=["name", "occupant", "role_level", "administrative_area", "reports_to_position"],
-		)
-		positions_by_name = {p.name: p for p in positions}
-		sup_pos_names = [p.reports_to_position for p in positions if p.reports_to_position]
-		if sup_pos_names:
-			sup_occupants = {
-				p.name: p.occupant
-				for p in frappe.get_all(
-					"Grievance Officer Position",
-					filters={"name": ["in", sup_pos_names]},
-					fields=["name", "occupant"],
-				)
-			}
+	from oan_grievance_service.grievance_access_control.positions import supervisor_of
+
+	names = [o.assignment for o in assignment_doc.officers if getattr(o, "assignment", None)]
+	held_by_name = {}
+	if names:
+		A = frappe.qb.DocType("Grievance Position Assignment")
+		P = frappe.qb.DocType("Grievance Officer Position")
+		held_by_name = {
+			row.name: row
+			for row in frappe.qb.from_(A)
+			.join(P)
+			.on(P.name == A.position)
+			.select(A.name, A.user, A.position, A.administrative_area, P.role_level)
+			.where(A.name.isin(names))
+			.run(as_dict=True)
+		}
 
 	chain = GrievanceRoleLevel.get_chain()
 	chain_codes = {rung.name for rung in chain}
@@ -389,18 +385,17 @@ def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
 	candidates = []
 	for o in assignment_doc.officers:
 		user = getattr(o, "user", None)
-		pos_name = getattr(o, "position", None)
-		if pos_name and pos_name in positions_by_name:
-			pos = positions_by_name[pos_name]
+		held = held_by_name.get(getattr(o, "assignment", None))
+		if held:
 			if not user:
-				user = pos.occupant
+				user = held.user
 				o.user = user
 			if not getattr(o, "role_level", None):
-				o.role_level = pos.role_level
+				o.role_level = held.role_level
 			if not getattr(o, "administrative_area", None):
-				o.administrative_area = pos.administrative_area
-			if not getattr(o, "reports_to", None) and pos.reports_to_position:
-				o.reports_to = sup_occupants.get(pos.reports_to_position)
+				o.administrative_area = held.administrative_area
+			if not getattr(o, "reports_to", None):
+				o.reports_to = supervisor_of(held.position, o.administrative_area)
 
 		if (
 			user

@@ -1573,6 +1573,7 @@ API_MODULES = [
 			"officer",
 			"officer_statistics",
 			"organization",
+			"positions",
 			"profile",
 			"response_config",
 			"role_level",
