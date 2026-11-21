@@ -313,4 +313,5 @@ for _chart_id in dashboard.PUBLIC_CHARTS:
 		# Transitional: JWT only once the dashboards hold JWTs.
 		auth=("jwt", "api_key"),
 		roles=PUBLIC_CHART_ROLES,
+		security="FrappeTokenAuth",
 	)(_public_endpoint(_chart_id))

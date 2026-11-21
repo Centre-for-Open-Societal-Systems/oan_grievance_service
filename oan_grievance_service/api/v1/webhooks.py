@@ -62,6 +62,8 @@ class IvrGrievanceRequest(BaseModel):
 	tier="ivr-webhooks",
 	auth="api_key",
 	roles=IVR_ROLES,
+	security="GatewayKeyAuth",
+	request_types=("application/json", "multipart/form-data"),
 )
 @validate_request(IvrGrievanceRequest)
 @handle_api_errors

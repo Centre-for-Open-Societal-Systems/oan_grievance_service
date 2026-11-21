@@ -967,7 +967,13 @@ def _current_state(doc, extra=None, as_submitter=False):
 	return state
 
 
-@route("", methods=("POST",), summary="Submit a new grievance", tier="citizen-intake")
+@route(
+	"",
+	methods=("POST",),
+	summary="Submit a new grievance",
+	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
+)
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_permission("Grievance", "create")
@@ -1365,6 +1371,7 @@ _ACTION_ENTRY_TYPES = {
 	methods=("POST",),
 	summary="Execute a workflow action on a grievance",
 	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
 )
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
@@ -1868,6 +1875,7 @@ def timeline(
 	methods=("GET",),
 	summary="Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)",
 	tier="citizen-intake",
+	response_types=("application/pdf", "text/csv"),
 )
 @handle_api_errors
 @require_permission("Grievance", "export")
@@ -1907,6 +1915,7 @@ def export_form(ticket_number: str, format: str = "pdf", lang: str = "en", **kwa
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
 	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
 )
 @validate_request(PostMessageRequest)
 @handle_api_errors

@@ -23,7 +23,6 @@ from oan_auth_service import gateway_apisix as gw
 from oan_auth_service.openapi_generator import generate_spec_and_gateway, import_route_modules
 from oan_auth_service.openapi_spec import (
 	ARR,
-	BINARY,
 	OBJ,
 	REF,
 	B,
@@ -1459,27 +1458,10 @@ QP["DashboardCharts"] = [
 	},
 ]
 
-# The OAN dashboards read the public charts as a Frappe user holding Grievance
-# Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
-PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
-# The IVR platform calls the gateway with its own key; the gateway adds the Frappe API
-# key and secret of the Grievance Submitter user, which the platform never holds.
-IVR_WEBHOOK_SECURITY = [{"GatewayKeyAuth": []}]
-
 
 # ---------------------------------------------------------------------------
 # Dynamic Discovery & Spec Builder
 # ---------------------------------------------------------------------------
-# Requests that carry files. The others are JSON only.
-MULTIPART_REQUESTS = {
-	"SubmitDocumentsRequest": ("multipart/form-data",),
-	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
-	"PostMessageRequest": ("application/json", "multipart/form-data"),
-	"SubmitGrievanceRequest": ("application/json", "multipart/form-data"),
-	"IvrGrievanceRequest": ("application/json", "multipart/form-data"),
-}
-
-
 def _determine_tag(path: str, func_name: str) -> str:
 	if "/health" in path or "/ping" in path:
 		return "Health & Monitoring"
@@ -1596,6 +1578,7 @@ API_MODULES = [
 			"role_level",
 			"service_provider",
 			"service_provider_source",
+			"sla_rules",
 			"sla_settings",
 			"submitter",
 			"taxonomy",
@@ -1697,26 +1680,6 @@ def query_parameters_for(func_name: str, path: str, method: str) -> list[dict[st
 	return []
 
 
-def security_for(func_name: str, is_public: bool) -> list[dict[str, list]]:
-	if func_name.startswith("get_public_chart_"):
-		return PUBLIC_CHART_SECURITY
-	if func_name == "ivr_grievance":
-		return IVR_WEBHOOK_SECURITY
-	return [] if is_public else [{"BearerAuth": []}]
-
-
-def customize_operation(op: dict[str, Any], func_name: str, method: str) -> None:
-	ok = op["responses"][next(iter(op["responses"]))]
-	if func_name == "view":
-		ok["content"] = {"*/*": ok["content"]["application/json"]}
-	elif func_name == "export_form":
-		# The SOW form is a file in either format, not the JSON envelope.
-		ok["content"] = {
-			"application/pdf": {"schema": BINARY},
-			"text/csv": {"schema": BINARY},
-		}
-
-
 def write_registration_overlay(extras_schema: dict[str, Any]) -> None:
 	"""Write an OpenAPI Overlay that attaches this app's registration fields to
 	oan_auth_service's RegisterRequest under `profile.grievance`.
@@ -1786,13 +1749,10 @@ def main() -> None:
 		security_schemes=SECURITY_SCHEMES,
 		schemas=DATA_SCHEMAS,
 		envelopes=ENVELOPES,
-		multipart_requests=MULTIPART_REQUESTS,
 		path_param_docs=PATH_PARAM_DOCS,
 		tag_for=_determine_tag,
 		response_for=_determine_response,
 		query_parameters_for=query_parameters_for,
-		security_for=security_for,
-		customize_operation=customize_operation,
 	)
 
 
