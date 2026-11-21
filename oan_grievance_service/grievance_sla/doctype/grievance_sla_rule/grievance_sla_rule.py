@@ -38,6 +38,8 @@ class GrievanceSLARule(Document):
 				)
 
 		self.is_base = 1 if classification.is_base(self) else 0
+		# Priority has one value and follows Urgent: it is never set on its own.
+		self.priority = classification.priority_of(self.is_urgent)
 		frappe.db.get_value("Grievance Service Category", self.service_category, "name", for_update=True)
 		others = classification.rules_of(self.service_category, exclude=None if self.is_new() else self.name)
 		for other in others:

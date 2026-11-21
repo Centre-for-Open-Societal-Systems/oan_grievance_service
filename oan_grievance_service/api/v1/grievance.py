@@ -934,7 +934,8 @@ def _classification_view(source, is_staff) -> dict:
 	return {
 		"is_sensitive": bool(source.get("is_sensitive")),
 		"handling_class": source.get("handling_class") or C.HANDLING_STANDARD,
-		"priority": source.get("priority") or C.PRIORITY_NORMAL,
+		# Urgent, or null: priority has no other value.
+		"priority": C.PRIORITY_URGENT if source.get("priority") == C.PRIORITY_URGENT else None,
 	}
 
 

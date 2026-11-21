@@ -122,7 +122,7 @@
   },
   {
    "default": "0",
-   "description": "The case is handled as Urgent.",
+   "description": "The case is handled as Urgent, with priority Urgent.",
    "fieldname": "is_urgent",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -130,19 +130,18 @@
    "label": "Urgent"
   },
   {
-   "default": "Normal",
-   "description": "The case's priority. High raises priority without urgent handling.",
+   "description": "Set by the system from Urgent: Urgent for an urgent rule, blank otherwise.",
    "fieldname": "priority",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Priority",
-   "options": "Normal\nHigh\nUrgent",
-   "reqd": 1
+   "options": "\nUrgent",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-20 12:00:00.000000",
+ "modified": "2026-11-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Rule",
