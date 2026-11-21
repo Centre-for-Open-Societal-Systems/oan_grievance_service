@@ -15,185 +15,23 @@ Usage:
   python3 openapi/generate_openapi_spec.py
 """
 
-import copy
-import importlib
-import inspect
-import re
-import sys
 from pathlib import Path
-from typing import Any, Literal, get_args, get_origin
+from typing import Any
 
-import frappe
-from oan_auth_service.api.router import _exempt_paths, _rules
-from oan_auth_service.gateway_apisix import publicize_spec
-from pydantic import BaseModel
-
-try:
-	from oan_auth_service.openapi_spec import (
-		ARR,
-		BINARY,
-		OBJ,
-		REF,
-		B,
-		I,
-		N,
-		S,
-		dump_spec,
-		make_envelope,
-		query_parameters,
-		request_model,
-		request_schema,
-		strip_extensions,
-	)
-except ImportError:
-	import yaml
-	from pydantic import BaseModel
-
-	def S(**kw: Any) -> dict[str, Any]:
-		return {"type": "string", **kw}
-
-	def I(**kw: Any) -> dict[str, Any]:  # noqa: E743
-		return {"type": "integer", **kw}
-
-	def N(**kw: Any) -> dict[str, Any]:
-		return {"type": "number", **kw}
-
-	def B(**kw: Any) -> dict[str, Any]:
-		return {"type": "boolean", **kw}
-
-	def ARR(items: Any, **kw: Any) -> dict[str, Any]:
-		return {"type": "array", "items": items, **kw}
-
-	def OBJ(
-		props: dict[str, Any],
-		required: list[str] | None = None,
-		description: str | None = None,
-		confidence: str | None = None,
-		**kw: Any,
-	) -> dict[str, Any]:
-		d: dict[str, Any] = {"type": "object", "properties": props, **kw}
-		if required:
-			d["required"] = required
-		if description:
-			d["description"] = description
-		if confidence:
-			d["x-schema-confidence"] = confidence
-		return d
-
-	def REF(name: str) -> dict[str, str]:
-		return {"$ref": f"#/components/schemas/{name}"}
-
-	BINARY = {"type": "string", "format": "binary"}
-
-	def make_envelope(
-		data_ref: str,
-		is_list: bool = False,
-		nullable_data: bool = False,
-		description: str = "Successful response",
-	) -> dict[str, Any]:
-		if is_list:
-			data_prop: Any = ARR(REF(data_ref))
-		elif nullable_data:
-			data_prop = {**REF(data_ref), "nullable": True}
-		else:
-			data_prop = REF(data_ref)
-		return OBJ(
-			{
-				"status": S(example="success", enum=["success"]),
-				"message": S(nullable=True, description="Optional response message"),
-				"data": data_prop,
-				"meta": REF("ApiMeta"),
-				"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
-			},
-			required=["status", "data"],
-			description=description,
-		)
-
-	_DROP_KEYWORDS = {"title"}
-
-	def oas30(node: Any) -> Any:
-		if isinstance(node, list):
-			return [oas30(n) for n in node]
-		if not isinstance(node, dict):
-			return node
-		out: dict[str, Any] = {}
-		for key, value in node.items():
-			if key in _DROP_KEYWORDS:
-				continue
-			if key == "properties":
-				out[key] = {name: oas30(prop) for name, prop in value.items()}
-			else:
-				out[key] = oas30(value)
-		for key in ("anyOf", "oneOf"):
-			options = out.get(key)
-			if options and any(o.get("type") == "null" for o in options):
-				rest = [o for o in options if o.get("type") != "null"]
-				del out[key]
-				out = {**rest[0], **out} if len(rest) == 1 else {key: rest, **out}
-				out["nullable"] = True
-		if "const" in out:
-			out["enum"] = [out.pop("const")]
-		if "default" in out and out["default"] is None and not out.get("nullable"):
-			del out["default"]
-		if "$ref" in out and len(out) > 1:
-			out = {"allOf": [{"$ref": out.pop("$ref")}], **out}
-		return out
-
-	def request_schema(
-		cls: type[BaseModel], path_params: list[str], components: dict[str, Any]
-	) -> dict[str, Any] | None:
-		schema = cls.model_json_schema(ref_template="#/components/schemas/{model}")
-		for name, sub in schema.pop("$defs", {}).items():
-			components.setdefault(name, oas30(sub))
-		schema = oas30(schema)
-		props = {k: v for k, v in schema.get("properties", {}).items() if k not in path_params}
-		if not props:
-			return None
-		schema["properties"] = props
-		required = [k for k in schema.get("required", []) if k in props]
-		if required:
-			schema["required"] = required
-		else:
-			schema.pop("required", None)
-		if cls.__doc__ and "description" not in schema:
-			schema["description"] = inspect.cleandoc(cls.__doc__)
-		return schema
-
-	def query_parameters(schema: dict[str, Any]) -> list[dict[str, Any]]:
-		required = set(schema.get("required", []))
-		params = []
-		for name, prop in schema["properties"].items():
-			param: dict[str, Any] = {
-				"name": name,
-				"in": "query",
-				"required": name in required,
-				"schema": {k: v for k, v in prop.items() if k != "description"},
-			}
-			if prop.get("description"):
-				param["description"] = prop["description"]
-			params.append(param)
-		return params
-
-	def request_model(endpoint_fn: Any) -> type[BaseModel] | None:
-		return getattr(endpoint_fn, "_request_schema", None) or getattr(
-			inspect.unwrap(endpoint_fn), "_request_schema", None
-		)
-
-	def strip_extensions(o: Any) -> Any:
-		if isinstance(o, dict):
-			return {k: strip_extensions(v) for k, v in o.items() if not k.startswith("x-")}
-		if isinstance(o, list):
-			return [strip_extensions(v) for v in o]
-		return o
-
-	def dump_spec(doc: dict[str, Any], path, header: list[str]) -> None:
-		with open(path, "w", encoding="utf-8") as f:  # nosemgrep: frappe-security-file-traversal
-			for line in header:
-				f.write(f"# {line}\n")
-			yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False, width=100, allow_unicode=True)
-
-
-from werkzeug.routing import Rule
+import yaml
+from oan_auth_service import gateway_apisix as gw
+from oan_auth_service.openapi_generator import generate_spec_and_gateway, import_route_modules
+from oan_auth_service.openapi_spec import (
+	ARR,
+	OBJ,
+	REF,
+	B,
+	I,
+	N,
+	S,
+	make_envelope,
+	oas30,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
@@ -220,43 +58,6 @@ def data(name: str, schema: dict[str, Any]) -> str:
 	DATA_SCHEMAS[name] = schema
 	return name
 
-
-# Standard Envelopes & Metadata
-data(
-	"ApiMeta",
-	OBJ(
-		{
-			"api_version": S(example="v1", description="Semantic API version"),
-			"status": S(example="current", description="Lifecycle status"),
-		},
-		required=["api_version"],
-	),
-)
-
-data(
-	"StandardErrorResponse",
-	OBJ(
-		{
-			"status": S(example="error", enum=["error"]),
-			"message": S(description="Human-readable error description"),
-			"exception": S(nullable=True, description="Exception class name"),
-			"errors": ARR(
-				OBJ(
-					{
-						"field": S(nullable=True, description="Field causing the validation error"),
-						"message": S(description="Error message for the specific field"),
-					}
-				),
-				nullable=True,
-				description="Structured validation errors if applicable",
-			),
-			"meta": REF("ApiMeta"),
-			"request_id": S(format="uuid", nullable=True, description="Tracing correlation ID"),
-		},
-		required=["status", "message"],
-		description="Standard error envelope returned on 4xx/5xx responses",
-	),
-)
 
 data(
 	"PaginationMeta",
@@ -1272,6 +1073,48 @@ data(
 )
 
 data(
+	"RoleLevelRecord",
+	OBJ(
+		{
+			"level_code": S(example="nodal_officer", description="Unique role level identifier/code"),
+			"level_name": S(example="Kebele Nodal Officer", description="Human-readable display name"),
+			"level_order": I(example=10, description="Escalation order rank (lower is more junior)"),
+			"escalation_hours": I(
+				example=48,
+				nullable=True,
+				description="Hours a breached grievance rests before climbing upward; 0 or null is terminal",
+			),
+			"is_active": B(example=True, description="Whether this level is active in the escalation chain"),
+			"description": S(example="L1. Kebele-level coordination point for grievances.", nullable=True),
+		},
+		required=["level_code", "level_name", "level_order", "is_active"],
+		description="Escalation hierarchy role level record",
+	),
+)
+
+data(
+	"RoleLevelDetailData",
+	OBJ(
+		{"role_level": REF("RoleLevelRecord")},
+		required=["role_level"],
+		description="Single role level detail",
+	),
+)
+
+data(
+	"RoleLevelListData",
+	OBJ(
+		{
+			"role_levels": ARR(REF("RoleLevelRecord")),
+			"total": I(example=5, description="Total matching records"),
+			"pagination": REF("PaginationMeta"),
+		},
+		required=["role_levels", "total", "pagination"],
+		description="List of grievance role levels with pagination",
+	),
+)
+
+data(
 	"CategoryAssignmentData",
 	OBJ(
 		{"assignment": REF("CategoryAssignment")},
@@ -1401,6 +1244,8 @@ ENVELOPES = {
 		"CategoryAssignmentListData",
 		description="Category assignment list response",
 	),
+	"RoleLevelResponse": make_envelope("RoleLevelDetailData", description="Role level response"),
+	"RoleLevelListResponse": make_envelope("RoleLevelListData", description="Role level list response"),
 	"DashboardChartResponse": make_envelope(
 		"DashboardChartRow",
 		is_list=True,
@@ -1613,58 +1458,10 @@ QP["DashboardCharts"] = [
 	},
 ]
 
-# The OAN dashboards read the public charts as a Frappe user holding Grievance
-# Dashboard Reader, with that user's API key and secret (FrappeTokenAuth below).
-PUBLIC_CHART_SECURITY = [{"FrappeTokenAuth": []}]
-# The IVR platform calls the gateway with its own key; the gateway adds the Frappe API
-# key and secret of the Grievance Submitter user, which the platform never holds.
-IVR_WEBHOOK_SECURITY = [{"GatewayKeyAuth": []}]
-
 
 # ---------------------------------------------------------------------------
 # Dynamic Discovery & Spec Builder
 # ---------------------------------------------------------------------------
-# Requests that carry files. The others are JSON only.
-MULTIPART_REQUESTS = {
-	"SubmitDocumentsRequest": ("multipart/form-data",),
-	"GrievanceActionRequest": ("application/json", "multipart/form-data"),
-	"PostMessageRequest": ("application/json", "multipart/form-data"),
-	"SubmitGrievanceRequest": ("application/json", "multipart/form-data"),
-	"IvrGrievanceRequest": ("application/json", "multipart/form-data"),
-}
-
-
-def _import_all_api_modules() -> None:
-	"""Import all endpoint modules so Werkzeug rules are fully populated."""
-	api_modules = [
-		"oan_grievance_service.api.router",
-		"oan_grievance_service.api.v1.administrative_area",
-		"oan_grievance_service.api.v1.grievance",
-		"oan_grievance_service.api.v1.attachment",
-		"oan_grievance_service.api.v1.category_assignment",
-		"oan_grievance_service.api.v1.change_request",
-		"oan_grievance_service.api.v1.charts",
-		"oan_grievance_service.api.v1.notification_template",
-		"oan_grievance_service.api.v1.officer",
-		"oan_grievance_service.api.v1.officer_statistics",
-		"oan_grievance_service.api.v1.organization",
-		"oan_grievance_service.api.v1.profile",
-		"oan_grievance_service.api.v1.response_config",
-		"oan_grievance_service.api.v1.service_provider",
-		"oan_grievance_service.api.v1.service_provider_source",
-		"oan_grievance_service.api.v1.sla_rules",
-		"oan_grievance_service.api.v1.sla_settings",
-		"oan_grievance_service.api.v1.submitter",
-		"oan_grievance_service.api.v1.taxonomy",
-		"oan_grievance_service.api.v1.webhooks",
-	]
-	for mod_name in api_modules:
-		try:
-			importlib.import_module(mod_name)
-		except Exception as e:
-			print(f"Warning: Failed to import {mod_name}: {e}", file=sys.stderr)
-
-
 def _determine_tag(path: str, func_name: str) -> str:
 	if "/health" in path or "/ping" in path:
 		return "Health & Monitoring"
@@ -1752,359 +1549,138 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 		"create_assignment": "CategoryAssignmentResponse",
 		"update_assignment": "CategoryAssignmentResponse",
 		"deactivate_assignment": "CategoryAssignmentResponse",
+		"list_role_levels": "RoleLevelListResponse",
+		"get_role_level": "RoleLevelResponse",
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
 	return mapping.get(func_name, "GrievanceActionResultResponse" if method == "POST" else None)
 
 
-def get_api_doc(endpoint_fn: Any) -> dict[str, Any] | None:
-	curr = endpoint_fn
-	while curr is not None:
-		if hasattr(curr, "_api_doc"):
-			return curr._api_doc
-		curr = getattr(curr, "__wrapped__", None)
-	return None
-
-
-def resolve_response_schema(
-	endpoint_fn: Any,
-	func_name: str,
-	openapi_path: str,
-	method: str,
-) -> str | None:
-	api_doc_meta = get_api_doc(endpoint_fn)
-	response_model = api_doc_meta.get("response_model") if api_doc_meta else None
-
-	if response_model is not None:
-		# Pattern 1: dict[Literal[key], RecordModel]
-		origin = get_origin(response_model)
-		if origin is dict:
-			args = get_args(response_model)
-			if len(args) == 2 and get_origin(args[0]) is Literal:
-				key = get_args(args[0])[0]
-				record_cls = args[1]
-				if inspect.isclass(record_cls) and issubclass(record_cls, BaseModel):
-					rec_schema = record_cls.model_json_schema(ref_template="#/components/schemas/{model}")
-					for name, sub in rec_schema.pop("$defs", {}).items():
-						DATA_SCHEMAS.setdefault(name, oas30(sub))
-					DATA_SCHEMAS.setdefault(record_cls.__name__, oas30(rec_schema))
-
-					clean_name = record_cls.__name__.removesuffix("Record")
-					data_schema_name = f"{clean_name}Data"
-					DATA_SCHEMAS.setdefault(
-						data_schema_name,
-						OBJ({key: REF(record_cls.__name__)}, required=[key]),
-					)
-
-					resp_name = f"{clean_name}Response"
-					if resp_name not in ENVELOPES:
-						ENVELOPES[resp_name] = make_envelope(
-							data_schema_name, description=f"{clean_name} response"
-						)
-					return resp_name
-
-		# Pattern 2: Direct BaseModel (e.g. CategoryAssignmentData, NotificationTemplateListData)
-		if inspect.isclass(response_model) and issubclass(response_model, BaseModel):
-			schema = response_model.model_json_schema(ref_template="#/components/schemas/{model}")
-			for name, sub in schema.pop("$defs", {}).items():
-				DATA_SCHEMAS.setdefault(name, oas30(sub))
-			DATA_SCHEMAS.setdefault(response_model.__name__, oas30(schema))
-
-			model_name = response_model.__name__
-			if model_name.endswith("ListData"):
-				clean_base = model_name[:-8]
-				resp_name = f"{clean_base}ListResponse"
-			elif model_name.endswith("Data"):
-				clean_base = model_name[:-4]
-				resp_name = f"{clean_base}Response"
-			else:
-				resp_name = f"{model_name}Response"
-
-			if resp_name not in ENVELOPES:
-				ENVELOPES[resp_name] = make_envelope(model_name, description=f"{model_name} response")
-			return resp_name
-
-	return _determine_response(func_name, openapi_path, method)
-
-
-def build_openapi() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-	_import_all_api_modules()
-
-	paths: dict[str, Any] = {}
-	seen_ops: set[tuple[str, str]] = set()
-
-	for rule in _rules:
-		# Convert Werkzeug pattern e.g. <path:area_id_or_path> to {area_id_or_path}
-		openapi_path = re.sub(r"<(?:\w+:)?(\w+)>", r"{\1}", rule.rule)
-		path_param_names = re.findall(r"<(?:\w+:)?(\w+)>", rule.rule)
-
-		methods = [m.upper() for m in rule.methods if m.upper() != "HEAD"]
-		endpoint_fn = rule.endpoint
-		unwrapped = inspect.unwrap(endpoint_fn)
-		func_name = unwrapped.__name__
-		legacy_target = f"{unwrapped.__module__}.{func_name}"
-
-		route_info = getattr(endpoint_fn, "_route", {})
-		allow_guest = route_info.get("allow_guest", False) or rule.rule in _exempt_paths
-		api_doc_meta = get_api_doc(endpoint_fn)
-
-		summary = (
-			(api_doc_meta.get("summary") if api_doc_meta else None)
-			or route_info.get("summary")
-			or (unwrapped.__doc__ or "").strip().split("\n")[0]
+APP = "oan-grievance"
+API_MODULES = [
+	"oan_grievance_service.api.router",
+	*(
+		f"oan_grievance_service.api.v1.{name}"
+		for name in (
+			"administrative_area",
+			"grievance",
+			"attachment",
+			"category_assignment",
+			"change_request",
+			"charts",
+			"notification_template",
+			"officer",
+			"officer_statistics",
+			"organization",
+			"profile",
+			"response_config",
+			"role_level",
+			"service_provider",
+			"service_provider_source",
+			"sla_rules",
+			"sla_settings",
+			"submitter",
+			"taxonomy",
+			"webhooks",
 		)
-		description = (
-			(api_doc_meta.get("description") if api_doc_meta else None)
-			or (unwrapped.__doc__ or "").strip()
-			or summary
-		)
-
-		tag = None
-		if api_doc_meta and api_doc_meta.get("tags"):
-			tag = api_doc_meta["tags"][0]
-		if not tag:
-			tag = _determine_tag(openapi_path, func_name)
-		req_model = request_model(endpoint_fn)
-		req_schema_name = req_model.__name__ if req_model else None
-		req_schema = request_schema(req_model, path_param_names, REQ) if req_model else None
-
-		for method in sorted(methods):
-			op_key = (method, openapi_path)
-			if op_key in seen_ops:
-				continue
-			seen_ops.add(op_key)
-
-			if openapi_path not in paths:
-				paths[openapi_path] = {}
-
-			# Path parameters
-			parameters: list[dict[str, Any]] = []
-			for p in path_param_names:
-				param_desc = f"{p.replace('_', ' ').title()} identifier"
-				if p == "ticket_number":
-					param_desc = "Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)"
-				elif p == "attachment":
-					param_desc = "Unique attachment record ID"
-				elif p == "area_id_or_path":
-					param_desc = (
-						"Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')"
-					)
-
-				parameters.append(
-					{
-						"name": p,
-						"in": "path",
-						"required": True,
-						"schema": S(),
-						"description": param_desc,
-					}
-				)
-
-			# Query parameters: from the request model, else the catalog for the few
-			# GET routes that read their query string without one.
-			if method == "GET":
-				if req_schema:
-					parameters.extend(query_parameters(req_schema))
-				elif func_name == "get_areas":
-					parameters.extend(copy.deepcopy(QP["AdministrativeAreas"]))
-				elif func_name == "options" and "submitters" in openapi_path:
-					parameters.extend(copy.deepcopy(QP["SubmitterOptions"]))
-				elif func_name == "options" and "grievances" in openapi_path:
-					parameters.extend(copy.deepcopy(QP["GrievanceOptions"]))
-				elif func_name == "view":
-					parameters.extend(copy.deepcopy(QP["ViewAttachment"]))
-				elif func_name == "get_charts":
-					parameters.extend(copy.deepcopy(QP["DashboardCharts"]))
-				elif func_name.startswith("get_public_chart_"):
-					parameters.extend(copy.deepcopy(QP["DashboardChart"]))
-
-			response_schema_name = resolve_response_schema(endpoint_fn, func_name, openapi_path, method)
-			resp_content_type = "*/*" if func_name == "view" else "application/json"
-			# The SOW form is a file in either format, not the JSON envelope.
-			export_content = {
-				"application/pdf": {"schema": copy.deepcopy(BINARY)},
-				"text/csv": {"schema": copy.deepcopy(BINARY)},
-			}
-
-			# The status the route declares in @route(status=...), 200 unless it says otherwise
-			# (a route that only queues work answers 202).
-			success_status = str(route_info.get("status") or 200)
-
-			op: dict[str, Any] = {
-				"tags": [tag],
-				"summary": summary,
-				"description": description,
-				"operationId": f"{method.lower()}_{openapi_path.strip('/').replace('/', '_').replace('-', '_').replace('{', '').replace('}', '')}",
-				"responses": {
-					success_status: {
-						"description": "Success",
-						"content": export_content
-						if func_name == "export_form"
-						else {
-							resp_content_type: {
-								"schema": REF(response_schema_name) if response_schema_name else BINARY
-							}
-						},
-					},
-					"400": {
-						"description": "Validation or Bad Input Error",
-						"content": {"application/json": {"schema": REF("StandardErrorResponse")}},
-					},
-					"401": {
-						"description": "Unauthorized / Authentication Required",
-						"content": {"application/json": {"schema": REF("StandardErrorResponse")}},
-					},
-					"403": {
-						"description": "Forbidden / Insufficient Role Scope",
-						"content": {"application/json": {"schema": REF("StandardErrorResponse")}},
-					},
-					"404": {
-						"description": "Resource Not Found",
-						"content": {"application/json": {"schema": REF("StandardErrorResponse")}},
-					},
-					"500": {
-						"description": "Internal Server Error",
-						"content": {"application/json": {"schema": REF("StandardErrorResponse")}},
-					},
-				},
-			}
-
-			if api_doc_meta and api_doc_meta.get("deprecated"):
-				op["deprecated"] = True
-
-			if parameters:
-				op["parameters"] = parameters
-
-			op["x-legacy-rpc-method"] = legacy_target
-			if route_info.get("tier"):
-				op["x-gateway-tier"] = route_info["tier"]
-			if func_name.startswith("get_public_chart_"):
-				op["security"] = copy.deepcopy(PUBLIC_CHART_SECURITY)
-			elif func_name == "ivr_grievance":
-				op["security"] = copy.deepcopy(IVR_WEBHOOK_SECURITY)
-			else:
-				op["security"] = [] if allow_guest else [{"BearerAuth": []}]
-
-			# Request body for mutation methods
-			# Request body. A model left empty once the path parameters are taken out
-			# (the *Ref models) means the operation takes no body.
-			if method in ("POST", "PUT", "PATCH", "DELETE") and req_schema:
-				body_schema = copy.deepcopy(req_schema)
-				if req_schema_name in MULTIPART_REQUESTS:
-					body_schema["properties"]["files"] = ARR(
-						BINARY, description="Files, sent as multipart/form-data"
-					)
-				component = req_schema_name
-				if REQ.get(component, body_schema) != body_schema:
-					# The same model on routes with different path parameters.
-					component = f"{req_schema_name}_{'_'.join(path_param_names) or 'body'}"
-				REQ[component] = body_schema
-				content_types = MULTIPART_REQUESTS.get(req_schema_name, ("application/json",))
-				op["requestBody"] = {
-					"required": bool(body_schema.get("required")),
-					"content": {ct: {"schema": REF(component)} for ct in content_types},
-				}
-
-			paths[openapi_path][method.lower()] = op
-
-	components_schemas: dict[str, Any] = {}
-	components_schemas.update(DATA_SCHEMAS)
-	# Extra body fields this app reads on POST /api/v1/auth/register (served by
-	# oan_auth_service). Published as a component so clients and the gateway can see them.
-	from oan_grievance_service.api.v1.profile import RegistrationExtras
-
-	reg_schema = RegistrationExtras.model_json_schema(ref_template="#/components/schemas/{model}")
-	components_schemas["GrievanceRegistrationExtras"] = oas30(reg_schema)
-	components_schemas.update(REQ)
-	components_schemas.update(ENVELOPES)
-
-	doc: dict[str, Any] = {
-		"openapi": "3.0.3",
-		"info": {
-			"title": "OAN Grievance Service API",
-			"version": "1.0.0",
-			"description": (
-				"Grievance management and citizen feedback service for OpenAgriNet (OAN). "
-				+ "Provides RESTful endpoints for submitting complaints, tracking resolution progress, "
-				+ "cascading administrative area drill-downs, citizen-officer timeline messaging, "
-				+ "escalation management, change requests, and case resolution workflows."
-			),
-			"contact": {"name": "COSS - Centre for Open Societal Systems"},
-		},
-		"servers": [
-			{"url": "http://localhost:8000", "description": "Local Frappe Bench"},
-			{"url": "https://grievance.openagrinet.org", "description": "Production Grievance Gateway"},
-		],
-		"tags": [
-			{"name": "Health & Monitoring", "description": "Service health probes and uptime pings"},
-			{
-				"name": "Submitter Management",
-				"description": "Intake reference options, submitter registration, and moderation",
-			},
-			{
-				"name": "Administrative Areas",
-				"description": "Cascading geographic drill-downs, breadcrumbs, and search",
-			},
-			{"name": "Grievances Core", "description": "Case intake, tracking, and filtered list views"},
-			{
-				"name": "Change Requests",
-				"description": "Request, review, and decide on grievance field changes (department, officer, SLA deferral, anonymity)",
-			},
-			{
-				"name": "Grievance Lifecycle & Actions",
-				"description": "Communication threads, notes, reopen, reject, escalate, and resolution confirmation",
-			},
-			{
-				"name": "Attachments",
-				"description": "Supporting document and evidence upload, listing, download, and deletion",
-			},
-			{
-				"name": "Administration",
-				"description": "Category-to-department routing rules, and the response templates officers respond with",
-			},
-			{
-				"name": "Organizations",
-				"description": "NGO, FPO and cooperative registration, profile, and the admin verification queue",
-			},
-			{
-				"name": "Dashboard Charts",
-				"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
-			},
-			{
-				"name": "Webhooks",
-				"description": "Inbound calls from partner platforms, sent with a Frappe API key and secret",
-			},
-		],
-		"paths": paths,
-		"components": {
-			"securitySchemes": {
-				"BearerAuth": {
-					"type": "http",
-					"scheme": "bearer",
-					"bearerFormat": "JWT",
-					"description": "Provide JWT access token as `Bearer <token>` in the Authorization header.",
-				},
-				"FrappeTokenAuth": {
-					"type": "apiKey",
-					"in": "header",
-					"name": "Authorization",
-					"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
-				},
-				"GatewayKeyAuth": {
-					"type": "apiKey",
-					"in": "header",
-					"name": "apikey",
-					"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance Submitter user with that user's own API key and secret, which the platform never holds.",
-				},
-			},
-			"schemas": components_schemas,
-		},
-	}
-	return doc, paths, components_schemas
+	),
+]
+DESCRIPTION = (
+	"Grievance management and citizen feedback service for OpenAgriNet (OAN). "
+	+ "Provides RESTful endpoints for submitting complaints, tracking resolution progress, "
+	+ "cascading administrative area drill-downs, citizen-officer timeline messaging, "
+	+ "escalation management, change requests, and case resolution workflows."
+)
+SERVERS = [
+	{"url": "http://localhost:8000", "description": "Local Frappe Bench"},
+	{"url": "https://grievance.openagrinet.org", "description": "Production Grievance Gateway"},
+]
+TAGS = [
+	{"name": "Health & Monitoring", "description": "Service health probes and uptime pings"},
+	{
+		"name": "Submitter Management",
+		"description": "Intake reference options, submitter registration, and moderation",
+	},
+	{
+		"name": "Administrative Areas",
+		"description": "Cascading geographic drill-downs, breadcrumbs, and search",
+	},
+	{"name": "Grievances Core", "description": "Case intake, tracking, and filtered list views"},
+	{
+		"name": "Change Requests",
+		"description": "Request, review, and decide on grievance field changes (department, officer, SLA deferral, anonymity)",
+	},
+	{
+		"name": "Grievance Lifecycle & Actions",
+		"description": "Communication threads, notes, reopen, reject, escalate, and resolution confirmation",
+	},
+	{
+		"name": "Attachments",
+		"description": "Supporting document and evidence upload, listing, download, and deletion",
+	},
+	{
+		"name": "Administration",
+		"description": "Category-to-department routing rules, and the response templates officers respond with",
+	},
+	{
+		"name": "Organizations",
+		"description": "NGO, FPO and cooperative registration, profile, and the admin verification queue",
+	},
+	{
+		"name": "Dashboard Charts",
+		"description": "Aggregate counts from the dashboard rollups, refreshed within seconds of a case changing and at least every 15 minutes, for the OAN programme dashboards",
+	},
+	{
+		"name": "Webhooks",
+		"description": "Inbound calls from partner platforms, sent with a Frappe API key and secret",
+	},
+]
+# Besides BearerAuth, which the generator always declares.
+SECURITY_SCHEMES = {
+	"FrappeTokenAuth": {
+		"type": "apiKey",
+		"in": "header",
+		"name": "Authorization",
+		"description": "Frappe API key and secret of a user holding Grievance Dashboard Reader, sent as `token <api_key>:<api_secret>`. Generated on that user in the desk and checked by the platform; the gateway passes the header through.",
+	},
+	"GatewayKeyAuth": {
+		"type": "apiKey",
+		"in": "header",
+		"name": "apikey",
+		"description": "The gateway key issued to the IVR platform, sent as `apikey: <key>`. The gateway checks it, removes it, and calls Frappe as the Grievance Submitter user with that user's own API key and secret, which the platform never holds.",
+	},
+}
+# Path parameters whose name alone does not say what they are.
+PATH_PARAM_DOCS = {
+	"ticket_number": "Unique grievance ticket number (e.g. 3-001-002A-0 or 3001002A0)",
+	"attachment": "Unique attachment record ID",
+	"area_id_or_path": "Area ID (e.g. 'kebele-ET140108101008') or path_code ('ET.ET14.01.08.101.008')",
+	"level_code": "Unique grievance role level code (e.g. 'nodal_officer', 'department_head')",
+}
 
 
-def write_registration_overlay(components_schemas: dict[str, Any]) -> None:
+# ---------------------------------------------------------------------------
+# Hooks for oan_auth_service.openapi_generator: what the endpoints cannot declare
+# ---------------------------------------------------------------------------
+def query_parameters_for(func_name: str, path: str, method: str) -> list[dict[str, Any]]:
+	"""Query string of the few GET routes that read it without a request model."""
+	if func_name == "get_areas":
+		return QP["AdministrativeAreas"]
+	if func_name == "options" and "submitters" in path:
+		return QP["SubmitterOptions"]
+	if func_name == "options" and "grievances" in path:
+		return QP["GrievanceOptions"]
+	if func_name == "view":
+		return QP["ViewAttachment"]
+	if func_name == "get_charts":
+		return QP["DashboardCharts"]
+	if func_name.startswith("get_public_chart_"):
+		return QP["DashboardChart"]
+	return []
+
+
+def write_registration_overlay(extras_schema: dict[str, Any]) -> None:
 	"""Write an OpenAPI Overlay that attaches this app's registration fields to
 	oan_auth_service's RegisterRequest under `profile.grievance`.
 
@@ -2118,7 +1694,7 @@ def write_registration_overlay(components_schemas: dict[str, Any]) -> None:
 			{
 				"target": "$.components.schemas",
 				"description": "Register the grievance registration fields schema.",
-				"update": {"GrievanceRegistrationExtras": components_schemas["GrievanceRegistrationExtras"]},
+				"update": {"GrievanceRegistrationExtras": extras_schema},
 			},
 			{
 				"target": "$.components.schemas.RegisterRequest.properties",
@@ -2142,40 +1718,41 @@ def write_registration_overlay(components_schemas: dict[str, Any]) -> None:
 	REGISTRATION_OVERLAY_OUTPUT.write_text(
 		header + yaml.safe_dump(overlay, sort_keys=False), encoding="utf-8"
 	)
-	print(f"Wrote {REGISTRATION_OVERLAY_OUTPUT.name}", file=sys.stderr)
 
 
 def main() -> None:
-	doc, paths, components_schemas = build_openapi()
-	write_registration_overlay(components_schemas)
-	n_paths = len(paths)
-	n_ops = sum(len(v) for v in paths.values())
+	# Declared in this order, which is the order of the spec's paths. Done before the
+	# import below, which would otherwise pull the organization routes in first.
+	import_route_modules("oan_grievance_service", API_MODULES)
+	from oan_grievance_service.api.v1.profile import RegistrationExtras
 
-	dump_spec(
-		doc,
-		INTERNAL_SPEC_OUTPUT,
-		[
-			"OAN Grievance Service API -- OpenAPI 3.0.3 (INTERNAL)",
-			"Carries internal vendor extensions (x-legacy-rpc-method).",
-			"Dynamically generated from generate_openapi_spec.py -- do not edit manually.",
-		],
-	)
-	print(
-		f"Wrote {INTERNAL_SPEC_OUTPUT.name}: {n_paths} paths, {n_ops} operations, {len(components_schemas)} schemas",
-		file=sys.stderr,
-	)
+	# Extra body fields this app reads on POST /api/v1/auth/register (served by
+	# oan_auth_service). Published as a component so clients and the gateway can see them.
+	extras = oas30(RegistrationExtras.model_json_schema(ref_template="#/components/schemas/{model}"))
+	DATA_SCHEMAS["GrievanceRegistrationExtras"] = extras
+	write_registration_overlay(extras)
 
-	dump_spec(
-		publicize_spec(strip_extensions(doc), PUBLIC_SERVERS),
-		PUBLIC_SPEC_OUTPUT,
-		[
-			"OAN Grievance Service API -- OpenAPI 3.0.3 (PUBLIC)",
-			"Contract with vendor extensions removed. Dynamically generated from generate_openapi_spec.py.",
-		],
-	)
-	print(
-		f"Wrote {PUBLIC_SPEC_OUTPUT.name}: {n_paths} paths, {n_ops} operations, {len(components_schemas)} schemas",
-		file=sys.stderr,
+	generate_spec_and_gateway(
+		gateway=False,
+		app_name=APP,
+		module="oan_grievance_service",
+		modules=API_MODULES,
+		title="OAN Grievance Service API",
+		description=DESCRIPTION,
+		upstream_host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
+		tiers={},
+		openapi_dir=SCRIPT_DIR,
+		gateway_dir=REPO_ROOT / "apisix",
+		servers=SERVERS,
+		public_servers=PUBLIC_SERVERS,
+		tags=TAGS,
+		security_schemes=SECURITY_SCHEMES,
+		schemas=DATA_SCHEMAS,
+		envelopes=ENVELOPES,
+		path_param_docs=PATH_PARAM_DOCS,
+		tag_for=_determine_tag,
+		response_for=_determine_response,
+		query_parameters_for=query_parameters_for,
 	)
 
 

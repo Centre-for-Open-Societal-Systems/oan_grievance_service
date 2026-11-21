@@ -52,7 +52,7 @@ DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 
 route = prefixed("/api/v1/officers")
 
-Level = Literal["L1", "L2", "L3", "L4"]
+Level = str
 Status = Literal["Active", "On Leave", "Inactive"]
 Role = Literal["Officer", "Reviewer"]
 

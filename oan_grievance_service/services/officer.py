@@ -74,15 +74,32 @@ def reviewer_role_level() -> str:
 	return "review_officer"
 
 
+def resolve_level_code(key: str | None) -> str | None:
+	"""Resolve a tier token ('L1', 'l1'), role level code ('nodal_officer'),
+	or display label ('Kebele Nodal Officer') to the canonical Grievance Role Level name.
+	"""
+	if not key:
+		return None
+	k = str(key).strip()
+	codes = get_level_codes()
+	if k.upper() in codes:
+		return codes[k.upper()]
+	chain = GrievanceRoleLevel.get_chain()
+	for rung in chain:
+		name = getattr(rung, "name", None) or rung.get("name")
+		label = getattr(rung, "level_name", None) or rung.get("level_name")
+		if k.lower() == str(name).lower():
+			return name
+		if label and k.lower() == str(label).lower():
+			return name
+	return None
+
+
 class DynamicLevelCodes(Mapping):
 	def __getitem__(self, key):
-		codes = get_level_codes()
-		if key in codes:
-			return codes[key]
-		chain = GrievanceRoleLevel.get_chain()
-		valid_codes = {r.name for r in chain}
-		if key in valid_codes:
-			return key
+		resolved = resolve_level_code(key)
+		if resolved is not None:
+			return resolved
 		raise KeyError(key)
 
 	def __iter__(self):
@@ -92,10 +109,7 @@ class DynamicLevelCodes(Mapping):
 		return len(get_level_codes())
 
 	def __contains__(self, key):
-		if key in get_level_codes():
-			return True
-		chain = GrievanceRoleLevel.get_chain()
-		return key in {r.name for r in chain}
+		return resolve_level_code(key) is not None
 
 
 class DynamicCodeLevels(Mapping):
@@ -472,7 +486,11 @@ def _officer_query(*, role, level, department, service_category, region, q):
 	"""Rows of `role` with an enabled login on category desks narrowed by every list filter except status."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	if level:
-		codes = [LEVEL_CODES[level]] if level in LEVEL_CODES else []
+		if level not in LEVEL_CODES:
+			frappe.throw(
+				_("Invalid or unconfigured officer level '{0}'.").format(level), frappe.ValidationError
+			)
+		codes = [LEVEL_CODES[level]]
 	else:
 		codes = list(ROLE_CODES[role])
 	query = (
@@ -811,9 +829,12 @@ def _placement(role: str, level: str | None, status: str) -> dict:
 		return {"role_level": reviewer_role_level(), "is_primary": 0, **_availability(status)}
 	if level not in LEVEL_CODES:
 		frappe.throw(_("Invalid or unconfigured officer level '{0}'.").format(level), frappe.ValidationError)
+	code = LEVEL_CODES[level]
+	chain = GrievanceRoleLevel.get_chain()
+	lowest_code = chain[0].name if chain else None
 	return {
-		"role_level": LEVEL_CODES[level],
-		"is_primary": 1 if level == "L1" else 0,
+		"role_level": code,
+		"is_primary": 1 if code == lowest_code else 0,
 		**_availability(status),
 	}
 
@@ -824,18 +845,20 @@ def _change_level(user_id: str, old: str, new: str) -> dict:
 		frappe.throw(_("Invalid or unconfigured officer level '{0}'.").format(new), frappe.ValidationError)
 	chain = GrievanceRoleLevel.get_chain()
 	lowest_code = chain[0].name if chain else None
+	old_code = LEVEL_CODES.get(old, old)
 	if (
 		lowest_code
-		and LEVEL_CODES.get(old) != lowest_code
+		and old_code != lowest_code
 		and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK})
 	):
 		frappe.throw(
 			_("{0} cannot change level while other officers report to them.").format(user_id),
 			frappe.ValidationError,
 		)
+	code = LEVEL_CODES[new]
 	return {
-		"role_level": LEVEL_CODES[new],
-		"is_primary": 1 if new == "L1" else 0,
+		"role_level": code,
+		"is_primary": 1 if code == lowest_code else 0,
 		"reports_to": None,
 	}
 
