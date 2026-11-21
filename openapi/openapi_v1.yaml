@@ -2932,7 +2932,7 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvKpis
       x-gateway-tier: public-dashboards
-      security: &id002
+      security:
       - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceKpis:
     get:
@@ -3039,7 +3039,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPerformanceKpis
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvMonthlyTrend:
     get:
       tags:
@@ -3145,7 +3146,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvMonthlyTrend
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvWeeklyTrend:
     get:
       tags:
@@ -3251,7 +3253,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvWeeklyTrend
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvNetBacklogTrend:
     get:
       tags:
@@ -3357,7 +3360,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvNetBacklogTrend
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvStatusDistribution:
     get:
       tags:
@@ -3463,7 +3467,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvStatusDistribution
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvByCategory:
     get:
       tags:
@@ -3569,7 +3574,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvByCategory
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvByAdminLevel:
     get:
       tags:
@@ -3675,7 +3681,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvByAdminLevel
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvCategoryResolution:
     get:
       tags:
@@ -3781,7 +3788,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvCategoryResolution
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvAvgResolutionByCategory:
     get:
       tags:
@@ -3887,7 +3895,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvAvgResolutionByCategory
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPerformanceScore:
     get:
       tags:
@@ -3993,7 +4002,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPerformanceScore
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvResolutionRateByRegion:
     get:
       tags:
@@ -4099,7 +4109,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvResolutionRateByRegion
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvSlaRisk:
     get:
       tags:
@@ -4205,7 +4216,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvSlaRisk
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvPendingDuplicates:
     get:
       tags:
@@ -4311,7 +4323,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvPendingDuplicates
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvOldestOpen:
     get:
       tags:
@@ -4417,7 +4430,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvOldestOpen
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterRegions:
     get:
       tags:
@@ -4523,7 +4537,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterRegions
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/charts/grvFilterCategories:
     get:
       tags:
@@ -4629,7 +4644,8 @@ paths:
         description: Period size for grvNetBacklogTrend
       x-legacy-rpc-method: oan_grievance_service.api.v1.charts.get_public_chart_grvFilterCategories
       x-gateway-tier: public-dashboards
-      security: *id002
+      security:
+      - FrappeTokenAuth: []
   /api/v1/notification-templates:
     get:
       tags:
@@ -5009,11 +5025,6 @@ paths:
         in: query
         required: false
         schema:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -5207,11 +5218,6 @@ paths:
         in: query
         required: false
         schema:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -6243,7 +6249,9 @@ paths:
       tags:
       - Administration
       summary: List grievance role levels
-      description: Lists escalation hierarchy role levels, ordered by rank (level_order asc), including their codes, names, escalation hours, and active statuses. Filterable by active status and search string.
+      description: Lists escalation hierarchy role levels, ordered by rank (level_order asc), including
+        their codes, names, escalation hours, and active statuses. Filterable by active status and search
+        string.
       operationId: get_api_v1_role_levels
       responses:
         '200':
@@ -6316,16 +6324,17 @@ paths:
           default: null
           nullable: true
         description: Search term matching level code, name, or description
-      security:
-      - BearerAuth: []
       x-legacy-rpc-method: oan_grievance_service.api.v1.role_level.list_role_levels
       x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
   /api/v1/role-levels/{level_code}:
     get:
       tags:
       - Administration
       summary: Get a grievance role level
-      description: Fetch a single grievance role level by its code, including its display name, escalation rank, breach hours, active status, and description.
+      description: Fetch a single grievance role level by its code, including its display name, escalation
+        rank, breach hours, active status, and description.
       operationId: get_api_v1_role_levels_level_code
       responses:
         '200':
@@ -6333,7 +6342,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RoleLevelResponse'
+                $ref: '#/components/schemas/RoleLevelDetailResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -6371,10 +6380,10 @@ paths:
         schema:
           type: string
         description: Unique grievance role level code (e.g. 'nodal_officer', 'department_head')
-      security:
-      - BearerAuth: []
       x-legacy-rpc-method: oan_grievance_service.api.v1.role_level.get_role_level
       x-gateway-tier: officer-core
+      security:
+      - BearerAuth: []
   /api/v1/service-providers:
     get:
       tags:
@@ -10172,7 +10181,6 @@ components:
       description: Category-to-department routing rule
     RoleLevelRecord:
       type: object
-      description: Escalation hierarchy role level record
       properties:
         level_code:
           type: string
@@ -10204,17 +10212,17 @@ components:
       - level_name
       - level_order
       - is_active
+      description: Escalation hierarchy role level record
     RoleLevelDetailData:
       type: object
-      description: Single role level detail
       properties:
         role_level:
           $ref: '#/components/schemas/RoleLevelRecord'
       required:
       - role_level
+      description: Single role level detail
     RoleLevelListData:
       type: object
-      description: List of grievance role levels with pagination
       properties:
         role_levels:
           type: array
@@ -10230,6 +10238,7 @@ components:
       - role_levels
       - total
       - pagination
+      description: List of grievance role levels with pagination
     CategoryAssignmentData:
       type: object
       properties:
@@ -10578,11 +10587,6 @@ components:
           default: null
           nullable: true
         level:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -10615,11 +10619,6 @@ components:
           default: null
           nullable: true
         level:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -11936,11 +11935,6 @@ components:
           default: null
           nullable: true
         level:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
           default: null
           nullable: true
@@ -11988,11 +11982,6 @@ components:
       description: Partial update. Omitted fields stay as they are. `email` is fixed once created.
       properties:
         level:
-          enum:
-          - L1
-          - L2
-          - L3
-          - L4
           type: string
         full_name:
           maxLength: 140
@@ -13939,6 +13928,31 @@ components:
       - status
       - data
       description: AdminResponseTemplate response
+    RoleLevelDetailResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/RoleLevelDetailData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: RoleLevelDetailData response
     ServiceProviderListResponse:
       type: object
       properties:
