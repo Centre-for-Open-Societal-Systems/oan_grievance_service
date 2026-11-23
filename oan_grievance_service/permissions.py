@@ -227,11 +227,8 @@ def _scope_covers(doc, scopes) -> bool:
 
 
 def _is_placed(user):
-	"""Whether `user` has been put on a desk or assigned a position at all, active or not."""
-	return bool(
-		frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user})
-		or frappe.db.exists("Grievance Officer Position", {"occupant": user})
-	)
+	"""Whether `user` has been put on a desk at all, active or not."""
+	return bool(frappe.db.exists("Grievance RBAC Assignment Officer", {"user": user}))
 
 
 def _reviewer_clause(user):

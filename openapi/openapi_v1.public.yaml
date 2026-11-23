@@ -4855,9 +4855,10 @@ paths:
       summary: List officers
       description: 'Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the
         department heads, which the Admin tab shows. Filterable by level, department, status, service
-        category and region. region matches an account''s area exactly. q matches name or email. A Reviewer
-        has no level, so level is refused for role Reviewer, and so is status On Leave. Listing Reviewers
-        needs an admin role: a Review Officer reads Officer lists only.'
+        category and region. region matches the area and every area under it. position is a Position ID.
+        q matches name or email. A Reviewer has no level, so level is refused for role Reviewer, and so
+        is status On Leave. Listing Reviewers needs an admin role: a Review Officer reads Officer lists
+        only.'
       operationId: get_api_v1_officers
       responses:
         '200':
@@ -4935,6 +4936,13 @@ paths:
           default: null
           nullable: true
       - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: position
         in: query
         required: false
         schema:
@@ -5035,6 +5043,80 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
+  /v1/officers/candidates:
+    get:
+      tags:
+      - Administration
+      summary: List accounts that can be made officers
+      description: Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) role
+        but are on no desk, so hold no position yet. Place one with POST /api/v1/officers. An identity-provider
+        login shows up here once the provider has granted the role. q matches name or email. System Manager
+        and Administrator accounts are never listed.
+      operationId: get_api_v1_officers_candidates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerCandidateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: limit
+        in: query
+        required: false
+        schema:
+          default: 50
+          maximum: 200
+          minimum: 1
+          type: integer
+      security:
+      - BearerAuth: []
   /v1/officers/status-counts:
     get:
       tags:
@@ -5042,11 +5124,11 @@ paths:
       summary: Count officers by status
       description: 'Active, On Leave and Inactive totals for the officers tabs, so the UI shows the counts
         from here instead of hardcoding them. Takes the list''s filters (role, level, department, service_category,
-        region, q) without status, so a tab''s counts follow the same filters as its list. Each person
-        is counted once, in the status the record shows: the most available of their desk rows wins. The
-        list''s status filter matches an account with a row in that status, so one whose rows differ can
-        be on two pages and is still one count here. A Reviewer has no On Leave. Counting Reviewers needs
-        an admin role, as listing them does.'
+        region, position, q) without status, so a tab''s counts follow the same filters as its list. Each
+        person is counted once, in the status the record shows: the most available of their desk rows
+        wins. The list''s status filter matches an account with a row in that status, so one whose rows
+        differ can be on two pages and is still one count here. A Reviewer has no On Leave. Counting Reviewers
+        needs an admin role, as listing them does.'
       operationId: get_api_v1_officers_status_counts
       responses:
         '200':
@@ -5124,6 +5206,13 @@ paths:
           default: null
           nullable: true
       - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: position
         in: query
         required: false
         schema:
@@ -5773,6 +5862,96 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SetOrganizationStatus'
+  /v1/positions:
+    get:
+      tags:
+      - Administration
+      summary: List officer positions
+      description: Positions are roles such as Crop DA or Woreda Crop SMS, each with a role level and
+        the position it reports to. `holders` counts the people holding one. Filterable by role level,
+        active status and a search string.
+      operationId: get_api_v1_positions
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PositionListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: role_level
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Role level code
+      - name: active
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+        description: Filter by active status
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Matches title, designation or ID
+      security:
+      - BearerAuth: []
   /v1/response-templates:
     get:
       tags:
@@ -10381,6 +10560,10 @@ components:
           type: string
           default: null
           nullable: true
+        position_id:
+          type: string
+          default: null
+          nullable: true
         active:
           type: boolean
         on_leave:
@@ -10469,6 +10652,35 @@ components:
           type: array
       required:
       - officers
+      type: object
+    OfficerCandidate:
+      properties:
+        name:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        delegated:
+          type: boolean
+      required:
+      - name
+      - full_name
+      - email
+      - delegated
+      type: object
+    OfficerCandidateData:
+      properties:
+        candidates:
+          items:
+            $ref: '#/components/schemas/OfficerCandidate'
+          type: array
+      required:
+      - candidates
       type: object
     StatusCounts:
       properties:
@@ -10631,6 +10843,57 @@ components:
           type: object
       required:
       - organizations
+      - pagination
+      type: object
+    PositionRecord:
+      properties:
+        position_id:
+          description: Position ID (e.g. POS-00200)
+          type: string
+        position_title:
+          description: Display title
+          type: string
+        designation:
+          type: string
+          default: null
+          description: Designation, e.g. Crop DA
+          nullable: true
+        role_level:
+          type: string
+          default: null
+          description: Role level code
+          nullable: true
+        reports_to_position:
+          type: string
+          default: null
+          description: Position this one reports to
+          nullable: true
+        active:
+          description: Whether the position is in use
+          type: boolean
+        holders:
+          description: Officers holding this position on an active desk row
+          type: integer
+      required:
+      - position_id
+      - position_title
+      - active
+      - holders
+      type: object
+    PositionListData:
+      properties:
+        positions:
+          items:
+            $ref: '#/components/schemas/PositionRecord'
+          type: array
+        total:
+          type: integer
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - positions
+      - total
       - pagination
       type: object
     AdminResponseTemplateRecord:
@@ -13543,6 +13806,31 @@ components:
       - status
       - data
       description: OfficerListData response
+    OfficerCandidateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/OfficerCandidateData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: OfficerCandidateData response
     StatusCountsResponse:
       type: object
       properties:
@@ -13668,6 +13956,31 @@ components:
       - status
       - data
       description: OrganizationListData response
+    PositionListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/PositionListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: PositionListData response
     AdminResponseTemplateListResponse:
       type: object
       properties:
