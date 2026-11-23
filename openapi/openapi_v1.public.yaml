@@ -5035,6 +5035,80 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOfficer'
+  /v1/officers/candidates:
+    get:
+      tags:
+      - Administration
+      summary: List accounts that can be made officers
+      description: Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) role
+        but are on no desk, so hold no position yet. Place one with POST /api/v1/officers. An identity-provider
+        login shows up here once the provider has granted the role. q matches name or email. System Manager
+        and Administrator accounts are never listed.
+      operationId: get_api_v1_officers_candidates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfficerCandidateResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          default: Officer
+          enum:
+          - Officer
+          - Reviewer
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: limit
+        in: query
+        required: false
+        schema:
+          default: 50
+          maximum: 200
+          minimum: 1
+          type: integer
+      security:
+      - BearerAuth: []
   /v1/officers/status-counts:
     get:
       tags:
@@ -10699,6 +10773,35 @@ components:
       required:
       - officers
       type: object
+    OfficerCandidate:
+      properties:
+        name:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          default: null
+          nullable: true
+        delegated:
+          type: boolean
+      required:
+      - name
+      - full_name
+      - email
+      - delegated
+      type: object
+    OfficerCandidateData:
+      properties:
+        candidates:
+          items:
+            $ref: '#/components/schemas/OfficerCandidate'
+          type: array
+      required:
+      - candidates
+      type: object
     StatusCounts:
       properties:
         active:
@@ -13897,6 +14000,31 @@ components:
       - status
       - data
       description: OfficerListData response
+    OfficerCandidateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/OfficerCandidateData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: OfficerCandidateData response
     StatusCountsResponse:
       type: object
       properties:

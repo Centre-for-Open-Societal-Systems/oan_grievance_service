@@ -36,6 +36,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
+from oan_auth_service.api.iam_users import is_delegated_user
 from pypika.functions import Max
 from pypika.terms import Case
 
@@ -468,6 +469,53 @@ def status_counts(
 	for available, reachable, count in outcomes:
 		counts["active" if available else "on_leave" if reachable else "inactive"] += count
 	return {**counts, "total": sum(counts.values())}
+
+
+def list_candidates(*, role=DEFAULT_ROLE, q=None, limit=50):
+	"""Enabled logins that hold `role`'s Frappe role but sit on no desk, so hold no position yet.
+
+	A delegated login gets the role from the identity provider, so this is how an officer
+	onboarded there shows up before they are placed. System Manager and Administrator
+	accounts are never listed.
+	"""
+	user, has_role, row = DocType("User"), DocType("Has Role"), DocType(ROW)
+	placed = frappe.qb.from_(row).select(row.user).where(row.parenttype == DESK).where(row.user.notnull())
+	privileged = (
+		frappe.qb.from_(has_role)
+		.select(has_role.parent)
+		.where(has_role.parenttype == "User")
+		.where(has_role.role.isin(list(C.PRIVILEGED_ROLES)))
+	)
+	query = (
+		frappe.qb.from_(user)
+		.join(has_role)
+		.on((has_role.parent == user.name) & (has_role.parenttype == "User"))
+		.where(has_role.role == FRAPPE_ROLES[role])
+		.where(user.enabled == 1)
+		.where(user.name.notin(["Administrator", "Guest"]))
+		.where(user.name.notin(placed))
+		.where(user.name.notin(privileged))
+	)
+	fields = [user.name, user.full_name, user.email, user.mobile_no]
+	if _has_login_email():
+		fields.append(getattr(user, LOGIN_EMAIL_FIELD))
+	if q:
+		like = f"%{q.strip()}%"
+		match = user.full_name.like(like) | user.email.like(like)
+		if _has_login_email():
+			match = match | getattr(user, LOGIN_EMAIL_FIELD).like(like)
+		query = query.where(match)
+	rows = query.select(*fields).distinct().orderby(user.full_name).orderby(user.name).limit(limit)
+	return [
+		{
+			"name": r.name,
+			"full_name": r.full_name or r.name,
+			"email": login_email(r) or r.name,
+			"phone": r.mobile_no,
+			"delegated": is_delegated_user(r.name),
+		}
+		for r in rows.run(as_dict=True)
+	]
 
 
 def _officer_query(*, role, level, department, service_category, region, q):

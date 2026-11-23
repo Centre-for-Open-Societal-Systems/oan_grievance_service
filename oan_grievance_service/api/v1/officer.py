@@ -253,6 +253,27 @@ class OfficerFilters(Body):
 		return self
 
 
+class OfficerCandidate(BaseModel):
+	name: str
+	full_name: str
+	email: str
+	phone: str | None = None
+	delegated: bool
+
+
+class OfficerCandidateData(BaseModel):
+	candidates: list[OfficerCandidate]
+
+
+class CandidatesQuery(Body):
+	role: Role = "Officer"
+	q: str | None = None
+	limit: int = Field(default=50, ge=1, le=200)
+
+	_role = field_validator("role", mode="before")(role_or_default)
+	_q = field_validator("q", mode="before")(blank_to_none)
+
+
 class StatusCountsQuery(OfficerFilters):
 	"""The list's filters without `status`, which the counts break down by."""
 
@@ -318,6 +339,30 @@ def list_officers(
 		data={"officers": service.records(ids)},
 		message=_("Officers retrieved"),
 		pagination=page_meta(total, params.page, params.page_size),
+	)
+
+
+# Registered before `/<officer>` so the dynamic route never captures "candidates".
+@route(
+	"/candidates", methods=("GET",), summary="List accounts that can be made officers", tier="officer-core"
+)
+@handle_api_errors
+@require_role(DESK_HEAD_ROLES)
+@validate_request(CandidatesQuery)
+@api_doc(
+	summary="List accounts that can be made officers",
+	description="Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) "
+	+ "role but are on no desk, so hold no position yet. Place one with POST /api/v1/officers. An "
+	+ "identity-provider login shows up here once the provider has granted the role. q matches "
+	+ "name or email. System Manager and Administrator accounts are never listed.",
+	tags=["Administration"],
+	response_model=OfficerCandidateData,
+)
+def officer_candidates(role: str = "Officer", q: str | None = None, limit: int | str = 50, **kwargs):
+	"""Return the holders of the officer role who are on no desk."""
+	return success_response(
+		data={"candidates": service.list_candidates(role=role, q=q, limit=int(limit))},
+		message=_("Officer candidates retrieved"),
 	)
 
 
