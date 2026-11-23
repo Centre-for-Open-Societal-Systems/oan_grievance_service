@@ -605,7 +605,7 @@ class TestOfficerView(SensitiveFixture):
 		frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Rule",
-				"service_category": self.category,
+				"sla_configuration": classification.configuration_of(self.category),
 				"grievance_type": urgent_sensitive,
 				"sla_days": 10,
 				"is_urgent": 1,

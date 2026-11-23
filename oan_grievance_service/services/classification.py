@@ -46,6 +46,7 @@ RULE = "Grievance SLA Rule"
 RULE_FIELDS = (
 	"name",
 	"service_category",
+	"role_level",
 	"rule_label",
 	"is_base",
 	"grievance_type",
@@ -178,11 +179,15 @@ def overlapping_rules(rules) -> tuple | None:
 # --------
 
 
-def rules_of(service_category: str | None, exclude: str | None = None) -> list:
-	"""The rules of the category, oldest first. Empty when none. `exclude` leaves one rule out."""
+def rules_of(service_category: str | None, exclude: str | None = None, role_level: str | None = None) -> list:
+	"""The rules of the category for one rung, oldest first. Empty when none.
+
+	With no `role_level` these are the rules for the whole case, the ones the SLA clock runs on.
+	`exclude` leaves one rule out.
+	"""
 	if not service_category:
 		return []
-	filters = {"service_category": service_category}
+	filters = {"service_category": service_category, "role_level": role_level or ["is", "not set"]}
 	if exclude:
 		filters["name"] = ["!=", exclude]
 	return frappe.get_all(RULE, filters=filters, fields=list(RULE_FIELDS), order_by="creation asc, name asc")
@@ -299,8 +304,13 @@ def sla_days_for(service_category: str | None, grievance=None) -> int | None:
 
 
 def is_base(rule) -> bool:
-	"""A rule that names no type, no area and no window: the category's SLA everywhere else."""
-	return not (rule.get("grievance_type") or rule.get("administrative_area") or window_of(rule))
+	"""A rule that names no level, type, area or window: the category's SLA everywhere else."""
+	return not (
+		rule.get("role_level")
+		or rule.get("grievance_type")
+		or rule.get("administrative_area")
+		or window_of(rule)
+	)
 
 
 def base_rule(service_category: str | None):
@@ -326,6 +336,19 @@ def base_days(categories) -> dict[str, int]:
 	}
 
 
+def configuration_of(service_category: str) -> str:
+	"""The category's SLA configuration, which its rules override; the active one if it has several."""
+	name = frappe.db.get_value(
+		"Grievance SLA Configuration",
+		{"service_category": service_category},
+		"name",
+		order_by="active desc, creation asc",
+	)
+	if not name:
+		frappe.throw(_("{0} has no SLA configuration.").format(service_category), frappe.DoesNotExistError)
+	return name
+
+
 def set_base_days(service_category: str, sla_days: int):
 	"""Write the category's SLA days on its base rule, creating it (Standard, no priority) if missing.
 
@@ -342,7 +365,7 @@ def set_base_days(service_category: str, sla_days: int):
 	return frappe.get_doc(
 		{
 			"doctype": RULE,
-			"service_category": service_category,
+			"sla_configuration": configuration_of(service_category),
 			"rule_label": _("Base"),
 			"sla_days": sla_days,
 			"is_urgent": 0,

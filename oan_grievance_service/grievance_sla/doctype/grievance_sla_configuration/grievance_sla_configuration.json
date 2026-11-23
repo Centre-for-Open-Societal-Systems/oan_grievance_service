@@ -20,9 +20,7 @@
   "col_milestones",
   "remand_execution_hours",
   "sec_state_timers",
-  "state_timers",
-  "sec_level_turnarounds",
-  "level_turnarounds"
+  "state_timers"
  ],
  "fields": [
   {
@@ -113,18 +111,6 @@
    "fieldtype": "Table",
    "label": "State Timers",
    "options": "Grievance State Timer"
-  },
-  {
-   "fieldname": "sec_level_turnarounds",
-   "fieldtype": "Section Break",
-   "label": "Turnaround by Level"
-  },
-  {
-   "description": "Working days a case may rest at each escalation level, for the whole category or for one of its types. The matrix of STG-512 seeds it. The SLA clock runs on the SLA Days of the category's Grievance SLA Rules.",
-   "fieldname": "level_turnarounds",
-   "fieldtype": "Table",
-   "label": "Level Turnarounds",
-   "options": "Grievance SLA Level Turnaround"
   }
  ],
  "grid_page_length": 50,

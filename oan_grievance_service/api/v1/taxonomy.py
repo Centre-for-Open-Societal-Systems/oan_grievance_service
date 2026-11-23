@@ -61,7 +61,7 @@ CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_def
 # What the Routing Matrix owners decide about a type. The code is the key the seed matches on, so it is
 # an administrator's too: a category head may rename or retire a type of their category, but not claim a
 # matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
-# Assignment) and the turnaround is the SLA configuration's, so neither is a field of the type.
+# Assignment) and the turnaround is the SLA rules', so neither is a field of the type.
 TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
 # Sensitive (STG-514) is the matrix owners' too: a category head must not be able to hide a type from
 # Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is a rule
