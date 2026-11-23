@@ -5863,22 +5863,23 @@ paths:
         description: Matches title, designation or ID
       security:
       - BearerAuth: []
-  /v1/position-assignments:
+  /v1/position-holders:
     get:
       tags:
       - Administration
-      summary: List position assignments
-      description: Who holds which position, and where. An assignment with no user is waiting on the first
-        sign-in of its email. Filterable by position, role level, area (including the areas under it),
-        email, active status, unclaimed, and `mine` for the caller's own.
-      operationId: get_api_v1_position_assignments
+      summary: List position holders
+      description: Who holds which position, on which desk and where. A row with no user is waiting on
+        the first sign-in of its email. Filterable by position, role level, area (including the areas
+        under it), department, category, email, active status, unclaimed, and `mine` for the caller's
+        own.
+      operationId: get_api_v1_position_holders
       responses:
         '200':
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssignmentListResponse'
+                $ref: '#/components/schemas/HolderListResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -5942,7 +5943,7 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Role level code of the position
+        description: Role level code
       - name: administrative_area
         in: query
         required: false
@@ -5950,7 +5951,23 @@ paths:
           type: string
           default: null
           nullable: true
-        description: Area; also matches assignments in the areas under it
+        description: Area; also matches rows in the areas under it
+      - name: department
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Department of the desk
+      - name: category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+        description: Service category of the desk
       - name: email
         in: query
         required: false
@@ -5982,7 +5999,7 @@ paths:
           type: boolean
           default: null
           nullable: true
-        description: 'True: only the caller''s own assignments'
+        description: 'True: only the caller''s own rows'
       security:
       - BearerAuth: []
   /v1/response-templates:
@@ -10872,7 +10889,7 @@ components:
           description: Whether the position is in use
           type: boolean
         holders:
-          description: Active assignments of this position
+          description: Officers holding this position on an active desk row
           type: integer
       required:
       - position_id
@@ -10896,14 +10913,29 @@ components:
       - total
       - pagination
       type: object
-    AssignmentRecord:
+    HolderRecord:
       properties:
-        assignment_id:
-          description: Assignment ID (e.g. PA-00001)
+        row_id:
+          description: Desk row ID
           type: string
+        desk_id:
+          description: Desk (Grievance RBAC Assignment) the row is on
+          type: string
+        category:
+          type: string
+          default: null
+          description: Service category of the desk
+          nullable: true
+        department:
+          type: string
+          default: null
+          description: Department of the desk
+          nullable: true
         position_id:
-          description: Position held
           type: string
+          default: null
+          description: Position held
+          nullable: true
         position_title:
           type: string
           default: null
@@ -10912,7 +10944,7 @@ components:
         role_level:
           type: string
           default: null
-          description: Role level code of the position
+          description: Role level code of the row
           nullable: true
         administrative_area:
           type: string
@@ -10933,21 +10965,17 @@ components:
           type: boolean
         on_leave:
           type: boolean
-        max_open_cases:
-          description: 0 means no cap
-          type: integer
       required:
-      - assignment_id
-      - position_id
+      - row_id
+      - desk_id
       - active
       - on_leave
-      - max_open_cases
       type: object
-    AssignmentListData:
+    HolderListData:
       properties:
-        assignments:
+        holders:
           items:
-            $ref: '#/components/schemas/AssignmentRecord'
+            $ref: '#/components/schemas/HolderRecord'
           type: array
         total:
           type: integer
@@ -10955,7 +10983,7 @@ components:
           additionalProperties: true
           type: object
       required:
-      - assignments
+      - holders
       - total
       - pagination
       type: object
@@ -14019,7 +14047,7 @@ components:
       - status
       - data
       description: PositionListData response
-    AssignmentListResponse:
+    HolderListResponse:
       type: object
       properties:
         status:
@@ -14032,7 +14060,7 @@ components:
           nullable: true
           description: Optional response message
         data:
-          $ref: '#/components/schemas/AssignmentListData'
+          $ref: '#/components/schemas/HolderListData'
         meta:
           $ref: '#/components/schemas/ApiMeta'
         request_id:
@@ -14043,7 +14071,7 @@ components:
       required:
       - status
       - data
-      description: AssignmentListData response
+      description: HolderListData response
     AdminResponseTemplateListResponse:
       type: object
       properties:

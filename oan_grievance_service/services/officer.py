@@ -234,10 +234,6 @@ def create(
 
 	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
-	if status == "On Leave":
-		_set_assignments(user.name, {"on_leave": 1})
-	elif status == "Inactive":
-		_set_assignments(user.name, {"active": 0})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
@@ -359,13 +355,12 @@ def update(user_id: str, changes: dict) -> str:
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
 		account.set_enabled(user_id, True)
-	# A position is shared by everyone who holds it, so a new level or designation moves
-	# this person's assignments to the position that has them, made if there is none.
-	held_updates = {}
+	# A position is a role shared by everyone who holds it, so a new level or designation
+	# moves this officer's rows to the position that has them, made if there is none.
 	if "designation" in changes or level != current.level:
 		role_level = LEVEL_CODES.get(level, level)
 		desig = designation or role_level.replace("_", " ").title()
-		held_updates["position"] = frappe.db.get_value(
+		row_changes["position"] = frappe.db.get_value(
 			"Grievance Officer Position", {"role_level": role_level, "designation": desig}, "name"
 		) or (
 			frappe.get_doc(
@@ -380,31 +375,6 @@ def update(user_id: str, changes: dict) -> str:
 			.insert(ignore_permissions=True)
 			.name
 		)
-	if "region" in changes:
-		held_updates["administrative_area"] = row_changes.get("administrative_area")
-	if "status" in changes:
-		held_updates["on_leave"] = 1 if changes["status"] == "On Leave" else 0
-		if changes["status"] == "Inactive":
-			held_updates["active"] = 0
-	if held_updates:
-		if status and status != "Inactive":
-			held_updates["active"] = 1
-		for name in frappe.get_all(
-			"Grievance RBAC Assignment Officer",
-			filters={
-				"parent": ["in", list(current.desks | target) or [""]],
-				"user": user_id,
-				"assignment": ["is", "set"],
-			},
-			pluck="assignment",
-			distinct=True,
-		):
-			held = frappe.get_doc("Grievance Position Assignment", name)
-			held.update(held_updates)
-			held.save(ignore_permissions=True)
-		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
-
-		clear_position_cache(user_id)
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
@@ -1008,17 +978,6 @@ def _narrow(records: list, department: str | None, categories: list[str] | None)
 	if not records:
 		frappe.throw(_("None of your RBAC records match."), frappe.PermissionError)
 	return records
-
-
-def _set_assignments(user_id: str, values: dict):
-	"""Save `values` onto every Position Assignment `user_id` holds, so its validation runs."""
-	from oan_grievance_service.grievance_access_control.positions import clear_position_cache
-
-	for name in frappe.get_all("Grievance Position Assignment", filters={"user": user_id}, pluck="name"):
-		held = frappe.get_doc("Grievance Position Assignment", name)
-		held.update(values)
-		held.save(ignore_permissions=True)
-	clear_position_cache(user_id)
 
 
 def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):

@@ -8090,7 +8090,7 @@
           "response": []
         },
         {
-          "name": "List position assignments",
+          "name": "List position holders",
           "event": [
             {
               "listen": "test",
@@ -8114,13 +8114,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/v1/position-assignments",
+              "raw": "{{base_url}}/v1/position-holders",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "v1",
-                "position-assignments"
+                "position-holders"
               ],
               "query": [
                 {
@@ -8144,13 +8144,25 @@
                 {
                   "key": "role_level",
                   "value": "None",
-                  "description": "Role level code of the position",
+                  "description": "Role level code",
                   "disabled": true
                 },
                 {
                   "key": "administrative_area",
                   "value": "None",
-                  "description": "Area; also matches assignments in the areas under it",
+                  "description": "Area; also matches rows in the areas under it",
+                  "disabled": true
+                },
+                {
+                  "key": "department",
+                  "value": "None",
+                  "description": "Department of the desk",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "None",
+                  "description": "Service category of the desk",
                   "disabled": true
                 },
                 {
@@ -8174,12 +8186,12 @@
                 {
                   "key": "mine",
                   "value": "None",
-                  "description": "True: only the caller's own assignments",
+                  "description": "True: only the caller's own rows",
                   "disabled": true
                 }
               ]
             },
-            "description": "Who holds which position, and where. An assignment with no user is waiting on the first sign-in of its email. Filterable by position, role level, area (including the areas under it), email, active status, unclaimed, and `mine` for the caller's own."
+            "description": "Who holds which position, on which desk and where. A row with no user is waiting on the first sign-in of its email. Filterable by position, role level, area (including the areas under it), department, category, email, active status, unclaimed, and `mine` for the caller's own."
           },
           "response": []
         }

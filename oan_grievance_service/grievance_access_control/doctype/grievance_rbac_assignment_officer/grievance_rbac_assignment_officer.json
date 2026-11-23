@@ -6,9 +6,9 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "assignment",
   "position",
   "user",
+  "email",
   "role_level",
   "reports_to",
   "administrative_area",
@@ -22,14 +22,6 @@
  ],
  "fields": [
   {
-   "fieldname": "assignment",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Assignment",
-   "options": "Grievance Position Assignment",
-   "description": "The person's assignment to the position. User, area and position follow it."
-  },
-  {
    "description": "Organizational post/seat serving this desk",
    "fieldname": "position",
    "fieldtype": "Link",
@@ -38,13 +30,20 @@
    "options": "Grievance Officer Position"
   },
   {
-   "fetch_from": "assignment.user",
    "fieldname": "user",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Officer",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "options": "Email",
+   "in_list_view": 1,
+   "label": "Email",
+   "description": "Login email of the officer. Until they first sign in, User is empty and their first sign-in fills it."
   },
   {
    "fetch_from": "position.role_level",
@@ -67,7 +66,6 @@
   },
   {
    "description": "Region (or any area) this officer covers, including its sub-tree. Blank covers every area. The nearest enclosing area wins when routing.",
-   "fetch_from": "assignment.administrative_area",
    "fieldname": "administrative_area",
    "fieldtype": "Link",
    "hidden": 1,

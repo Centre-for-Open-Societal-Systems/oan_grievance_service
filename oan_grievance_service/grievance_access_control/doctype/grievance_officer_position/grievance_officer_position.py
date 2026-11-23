@@ -3,9 +3,9 @@
 
 """Officer Position: a role in the hierarchy, such as Crop DA or Woreda Crop SMS.
 
-A position holds a role level and the position it reports to. The people who hold it,
-and where, are its Grievance Position Assignments, so one position serves every area
-and every holder. Department scoping is defined on the Desk (Grievance RBAC Assignment),
+A position holds a role level and the position it reports to. The officers who hold it,
+and where, are the desk rows (Grievance RBAC Assignment Officer) that link it, so one
+position serves every area and every holder. Department scoping is defined on the Desk (Grievance RBAC Assignment),
 allowing a single position (e.g. KAO Head or Woreda SMS) to serve multiple department
 desks without duplicate positions.
 """

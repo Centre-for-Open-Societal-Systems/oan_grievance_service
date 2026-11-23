@@ -364,44 +364,19 @@ def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
 
 	from oan_grievance_service.grievance_access_control.positions import supervisor_of
 
-	names = [o.assignment for o in assignment_doc.officers if getattr(o, "assignment", None)]
-	held_by_name = {}
-	if names:
-		A = frappe.qb.DocType("Grievance Position Assignment")
-		P = frappe.qb.DocType("Grievance Officer Position")
-		held_by_name = {
-			row.name: row
-			for row in frappe.qb.from_(A)
-			.join(P)
-			.on(P.name == A.position)
-			.select(A.name, A.user, A.position, A.administrative_area, P.role_level)
-			.where(A.name.isin(names))
-			.run(as_dict=True)
-		}
-
 	chain = GrievanceRoleLevel.get_chain()
 	chain_codes = {rung.name for rung in chain}
 
 	candidates = []
 	for o in assignment_doc.officers:
 		user = getattr(o, "user", None)
-		held = held_by_name.get(getattr(o, "assignment", None))
-		if held:
-			if not user:
-				user = held.user
-				o.user = user
-			if not getattr(o, "role_level", None):
-				o.role_level = held.role_level
-			if not getattr(o, "administrative_area", None):
-				o.administrative_area = held.administrative_area
-			if not getattr(o, "reports_to", None):
-				o.reports_to = supervisor_of(held.position, o.administrative_area)
+		if getattr(o, "position", None) and not getattr(o, "reports_to", None):
+			o.reports_to = supervisor_of(o.position, getattr(o, "administrative_area", None))
 
 		if (
 			user
 			and getattr(o, "active", 1)
 			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
-			# Read after the position filled in the row's area.
 			and not (sensitive and _is_kebele_level_seat(o))
 		):
 			candidates.append(o)
