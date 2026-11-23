@@ -27,7 +27,13 @@ from oan_grievance_service.services import classification
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.tests.fixtures import a_user_with_role, an_administrative_area
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
-from oan_grievance_service.tests.test_classification import BASE_SLA_DAYS, a_bare_category, a_category, a_type
+from oan_grievance_service.tests.test_classification import (
+	BASE_SLA_DAYS,
+	a_bare_category,
+	a_bare_configuration,
+	a_category,
+	a_type,
+)
 
 IRRIGATION = {"start_month": 10, "start_day": 1, "end_month": 4, "end_day": 30}
 MARCH_TO_MAY = {"start_month": 3, "start_day": 1, "end_month": 5, "end_day": 31}
@@ -256,6 +262,7 @@ class TestSlaRulesApi(ApiFixture):
 
 	def test_a_category_needs_its_base_rule_before_a_narrower_one(self):
 		bare = a_bare_category()
+		a_bare_configuration(bare)
 		self.refused(lambda: create_rule(service_category=bare, **IRRIGATION, sla_days=3))
 		# Its base rule first, then the narrower one.
 		self.assertEqual(create_rule(service_category=bare, sla_days=7)["status"], "success")

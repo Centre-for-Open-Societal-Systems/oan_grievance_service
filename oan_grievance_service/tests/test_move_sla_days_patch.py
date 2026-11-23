@@ -32,6 +32,13 @@ class TestMoveSlaDaysToBaseRules(FrappeTestCase):
 
 	def run_patch(self, rows):
 		"""Run the patch as if the configurations' old `sla_days` column held `rows`."""
+		for row in rows:
+			row.setdefault(
+				"name",
+				frappe.db.get_value(
+					"Grievance SLA Configuration", {"service_category": row["service_category"]}
+				),
+			)
 		with mock.patch.object(patch, "_configurations", return_value=[frappe._dict(row) for row in rows]):
 			patch.execute()
 

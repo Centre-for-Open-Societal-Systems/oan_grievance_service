@@ -78,6 +78,15 @@ def a_bare_category():
 	)
 
 
+def a_bare_configuration(category):
+	"""An active SLA configuration for `category` that has no base rule yet."""
+	return (
+		frappe.get_doc({"doctype": "Grievance SLA Configuration", "service_category": category, "active": 1})
+		.insert(ignore_permissions=True)
+		.name
+	)
+
+
 def a_category(rules=(), sla_days=BASE_SLA_DAYS):
 	"""A new category with an active SLA configuration, its base rule of `sla_days`, and `rules`.
 
@@ -98,7 +107,9 @@ def add_rules(category, rules):
 			doc.update(rule)
 			doc.save(ignore_permissions=True)
 		else:
-			doc = frappe.get_doc({"doctype": RULE, "service_category": category, **rule})
+			doc = frappe.get_doc(
+				{"doctype": RULE, "sla_configuration": classification.configuration_of(category), **rule}
+			)
 			doc.insert(ignore_permissions=True)
 		names.append(doc.name)
 	return names
@@ -327,14 +338,18 @@ class TestRuleValidation(FrappeTestCase):
 
 	def test_a_second_base_rule_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc({"doctype": RULE, "service_category": self.category, **a_rule(sla_days=3)}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc(
+				{
+					"doctype": RULE,
+					"sla_configuration": classification.configuration_of(self.category),
+					**a_rule(sla_days=3),
+				}
+			).insert(ignore_permissions=True)
 
 	def test_a_narrower_rule_needs_the_base_rule_first(self):
-		bare = a_bare_category()
+		bare = a_bare_configuration(a_bare_category())
 		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc({"doctype": RULE, "service_category": bare, **a_rule(DRY, urgent=True)}).insert(
+			frappe.get_doc({"doctype": RULE, "sla_configuration": bare, **a_rule(DRY, urgent=True)}).insert(
 				ignore_permissions=True
 			)
 
@@ -348,11 +363,10 @@ class TestRuleValidation(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			base.save(ignore_permissions=True)
 
-	def test_an_sla_configuration_needs_the_base_rule(self):
-		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc(
-				{"doctype": "Grievance SLA Configuration", "service_category": a_bare_category(), "active": 1}
-			).insert(ignore_permissions=True)
+	def test_a_configuration_without_a_base_rule_gives_its_cases_no_deadline(self):
+		category = a_bare_category()
+		a_bare_configuration(category)
+		self.assertIsNone(classification.sla_days_for(category))
 
 
 class TestClassification(FrappeTestCase):
