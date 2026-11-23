@@ -107,19 +107,15 @@ class GrievanceRBACAssignment(Document):
 		return bool(self.category_scope) and not any(self.get(field) for field in NARROWING_SCOPES)
 
 	def validate_no_repeated_officer(self):
-		seen_users = set()
-		seen_positions = set()
+		# A position is shared, so many rows may hold it; a person (or a pending email) may not repeat.
+		seen = set()
 		for row in self.officers:
-			if getattr(row, "position", None):
-				if row.position in seen_positions:
-					frappe.throw(
-						_("Position '{0}' is listed more than once on this desk.").format(row.position)
-					)
-				seen_positions.add(row.position)
-			if getattr(row, "user", None):
-				if row.user in seen_users:
-					frappe.throw(_("Officer '{0}' is listed more than once.").format(row.user))
-				seen_users.add(row.user)
+			person = row.user or (row.email or "").strip().lower()
+			if not person:
+				continue
+			if person in seen:
+				frappe.throw(_("Officer '{0}' is listed more than once.").format(person))
+			seen.add(person)
 
 	def reject_duplicate_desk(self):
 		"""One category-only desk per (category, department), inactive desks included.
