@@ -6487,17 +6487,17 @@ paths:
       - Administration
       summary: List SLA rules
       description: 'The SLA rules, by service category and then oldest first. Filter by service_category
-        (id, name or code), grievance_type, administrative_area, is_urgent or is_base. Every rule sets
-        sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the
-        case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type
-        of its category, an administrative_area (covering the areas inside it) and a recurring window
-        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
-        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
-        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
-        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
-        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
-        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
-        share a day. A change applies to cases filed afterwards.'
+        (id, name or code), role_level, grievance_type, administrative_area, is_urgent or is_base. Every
+        rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule
+        gives the case priority Urgent, any other rule no priority (priority is read only). A rule may
+        name a grievance_type of its category, an administrative_area (covering the areas inside it) and
+        a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
+        a start after the end wraps the year end, for example 10/1 to 4/30). The category''s base rule
+        (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches, a category
+        needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching
+        rule wins: a type''s rule before the category''s, a narrower area before a wider one, a windowed
+        rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and
+        area may not share a day. A change applies to cases filed afterwards.'
       operationId: get_api_v1_sla_rules
       responses:
         '200':
@@ -6555,6 +6555,13 @@ paths:
           type: integer
         description: Items per page
       - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: role_level
         in: query
         required: false
         schema:
@@ -10884,6 +10891,11 @@ components:
           type: string
           default: null
           nullable: true
+        role_level:
+          type: string
+          default: null
+          description: 'Escalation rung the days are for. Null: the days for the whole case'
+          nullable: true
         grievance_type:
           type: string
           default: null
@@ -12149,6 +12161,13 @@ components:
           default: null
           description: A name for administrators
           nullable: true
+        role_level:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Role level code of the rung these days are for, e.g. nodal_officer. Blank: the
+            days for the whole case, the ones the SLA clock runs on'
+          nullable: true
         grievance_type:
           minLength: 1
           type: string
@@ -12211,6 +12230,13 @@ components:
           type: string
           default: null
           description: A name for administrators
+          nullable: true
+        role_level:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Role level code of the rung these days are for, e.g. nodal_officer. Blank: the
+            days for the whole case, the ones the SLA clock runs on'
           nullable: true
         grievance_type:
           minLength: 1

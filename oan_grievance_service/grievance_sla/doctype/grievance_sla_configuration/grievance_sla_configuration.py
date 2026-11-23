@@ -31,11 +31,11 @@ def save_sla_configuration(
 	"""Create or update the active SLA configuration for a service category, and its SLA days.
 
 	The days are stored on the category's base Grievance SLA Rule, the one source of SLA days,
-	which is created first: a new configuration needs it.
+	which overrides this configuration, so it is saved after it. A configuration without an
+	active base rule is not served: its cases get no deadline.
 	"""
 	from oan_grievance_service.services import classification
 
-	classification.set_base_days(service_category, sla_days)
 	name = frappe.db.get_value(
 		"Grievance SLA Configuration",
 		{"service_category": service_category, "active": 1},
@@ -55,13 +55,13 @@ def save_sla_configuration(
 		for state, hours, on_expiry in C.DEFAULT_STATE_TIMERS:
 			sla.append("state_timers", {"workflow_state": state, "hours": hours, "on_expiry": on_expiry})
 	sla.save()
+	classification.set_base_days(service_category, sla_days)
 	return sla
 
 
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
 		self.validate_one_active_row()
-		self.validate_base_rule()
 		if (self.auto_escalation_threshold or 0) > 100:
 			frappe.throw(_("Auto Escalation Threshold cannot exceed 100%."))
 		if self.first_response_hours is not None and self.first_response_hours < 0:
@@ -73,58 +73,6 @@ class GrievanceSLAConfiguration(Document):
 		if self.holiday_list and not frappe.db.exists("Grievance Holiday List", self.holiday_list):
 			frappe.throw(_("Holiday List '{0}' does not exist.").format(self.holiday_list))
 		self.validate_state_timers()
-		self.validate_level_turnarounds()
-
-	def validate_base_rule(self):
-		"""An active configuration needs its category's base Grievance SLA Rule, which holds the SLA
-		days: without it a case of the category would have no deadline.
-
-		Checked when a configuration is made active (created, or switched on), so saving one that
-		predates the rules (a migration patch) is not blocked.
-		"""
-		if not self.active or not self.service_category:
-			return
-		if not (self.is_new() or self.has_value_changed("active")):
-			return
-		if not frappe.db.exists(
-			"Grievance SLA Rule", {"service_category": self.service_category, "is_base": 1}
-		):
-			frappe.throw(
-				_(
-					"{0} has no base SLA rule. Add its Grievance SLA Rule with no type, area or window "
-					"first: it holds the category's SLA Days."
-				).format(self.service_category)
-			)
-
-	def validate_level_turnarounds(self):
-		"""A turnaround is a positive number of days, for an active level, set once per level and type.
-
-		A type belongs to this category: a row for another category's type would never apply.
-		"""
-		seen = set()
-		for row in self.level_turnarounds:
-			if (row.turnaround_days or 0) <= 0:
-				frappe.throw(_("Row {0}: Turnaround must be greater than zero.").format(row.idx))
-			key = (row.role_level, row.grievance_type or "")
-			if key in seen:
-				if row.grievance_type:
-					frappe.throw(
-						_("Row {0}: {1} already has a turnaround for {2}.").format(
-							row.idx, row.role_level, row.grievance_type
-						)
-					)
-				frappe.throw(_("Row {0}: {1} already has a turnaround.").format(row.idx, row.role_level))
-			seen.add(key)
-			if not frappe.db.get_value("Grievance Role Level", row.role_level, "is_active"):
-				frappe.throw(_("Row {0}: {1} is not an active role level.").format(row.idx, row.role_level))
-			if row.grievance_type:
-				category = frappe.db.get_value("Grievance Type", row.grievance_type, "service_category")
-				if category != self.service_category:
-					frappe.throw(
-						_("Row {0}: {1} belongs to {2}, not {3}.").format(
-							row.idx, row.grievance_type, category, self.service_category
-						)
-					)
 
 	def validate_state_timers(self):
 		"""One timer per state, and only an expiry the Workflow can carry out."""

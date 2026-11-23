@@ -43,9 +43,11 @@ route = prefixed("/api/v1/sla-rules")
 
 RULE = "Grievance SLA Rule"
 WINDOW_FIELDS = ("start_month", "start_day", "end_month", "end_day")
-# What a client may write. `service_category` only on create: a rule stays with its category.
+# What a client may write. `service_category` only on create: a rule stays with its category's
+# SLA configuration, which the server finds from it.
 EDITABLE = (
 	"rule_label",
+	"role_level",
 	"grievance_type",
 	"administrative_area",
 	*WINDOW_FIELDS,
@@ -77,6 +79,9 @@ class SlaRuleRecord(BaseModel):
 	service_category: str
 	is_base: bool
 	rule_label: str | None = None
+	role_level: str | None = Field(
+		None, description="Escalation rung the days are for. Null: the days for the whole case"
+	)
 	grievance_type: str | None = None
 	administrative_area: str | None = None
 	start_month: int | None = None
@@ -106,6 +111,11 @@ class RuleRef(Body):
 
 class _RuleScope(Body):
 	rule_label: str | None = Field(None, max_length=140, description="A name for administrators")
+	role_level: NonBlank | None = Field(
+		None,
+		description="Role level code of the rung these days are for, e.g. nodal_officer. "
+		+ "Blank: the days for the whole case, the ones the SLA clock runs on",
+	)
 	grievance_type: NonBlank | None = Field(
 		None, description="A type of the rule's category. Blank: every type"
 	)
@@ -117,9 +127,9 @@ class _RuleScope(Body):
 	end_month: int | None = Field(None, ge=1, le=12)
 	end_day: int | None = Field(None, ge=1, le=31, description="All four window fields, or none for all year")
 
-	_blank = field_validator("rule_label", "grievance_type", "administrative_area", mode="before")(
-		blank_to_none
-	)
+	_blank = field_validator(
+		"rule_label", "role_level", "grievance_type", "administrative_area", mode="before"
+	)(blank_to_none)
 
 
 class CreateSlaRule(_RuleScope):
@@ -141,6 +151,7 @@ class ListSlaRules(PageParams, Body):
 	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
 
 	service_category: str | None = None
+	role_level: str | None = None
 	grievance_type: str | None = None
 	administrative_area: str | None = None
 	is_urgent: bool | None = None
@@ -150,7 +161,7 @@ class ListSlaRules(PageParams, Body):
 
 
 def _records(rows: list) -> list[dict]:
-	scope = ("rule_label", "grievance_type", "administrative_area", *WINDOW_FIELDS)
+	scope = ("rule_label", "role_level", "grievance_type", "administrative_area", *WINDOW_FIELDS)
 	return [
 		SlaRuleRecord(
 			name=row.name,
@@ -198,13 +209,14 @@ def _values(kwargs: dict) -> dict:
 @api_doc(
 	summary="List SLA rules",
 	description="The SLA rules, by service category and then oldest first. Filter by service_category "
-	+ "(id, name or code), grievance_type, administrative_area, is_urgent or is_base. "
+	+ "(id, name or code), role_level, grievance_type, administrative_area, is_urgent or is_base. "
 	+ RULE_NOTE,
 	tags=["Administration"],
 	response_model=SlaRuleListData,
 )
 def list_rules(
 	service_category: str | None = None,
+	role_level: str | None = None,
 	grievance_type: str | None = None,
 	administrative_area: str | None = None,
 	is_urgent: bool | str | None = None,
@@ -222,6 +234,8 @@ def list_rules(
 	filters: dict = {}
 	if service_category:
 		filters["service_category"] = resolve_service_category(service_category)
+	if role_level:
+		filters["role_level"] = role_level
 	if grievance_type:
 		filters["grievance_type"] = grievance_type
 	if administrative_area:
@@ -283,7 +297,11 @@ def get_rule(rule_id: str, **kwargs):
 def create_rule(service_category: str, **kwargs):
 	"""Create a rule. `kwargs` holds the other fields of the request."""
 	doc = frappe.get_doc(
-		{"doctype": RULE, "service_category": resolve_service_category(service_category), **_values(kwargs)}
+		{
+			"doctype": RULE,
+			"sla_configuration": classification.configuration_of(resolve_service_category(service_category)),
+			**_values(kwargs),
+		}
 	)
 	doc.insert()
 	return success_response(data={"rule": _record(doc.name)}, message=_("SLA rule created"))

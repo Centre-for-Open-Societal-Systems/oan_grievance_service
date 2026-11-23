@@ -23,7 +23,7 @@ The SLA rules (doctype Grievance SLA Rule, `/api/v1/sla-rules`) are the one sour
 - The category's **base rule** names no type, no area and no window. It is the category's SLA wherever no narrower rule matches. Every category with an SLA has one: creating a category (or an SLA configuration) with `sla_days` makes it, a narrower rule cannot be added before it, and it cannot be deleted or narrowed. Its `sla_days` is what `/sla-configurations`, `/category-assignments` and `/service-categories` show and set as the category's `sla_days`.
 - A **narrower rule** names a type, an area or a recurring window, and replaces the base rule's values where it matches.
 
-`Grievance SLA Configuration` keeps only what is category-wide and does not vary by season or area: the holiday list, `auto_escalate` and its threshold, `notify_on_breach`, `first_response_hours`, `update_cadence_hours`, `remand_execution_hours`, the state timers and the level turnarounds. It has no `sla_days` any more.
+`Grievance SLA Configuration` keeps only what is category-wide and does not vary by season or area: the holiday list, `auto_escalate` and its threshold, `notify_on_breach`, `first_response_hours`, `update_cadence_hours`, `remand_execution_hours`, and the state timers. It has no `sla_days` any more: its rules (`Grievance SLA Rule`, linked by `sla_configuration`) hold them.
 
 There is no separate season record and no calendar of its own: a window is a recurring month and day, the same every year, so any country's season can be written in it.
 
@@ -33,6 +33,7 @@ There is no separate season record and no calendar of its own: a window is a rec
 | `rule_label`                                       | a name for administrators, for example "Meher input season"                        |
 | `is_base`                                          | set by the system: the rule names no type, area or window                          |
 | `grievance_type`                                   | optional: only this type of the category                                           |
+| `role_level`                                       | optional: the escalation rung the days are for; none is the whole case             |
 | `administrative_area`                              | optional: only cases in this area or an area inside it                             |
 | `start_month`, `start_day`, `end_month`, `end_day` | optional: a recurring window; all four or none (none is all year)                  |
 | `sla_days`                                         | required: the turnaround in working days when the rule matches                     |
@@ -67,7 +68,7 @@ The clock is not restarted when the officer changes: a handoff, a reassignment w
 
 A rule changes the case's window, and the first escalation follows it: the case is first handed up at the category's `auto_escalation_threshold` percent of **its own** window (`sla.arm_escalation`), so 3 in-season days escalate after 80% of 3 days, not of 15. The 50% and 80% reminders are percentages of the same window. After the first escalation each rung keeps the case for its role level's `escalation_hours` (Grievance Role Level), the same in and out of season.
 
-The `level_turnarounds` table of the SLA configuration (turnaround days per role level, STG-512) is stored and validated but not read by the SLA engine yet, so no rule adjusts it. Whether an in-season rule should also shorten the per-level turnarounds, or a rung's escalation hours, is an open point (below).
+A rule with a `role_level` is the days for that rung (STG-512, the matrix's L1 and L2 turnarounds), not for the whole case. The SLA clock reads only the rules with no `role_level`, so a level rule adjusts nothing yet. Whether an in-season rule should also shorten the per-level days, or a rung's escalation hours, is an open point (below).
 
 ## Configuration
 
@@ -144,7 +145,7 @@ The PIN is never stored in clear by this app. The Grievance Notification Log, wh
 ## Open points
 
 - **In-season SLA days.** The matrix gives none, so the seeded seasonal rules carry their category's days. The owners should set them per rule (for example 3 days in season), in the one list of `/sla-rules`.
-- **Per-level turnarounds in season.** A rule shortens the case's window, and the first escalation with it (a percentage of the window). It does not change `level_turnarounds` (not read by the engine yet) or a rung's `escalation_hours`. Whether an in-season rule should scale those or set its own is for the owners to decide.
+- **Per-level turnarounds in season.** A rule shortens the case's window, and the first escalation with it (a percentage of the window). It does not change the rules that carry a `role_level` (not read by the engine yet) or a rung's `escalation_hours`. Whether an in-season rule should scale those or set its own is for the owners to decide.
 - **C04 coercion.** "C04 if coercion" is free text in the Confidential path, not a flag. A per-case Sensitive flag set by an officer, DA or administrator is not built (change plan, section 3 item 14). Until decided, a coercion case is filed as C13-03.
 - **The subject of a grievance.** No field names the person complained about (change plan, section 3 item 15), so the service cannot exclude them by identity. The Kebele bypass covers the case where they are a DA or Kebele officer; a subject who is a Woreda officer on the same desk is not excluded.
 - **Belg woredas and woreda overrides.** No official list exists, so none is seeded. C01's February to April window for Belg woredas, and a woreda's own C02 or C07 window, are rules with that woreda's area, added when the list exists.
