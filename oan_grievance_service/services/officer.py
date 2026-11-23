@@ -358,7 +358,8 @@ def update(user_id: str, changes: dict) -> str:
 		account.set_enabled(user_id, True)
 	# A position is a role shared by everyone who holds it, so a new level or designation
 	# moves this officer's rows to the position that has them, made if there is none.
-	if "designation" in changes or level != current.level:
+	# A Reviewer has no level, so no position.
+	if level and ("designation" in changes or level != current.level):
 		role_level = LEVEL_CODES.get(level, level)
 		desig = designation or role_level.replace("_", " ").title()
 		row_changes["position"] = frappe.db.get_value(
@@ -398,6 +399,7 @@ def list_officers(
 	service_category=None,
 	region=None,
 	q=None,
+	position=None,
 	start=0,
 	page_size=20,
 ):
@@ -410,6 +412,7 @@ def list_officers(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	if status:
 		query = query.where(_status_filter(row, status))
@@ -435,6 +438,7 @@ def status_counts(
 	service_category=None,
 	region=None,
 	q=None,
+	position=None,
 ) -> dict[str, int]:
 	"""Active, On Leave and Inactive people for the same filters as the list, without `status`.
 
@@ -450,6 +454,7 @@ def status_counts(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	per_person = (
 		query.select(
@@ -518,7 +523,7 @@ def list_candidates(*, role=DEFAULT_ROLE, q=None, limit=50):
 	]
 
 
-def _officer_query(*, role, level, department, service_category, region, q):
+def _officer_query(*, role, level, department, service_category, region, q, position=None):
 	"""Rows of `role` with an enabled login on category desks narrowed by every list filter except status."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	if level:
@@ -545,7 +550,18 @@ def _officer_query(*, role, level, department, service_category, region, q):
 	if service_category:
 		query = query.where(desk.category_scope == resolve_service_category(service_category))
 	if region:
-		query = query.where(row.administrative_area == _resolve_region(region))
+		# The area and every area under it, so a woreda lists its kebele officers too.
+		area = DocType("Grievance Administrative Area")
+		lft, rgt = frappe.db.get_value(
+			"Grievance Administrative Area", _resolve_region(region), ["lft", "rgt"]
+		)
+		query = query.where(
+			row.administrative_area.isin(
+				frappe.qb.from_(area).select(area.name).where((area.lft >= lft) & (area.rgt <= rgt))
+			)
+		)
+	if position:
+		query = query.where(row.position == position)
 	if q:
 		like = f"%{q.strip()}%"
 		match = user.full_name.like(like) | user.email.like(like)
@@ -647,6 +663,7 @@ def _assignment(row) -> dict:
 		"department": row.department_scope,
 		"level": CODE_LEVELS.get(row.role_level),
 		"region": row.administrative_area,
+		"position_id": row.position,
 		"active": bool(row.active),
 		"on_leave": bool(row.on_leave),
 	}

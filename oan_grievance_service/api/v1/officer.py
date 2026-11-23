@@ -96,6 +96,7 @@ class OfficerAssignment(BaseModel):
 	department: str | None = None
 	level: Level | None = None
 	region: str | None = None
+	position_id: str | None = None
 	active: bool
 	on_leave: bool
 
@@ -238,11 +239,12 @@ class OfficerFilters(Body):
 	service_category: str | None = None
 	region: str | None = None
 	q: str | None = None
+	position: str | None = None
 
 	_role = field_validator("role", mode="before")(role_or_default)
-	_blank = field_validator("level", "department", "service_category", "region", "q", mode="before")(
-		blank_to_none
-	)
+	_blank = field_validator(
+		"level", "department", "service_category", "region", "q", "position", mode="before"
+	)(blank_to_none)
 
 	@model_validator(mode="after")
 	def _filters_follow_role(self):
@@ -298,7 +300,7 @@ class ListOfficers(PageParams, OfficerFilters):
 	summary="List officers",
 	description="Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the "
 	+ "department heads, which the Admin tab shows. Filterable by level, department, status, "
-	+ "service category and region. region matches an account's area exactly. q matches name "
+	+ "service category and region. region matches the area and every area under it. position is a Position ID. q matches name "
 	+ "or email. A Reviewer has no level, so level is refused for role Reviewer, and so is "
 	+ "status On Leave. Listing Reviewers needs an admin role: a Review Officer reads Officer "
 	+ "lists only.",
@@ -313,6 +315,7 @@ def list_officers(
 	service_category: str | None = None,
 	region: str | None = None,
 	q: str | None = None,
+	position: str | None = None,
 	page: int | str = 1,
 	page_size: int | str = 20,
 	**kwargs,
@@ -332,6 +335,7 @@ def list_officers(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 		start=params.start,
 		page_size=params.page_size,
 	)
@@ -375,7 +379,7 @@ def officer_candidates(role: str = "Officer", q: str | None = None, limit: int |
 	summary="Count officers by status",
 	description="Active, On Leave and Inactive totals for the officers tabs, so the UI shows the "
 	+ "counts from here instead of hardcoding them. Takes the list's filters (role, level, "
-	+ "department, service_category, region, q) without status, so a tab's counts follow the "
+	+ "department, service_category, region, position, q) without status, so a tab's counts follow the "
 	+ "same filters as its list. Each person is counted once, in the status the record shows: "
 	+ "the most available of their desk rows wins. The list's status filter matches an account "
 	+ "with a row in that status, so one whose rows differ can be on two pages and is still one "
@@ -391,6 +395,7 @@ def officer_status_counts(
 	service_category: str | None = None,
 	region: str | None = None,
 	q: str | None = None,
+	position: str | None = None,
 	**kwargs,
 ):
 	"""Count the accounts the list would return, by status."""
@@ -402,6 +407,7 @@ def officer_status_counts(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	return success_response(data=counts, message=_("Officer status counts retrieved"))
 
