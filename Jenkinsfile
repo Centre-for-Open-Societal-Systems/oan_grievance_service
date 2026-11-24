@@ -17,13 +17,16 @@ pipeline {
         FRAPPE_DOCKER_REF   = 'main'
     }
 
+    // Branches: develop builds, pushes and deploys to oan_dev. staging promotes what develop built from the same source
+    // tree (ci/package_chart.py promote: the image gets the <version>-staging.<build> tag, the chart is repackaged), builds
+    // a seed from openg2p-data and deploys both to the QA cluster (qa.oanstaging.com) with oan-qa-kubeconfig.
     stages {
 
         stage('Checkout') {
             steps {
                 checkout scm
                 script {
-                    if (env.BRANCH_NAME == 'develop') {
+                    if (env.BRANCH_NAME == 'develop' || env.BRANCH_NAME == 'staging') {
                         env.IMMUTABLE_TAG = sh(returnStdout: true, script: 'python3 ci/package_chart.py version').trim()
                     } else {
                         def sha = sh(returnStdout: true, script: 'git rev-parse --short=7 HEAD').trim()
@@ -38,7 +41,7 @@ pipeline {
         }
 
         stage('Prepare apps.json') {
-            when { anyOf { branch 'develop'; branch 'staging' } }
+            when { branch 'develop' }
             steps {
                 script {
                     def branch = env.BRANCH_NAME
@@ -53,7 +56,7 @@ pipeline {
         }
 
         stage('Build image') {
-            when { anyOf { branch 'develop'; branch 'staging' } }
+            when { branch 'develop' }
             steps {
                 sh '''
                     [ -s "$WORKSPACE/apps.json" ] || { echo "apps.json is missing or empty"; exit 1; }
@@ -79,7 +82,7 @@ pipeline {
         }
 
         stage('Build seed') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 sh '''
                     # The commit openg2p-data develop points at: an unchanged build-arg would let the
@@ -96,7 +99,7 @@ pipeline {
         }
 
         stage('Push image') {
-            when { anyOf { branch 'develop'; branch 'staging' } }
+            when { branch 'develop' }
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
@@ -127,8 +130,29 @@ pipeline {
             }
         }
 
+        // staging: the seed is the one image built here; the service image is develop's, tagged by `promote` below.
+        stage('Push seed (staging)') {
+            when { branch 'staging' }
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    sh '''#!/usr/bin/env bash
+                        set -euo pipefail
+                        aws ecr get-login-password --region "$AWS_REGION" \
+                            | docker login --username AWS --password-stdin "$IMAGE_REGISTRY"
+                        aws ecr describe-repositories --region "$AWS_REGION" --repository-names "$ECR_SEED_REPO" >/dev/null 2>&1 \
+                            || aws ecr create-repository --region "$AWS_REGION" --repository-name "$ECR_SEED_REPO" >/dev/null
+                        docker push "$SEED_IMAGE"
+                        docker rmi "$SEED_IMAGE" || true
+                    '''
+                }
+            }
+        }
+
         stage('Package chart') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 script {
                     env.IMAGE_TAG        = env.IMMUTABLE_TAG
@@ -136,7 +160,13 @@ pipeline {
                     env.COMMIT_SUBJECT   = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
                     env.IMAGE_REPOSITORY = "${env.IMAGE_REGISTRY}/${env.ECR_REPO}"
                 }
-                sh 'python3 ci/package_chart.py package'
+                // staging: `promote` instead of `package`: develop's chart for this source tree, its image tagged for staging.
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-ecr-creds'
+                ]]) {
+                    sh "python3 ci/package_chart.py ${env.BRANCH_NAME == 'staging' ? 'promote' : 'package'}"
+                }
                 // The deploy stage runs on the VPN deploy agent, which gets the archive from here.
                 stash name: 'built-chart', includes: 'built-chart/**'
             }
@@ -146,7 +176,7 @@ pipeline {
         stage('Package gateway chart') {
             when {
                 beforeAgent true
-                branch 'develop'
+                anyOf { branch 'develop'; branch 'staging' }
             }
             steps {
                 sh 'python3 ci/package_chart.py gateway-package'
@@ -185,12 +215,41 @@ pipeline {
             }
         }
 
+        // staging -> Helm release `grievance` on the QA cluster from the promoted archive, then its APISIX routes.
+        stage('staging → QA cluster (helm)') {
+            when { beforeAgent true; branch 'staging' }
+            agent { label 'oan-ci-deploy' }   // VPN agent with helm and kubectl; must reach the QA API
+            options { timeout(time: 45, unit: 'MINUTES') }
+            steps {
+                checkout scm
+                unstash 'built-chart'
+                withCredentials([file(credentialsId: 'oan-qa-kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh 'DEPLOY_ENV=staging bash ci/deploy-helm-dev.sh'
+                }
+            }
+        }
+
+        stage('staging → QA cluster (apisix)') {
+            when { beforeAgent true; branch 'staging' }
+            agent { label 'oan-ci-deploy' }
+            options { timeout(time: 15, unit: 'MINUTES') }
+            steps {
+                checkout scm
+                sh 'rm -rf built-gateway-chart'
+                unstash 'built-gateway-chart'
+                withCredentials([file(credentialsId: 'oan-qa-kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh 'GATEWAY_VALUES=helm/environments/staging/oan-grievance-gateway.yaml bash ci/deploy-gateway.sh'
+                }
+            }
+        }
+
         stage('Verify') {
-            when { beforeAgent true; branch 'develop' }
+            when { beforeAgent true; anyOf { branch 'develop'; branch 'staging' } }
             agent { label 'oan-ci-deploy' }
             steps {
                 sh '''
                     host="grievance-service.development.oanstaging.com"
+                    [ "$BRANCH_NAME" = "staging" ] && host="grievance-service.qa.oanstaging.com"
                     url="https://$host/v1/auth/iam/providers"
                     for i in $(seq 1 10); do
                         code=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "$url" || true)
@@ -205,7 +264,7 @@ pipeline {
         }
 
         stage('Publish chart') {
-            when { branch 'develop' }
+            when { anyOf { branch 'develop'; branch 'staging' } }
             steps {
                 // UNSTABLE, not failed: the image is already deployed.
                 catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
@@ -219,7 +278,7 @@ pipeline {
         stage('Publish gateway chart') {
             when {
                 beforeAgent true
-                branch 'develop'
+                anyOf { branch 'develop'; branch 'staging' }
             }
             steps {
                 // UNSTABLE, not failed: the routes are already installed.
