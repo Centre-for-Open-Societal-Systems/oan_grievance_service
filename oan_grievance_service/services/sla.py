@@ -160,7 +160,6 @@ def resolve_policy(service_category, grievance=None) -> SLAPolicy:
 		notify_on_breach=bool(flags.notify_on_breach) if flags else True,
 		holiday_list=get_default_holiday_list(),
 	)
-	)
 
 
 def start_clock(grievance):
@@ -295,12 +294,15 @@ def arm_escalation(grievance, policy=None):
 	policy = policy or resolve_policy(grievance.service_category, grievance)
 	if not policy.auto_escalate:
 		grievance.db_set("next_escalation_at", None, update_modified=False)
+		grievance.next_escalation_at = None
 		return
 
 	# A case escalates automatically only once its full SLA window has elapsed (STG-516), so the
 	# first bump is the deadline itself. The warning before the deadline is the SLA reminders
 	# (C.SLA_REMINDER_THRESHOLDS), not an escalation.
-	grievance.db_set("next_escalation_at", get_datetime(grievance.sla_due_date), update_modified=False)
+	at = get_datetime(grievance.sla_due_date)
+	grievance.db_set("next_escalation_at", at, update_modified=False)
+	grievance.next_escalation_at = at
 
 
 def open_hold_seconds(grievance):

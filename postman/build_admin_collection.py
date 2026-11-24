@@ -9,7 +9,7 @@ Covers all administrative endpoints that Grievance Admin and System Manager can 
 2. User Account Onboarding (/v1/admin/users - auth service)
 3. Officer Onboarding & Management (/v1/officers - grievance service)
 4. Desk & Category Assignments (/v1/category-assignments)
-5. SLA Policy & Configurations (/v1/sla-*)
+5. SLA Policy (/v1/sla-policy)
 6. Response Templates (/v1/response-templates)
 7. Notification Templates (/v1/notification-templates)
 8. Taxonomy & Master Data (/v1/service-categories & /v1/grievance-types)
@@ -634,29 +634,8 @@ def build_collection() -> dict:
 				"requires_supervisor_approval": True,
 			},
 		),
-		make_request(
-			name="3. List Category SLA Settings",
-			method="GET",
-			path_segments=["v1", "sla-configurations"],
-			query_params=[
-				{"key": "page", "value": "1"},
-				{"key": "page_size", "value": "20"},
-			],
-			description="List per-category SLA configurations and reminder thresholds.",
-		),
-		make_request(
-			name="4. Update Category SLA Setting",
-			method="PATCH",
-			path_segments=["v1", "sla-configurations", "{{service_category}}"],
-			description="Update SLA window and breach notification settings for a specific category.",
-			body={
-				"sla_days": 7,
-				"notify_on_breach": True,
-				"auto_escalate": True,
-			},
-		),
 	]
-	collection["item"].append({"name": "4. SLA Policies & Configurations (/v1/sla-*)", "item": sla_items})
+	collection["item"].append({"name": "4. SLA Policy (/v1/sla-policy)", "item": sla_items})
 
 	# -------------------------------------------------------------
 	# Folder 5: Response Templates (/v1/response-templates)

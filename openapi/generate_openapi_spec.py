@@ -1477,7 +1477,6 @@ def _determine_tag(path: str, func_name: str) -> str:
 			"/api/v1/officers",
 			"/api/v1/response-templates",
 			"/api/v1/notification-templates",
-			"/api/v1/sla-configurations",
 			"/api/v1/sla-policy",
 			"/api/v1/service-categories",
 			"/api/v1/grievance-types",

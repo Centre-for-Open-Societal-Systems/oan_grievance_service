@@ -411,9 +411,50 @@ def on_pending(grievance, request):
 		)
 
 
+def receiving_desk(grievance):
+	"""Find the desk that owns this case following reassignment."""
+	dept = getattr(grievance, "assigned_dept", None)
+	officer = getattr(grievance, "assigned_to", None)
+	cat = getattr(grievance, "service_category", None)
+	gtype = getattr(grievance, "grievance_type", None)
+
+	if dept and officer:
+		desks = officer_desks(grievance, dept, officer)
+		matching = [
+			d
+			for d in desks
+			if (not d.get("category_scope") or d.get("category_scope") == cat)
+			and (not d.get("grievance_type_scope") or d.get("grievance_type_scope") == gtype)
+		]
+		if matching:
+			return matching[0]
+
+	if dept:
+		desks = department_desks(grievance, dept)
+		matching = [
+			d
+			for d in desks
+			if (not d.get("category_scope") or d.get("category_scope") == cat)
+			and (not d.get("grievance_type_scope") or d.get("grievance_type_scope") == gtype)
+		]
+		if matching:
+			return matching[0]
+
+	return find_matching_assignment(grievance)
+
+
 def on_applied(grievance, request):
 	"""Apply side effects of an approved reassignment (SLA reset, notifications)."""
 	from oan_grievance_service.services import sla
+
+	old_desk = grievance.get("routing_rule")
+	new_desk = receiving_desk(grievance)
+	new_desk_name = new_desk.get("name") if new_desk else None
+	desk_changed = bool(new_desk_name and new_desk_name != old_desk)
+	if new_desk_name and desk_changed:
+		audit.record_version(grievance, {"routing_rule": new_desk_name})
+		grievance.db_set("routing_rule", new_desk_name, update_modified=False)
+		grievance.routing_rule = new_desk_name
 
 	changes = getattr(request, "changes", None) or []
 	changed = {getattr(r, "fieldname", None) for r in changes}
@@ -424,10 +465,8 @@ def on_applied(grievance, request):
 		# keeps its start; only the window's length follows the new type.
 		sla.follow_type_change(grievance)
 
-	new_desk = find_matching_assignment(grievance)
-	if new_desk:
-		audit.record_version(grievance, {"routing_rule": new_desk.get("name")})
-		grievance.db_set("routing_rule", new_desk.get("name"), update_modified=False)
+	if desk_changed and "service_category" not in changed:
+		sla.arm_escalation(grievance)
 
 	officer_row = next((r for r in changes if getattr(r, "fieldname", None) == "assigned_to"), None)
 	dept_row = next((r for r in changes if getattr(r, "fieldname", None) == "assigned_dept"), None)

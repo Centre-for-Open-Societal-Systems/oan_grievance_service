@@ -556,3 +556,62 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		g.reload()
 		self.assertEqual(g.last_reminder_percent, 50)
 		self.assertEqual(self._sweep_reminders(g), [])
+
+	def test_arm_escalation_respects_desk_auto_escalate_flag(self):
+		"""A desk with auto_escalate off leaves next_escalation_at empty."""
+		officer_email = "desk_escalate_test@example.com"
+		if not frappe.db.exists("User", officer_email):
+			frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": officer_email,
+					"first_name": "Desk Officer",
+					"roles": [{"role": "Grievance Officer"}],
+				}
+			).insert(ignore_permissions=True)
+		lone_dept = frappe.get_doc(
+			{"doctype": "Grievance Department", "dept_name": f"Dept_Esc_{frappe.generate_hash(length=4)}"}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "Grievance Department", lone_dept.name, force=True, ignore_permissions=True
+		)
+
+		desk = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": lone_dept.name,
+				"category_scope": self.cat_a,
+				"auto_escalate": 0,
+				"active": 1,
+				"effective_from": frappe.utils.today(),
+				"officers": [
+					{"user": officer_email, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			frappe.delete_doc, "Grievance RBAC Assignment", desk.name, force=True, ignore_permissions=True
+		)
+
+		g = a_grievance(
+			service_category=self.cat_a,
+			grievance_type=self.gtype_a.name,
+			workflow_state="Assigned",
+			status="Assigned",
+			assigned_to=officer_email,
+			assigned_dept=lone_dept.name,
+			routing_rule=desk.name,
+			sla_due_date=add_days(now_datetime(), 5),
+			sla_start_at=now_datetime(),
+		)
+		sla.arm_escalation(g)
+		self.assertIsNone(g.next_escalation_at)
+		self.assertIsNone(frappe.db.get_value("Grievance", g.name, "next_escalation_at"))
+
+		# Turn auto_escalate on
+		desk.auto_escalate = 1
+		desk.save(ignore_permissions=True)
+
+		sla.arm_escalation(g)
+		self.assertIsNotNone(g.next_escalation_at)
+		self.assertIsNotNone(frappe.db.get_value("Grievance", g.name, "next_escalation_at"))

@@ -88,6 +88,8 @@ def max_deferral_days():
 def requires_supervisor_approval():
 	"""Whether a deferral must be decided by someone above the assigned officer."""
 	return bool(get_policy().requires_supervisor_approval)
+
+
 def seed_state_timers():
 	"""Give the policy the `DEFAULT_STATE_TIMERS` rows when it has none. Returns the states added."""
 	policy = frappe.get_doc("Grievance Deferral Policy")
