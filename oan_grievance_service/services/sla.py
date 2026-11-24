@@ -1,6 +1,6 @@
 """SLA and escalation management.
 
-Reminders at 50% and 80% of the window, and escalation up the role-level chain on
+Reminders at 20%, 50% and 80% of the window, and escalation up the role-level chain on
 breach.
 
 The clock starts from the creation date/time of the grievance.
@@ -39,9 +39,6 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
-from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
-	auto_escalation_threshold,
-)
 from oan_grievance_service.services import audit
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.grievance_log import grievance_fields
@@ -64,7 +61,6 @@ class SLAPolicy:
 	name: str
 	sla_days: int
 	auto_escalate: bool
-	auto_escalation_threshold: int
 	notify_on_breach: bool = True
 	first_response_hours: int | None = None
 	update_cadence_hours: int | None = None
@@ -167,7 +163,6 @@ def _category_policy(service_category) -> SLAPolicy | None:
 		fields=[
 			"name",
 			"auto_escalate",
-			"auto_escalation_threshold",
 			"notify_on_breach",
 			"first_response_hours",
 			"update_cadence_hours",
@@ -184,8 +179,6 @@ def _category_policy(service_category) -> SLAPolicy | None:
 		name=r.name,
 		sla_days=0,  # filled in by resolve_policy from the rules
 		auto_escalate=bool(r.auto_escalate),
-		# The category's own threshold wins; 0 means it follows the installation-wide one.
-		auto_escalation_threshold=r.auto_escalation_threshold or auto_escalation_threshold(),
 		notify_on_breach=bool(r.notify_on_breach),
 		first_response_hours=r.first_response_hours,
 		update_cadence_hours=r.update_cadence_hours,
@@ -223,6 +216,11 @@ def start_clock(grievance):
 	)
 
 
+def cleared_reminders():
+	"""No reminder sent yet, for a window that starts again or a deadline that moves."""
+	return {C.REMINDER_SENT_FIELD: 0}
+
+
 def recalculate_sla_on_category_change(grievance, old_category=None, new_category=None):
 	"""Recalculate SLA due date and escalation timestamps when category changes.
 
@@ -245,8 +243,7 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 		"sla_days": policy.sla_days,
 		"sla_start_at": started,
 		"sla_due_date": new_due,
-		"reminder_50_sent": 0,
-		"reminder_80_sent": 0,
+		**cleared_reminders(),
 	}
 
 	grievance.db_set(updates, update_modified=False)
@@ -281,8 +278,7 @@ def reset_clock(grievance):
 	updates = {
 		"sla_start_at": now,
 		"total_hold_time": 0,
-		"reminder_50_sent": 0,
-		"reminder_80_sent": 0,
+		**cleared_reminders(),
 		"escalated": 0,
 	}
 	if policy and policy.sla_days:
@@ -303,7 +299,7 @@ def reset_clock(grievance):
 def arm_escalation(grievance, policy=None):
 	"""Point the escalation clock at the first bump.
 
-	Until a case has escalated once the next bump is a fraction of its window, so this
+	Until a case has escalated once the next bump is its SLA deadline, so this
 	is re-run whenever the deadline moves (resume from hold, approved deferral, category change). Once
 	the case starts climbing, the rung's own hours own the schedule and the deadline is
 	no longer the thing being waited on.
@@ -325,18 +321,10 @@ def arm_escalation(grievance, policy=None):
 		grievance.db_set("next_escalation_at", None, update_modified=False)
 		return
 
-	start = get_datetime(grievance.sla_start_at) if grievance.sla_start_at else None
-	due = get_datetime(grievance.sla_due_date)
-	threshold = policy.auto_escalation_threshold or auto_escalation_threshold()
-
-	if start and 0 < threshold < 100:
-		# Hand the case up before the deadline, while there is still time to save it.
-		consumed = (due - start).total_seconds() * threshold / 100
-		at = add_to_date(start, seconds=int(consumed))
-	else:
-		at = due
-
-	grievance.db_set("next_escalation_at", at, update_modified=False)
+	# A case escalates automatically only once its full SLA window has elapsed (STG-516), so the
+	# first bump is the deadline itself. The warning before the deadline is the SLA reminders
+	# (C.SLA_REMINDER_THRESHOLDS), not an escalation.
+	grievance.db_set("next_escalation_at", get_datetime(grievance.sla_due_date), update_modified=False)
 
 
 def open_hold_seconds(grievance):

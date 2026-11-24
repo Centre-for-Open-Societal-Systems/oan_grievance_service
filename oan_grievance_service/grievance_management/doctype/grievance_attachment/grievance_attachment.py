@@ -9,6 +9,10 @@ from frappe.model.document import Document
 # them rather than trust them: "Max 10 MB - JPG, PNG, PDF, MP3".
 MAX_SIZE_BYTES = 10 * 1024 * 1024
 
+# Most form fields the signed-PDF check walks, so a crafted form tree cannot keep the upload
+# request busy. Far above what a real form carries.
+MAX_PDF_FIELDS = 10000
+
 # MP3 is deliberate. A voice note is how a submitter with limited literacy
 # describes what happened, and on the IVR channel it may be the only evidence
 # that exists.

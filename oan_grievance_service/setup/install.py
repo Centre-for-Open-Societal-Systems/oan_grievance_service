@@ -491,6 +491,15 @@ NOTIFICATION_EVENTS = [
 		(),
 	),
 	(
+		C.EVENT_SLA_REMINDER_20,
+		"SLA Reminder 20%",
+		"Assigned Officer",
+		("Email", "System Notification"),
+		"Scheduled job at 20% SLA elapsed",
+		"Grievance {0} has reached 20% of its SLA window. Deadline {1}.",
+		("doc.ticket_number", PLACEHOLDER_EXPRESSIONS["sla_due_date"]),
+	),
+	(
 		C.EVENT_SLA_REMINDER_50,
 		"SLA Reminder 50%",
 		"Assigned Officer",

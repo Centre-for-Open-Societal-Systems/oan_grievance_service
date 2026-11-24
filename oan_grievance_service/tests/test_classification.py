@@ -677,13 +677,13 @@ class TestGrievanceClassification(FrappeTestCase):
 		before, after = a_type(category), a_type(category)
 		case = self.a_case(before)
 		sla.start_clock(case)
-		case.db_set("reminder_50_sent", 1)
+		case.db_set("last_reminder_percent", 50)
 		case.reload()
 		case.grievance_type = after
 		case.flags.change_request = "test-change-request"
 		case.save(ignore_permissions=True)
 		case.reload()
-		self.assertEqual((case.sla_days, case.reminder_50_sent), (BASE_SLA_DAYS, 1))
+		self.assertEqual((case.sla_days, case.last_reminder_percent), (BASE_SLA_DAYS, 50))
 
 	def test_a_new_pin_is_random_and_six_digits(self):
 		pins = {classification.new_pin() for _ in range(20)}

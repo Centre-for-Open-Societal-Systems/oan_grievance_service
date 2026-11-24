@@ -592,7 +592,17 @@ def _recipient_language(recipient):
 
 
 # Events that can legitimately happen more than once on a case, so each occurrence is sent.
-REPEATABLE_EVENTS = frozenset({"deadline_extended"})
+# The SLA reminders come once per SLA window, not once per case: the case's reminder flags
+# stop a repeat within a window and are cleared when the deadline moves or the window restarts
+# (deferral, reopen, category change). Deduplicating them here as well dropped every reminder
+# of the new window.
+REPEATABLE_EVENTS = frozenset(
+	{
+		C.EVENT_DEADLINE_EXTENDED,
+		*C.SLA_REMINDER_EVENTS.values(),
+		C.EVENT_SLA_AT_RISK,
+	}
+)
 
 
 def _already_queued(grievance_name, event_code, recipient, channel):

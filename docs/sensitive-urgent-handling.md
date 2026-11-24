@@ -66,7 +66,7 @@ The clock is not restarted when the officer changes: a handoff, a reassignment w
 
 ### Escalation under a shorter window
 
-A rule changes the case's window, and the first escalation follows it: the case is first handed up at the category's `auto_escalation_threshold` percent of **its own** window (`sla.arm_escalation`), so 3 in-season days escalate after 80% of 3 days, not of 15. The 50% and 80% reminders are percentages of the same window. After the first escalation each rung keeps the case for its role level's `escalation_hours` (Grievance Role Level), the same in and out of season.
+A rule changes the case's window, and the first escalation follows it: the case is first handed up at the deadline of **its own** window (`sla.arm_escalation`), so 3 in-season days escalate after 3 days, not 15. The 20%, 50% and 80% reminders are percentages of the same window. After the first escalation each rung keeps the case for its role level's `escalation_hours` (Grievance Role Level), the same in and out of season.
 
 A rule with a `role_level` is the days for that rung (STG-512, the matrix's L1 and L2 turnarounds), not for the whole case. The SLA clock reads only the rules with no `role_level`, so a level rule adjusts nothing yet. Whether an in-season rule should also shorten the per-level days, or a rung's escalation hours, is an open point (below).
 

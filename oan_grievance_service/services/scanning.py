@@ -51,6 +51,7 @@ make them trusted.
 """
 
 import hashlib
+import re
 import socket
 from dataclasses import dataclass
 
@@ -62,6 +63,7 @@ from oan_auth_service.api import operational_log as oplog
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	ALLOWED_MIME_TYPES,
 	EXTENSION_FOR_MIME,
+	MAX_PDF_FIELDS,
 	MAX_SIZE_BYTES,
 )
 from oan_grievance_service.services import constants as C
@@ -168,7 +170,7 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 		)
 
 	if mime == "application/pdf":
-		_assert_pdf_parses(file_name, content)
+		_assert_pdf_acceptable(file_name, content)
 
 	return ValidatedUpload(
 		file_name=file_name,
@@ -177,14 +179,19 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 	)
 
 
-def _assert_pdf_parses(file_name: str, content: bytes) -> None:
-	"""Refuse a PDF that pypdf cannot open, before core gets to it.
+def _assert_pdf_acceptable(file_name: str, content: bytes) -> None:
+	"""Refuse a PDF that cannot be opened, is password-protected, or is digitally signed.
 
-	Core's File.check_content runs pypdf over every PDF to look for embedded
-	JavaScript and lets a parse failure escape as an uncaught exception. Found
-	with a %PDF header and no cross-reference table: the upload came back as an
-	INTERNAL_ERROR instead of a rejection. A file the reader cannot open is not
-	evidence anyone can view, so it is refused here with a reason.
+	Unreadable: core's File.check_content runs pypdf over every PDF to look for embedded
+	JavaScript and lets a parse failure escape as an uncaught exception. Found with a %PDF
+	header and no cross-reference table: the upload came back as an INTERNAL_ERROR instead
+	of a rejection. A file the reader cannot open is not evidence anyone can view.
+
+	Encrypted: an officer cannot open it without the password, and neither can the scanner.
+
+	Signed (STG-516): not accepted as evidence. A signature is found by its signature
+	dictionary (`/ByteRange`), the AcroForm's SignaturesExist flag or a filled signature
+	field, or a certification (`/Perms`).
 	"""
 	from io import BytesIO
 
@@ -192,12 +199,63 @@ def _assert_pdf_parses(file_name: str, content: bytes) -> None:
 	from pypdf.errors import PyPdfError
 
 	try:
-		PdfReader(BytesIO(content))
+		reader = PdfReader(BytesIO(content))
+		encrypted = reader.is_encrypted
 	except (PyPdfError, ValueError, OSError):
 		frappe.throw(
 			_("{0} is not a readable PDF.").format(frappe.bold(file_name)),
 			title=_("Corrupt PDF"),
 		)
+
+	if encrypted:
+		frappe.throw(
+			_("{0} is password-protected. Remove the password and attach it again.").format(
+				frappe.bold(file_name)
+			),
+			title=_("Encrypted File"),
+		)
+
+	if _is_signed_pdf(reader, content):
+		frappe.throw(
+			_("{0} is a digitally signed PDF. Signed PDFs are not accepted.").format(frappe.bold(file_name)),
+			title=_("Signed PDF"),
+		)
+
+
+# Every signature dictionary carries the byte range it signs.
+_PDF_SIGNATURE_MARKER = re.compile(rb"/ByteRange\s*\[")
+
+
+def _is_signed_pdf(reader, content: bytes) -> bool:
+	"""Whether the PDF carries a digital signature or a certification."""
+	if _PDF_SIGNATURE_MARKER.search(content):
+		return True
+
+	from pypdf.errors import PyPdfError
+
+	try:
+		root = reader.trailer["/Root"].get_object()
+		if root.get("/Perms"):
+			return True
+		form = root.get("/AcroForm")
+		if not form:
+			return False
+		form = form.get_object()
+		# SigFlags bit 1 is SignaturesExist (ISO 32000-1, 12.7.2).
+		if int(form.get("/SigFlags", 0)) & 1:
+			return True
+		stack, seen = list(form.get("/Fields", [])), 0
+		while stack and seen < MAX_PDF_FIELDS:
+			field = stack.pop().get_object()
+			seen += 1
+			# An empty signature field is only a place to sign; a value is a signature.
+			if field.get("/FT") == "/Sig" and field.get("/V"):
+				return True
+			stack.extend(field.get("/Kids", []))
+	except (PyPdfError, ValueError, KeyError, TypeError, AttributeError):
+		# The marker search above already caught any signature written in the clear.
+		return False
+	return False
 
 
 # ---------------------------------------------------------------------------

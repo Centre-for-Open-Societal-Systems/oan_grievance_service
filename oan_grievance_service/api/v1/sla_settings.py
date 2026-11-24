@@ -38,7 +38,6 @@ from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
-	auto_escalation_threshold,
 	get_policy,
 	max_deferral_days,
 	requires_supervisor_approval,
@@ -64,14 +63,13 @@ CONFIGURATION_FIELDS = [
 
 # The only fields a PATCH may write. The request schema already forbids anything else; this
 # keeps that true if a schema ever grows a field the document should not take from a client.
-POLICY_EDITABLE = ("max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval")
+POLICY_EDITABLE = ("max_deferral_days", "requires_supervisor_approval")
 # `sla_days` is written to the category's base Grievance SLA Rule, not to the configuration.
 CONFIGURATION_EDITABLE = ("auto_escalate", "notify_on_breach")
 
 
 class GlobalSlaPolicyRecord(BaseModel):
 	max_deferral_days: int
-	auto_escalation_threshold: int
 	requires_supervisor_approval: bool
 	modified: str | None = None
 
@@ -104,12 +102,6 @@ class UpdateGlobalSlaPolicy(Body):
 
 	max_deferral_days: int = Field(
 		default=None, ge=1, description="Most days any single deferral may add to the SLA clock"
-	)
-	auto_escalation_threshold: int = Field(
-		default=None,
-		ge=1,
-		le=100,
-		description="Percent of the SLA window consumed before escalation. 100 is at the deadline",
 	)
 	requires_supervisor_approval: bool = Field(
 		default=None,
@@ -147,7 +139,6 @@ def _policy_data() -> dict:
 	return {
 		"policy": GlobalSlaPolicyRecord(
 			max_deferral_days=max_deferral_days(),
-			auto_escalation_threshold=auto_escalation_threshold(),
 			requires_supervisor_approval=requires_supervisor_approval(),
 			modified=_text(get_policy().modified),
 		).model_dump()
@@ -194,10 +185,10 @@ def _configuration_record(name: str) -> dict:
 @require_role(ADMIN_READ_ROLES)
 @api_doc(
 	summary="Get the global SLA policy",
-	description="The installation-wide SLA settings: the most days one deferral may add, the default "
-	+ "auto-escalate threshold in percent, and whether a deferral needs a senior officer's approval "
-	+ "(requires_supervisor_approval; false lets the assigned officer approve it). "
-	+ "Categories without a threshold of their own follow this one.",
+	description="The installation-wide SLA settings: the most days one deferral may add, and whether a "
+	+ "deferral needs a senior officer's approval (requires_supervisor_approval; false lets the "
+	+ "assigned officer approve it). A case escalates automatically once its full SLA window has "
+	+ "elapsed; there is no escalation threshold.",
 	tags=["Administration"],
 	response_model=GlobalSlaPolicyData,
 )
@@ -215,9 +206,8 @@ def get_global_policy(**kwargs):
 @validate_request(UpdateGlobalSlaPolicy, exclude_unset=True)
 @api_doc(
 	summary="Update the global SLA policy",
-	description="Change any of max_deferral_days, auto_escalation_threshold and requires_supervisor_approval. "
-	+ "Omitted fields stay as they are. A new threshold applies to cases whose escalation is armed "
-	+ "after the change. A new deferral setting applies to the next deferral request.",
+	description="Change max_deferral_days, requires_supervisor_approval or both. Omitted fields stay "
+	+ "as they are. A new setting applies to the next deferral request.",
 	tags=["Administration"],
 	response_model=GlobalSlaPolicyData,
 )

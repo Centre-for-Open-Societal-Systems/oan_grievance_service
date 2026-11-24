@@ -39,8 +39,7 @@ def open_grievances_with_sla(extra_filters=None):
 			"sla_due_date",
 			"on_hold_since",
 			"total_hold_time",
-			"reminder_50_sent",
-			"reminder_80_sent",
+			C.REMINDER_SENT_FIELD,
 			"escalated",
 			"assigned_dept",
 			"assigned_to",
@@ -58,7 +57,15 @@ def open_grievances_with_sla(extra_filters=None):
 
 @logged_job("sla_reminders")
 def send_sla_reminders():
-	"""Reminders to the assigned officer at 50% and 80% of the window."""
+	"""Reminders to the assigned officer at each of `C.SLA_REMINDER_THRESHOLDS` of the window.
+
+	Each threshold sends once per SLA window: the case records the highest threshold already
+	sent (`C.REMINDER_SENT_FIELD`), which is reset only when the window starts again or the
+	deadline moves. Every
+	threshold the case has passed is sent, lowest first, so a case first seen past 80% (an
+	hourly sweep after a long wait in routing, or after an outage) still gets the 20% and 50%
+	reminders instead of skipping them.
+	"""
 	sent = 0
 	for row in open_grievances_with_sla():
 		# A paused case is waiting on the submitter, so the officer has nothing to be
@@ -66,30 +73,24 @@ def send_sla_reminders():
 		if row.on_hold_since:
 			continue
 		percent = sla.consumed_percent(row)
+		last_sent = row.get(C.REMINDER_SENT_FIELD) or 0
+		due = [t for t in C.SLA_REMINDER_THRESHOLDS if last_sent < t <= percent]
+		if not due:
+			continue
 
-		if percent >= 80 and not row.reminder_80_sent:
-			grievance = frappe.get_doc("Grievance", row.name)
-			notifications.queue(grievance, C.EVENT_SLA_REMINDER_80)
-			notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
-			grievance.db_set("reminder_80_sent", 1, update_modified=False)
+		grievance = frappe.get_doc("Grievance", row.name)
+		for threshold in due:
+			notifications.queue(grievance, C.SLA_REMINDER_EVENTS[threshold])
+			if threshold == C.SLA_AT_RISK_THRESHOLD:
+				notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
 			oplog.emit(
 				"sla.reminder_sent",
 				**grievance_fields(grievance),
-				threshold_percent=80,
+				threshold_percent=threshold,
 				consumed_percent=percent,
 			)
 			sent += 1
-		elif percent >= 50 and not row.reminder_50_sent:
-			grievance = frappe.get_doc("Grievance", row.name)
-			notifications.queue(grievance, C.EVENT_SLA_REMINDER_50)
-			grievance.db_set("reminder_50_sent", 1, update_modified=False)
-			oplog.emit(
-				"sla.reminder_sent",
-				**grievance_fields(grievance),
-				threshold_percent=50,
-				consumed_percent=percent,
-			)
-			sent += 1
+		grievance.db_set(C.REMINDER_SENT_FIELD, due[-1], update_modified=False)
 
 	return sent
 
