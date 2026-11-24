@@ -362,26 +362,7 @@ def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
 	if not assignment_doc.get("officers"):
 		return None
 
-	pos_names = [o.position for o in assignment_doc.officers if getattr(o, "position", None)]
-	positions_by_name = {}
-	sup_occupants = {}
-	if pos_names:
-		positions = frappe.get_all(
-			"Grievance Officer Position",
-			filters={"name": ["in", pos_names]},
-			fields=["name", "occupant", "role_level", "administrative_area", "reports_to_position"],
-		)
-		positions_by_name = {p.name: p for p in positions}
-		sup_pos_names = [p.reports_to_position for p in positions if p.reports_to_position]
-		if sup_pos_names:
-			sup_occupants = {
-				p.name: p.occupant
-				for p in frappe.get_all(
-					"Grievance Officer Position",
-					filters={"name": ["in", sup_pos_names]},
-					fields=["name", "occupant"],
-				)
-			}
+	from oan_grievance_service.grievance_access_control.positions import supervisor_of
 
 	chain = GrievanceRoleLevel.get_chain()
 	chain_codes = {rung.name for rung in chain}
@@ -389,24 +370,13 @@ def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
 	candidates = []
 	for o in assignment_doc.officers:
 		user = getattr(o, "user", None)
-		pos_name = getattr(o, "position", None)
-		if pos_name and pos_name in positions_by_name:
-			pos = positions_by_name[pos_name]
-			if not user:
-				user = pos.occupant
-				o.user = user
-			if not getattr(o, "role_level", None):
-				o.role_level = pos.role_level
-			if not getattr(o, "administrative_area", None):
-				o.administrative_area = pos.administrative_area
-			if not getattr(o, "reports_to", None) and pos.reports_to_position:
-				o.reports_to = sup_occupants.get(pos.reports_to_position)
+		if getattr(o, "position", None) and not getattr(o, "reports_to", None):
+			o.reports_to = supervisor_of(o.position, getattr(o, "administrative_area", None))
 
 		if (
 			user
 			and getattr(o, "active", 1)
 			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
-			# Read after the position filled in the row's area.
 			and not (sensitive and _is_kebele_level_seat(o))
 		):
 			candidates.append(o)

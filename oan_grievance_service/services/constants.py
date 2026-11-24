@@ -183,10 +183,10 @@ REVIEWER_READ_ROLES = ADMIN_ROLES
 HANDLING_STANDARD = "Standard"
 HANDLING_URGENT = "Urgent"
 HANDLING_CLASSES = (HANDLING_STANDARD, HANDLING_URGENT)
-PRIORITY_NORMAL = "Normal"
-PRIORITY_HIGH = "High"
+# Priority has one value: an urgent case is Urgent, any other case has no priority (blank). It
+# follows the rule's `is_urgent`; Normal and High were removed.
 PRIORITY_URGENT = "Urgent"
-PRIORITIES = (PRIORITY_NORMAL, PRIORITY_HIGH, PRIORITY_URGENT)
+PRIORITIES = (PRIORITY_URGENT,)
 
 # `level_name` of the areas a Kebele-level officer is seated at: the Kebele and anything below it.
 # A sensitive case never reaches an officer whose every seat is one of these.

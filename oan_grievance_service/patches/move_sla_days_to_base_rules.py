@@ -7,7 +7,7 @@ The SLA rules are now the one source of SLA days: the category's base rule (no t
 window) holds what `Grievance SLA Configuration.sla_days` held. That field is gone from the
 doctype, but Frappe keeps its column, so the value is read from there.
 
-One base rule per category with an active configuration: Standard, Normal, the configuration's
+One base rule per category with an active configuration: Standard, no priority, the configuration's
 days. A category that already has a base rule keeps it. The rule is named `<category code>-BASE`,
 the name the seed (`openg2p-data`) gives it, so loading the seed afterwards adds no second copy.
 Each rule is saved through its validation; one that validation refuses is logged and skipped.
@@ -16,8 +16,6 @@ Cases already filed keep their deadlines.
 
 import frappe
 from oan_auth_service.api import operational_log as oplog
-
-from oan_grievance_service.services import constants as C
 
 RULE = "Grievance SLA Rule"
 SAVEPOINT = "move_sla_days_to_base_rules"
@@ -34,11 +32,10 @@ def execute():
 		doc = frappe.get_doc(
 			{
 				"doctype": RULE,
-				"service_category": category,
+				"sla_configuration": config.name,
 				"rule_label": "Base",
 				"sla_days": config.sla_days,
 				"is_urgent": 0,
-				"priority": C.PRIORITY_NORMAL,
 			}
 		)
 		code = frappe.db.get_value("Grievance Service Category", category, "code")
@@ -58,12 +55,12 @@ def execute():
 
 
 def _configurations() -> list:
-	"""(service_category, sla_days) of the active configurations, newest first, from the column the
+	"""(name, service_category, sla_days) of the active configurations, newest first, from the column the
 	doctype no longer has. Empty on a site that never had it."""
 	if not frappe.db.has_column("Grievance SLA Configuration", "sla_days"):
 		return []
 	return frappe.db.sql(
-		"""select service_category, sla_days from `tabGrievance SLA Configuration`
+		"""select name, service_category, sla_days from `tabGrievance SLA Configuration`
 		where active = 1 and ifnull(service_category, '') != '' and ifnull(sla_days, 0) > 0
 		order by modified desc""",
 		as_dict=True,

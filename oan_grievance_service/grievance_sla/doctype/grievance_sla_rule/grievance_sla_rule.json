@@ -6,10 +6,12 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "sla_configuration",
   "service_category",
   "rule_label",
   "is_base",
   "col_scope",
+  "role_level",
   "grievance_type",
   "administrative_area",
   "sec_window",
@@ -25,16 +27,28 @@
  ],
  "fields": [
   {
-   "description": "The category whose cases this rule is for. Fixed once the rule is created.",
+   "description": "The category's SLA configuration this rule overrides. Fixed once the rule is created.",
+   "fieldname": "sla_configuration",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "SLA Configuration",
+   "options": "Grievance SLA Configuration",
+   "reqd": 1,
+   "search_index": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "The category of the SLA configuration. Follows the configuration.",
    "fieldname": "service_category",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Service Category",
    "options": "Grievance Service Category",
-   "reqd": 1,
    "search_index": 1,
-   "set_only_once": 1
+   "fetch_from": "sla_configuration.service_category",
+   "read_only": 1
   },
   {
    "description": "A name for the rule, for example Meher input season. Shown to administrators only.",
@@ -56,6 +70,14 @@
   {
    "fieldname": "col_scope",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "The escalation rung this rule's days are for, e.g. Nodal Officer (L1). Blank: the days for the whole case.",
+   "fieldname": "role_level",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Role Level",
+   "options": "Grievance Role Level"
   },
   {
    "description": "Blank applies to every type of the category. A type must belong to the rule's category.",
@@ -122,7 +144,7 @@
   },
   {
    "default": "0",
-   "description": "The case is handled as Urgent.",
+   "description": "The case is handled as Urgent, with priority Urgent.",
    "fieldname": "is_urgent",
    "fieldtype": "Check",
    "in_list_view": 1,
@@ -130,19 +152,18 @@
    "label": "Urgent"
   },
   {
-   "default": "Normal",
-   "description": "The case's priority. High raises priority without urgent handling.",
+   "description": "Set by the system from Urgent: Urgent for an urgent rule, blank otherwise.",
    "fieldname": "priority",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Priority",
-   "options": "Normal\nHigh\nUrgent",
-   "reqd": 1
+   "options": "\nUrgent",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-20 12:00:00.000000",
+ "modified": "2026-11-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Rule",

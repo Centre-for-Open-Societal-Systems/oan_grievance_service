@@ -7,11 +7,13 @@ the SLA clock write at filing, and again if the case moves to another type or ca
 never works a season out for itself.
 
 - Sensitive: the type's `is_sensitive` flag.
-- SLA days, urgency and priority: the Grievance SLA Rule records of the case's category
-  (`/api/v1/sla-rules`), the one source of the SLA. Every rule carries all three. A rule may
-  name a grievance type, an administrative area (which covers the areas inside it) and a
-  recurring window of the year. The category's **base rule** names none of them: it is the
-  category's SLA wherever nothing narrower matches, so every category with an SLA has one.
+- SLA days and urgency: the Grievance SLA Rule records of the case's category
+  (`/api/v1/sla-rules`), the one source of the SLA. Every rule carries both. A rule may name a
+  grievance type, an administrative area (which covers the areas inside it) and a recurring
+  window of the year. The category's **base rule** names none of them: it is the category's SLA
+  wherever nothing narrower matches, so every category with an SLA has one.
+- Priority has one value and follows urgency: Urgent for an urgent case, none (blank) for any
+  other (`priority_of`).
 
 A rule matches a case when everything it names matches: the case's type, an area that contains
 the case's area, and a filing date inside its window. Of the matching rules the most specific
@@ -44,6 +46,7 @@ RULE = "Grievance SLA Rule"
 RULE_FIELDS = (
 	"name",
 	"service_category",
+	"role_level",
 	"rule_label",
 	"is_base",
 	"grievance_type",
@@ -67,7 +70,7 @@ class Classification:
 
 	is_sensitive: bool
 	handling_class: str
-	priority: str
+	priority: str | None = None
 	sla_days: int | None = None
 	rule: str | None = None
 
@@ -79,7 +82,12 @@ class Classification:
 		}
 
 
-STANDARD = Classification(False, C.HANDLING_STANDARD, C.PRIORITY_NORMAL)
+def priority_of(is_urgent) -> str | None:
+	"""The one priority there is: Urgent for an urgent case or rule, None (blank) otherwise."""
+	return C.PRIORITY_URGENT if is_urgent else None
+
+
+STANDARD = Classification(False, C.HANDLING_STANDARD)
 
 
 # Windows
@@ -171,11 +179,15 @@ def overlapping_rules(rules) -> tuple | None:
 # --------
 
 
-def rules_of(service_category: str | None, exclude: str | None = None) -> list:
-	"""The rules of the category, oldest first. Empty when none. `exclude` leaves one rule out."""
+def rules_of(service_category: str | None, exclude: str | None = None, role_level: str | None = None) -> list:
+	"""The rules of the category for one rung, oldest first. Empty when none.
+
+	With no `role_level` these are the rules for the whole case, the ones the SLA clock runs on.
+	`exclude` leaves one rule out.
+	"""
 	if not service_category:
 		return []
-	filters = {"service_category": service_category}
+	filters = {"service_category": service_category, "role_level": role_level or ["is", "not set"]}
 	if exclude:
 		filters["name"] = ["!=", exclude]
 	return frappe.get_all(RULE, filters=filters, fields=list(RULE_FIELDS), order_by="creation asc, name asc")
@@ -245,11 +257,11 @@ def classify(
 	on = getdate(on) if on else getdate(now_datetime())
 	rule = match_rule(rules_of(service_category or flags.service_category), grievance_type, area, on)
 	if not rule:
-		return Classification(bool(flags.is_sensitive), C.HANDLING_STANDARD, C.PRIORITY_NORMAL)
+		return Classification(bool(flags.is_sensitive), C.HANDLING_STANDARD)
 	return Classification(
 		is_sensitive=bool(flags.is_sensitive),
 		handling_class=C.HANDLING_URGENT if rule.is_urgent else C.HANDLING_STANDARD,
-		priority=rule.priority or C.PRIORITY_NORMAL,
+		priority=priority_of(rule.is_urgent),
 		sla_days=rule.sla_days or None,
 		rule=rule.rule_label or rule.name,
 	)
@@ -292,8 +304,13 @@ def sla_days_for(service_category: str | None, grievance=None) -> int | None:
 
 
 def is_base(rule) -> bool:
-	"""A rule that names no type, no area and no window: the category's SLA everywhere else."""
-	return not (rule.get("grievance_type") or rule.get("administrative_area") or window_of(rule))
+	"""A rule that names no level, type, area or window: the category's SLA everywhere else."""
+	return not (
+		rule.get("role_level")
+		or rule.get("grievance_type")
+		or rule.get("administrative_area")
+		or window_of(rule)
+	)
 
 
 def base_rule(service_category: str | None):
@@ -319,8 +336,21 @@ def base_days(categories) -> dict[str, int]:
 	}
 
 
+def configuration_of(service_category: str) -> str:
+	"""The category's SLA configuration, which its rules override; the active one if it has several."""
+	name = frappe.db.get_value(
+		"Grievance SLA Configuration",
+		{"service_category": service_category},
+		"name",
+		order_by="active desc, creation asc",
+	)
+	if not name:
+		frappe.throw(_("{0} has no SLA configuration.").format(service_category), frappe.DoesNotExistError)
+	return name
+
+
 def set_base_days(service_category: str, sla_days: int):
-	"""Write the category's SLA days on its base rule, creating it (Standard, Normal) if missing.
+	"""Write the category's SLA days on its base rule, creating it (Standard, no priority) if missing.
 
 	A save, so the rule's validation and version history run.
 	"""
@@ -335,11 +365,10 @@ def set_base_days(service_category: str, sla_days: int):
 	return frappe.get_doc(
 		{
 			"doctype": RULE,
-			"service_category": service_category,
+			"sla_configuration": configuration_of(service_category),
 			"rule_label": _("Base"),
 			"sla_days": sla_days,
 			"is_urgent": 0,
-			"priority": C.PRIORITY_NORMAL,
 		}
 	).insert()
 

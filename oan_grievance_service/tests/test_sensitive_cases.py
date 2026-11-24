@@ -605,11 +605,10 @@ class TestOfficerView(SensitiveFixture):
 		frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Rule",
-				"service_category": self.category,
+				"sla_configuration": classification.configuration_of(self.category),
 				"grievance_type": urgent_sensitive,
 				"sla_days": 10,
 				"is_urgent": 1,
-				"priority": C.PRIORITY_URGENT,
 			}
 		).insert(ignore_permissions=True)
 		case = a_grievance(
@@ -638,5 +637,5 @@ class TestOfficerView(SensitiveFixture):
 		opened = grievance_api.timeline(case.ticket_number)["data"]
 		self.assertEqual(
 			(opened["is_sensitive"], opened["handling_class"], opened["priority"]),
-			(False, C.HANDLING_STANDARD, C.PRIORITY_NORMAL),
+			(False, C.HANDLING_STANDARD, None),
 		)

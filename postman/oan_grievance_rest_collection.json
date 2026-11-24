@@ -4075,7 +4075,7 @@
                 }
               ]
             },
-            "description": "The SLA rules, by service category and then oldest first. Filter by service_category (id, name or code), grievance_type, administrative_area, is_urgent or is_base. Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing date. A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards."
+            "description": "The SLA rules, by service category and then oldest first. Filter by service_category (id, name or code), grievance_type, administrative_area, is_urgent or is_base. Every rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards."
           },
           "response": []
         },
@@ -4118,10 +4118,10 @@
                 "sla-rules"
               ]
             },
-            "description": "Add one rule to a service category. service_category, sla_days and priority are required; is_urgent defaults to false. A category's first rule must be its base rule (no type, area or window); creating a category with sla_days, or setting sla_days on /sla-configurations, makes it. Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing date. A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards.",
+            "description": "Add one rule to a service category. service_category and sla_days are required; is_urgent defaults to false (true makes the case Urgent, with priority Urgent). priority is not sent: it follows is_urgent. A category's first rule must be its base rule (no type, area or window); creating a category with sla_days, or setting sla_days on /sla-configurations, makes it. Every rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rule_label\": \"Sample value\",\n  \"grievance_type\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"start_month\": 1,\n  \"start_day\": 1,\n  \"end_month\": 1,\n  \"end_day\": 1,\n  \"service_category\": \"Sample value\",\n  \"sla_days\": 1,\n  \"is_urgent\": false,\n  \"priority\": \"Normal\"\n}"
+              "raw": "{\n  \"rule_label\": \"Sample value\",\n  \"grievance_type\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"start_month\": 1,\n  \"start_day\": 1,\n  \"end_month\": 1,\n  \"end_day\": 1,\n  \"service_category\": \"Sample value\",\n  \"sla_days\": 1,\n  \"is_urgent\": false\n}"
             }
           },
           "response": []
@@ -4205,10 +4205,10 @@
                 "{{rule_id}}"
               ]
             },
-            "description": "Change any field of one rule but service_category. Omitted fields stay as they are; null clears rule_label, grievance_type, administrative_area or a window field (all four null makes the rule all year). sla_days, is_urgent and priority cannot be cleared. The base rule cannot be narrowed. Cases already filed keep the SLA and class they were filed with. Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing date. A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards.",
+            "description": "Change any field of one rule but service_category. Omitted fields stay as they are; null clears rule_label, grievance_type, administrative_area or a window field (all four null makes the rule all year). sla_days and is_urgent cannot be cleared; priority follows is_urgent and is not sent. The base rule cannot be narrowed. Cases already filed keep the SLA and class they were filed with. Every rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type of its category, an administrative_area (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category's base rule (is_base) names none of them: it is the category's SLA wherever no narrower rule matches, a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type's rule before the category's, a narrower area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not share a day. A change applies to cases filed afterwards.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"rule_label\": \"Sample value\",\n  \"grievance_type\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"start_month\": 1,\n  \"start_day\": 1,\n  \"end_month\": 1,\n  \"end_day\": 1,\n  \"sla_days\": 1,\n  \"is_urgent\": true,\n  \"priority\": \"Normal\"\n}"
+              "raw": "{\n  \"rule_label\": \"Sample value\",\n  \"grievance_type\": \"Sample value\",\n  \"administrative_area\": \"Sample value\",\n  \"start_month\": 1,\n  \"start_day\": 1,\n  \"end_month\": 1,\n  \"end_day\": 1,\n  \"sla_days\": 1,\n  \"is_urgent\": true\n}"
             }
           },
           "response": []
@@ -5495,6 +5495,65 @@
               "mode": "raw",
               "raw": "{\n  \"status\": \"Active\"\n}"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "List accounts that can be made officers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/candidates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "candidates"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "None",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) role but are on no desk, so hold no position yet. Place one with POST /api/v1/officers. An identity-provider login shows up here once the provider has granted the role. q matches name or email. System Manager and Administrator accounts are never listed."
           },
           "response": []
         }
@@ -7956,6 +8015,184 @@
               "mode": "raw",
               "raw": "{\n  \"phone_number\": \"Sample value\",\n  \"country_code\": \"Sample value\",\n  \"external_ref_id\": \"Sample value\",\n  \"description\": \"Sample value\"\n}"
             }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Administration",
+      "item": [
+        {
+          "name": "List grievance role levels",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/role-levels",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "role-levels"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "None",
+                  "description": "Filter by active status",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "None",
+                  "description": "Search term matching level code, name, or description",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lists escalation hierarchy role levels, ordered by rank (level_order asc), including their codes, names, escalation hours, and active statuses. Filterable by active status and search string."
+          },
+          "response": []
+        },
+        {
+          "name": "Get a grievance role level",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/role-levels/{{level_code}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "role-levels",
+                "{{level_code}}"
+              ]
+            },
+            "description": "Fetch a single grievance role level by its code, including its display name, escalation rank, breach hours, active status, and description."
+          },
+          "response": []
+        },
+        {
+          "name": "List officer positions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/positions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "positions"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number, 1-indexed",
+                  "disabled": true
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page",
+                  "disabled": true
+                },
+                {
+                  "key": "role_level",
+                  "value": "None",
+                  "description": "Role level code",
+                  "disabled": true
+                },
+                {
+                  "key": "active",
+                  "value": "None",
+                  "description": "Filter by active status",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "None",
+                  "description": "Matches title, designation or ID",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Positions are roles such as Crop DA or Woreda Crop SMS, each with a role level and the position it reports to. `holders` counts the people holding one. Filterable by role level, active status and a search string."
           },
           "response": []
         }

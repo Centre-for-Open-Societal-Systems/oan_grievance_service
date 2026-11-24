@@ -36,6 +36,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Count
+from oan_auth_service.api.iam_users import is_delegated_user
 from pypika.functions import Max
 from pypika.terms import Case
 
@@ -74,15 +75,32 @@ def reviewer_role_level() -> str:
 	return "review_officer"
 
 
+def resolve_level_code(key: str | None) -> str | None:
+	"""Resolve a tier token ('L1', 'l1'), role level code ('nodal_officer'),
+	or display label ('Kebele Nodal Officer') to the canonical Grievance Role Level name.
+	"""
+	if not key:
+		return None
+	k = str(key).strip()
+	codes = get_level_codes()
+	if k.upper() in codes:
+		return codes[k.upper()]
+	chain = GrievanceRoleLevel.get_chain()
+	for rung in chain:
+		name = getattr(rung, "name", None) or rung.get("name")
+		label = getattr(rung, "level_name", None) or rung.get("level_name")
+		if k.lower() == str(name).lower():
+			return name
+		if label and k.lower() == str(label).lower():
+			return name
+	return None
+
+
 class DynamicLevelCodes(Mapping):
 	def __getitem__(self, key):
-		codes = get_level_codes()
-		if key in codes:
-			return codes[key]
-		chain = GrievanceRoleLevel.get_chain()
-		valid_codes = {r.name for r in chain}
-		if key in valid_codes:
-			return key
+		resolved = resolve_level_code(key)
+		if resolved is not None:
+			return resolved
 		raise KeyError(key)
 
 	def __iter__(self):
@@ -92,10 +110,7 @@ class DynamicLevelCodes(Mapping):
 		return len(get_level_codes())
 
 	def __contains__(self, key):
-		if key in get_level_codes():
-			return True
-		chain = GrievanceRoleLevel.get_chain()
-		return key in {r.name for r in chain}
+		return resolve_level_code(key) is not None
 
 
 class DynamicCodeLevels(Mapping):
@@ -221,10 +236,6 @@ def create(
 
 	user = frappe.get_doc("User", user_id)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, FRAPPE_ROLES[role])
-	if status == "On Leave":
-		_set_positions(user.name, {"on_leave": 1})
-	elif status == "Inactive":
-		_set_positions(user.name, {"active": 0})
 	for desk in desks:
 		_save_desk(desk.name, user.name, placement)
 	for category in sorted(missing):
@@ -356,34 +367,27 @@ def update(user_id: str, changes: dict) -> str:
 	if role == REVIEWER_ROLE and status == "Active":
 		# Before the rows: a desk refuses an active row whose login is disabled.
 		account.set_enabled(user_id, True)
-	pos_updates = {}
-	if "designation" in changes:
-		pos_updates["designation"] = designation
-	if level != current.level:
-		pos_updates["role_level"] = LEVEL_CODES.get(level, level)
-	if "region" in changes:
-		pos_updates["administrative_area"] = row_changes.get("administrative_area")
-	if "reports_to" in changes:
-		sup = row_changes.get("reports_to")
-		pos_updates["reports_to_position"] = (
-			frappe.db.get_value("Grievance Officer Position", {"occupant": sup, "active": 1}, "name")
-			if sup
-			else None
+	# A position is a role shared by everyone who holds it, so a new level or designation
+	# moves this officer's rows to the position that has them, made if there is none.
+	# A Reviewer has no level, so no position.
+	if level and ("designation" in changes or level != current.level):
+		role_level = LEVEL_CODES.get(level, level)
+		desig = designation or role_level.replace("_", " ").title()
+		row_changes["position"] = frappe.db.get_value(
+			"Grievance Officer Position", {"role_level": role_level, "designation": desig}, "name"
+		) or (
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Officer Position",
+					"position_title": desig,
+					"designation": desig,
+					"role_level": role_level,
+					"active": 1,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
 		)
-	if "status" in changes:
-		pos_updates["on_leave"] = 1 if changes["status"] == "On Leave" else 0
-		if changes["status"] == "Inactive":
-			pos_updates["active"] = 0
-	if pos_updates:
-		if status and status != "Inactive":
-			pos_updates["active"] = 1
-		for pos_name in _desk_positions(user_id, current.desks | target):
-			pos_doc = frappe.get_doc("Grievance Officer Position", pos_name)
-			pos_doc.update(pos_updates)
-			pos_doc.save(ignore_permissions=True)
-		from oan_grievance_service.grievance_access_control.positions import clear_position_cache
-
-		clear_position_cache(user_id)
 	for name in current.desks - target:
 		_save_desk(name, user_id, None)
 	for name in sorted(target):
@@ -406,6 +410,7 @@ def list_officers(
 	service_category=None,
 	region=None,
 	q=None,
+	position=None,
 	start=0,
 	page_size=20,
 ):
@@ -418,6 +423,7 @@ def list_officers(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	if status:
 		query = query.where(_status_filter(row, status))
@@ -443,6 +449,7 @@ def status_counts(
 	service_category=None,
 	region=None,
 	q=None,
+	position=None,
 ) -> dict[str, int]:
 	"""Active, On Leave and Inactive people for the same filters as the list, without `status`.
 
@@ -458,6 +465,7 @@ def status_counts(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	per_person = (
 		query.select(
@@ -479,11 +487,62 @@ def status_counts(
 	return {**counts, "total": sum(counts.values())}
 
 
-def _officer_query(*, role, level, department, service_category, region, q):
+def list_candidates(*, role=DEFAULT_ROLE, q=None, limit=50):
+	"""Enabled logins that hold `role`'s Frappe role but sit on no desk, so hold no position yet.
+
+	A delegated login gets the role from the identity provider, so this is how an officer
+	onboarded there shows up before they are placed. System Manager and Administrator
+	accounts are never listed.
+	"""
+	user, has_role, row = DocType("User"), DocType("Has Role"), DocType(ROW)
+	placed = frappe.qb.from_(row).select(row.user).where(row.parenttype == DESK).where(row.user.notnull())
+	privileged = (
+		frappe.qb.from_(has_role)
+		.select(has_role.parent)
+		.where(has_role.parenttype == "User")
+		.where(has_role.role.isin(list(C.PRIVILEGED_ROLES)))
+	)
+	query = (
+		frappe.qb.from_(user)
+		.join(has_role)
+		.on((has_role.parent == user.name) & (has_role.parenttype == "User"))
+		.where(has_role.role == FRAPPE_ROLES[role])
+		.where(user.enabled == 1)
+		.where(user.name.notin(["Administrator", "Guest"]))
+		.where(user.name.notin(placed))
+		.where(user.name.notin(privileged))
+	)
+	fields = [user.name, user.full_name, user.email, user.mobile_no]
+	if _has_login_email():
+		fields.append(getattr(user, LOGIN_EMAIL_FIELD))
+	if q:
+		like = f"%{q.strip()}%"
+		match = user.full_name.like(like) | user.email.like(like)
+		if _has_login_email():
+			match = match | getattr(user, LOGIN_EMAIL_FIELD).like(like)
+		query = query.where(match)
+	rows = query.select(*fields).distinct().orderby(user.full_name).orderby(user.name).limit(limit)
+	return [
+		{
+			"name": r.name,
+			"full_name": r.full_name or r.name,
+			"email": login_email(r) or r.name,
+			"phone": r.mobile_no,
+			"delegated": is_delegated_user(r.name),
+		}
+		for r in rows.run(as_dict=True)
+	]
+
+
+def _officer_query(*, role, level, department, service_category, region, q, position=None):
 	"""Rows of `role` with an enabled login on category desks narrowed by every list filter except status."""
 	row, desk, user = DocType(ROW), DocType(DESK), DocType("User")
 	if level:
-		codes = [LEVEL_CODES[level]] if level in LEVEL_CODES else []
+		if level not in LEVEL_CODES:
+			frappe.throw(
+				_("Invalid or unconfigured officer level '{0}'.").format(level), frappe.ValidationError
+			)
+		codes = [LEVEL_CODES[level]]
 	else:
 		codes = list(ROLE_CODES[role])
 	query = (
@@ -502,7 +561,18 @@ def _officer_query(*, role, level, department, service_category, region, q):
 	if service_category:
 		query = query.where(desk.category_scope == resolve_service_category(service_category))
 	if region:
-		query = query.where(row.administrative_area == _resolve_region(region))
+		# The area and every area under it, so a woreda lists its kebele officers too.
+		area = DocType("Grievance Administrative Area")
+		lft, rgt = frappe.db.get_value(
+			"Grievance Administrative Area", _resolve_region(region), ["lft", "rgt"]
+		)
+		query = query.where(
+			row.administrative_area.isin(
+				frappe.qb.from_(area).select(area.name).where((area.lft >= lft) & (area.rgt <= rgt))
+			)
+		)
+	if position:
+		query = query.where(row.position == position)
 	if q:
 		like = f"%{q.strip()}%"
 		match = user.full_name.like(like) | user.email.like(like)
@@ -604,6 +674,7 @@ def _assignment(row) -> dict:
 		"department": row.department_scope,
 		"level": CODE_LEVELS.get(row.role_level),
 		"region": row.administrative_area,
+		"position_id": row.position,
 		"active": bool(row.active),
 		"on_leave": bool(row.on_leave),
 	}
@@ -822,9 +893,12 @@ def _placement(role: str, level: str | None, status: str) -> dict:
 		return {"role_level": reviewer_role_level(), "is_primary": 0, **_availability(status)}
 	if level not in LEVEL_CODES:
 		frappe.throw(_("Invalid or unconfigured officer level '{0}'.").format(level), frappe.ValidationError)
+	code = LEVEL_CODES[level]
+	chain = GrievanceRoleLevel.get_chain()
+	lowest_code = chain[0].name if chain else None
 	return {
-		"role_level": LEVEL_CODES[level],
-		"is_primary": 1 if level == "L1" else 0,
+		"role_level": code,
+		"is_primary": 1 if code == lowest_code else 0,
 		**_availability(status),
 	}
 
@@ -835,18 +909,20 @@ def _change_level(user_id: str, old: str, new: str) -> dict:
 		frappe.throw(_("Invalid or unconfigured officer level '{0}'.").format(new), frappe.ValidationError)
 	chain = GrievanceRoleLevel.get_chain()
 	lowest_code = chain[0].name if chain else None
+	old_code = LEVEL_CODES.get(old, old)
 	if (
 		lowest_code
-		and LEVEL_CODES.get(old) != lowest_code
+		and old_code != lowest_code
 		and frappe.db.exists(ROW, {"reports_to": user_id, "parenttype": DESK})
 	):
 		frappe.throw(
 			_("{0} cannot change level while other officers report to them.").format(user_id),
 			frappe.ValidationError,
 		)
+	code = LEVEL_CODES[new]
 	return {
-		"role_level": LEVEL_CODES[new],
-		"is_primary": 1 if new == "L1" else 0,
+		"role_level": code,
+		"is_primary": 1 if code == lowest_code else 0,
 		"reports_to": None,
 	}
 
@@ -1026,29 +1102,6 @@ def _narrow(records: list, department: str | None, categories: list[str] | None)
 	return records
 
 
-def _desk_positions(user_id: str, desk_names) -> list[str]:
-	"""The Positions that `user_id`'s rows on these desks point to, not every seat they hold."""
-	if not desk_names:
-		return []
-	return frappe.get_all(
-		"Grievance RBAC Assignment Officer",
-		filters={"parent": ["in", list(desk_names)], "user": user_id, "position": ["is", "set"]},
-		pluck="position",
-		distinct=True,
-	)
-
-
-def _set_positions(user_id: str, values: dict):
-	"""Save `values` onto every Position `user_id` occupies, so Position validation runs."""
-	from oan_grievance_service.grievance_access_control.positions import clear_position_cache
-
-	for name in frappe.get_all("Grievance Officer Position", filters={"occupant": user_id}, pluck="name"):
-		pos = frappe.get_doc("Grievance Officer Position", name)
-		pos.update(values)
-		pos.save(ignore_permissions=True)
-	clear_position_cache(user_id)
-
-
 def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict | None = None):
 	"""Put `user_id` on a desk with `values`, or take them off when `values` is None.
 
@@ -1067,30 +1120,8 @@ def _save_desk(desk_name: str, user_id: str, values: dict | None, on_new: dict |
 			desk.remove(mine)
 	elif mine:
 		mine.update(values)
-		if not mine.get("position") and mine.get("role_level"):
-			pos_filter = {
-				"occupant": user_id,
-				"role_level": mine.get("role_level"),
-				"active": 1,
-			}
-			if mine.get("administrative_area"):
-				pos_filter["administrative_area"] = mine.get("administrative_area")
-			pos_name = frappe.db.get_value("Grievance Officer Position", pos_filter, "name")
-			if pos_name:
-				mine.position = pos_name
 	else:
 		row_dict = {"user": user_id, **(on_new or {}), **values}
-		if not row_dict.get("position") and row_dict.get("role_level"):
-			pos_filter = {
-				"occupant": user_id,
-				"role_level": row_dict.get("role_level"),
-				"active": 1,
-			}
-			if row_dict.get("administrative_area"):
-				pos_filter["administrative_area"] = row_dict.get("administrative_area")
-			pos_name = frappe.db.get_value("Grievance Officer Position", pos_filter, "name")
-			if pos_name:
-				row_dict["position"] = pos_name
 		desk.append("officers", row_dict)
 	desk.assigned_by = frappe.session.user
 	desk.save()

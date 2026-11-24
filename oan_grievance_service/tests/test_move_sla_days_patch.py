@@ -7,7 +7,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.patches import move_sla_days_to_base_rules as patch
 from oan_grievance_service.services import classification
-from oan_grievance_service.services import constants as C
 from oan_grievance_service.tests.test_classification import a_bare_category, a_category
 
 RULE = "Grievance SLA Rule"
@@ -33,6 +32,13 @@ class TestMoveSlaDaysToBaseRules(FrappeTestCase):
 
 	def run_patch(self, rows):
 		"""Run the patch as if the configurations' old `sla_days` column held `rows`."""
+		for row in rows:
+			row.setdefault(
+				"name",
+				frappe.db.get_value(
+					"Grievance SLA Configuration", {"service_category": row["service_category"]}
+				),
+			)
 		with mock.patch.object(patch, "_configurations", return_value=[frappe._dict(row) for row in rows]):
 			patch.execute()
 
@@ -40,7 +46,8 @@ class TestMoveSlaDaysToBaseRules(FrappeTestCase):
 		category = self.a_legacy_configuration()
 		self.run_patch([{"service_category": category, "sla_days": 11}])
 		base = frappe.get_doc(RULE, {"service_category": category, "is_base": 1})
-		self.assertEqual((base.sla_days, base.is_urgent, base.priority), (11, 0, C.PRIORITY_NORMAL))
+		self.assertEqual((base.sla_days, base.is_urgent), (11, 0))
+		self.assertFalse(base.priority)
 		# Named like the seed's, so loading the seed afterwards adds no second copy.
 		code = frappe.db.get_value("Grievance Service Category", category, "code")
 		self.assertEqual(base.name, f"{code}-BASE")

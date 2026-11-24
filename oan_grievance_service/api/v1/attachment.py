@@ -336,7 +336,13 @@ class ValidateUploadsRequest(BaseModel):
 	)
 
 
-@route("/validate", methods=("POST",), summary="Check files before they are attached", tier="citizen-intake")
+@route(
+	"/validate",
+	methods=("POST",),
+	summary="Check files before they are attached",
+	tier="citizen-intake",
+	request_types=("multipart/form-data",),
+)
 @validate_request(ValidateUploadsRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -423,8 +429,15 @@ class SubmitDocumentsRequest(BaseModel):
 	methods=("POST",),
 	summary="Upload supporting documents",
 	tier="citizen-intake",
+	request_types=("multipart/form-data",),
 )
-@route("", methods=("POST",), summary="Upload supporting documents", tier="citizen-intake")
+@route(
+	"",
+	methods=("POST",),
+	summary="Upload supporting documents",
+	tier="citizen-intake",
+	request_types=("multipart/form-data",),
+)
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -501,6 +514,7 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 	methods=("GET",),
 	summary="Stream a clean attachment inline",
 	tier="citizen-intake",
+	response_types=("*/*",),
 )
 @handle_api_errors
 @require_permission("Grievance", "read")

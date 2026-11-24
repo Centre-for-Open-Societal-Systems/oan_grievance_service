@@ -13,6 +13,12 @@ class GrievanceSLARule(Document):
 	is its SLA, and narrower rules override it where they match.
 	"""
 
+	def before_validate(self):
+		"""The category follows the configuration the rule overrides."""
+		self.service_category = frappe.db.get_value(
+			"Grievance SLA Configuration", self.sla_configuration, "service_category"
+		)
+
 	def validate(self):
 		"""A real window (or all year), for a type of the rule's category, that ties with no other
 		rule, in a category that keeps its base rule.
@@ -38,8 +44,13 @@ class GrievanceSLARule(Document):
 				)
 
 		self.is_base = 1 if classification.is_base(self) else 0
+		# Priority has one value and follows Urgent: it is never set on its own.
+		self.priority = classification.priority_of(self.is_urgent)
 		frappe.db.get_value("Grievance Service Category", self.service_category, "name", for_update=True)
-		others = classification.rules_of(self.service_category, exclude=None if self.is_new() else self.name)
+		# Only rules for the same rung can tie: the case's own rules (no level) and each level's.
+		others = classification.rules_of(
+			self.service_category, exclude=None if self.is_new() else self.name, role_level=self.role_level
+		)
 		for other in others:
 			if classification.overlapping_rules([other, self]):
 				frappe.throw(
@@ -57,7 +68,9 @@ class GrievanceSLARule(Document):
 					"cannot name a type, an area or a window: add a new rule instead."
 				)
 			)
-		if not any(other.is_base for other in others):
+		if not frappe.db.exists(
+			"Grievance SLA Rule", {"service_category": self.service_category, "is_base": 1}
+		):
 			frappe.throw(
 				_(
 					"{0} has no base rule. Add the rule with no type, area or window first: it is the "
@@ -69,8 +82,5 @@ class GrievanceSLARule(Document):
 		"""The base rule is the category's SLA, so it stays while the category has one."""
 		if self.is_base and not self.flags.removing_category_sla:
 			frappe.throw(
-				_(
-					"The base rule is the category's SLA and cannot be deleted. Change its SLA Days "
-					"instead."
-				)
+				_("The base rule is the category's SLA and cannot be deleted. Change its SLA Days instead.")
 			)

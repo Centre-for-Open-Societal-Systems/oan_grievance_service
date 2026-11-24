@@ -4,8 +4,8 @@
 """SLA rules (STG-514): `/api/v1/sla-rules`, the one source of a case's SLA days, urgency and priority.
 
 One record per rule (Grievance SLA Rule), linked to its service category, so a client lists,
-creates, changes and deletes one rule at a time. Every rule carries `sla_days`, `is_urgent` and
-`priority`. A rule may name a grievance type of the category, an administrative area (covering
+creates, changes and deletes one rule at a time. Every rule carries `sla_days` and `is_urgent`;
+`priority` is read only and has one value, Urgent for an urgent rule (null otherwise). A rule may name a grievance type of the category, an administrative area (covering
 the areas inside it) and a recurring window of the year. The category's base rule names none of
 them and is its SLA wherever nothing narrower matches. `services/classification.py` decides which
 rule a case matches; nothing here does.
@@ -35,6 +35,7 @@ from oan_auth_service.api.utils import (
 from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
+from oan_grievance_service.services import classification
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES
 from oan_grievance_service.services.resolvers import resolve_service_category
 
@@ -42,20 +43,23 @@ route = prefixed("/api/v1/sla-rules")
 
 RULE = "Grievance SLA Rule"
 WINDOW_FIELDS = ("start_month", "start_day", "end_month", "end_day")
-# What a client may write. `service_category` only on create: a rule stays with its category.
+# What a client may write. `service_category` only on create: a rule stays with its category's
+# SLA configuration, which the server finds from it.
 EDITABLE = (
 	"rule_label",
+	"role_level",
 	"grievance_type",
 	"administrative_area",
 	*WINDOW_FIELDS,
 	"sla_days",
 	"is_urgent",
-	"priority",
 )
-RECORD_FIELDS = ["name", "service_category", "is_base", *EDITABLE, "modified"]
+# `priority` is read only: Urgent for an urgent rule, null otherwise (the only value it has).
+RECORD_FIELDS = ["name", "service_category", "is_base", *EDITABLE, "priority", "modified"]
 
 RULE_NOTE = (
-	"Every rule sets sla_days, is_urgent and priority for the cases it matches on their filing date. "
+	"Every rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent "
+	"rule gives the case priority Urgent, any other rule no priority (priority is read only). "
 	"A rule may name a grievance_type of its category, an administrative_area (covering the areas "
 	"inside it) and a recurring window (start_month, start_day, end_month, end_day: all four, or "
 	"none for all year; a start after the end wraps the year end, for example 10/1 to 4/30). The "
@@ -67,7 +71,7 @@ RULE_NOTE = (
 	"filed afterwards."
 )
 
-Priority = Literal["Normal", "High", "Urgent"]
+Priority = Literal["Urgent"]
 
 
 class SlaRuleRecord(BaseModel):
@@ -75,6 +79,9 @@ class SlaRuleRecord(BaseModel):
 	service_category: str
 	is_base: bool
 	rule_label: str | None = None
+	role_level: str | None = Field(
+		None, description="Escalation rung the days are for. Null: the days for the whole case"
+	)
 	grievance_type: str | None = None
 	administrative_area: str | None = None
 	start_month: int | None = None
@@ -83,7 +90,9 @@ class SlaRuleRecord(BaseModel):
 	end_day: int | None = None
 	sla_days: int
 	is_urgent: bool
-	priority: str
+	priority: Priority | None = Field(
+		None, description="Urgent for an urgent rule, null otherwise. Read only"
+	)
 	modified: str | None = None
 
 
@@ -102,6 +111,11 @@ class RuleRef(Body):
 
 class _RuleScope(Body):
 	rule_label: str | None = Field(None, max_length=140, description="A name for administrators")
+	role_level: NonBlank | None = Field(
+		None,
+		description="Role level code of the rung these days are for, e.g. nodal_officer. "
+		+ "Blank: the days for the whole case, the ones the SLA clock runs on",
+	)
 	grievance_type: NonBlank | None = Field(
 		None, description="A type of the rule's category. Blank: every type"
 	)
@@ -113,16 +127,15 @@ class _RuleScope(Body):
 	end_month: int | None = Field(None, ge=1, le=12)
 	end_day: int | None = Field(None, ge=1, le=31, description="All four window fields, or none for all year")
 
-	_blank = field_validator("rule_label", "grievance_type", "administrative_area", mode="before")(
-		blank_to_none
-	)
+	_blank = field_validator(
+		"rule_label", "role_level", "grievance_type", "administrative_area", mode="before"
+	)(blank_to_none)
 
 
 class CreateSlaRule(_RuleScope):
 	service_category: NonBlank = Field(description="Id, name or code of the category")
 	sla_days: int = Field(ge=1, description="Working days for a case this rule matches")
-	is_urgent: bool = False
-	priority: Priority
+	is_urgent: bool = Field(False, description="true: Urgent handling and priority Urgent")
 
 
 class UpdateSlaRule(_RuleScope):
@@ -131,14 +144,14 @@ class UpdateSlaRule(_RuleScope):
 	rule_id: NonBlank
 	# Typed optional so an omitted field is told apart from a sent one; a sent null is refused.
 	sla_days: int | None = Field(None, ge=1)
-	is_urgent: bool | None = None
-	priority: Priority | None = None
+	is_urgent: bool | None = Field(None, description="true: Urgent handling and priority Urgent")
 
 
 class ListSlaRules(PageParams, Body):
 	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
 
 	service_category: str | None = None
+	role_level: str | None = None
 	grievance_type: str | None = None
 	administrative_area: str | None = None
 	is_urgent: bool | None = None
@@ -148,7 +161,7 @@ class ListSlaRules(PageParams, Body):
 
 
 def _records(rows: list) -> list[dict]:
-	scope = ("rule_label", "grievance_type", "administrative_area", *WINDOW_FIELDS)
+	scope = ("rule_label", "role_level", "grievance_type", "administrative_area", *WINDOW_FIELDS)
 	return [
 		SlaRuleRecord(
 			name=row.name,
@@ -158,7 +171,7 @@ def _records(rows: list) -> list[dict]:
 			**{field: row.get(field) or None for field in scope},
 			sla_days=row.sla_days or 0,
 			is_urgent=bool(row.is_urgent),
-			priority=row.priority,
+			priority=classification.priority_of(row.is_urgent),
 			modified=to_tz_aware_iso(row.modified),
 		).model_dump()
 		for row in rows
@@ -178,8 +191,8 @@ def _get_rule(rule_id: str):
 def _values(kwargs: dict) -> dict:
 	"""The editable fields the client sent, as the document stores them."""
 	values = {key: kwargs[key] for key in EDITABLE if key in kwargs}
-	for field in ("sla_days", "is_urgent", "priority"):
-		# These are never cleared: every rule carries all three.
+	for field in ("sla_days", "is_urgent"):
+		# These are never cleared: every rule carries both.
 		if field in values and values[field] is None:
 			frappe.throw(
 				_("{0} cannot be empty: every SLA rule sets it.").format(field), frappe.ValidationError
@@ -196,13 +209,14 @@ def _values(kwargs: dict) -> dict:
 @api_doc(
 	summary="List SLA rules",
 	description="The SLA rules, by service category and then oldest first. Filter by service_category "
-	+ "(id, name or code), grievance_type, administrative_area, is_urgent or is_base. "
+	+ "(id, name or code), role_level, grievance_type, administrative_area, is_urgent or is_base. "
 	+ RULE_NOTE,
 	tags=["Administration"],
 	response_model=SlaRuleListData,
 )
 def list_rules(
 	service_category: str | None = None,
+	role_level: str | None = None,
 	grievance_type: str | None = None,
 	administrative_area: str | None = None,
 	is_urgent: bool | str | None = None,
@@ -220,6 +234,8 @@ def list_rules(
 	filters: dict = {}
 	if service_category:
 		filters["service_category"] = resolve_service_category(service_category)
+	if role_level:
+		filters["role_level"] = role_level
 	if grievance_type:
 		filters["grievance_type"] = grievance_type
 	if administrative_area:
@@ -269,8 +285,9 @@ def get_rule(rule_id: str, **kwargs):
 @validate_request(CreateSlaRule)
 @api_doc(
 	summary="Create an SLA rule",
-	description="Add one rule to a service category. service_category, sla_days and priority are "
-	+ "required; is_urgent defaults to false. A category's first rule must be its base rule (no "
+	description="Add one rule to a service category. service_category and sla_days are required; "
+	+ "is_urgent defaults to false (true makes the case Urgent, with priority Urgent). priority is "
+	+ "not sent: it follows is_urgent. A category's first rule must be its base rule (no "
 	+ "type, area or window); creating a category with sla_days, or setting sla_days on "
 	+ "/sla-configurations, makes it. "
 	+ RULE_NOTE,
@@ -280,7 +297,11 @@ def get_rule(rule_id: str, **kwargs):
 def create_rule(service_category: str, **kwargs):
 	"""Create a rule. `kwargs` holds the other fields of the request."""
 	doc = frappe.get_doc(
-		{"doctype": RULE, "service_category": resolve_service_category(service_category), **_values(kwargs)}
+		{
+			"doctype": RULE,
+			"sla_configuration": classification.configuration_of(resolve_service_category(service_category)),
+			**_values(kwargs),
+		}
 	)
 	doc.insert()
 	return success_response(data={"rule": _record(doc.name)}, message=_("SLA rule created"))
@@ -294,7 +315,8 @@ def create_rule(service_category: str, **kwargs):
 	summary="Update an SLA rule",
 	description="Change any field of one rule but service_category. Omitted fields stay as they are; "
 	+ "null clears rule_label, grievance_type, administrative_area or a window field (all four null "
-	+ "makes the rule all year). sla_days, is_urgent and priority cannot be cleared. The base rule "
+	+ "makes the rule all year). sla_days and is_urgent cannot be cleared; priority follows "
+	+ "is_urgent and is not sent. The base rule "
 	+ "cannot be narrowed. Cases already filed keep the SLA and class they were filed with. "
 	+ RULE_NOTE,
 	tags=["Administration"],

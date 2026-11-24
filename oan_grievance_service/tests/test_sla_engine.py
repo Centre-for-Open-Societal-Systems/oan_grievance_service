@@ -110,7 +110,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		):
 			frappe.delete_doc("Grievance SLA Configuration", name, force=True)
 
-		classification.set_base_days(self.cat_a, 5)
 		self.sla_a = frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Configuration",
@@ -121,6 +120,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
+		classification.set_base_days(self.cat_a, 5)
 
 		# Configure SLA policy for Category B (10 days, with holiday list)
 		for name in frappe.get_all(
@@ -128,7 +128,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		):
 			frappe.delete_doc("Grievance SLA Configuration", name, force=True)
 
-		classification.set_base_days(self.cat_b, 10)
 		self.sla_b = frappe.get_doc(
 			{
 				"doctype": "Grievance SLA Configuration",
@@ -139,6 +138,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
+		classification.set_base_days(self.cat_b, 10)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
