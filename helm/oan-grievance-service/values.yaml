@@ -33,6 +33,13 @@ frappe:
     repository: ""
     tag: ""
 
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      add: []
+      drop:
+      - ALL
+
   # PostgreSQL runs outside the cluster. The create-site job reads the password of dbRootUser
   # from Secret oan-frappe-common-db, a copy of the one the frappe-common release creates.
   dbHost: ""
