@@ -18,6 +18,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.query_builder.functions import Coalesce, Count
 from pypika import Case, Order
+from pypika.functions import Lower
 
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	area_path_labels,
@@ -202,8 +203,11 @@ def _filtered(Provider, Area, search, provider_type, area_id):
 	if provider_type:
 		query = query.where(Provider.provider_type == provider_type)
 	if search:
-		pattern = f"%{_escape_like(search)}%"
-		query = query.where(Provider.provider_name.like(pattern) | Provider.registration_number.like(pattern))
+		# Lower on both sides: MariaDB's LIKE ignores case through its collation, PostgreSQL's does not.
+		pattern = f"%{_escape_like(search.lower())}%"
+		query = query.where(
+			Lower(Provider.provider_name).like(pattern) | Lower(Provider.registration_number).like(pattern)
+		)
 	if area_id:
 		lft, rgt = get_area_bounds(area_id)
 		inside = (Area.lft >= lft) & (Area.rgt <= rgt)
@@ -216,7 +220,9 @@ def _filtered(Provider, Area, search, provider_type, area_id):
 def _ordered(query, Provider, Area, search):
 	"""Name prefix first, then the most local area, then name; `name` breaks ties."""
 	if search:
-		prefix = Case().when(Provider.provider_name.like(f"{_escape_like(search)}%"), 0).else_(1)
+		prefix = (
+			Case().when(Lower(Provider.provider_name).like(f"{_escape_like(search.lower())}%"), 0).else_(1)
+		)
 		query = query.orderby(prefix)
 	# Depth, not lft: lft is a position in the tree, not how local the area is.
 	# A provider with no area is nationwide, so it sorts last.

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a9c7b12d-e4f8-4b9a-8a12-c5d9e7f12345",
     "name": "OAN Grievance - Administration & Officer Management",
-    "description": "End-to-end administration workflows for **Grievance Admin** and **System Manager**.\n\n### Core Capabilities Covered:\n1. **Admin Authentication**: Sign in and refresh tokens.\n2. **User Identity Onboarding (`/v1/admin/users`)**: Create user accounts, assign roles (`Grievance Officer`, `Grievance Review Officer`), retrieve user details, and issue temporary passwords.\n3. **Officer Onboarding & Management (`/v1/officers`)**: Place officers on category desks as Nodal Officers (L1), Senior Officers (L2), Department Heads (L3), or Reviewers. Filter officers by level, department, status, category, and region; fetch status counts, manage leave/status, re-issue passwords, and inspect performance statistics.\n4. **Category Desk Routing (`/v1/category-assignments`)**: Configure primary and secondary routing desks, SLA days, and auto-escalation.\n5. **SLA Policies & Configuration (`/v1/sla-*`)**: Manage global deferral ceiling, auto-escalation thresholds, and per-category SLA timers.\n6. **Response Templates (`/v1/response-templates`)**: Manage pre-written investigation templates for officers.\n7. **Notification Templates (`/v1/notification-templates`)**: Manage automated event notification templates and review placeholder dictionaries.\n8. **Taxonomy & Master Data (`/v1/service-categories`, `/v1/grievance-types`)**: Manage categories and grievance types.\n\n### Running in Newman / CI:\n```bash\nnewman run postman/oan_grievance_admin_collection.json -e postman/local.postman_environment.json\n```",
+    "description": "End-to-end administration workflows for **Grievance Admin** and **System Manager**.\n\n### Core Capabilities Covered:\n1. **Admin Authentication**: Sign in and refresh tokens.\n2. **User Identity Onboarding (`/v1/admin/users`)**: Create user accounts, assign roles (`Grievance Officer`, `Grievance Review Officer`), retrieve user details, and issue temporary passwords.\n3. **Officer Onboarding & Management (`/v1/officers`)**: Place officers on category desks as Nodal Officers (L1), Senior Officers (L2), Department Heads (L3), or Reviewers. Filter officers by level, department, status, category, and region; fetch status counts, manage leave/status, re-issue passwords, and inspect performance statistics.\n4. **Category Desk Routing (`/v1/category-assignments`)**: Configure primary and secondary routing desks, SLA days, and auto-escalation.\n5. **SLA Policies & Configuration (`/v1/sla-*`)**: Manage the global deferral ceiling and per-category SLA timers.\n6. **Response Templates (`/v1/response-templates`)**: Manage pre-written investigation templates for officers.\n7. **Notification Templates (`/v1/notification-templates`)**: Manage automated event notification templates and review placeholder dictionaries.\n8. **Taxonomy & Master Data (`/v1/service-categories`, `/v1/grievance-types`)**: Manage categories and grievance types.\n\n### Running in Newman / CI:\n```bash\nnewman run postman/oan_grievance_admin_collection.json -e postman/local.postman_environment.json\n```",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -1707,7 +1707,7 @@
                 "sla-policy"
               ]
             },
-            "description": "Read the global SLA policy (maximum deferral days, escalation threshold, supervisor approval requirement)."
+            "description": "Read the global SLA policy (maximum deferral days, supervisor approval requirement)."
           },
           "response": []
         },
@@ -1751,7 +1751,7 @@
             "description": "Update global SLA limits across all categories.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"requires_supervisor_approval\": true\n}"
+              "raw": "{\n  \"max_deferral_days\": 30,\n  \"requires_supervisor_approval\": true\n}"
             }
           },
           "response": []

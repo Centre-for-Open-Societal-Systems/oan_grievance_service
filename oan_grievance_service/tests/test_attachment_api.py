@@ -166,6 +166,72 @@ class TestUploadGate(AttachmentAPITestCase):
 		self.assertGreaterEqual(len(result["data"]), 1)
 
 
+class TestDuplicatesAreRefused(AttachmentAPITestCase):
+	"""STG-516: a second copy of a file is refused by its content (SHA-256), not its name."""
+
+	def test_the_same_file_twice_on_a_case_is_refused_whatever_its_name(self):
+		from oan_grievance_service.tests.test_category_assignment import _keep_transaction
+
+		self.assertEqual(self._send("receipt.jpg", _jpeg())["status"], "success")
+		with _keep_transaction():
+			result = self._send("another-name.jpg", _jpeg())
+		self.assertEqual(result["status"], "error")
+		self.assertIn("already been attached", result["message"])
+		self.assertEqual(frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name}), 1)
+
+	def test_the_same_file_twice_in_one_upload_is_refused(self):
+		result = self._send_multiple([("a.jpg", _jpeg()), ("b.jpg", _jpeg())])
+		self.assertEqual(result["status"], "error")
+		self.assertEqual(frappe.db.count("Grievance Attachment", {"grievance": self.grievance.name}), 0)
+
+	def test_a_different_file_is_accepted(self):
+		self._send("receipt.jpg", _jpeg())
+		self.assertEqual(self._send("evidence.pdf", _pdf())["status"], "success")
+
+	def test_the_same_file_on_another_case_is_accepted(self):
+		self._send("receipt.jpg", _jpeg())
+		other = a_grievance()
+		frappe.local.request = _Request(_Upload("receipt.jpg", _jpeg()))
+		self.assertEqual(attachment.submit_documents(grievance=other.name)["status"], "success")
+
+
+class TestValidateOnAttach(AttachmentAPITestCase):
+	"""STG-516: POST /attachments/validate runs every check as a file is attached and stores nothing."""
+
+	def _validate(self, filename, content, **kwargs):
+		frappe.local.request = _Request(_Upload(filename, content))
+		return attachment.validate_uploads(**kwargs)
+
+	def test_a_good_file_is_reported_with_its_checksum_and_not_stored(self):
+		result = self._validate("receipt.jpg", _jpeg())
+		self.assertEqual(result["status"], "success", result)
+		self.assertEqual(result["data"][0]["mime_type"], "image/jpeg")
+		self.assertEqual(len(result["data"][0]["checksum_sha256"]), 64)
+		self.assertFalse(frappe.db.exists("Grievance Attachment", {"file_name": "receipt.jpg"}))
+
+	def test_a_bad_file_is_refused_at_once(self):
+		result = self._validate("holiday.jpg", WINDOWS_EXECUTABLE)
+		self.assertEqual(result["status"], "error")
+
+	def test_a_signed_pdf_is_refused_at_once(self):
+		from oan_grievance_service.tests.test_scanning import _pdf_with_signature_field
+
+		result = self._validate("contract.pdf", _pdf_with_signature_field(signed=True, sig_flags=3))
+		self.assertEqual(result["status"], "error")
+		self.assertIn("digitally signed", result["message"])
+
+	def test_a_file_the_form_already_holds_is_refused(self):
+		first = self._validate("receipt.jpg", _jpeg())["data"][0]["checksum_sha256"]
+		result = self._validate("copy.jpg", _jpeg(), attached_checksums=first)
+		self.assertEqual(result["status"], "error")
+		self.assertIn("already been attached", result["message"])
+
+	def test_a_file_already_on_the_case_is_refused(self):
+		self._send("receipt.jpg", _jpeg())
+		result = self._validate("copy.jpg", _jpeg(), grievance=self.grievance.name)
+		self.assertEqual(result["status"], "error")
+
+
 class TestLocationMetadataIsStripped(AttachmentAPITestCase):
 	def test_coordinates_do_not_survive_the_upload(self):
 		"""Anonymity would otherwise die in the EXIF block."""

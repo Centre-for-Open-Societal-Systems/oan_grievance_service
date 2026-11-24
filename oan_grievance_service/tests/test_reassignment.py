@@ -39,6 +39,80 @@ from oan_grievance_service.tests.fixtures import (
 )
 
 
+class TestReassignmentPicker(FrappeTestCase):
+	"""STG-516: the officers offered for a case are those of its region, without the category admin."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		seed_role_levels()
+
+	def setUp(self):
+		from oan_grievance_service.tests.fixtures import a_unique_department, an_administrative_area
+
+		frappe.set_user("Administrator")
+		self.case_area = a_leaf_area()
+		case_region = frappe.db.get_value(
+			"Grievance Administrative Area", self.case_area, "parent_administrative_area"
+		)
+		country = frappe.db.get_value(
+			"Grievance Administrative Area", case_region, "parent_administrative_area"
+		)
+		other_region = an_administrative_area("Picker Other Region", parent=country)
+		self.department = a_unique_department("Picker")
+		self.users = {
+			label: _ensure_user(f"picker-{label}-{frappe.generate_hash(length=6)}@example.com")
+			for label in ("local", "remote", "admin", "anywhere")
+		}
+		self.grievance = a_grievance(assigned_dept=self.department)
+		officers = (
+			("local", "nodal_officer", case_region),
+			("remote", "nodal_officer", other_region),
+			("admin", "department_head", case_region),
+			("anywhere", "senior_nodal_officer", None),
+		)
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.department,
+				"category_scope": self.grievance.service_category,
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{"user": self.users[label], "role_level": level, "administrative_area": area, "active": 1}
+					for label, level, area in officers
+				],
+			}
+		).insert(ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def _offered(self, **kwargs):
+		from oan_grievance_service.api.v1.grievance import options
+
+		result = options(department=self.department, **kwargs)
+		self.assertEqual(result["status"], "success", result)
+		labels = {user: label for label, user in self.users.items()}
+		return {labels[o["user_id"]] for o in result["data"]["officers"] if o["user_id"] in labels}
+
+	def test_only_officers_covering_the_case_region_are_offered(self):
+		offered = self._offered(ticket_number=self.grievance.ticket_number)
+		self.assertIn("local", offered)
+		self.assertIn("anywhere", offered, "an officer with no area covers every region")
+		self.assertNotIn("remote", offered)
+
+	def test_the_category_admin_is_not_offered(self):
+		self.assertNotIn("admin", self._offered(ticket_number=self.grievance.ticket_number))
+
+	def test_without_a_case_the_list_is_unchanged(self):
+		self.assertEqual(
+			self._offered(service_category=self.grievance.service_category),
+			{"local", "remote", "admin", "anywhere"},
+		)
+
+
 def _ensure_user(email, role="Grievance Officer", first_name=None):
 	if not frappe.db.exists("User", email):
 		doc = frappe.get_doc(

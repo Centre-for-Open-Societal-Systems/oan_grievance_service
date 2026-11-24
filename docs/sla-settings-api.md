@@ -45,7 +45,6 @@ Why not a second table: routing reads that row (`sla.resolve_policy`), so any co
   "data": {
     "policy": {
       "max_deferral_days": 30,
-      "auto_escalation_threshold": 100,
       "requires_supervisor_approval": true,
       "modified": "2026-10-08T16:29:56.801747"
     }
@@ -53,34 +52,30 @@ Why not a second table: routing reads that row (`sla.resolve_policy`), so any co
 }
 ```
 
-An installation that never saved the policy returns the defaults: 30 days, 100 %, and `requires_supervisor_approval` true.
+An installation that never saved the policy returns the defaults: 30 days and `requires_supervisor_approval` true.
 
 | Field                          | Type | Meaning                                                                                       | Card control                      |
 | :----------------------------- | :--- | :-------------------------------------------------------------------------------------------- | :-------------------------------- |
-| `max_deferral_days`            | int  | Most days any single deferral request may add to the SLA clock                                | Max SLA Deferral (days)           |
-| `auto_escalation_threshold`    | int  | Percent of the SLA window consumed before a case escalates. 100 is at the deadline            | Auto-escalate Threshold (%)       |
+| `max_deferral_days`            | int  | Most days a deferral may add to the SLA clock                                                 | Max SLA Deferral (days)           |
 | `requires_supervisor_approval` | bool | `true`: a senior officer decides a deferral. `false`: the assigned officer approves their own | Deferral Approval Policy (radios) |
 
 ### `PATCH /api/v1/sla-policy`
 
-Send any of the three fields. Omitted fields stay as they are. The body must not be empty. Respond with the saved policy in the same shape as the `GET`. The **Save Global Policy** button sends the whole form in one call.
+Send either field or both. Omitted fields stay as they are. The body must not be empty. Respond with the saved policy in the same shape as the `GET`. The **Save Global Policy** button sends the whole form in one call.
 
 ```json
-{ "max_deferral_days": 21, "auto_escalation_threshold": 80, "requires_supervisor_approval": false }
+{ "max_deferral_days": 21, "requires_supervisor_approval": false }
 ```
 
-| Field                          | Rule               |
-| :----------------------------- | :----------------- |
-| `max_deferral_days`            | integer, 1 or more |
-| `auto_escalation_threshold`    | integer, 1 to 100  |
-| `requires_supervisor_approval` | boolean            |
+| Field                          | Rule                |
+| :----------------------------- | :------------------ |
+| `max_deferral_days`            | integer, at least 1 |
+| `requires_supervisor_approval` | boolean             |
 
 What a change does:
 
-- `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval.
-- `auto_escalation_threshold` is the default for **every category that does not set a threshold of its own**. It is read when a case's escalation is armed, so it applies to cases that start, resume, change category or are re-armed after the change. Cases already armed keep their time.
-
-A category can still set its own threshold in the Desk (`Grievance SLA Configuration`, field Auto Escalation Threshold). That is an override, and 0 means "follow the global one". The SLA tab does not edit it.
+- `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval. `max_deferral_days` is the only limit on a deferral's length; it ships at 30 days, and the `cap_max_deferral_days` patch set any site above 30 back to 30 (STG-516).
+- There is no escalation threshold (removed in STG-516). A case escalates automatically only once its full SLA window has elapsed, so the first escalation is armed at the SLA deadline. The warnings before the deadline are the SLA reminders at 20 %, 50 % and 80 % of the window. A request that still sends `auto_escalation_threshold` is refused with 400, like any unknown field.
 
 ## 4. Per-category settings
 

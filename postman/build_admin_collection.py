@@ -117,7 +117,7 @@ def build_collection() -> dict:
 				"2. **User Identity Onboarding (`/v1/admin/users`)**: Create user accounts, assign roles (`Grievance Officer`, `Grievance Review Officer`), retrieve user details, and issue temporary passwords.\n"
 				"3. **Officer Onboarding & Management (`/v1/officers`)**: Place officers on category desks as Nodal Officers (L1), Senior Officers (L2), Department Heads (L3), or Reviewers. Filter officers by level, department, status, category, and region; fetch status counts, manage leave/status, re-issue passwords, and inspect performance statistics.\n"
 				"4. **Category Desk Routing (`/v1/category-assignments`)**: Configure primary and secondary routing desks, SLA days, and auto-escalation.\n"
-				"5. **SLA Policies & Configuration (`/v1/sla-*`)**: Manage global deferral ceiling, auto-escalation thresholds, and per-category SLA timers.\n"
+				"5. **SLA Policies & Configuration (`/v1/sla-*`)**: Manage the global deferral ceiling and per-category SLA timers.\n"
 				"6. **Response Templates (`/v1/response-templates`)**: Manage pre-written investigation templates for officers.\n"
 				"7. **Notification Templates (`/v1/notification-templates`)**: Manage automated event notification templates and review placeholder dictionaries.\n"
 				"8. **Taxonomy & Master Data (`/v1/service-categories`, `/v1/grievance-types`)**: Manage categories and grievance types.\n\n"
@@ -622,7 +622,7 @@ def build_collection() -> dict:
 			name="1. Get Global SLA Policy",
 			method="GET",
 			path_segments=["v1", "sla-policy"],
-			description="Read the global SLA policy (maximum deferral days, escalation threshold, supervisor approval requirement).",
+			description="Read the global SLA policy (maximum deferral days, supervisor approval requirement).",
 		),
 		make_request(
 			name="2. Update Global SLA Policy",
@@ -631,7 +631,6 @@ def build_collection() -> dict:
 			description="Update global SLA limits across all categories.",
 			body={
 				"max_deferral_days": 30,
-				"auto_escalation_threshold": 100,
 				"requires_supervisor_approval": True,
 			},
 		),
