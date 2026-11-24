@@ -105,8 +105,8 @@ def escalate_breached():
 	take the rest of the batch down with it (the 30-minute budget assumes the run
 	completes).
 	"""
-	# Site-wide stop, one read per run. Per-category is the `auto_escalate` tick on the
-	# SLA configuration, which works by leaving `next_escalation_at` unarmed.
+	# Site-wide stop, one read per run. Per-desk is the desk's `auto_escalate` tick, which
+	# works by leaving `next_escalation_at` unarmed.
 	if not grievance_settings.auto_escalation_enabled():
 		return 0
 
@@ -196,7 +196,7 @@ def expire_state_timers():
 		try:
 			grievance = frappe.get_doc("Grievance", name)
 			state = grievance.workflow_state
-			timer = sla.state_timer(grievance.service_category, state)
+			timer = sla.state_timer(state)
 			grievance.db_set("state_deadline", None, update_modified=False)
 			if not timer:
 				continue

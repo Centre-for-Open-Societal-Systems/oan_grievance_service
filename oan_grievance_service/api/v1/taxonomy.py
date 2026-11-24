@@ -38,11 +38,8 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 	pending_rename,
 	queue_rename,
 )
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
 from oan_grievance_service.permissions import assert_heads_category, is_unrestricted
-from oan_grievance_service.services import category_assignment
+from oan_grievance_service.services import category_assignment, classification
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_DESK_HEAD
 from oan_grievance_service.services.resolvers import new_or_resolved_department, resolve_service_category
@@ -64,8 +61,8 @@ CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_def
 # Assignment) and the turnaround is the SLA rules', so neither is a field of the type.
 TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
 # Sensitive (STG-514) is the matrix owners' too: a category head must not be able to hide a type from
-# Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is a rule
-# of the category's SLA configuration.
+# Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is one of
+# the category's SLA rules.
 TYPE_FLAG_FIELDS = ("is_sensitive",)
 TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 # The code is set once, when the type is made.
@@ -109,7 +106,6 @@ class GrievanceTypeRecord(BaseModel):
 class ServiceCategoryDetail(ServiceCategoryRecord):
 	departments: list[str | None]
 	sla_days: int | None = None
-	auto_escalate: bool | None = None
 	grievance_types: list[GrievanceTypeRecord]
 
 
@@ -277,7 +273,6 @@ def get_service_category(category: str, **kwargs):
 	if not set(frappe.get_roles(user)) & set(ADMIN_READ_ROLES):
 		assert_heads_category(user, doc.name)
 	record = _category_records([doc])[0]
-	sla = category_assignment.active_sla_rows([doc.name]).get(doc.name)
 	record.update(
 		{
 			"departments": sorted(
@@ -291,8 +286,7 @@ def get_service_category(category: str, **kwargs):
 				},
 				key=lambda dept: (dept is not None, dept or ""),
 			),
-			"sla_days": sla.sla_days if sla else None,
-			"auto_escalate": bool(sla.auto_escalate) if sla else None,
+			"sla_days": classification.base_days([doc.name]).get(doc.name),
 			"grievance_types": _type_records(
 				frappe.get_all(
 					TYPE,
@@ -317,9 +311,10 @@ def get_service_category(category: str, **kwargs):
 	+ "the flag on the previous default. "
 	+ "The code uses the ticket alphabet, which excludes I, L, O and U. It cannot change once "
 	+ "tickets have been issued under the category. "
-	+ "Optional sla_days (default 7), auto_escalate, and notify_on_breach establish the category's SLA configuration atomically. "
-	+ "Optional department also creates the category assignment for that department, with no officers yet; "
-	+ "with create_department the department is created too, refused when it already exists.",
+	+ "Optional sla_days (default 7) makes the category's base SLA rule. "
+	+ "Optional department also creates the category assignment for that department, with no officers yet "
+	+ "and with the auto_escalate and notify_on_breach flags; without department those two are not used. "
+	+ "With create_department the department is created too, refused when it already exists.",
 	tags=["Administration"],
 	response_model=ServiceCategoryData,
 )
@@ -350,10 +345,13 @@ def create_service_category(
 			"is_default": 1 if is_default else 0,
 		}
 	).insert()
-	save_sla_configuration(doc.name, sla_days or C.DEFAULT_SLA_DAYS, auto_escalate, notify_on_breach)
+	classification.set_base_days(doc.name, sla_days or C.DEFAULT_SLA_DAYS)
 	if department:
 		category_assignment.create(
-			service_category=doc.name, department=new_or_resolved_department(department, create_department)
+			service_category=doc.name,
+			department=new_or_resolved_department(department, create_department),
+			auto_escalate=auto_escalate,
+			notify_on_breach=notify_on_breach,
 		)
 	return success_response(
 		data={"service_category": _category_records([doc])[0]}, message=_("Service category created")

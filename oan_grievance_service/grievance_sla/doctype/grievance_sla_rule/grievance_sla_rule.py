@@ -13,12 +13,6 @@ class GrievanceSLARule(Document):
 	is its SLA, and narrower rules override it where they match.
 	"""
 
-	def before_validate(self):
-		"""The category follows the configuration the rule overrides."""
-		self.service_category = frappe.db.get_value(
-			"Grievance SLA Configuration", self.sla_configuration, "service_category"
-		)
-
 	def validate(self):
 		"""A real window (or all year), for a type of the rule's category, that ties with no other
 		rule, in a category that keeps its base rule.

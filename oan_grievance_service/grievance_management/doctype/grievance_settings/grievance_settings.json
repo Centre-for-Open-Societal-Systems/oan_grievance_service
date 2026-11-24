@@ -98,7 +98,7 @@
   },
   {
    "default": "1",
-   "description": "Untick to stop automatic escalation of overdue cases site-wide. Each SLA Configuration can also switch it off for its own category.",
+   "description": "Untick to stop automatic escalation of overdue cases site-wide. Each desk (Grievance RBAC Assignment) can also switch it off for the cases it routes.",
    "fieldname": "auto_escalation_enabled",
    "fieldtype": "Check",
    "label": "Escalate Overdue Cases Automatically"

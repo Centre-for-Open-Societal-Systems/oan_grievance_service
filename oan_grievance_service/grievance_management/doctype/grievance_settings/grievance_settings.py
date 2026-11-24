@@ -30,7 +30,7 @@ def auto_routing_enabled() -> bool:
 
 
 def auto_escalation_enabled() -> bool:
-	"""Site-wide switch for escalating overdue cases; a category can still opt out on its SLA."""
+	"""Site-wide switch for escalating overdue cases; a desk can still opt out for the cases it routes."""
 	return bool(frappe.get_cached_doc("Grievance Settings").auto_escalation_enabled)
 
 

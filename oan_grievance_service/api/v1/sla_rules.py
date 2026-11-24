@@ -43,8 +43,7 @@ route = prefixed("/api/v1/sla-rules")
 
 RULE = "Grievance SLA Rule"
 WINDOW_FIELDS = ("start_month", "start_day", "end_month", "end_day")
-# What a client may write. `service_category` only on create: a rule stays with its category's
-# SLA configuration, which the server finds from it.
+# What a client may write. `service_category` only on create: a rule stays with its category.
 EDITABLE = (
 	"rule_label",
 	"role_level",
@@ -289,7 +288,7 @@ def get_rule(rule_id: str, **kwargs):
 	+ "is_urgent defaults to false (true makes the case Urgent, with priority Urgent). priority is "
 	+ "not sent: it follows is_urgent. A category's first rule must be its base rule (no "
 	+ "type, area or window); creating a category with sla_days, or setting sla_days on "
-	+ "/sla-configurations, makes it. "
+	+ "a category assignment, makes it. "
 	+ RULE_NOTE,
 	tags=["Administration"],
 	response_model=SlaRuleData,
@@ -297,11 +296,7 @@ def get_rule(rule_id: str, **kwargs):
 def create_rule(service_category: str, **kwargs):
 	"""Create a rule. `kwargs` holds the other fields of the request."""
 	doc = frappe.get_doc(
-		{
-			"doctype": RULE,
-			"sla_configuration": classification.configuration_of(resolve_service_category(service_category)),
-			**_values(kwargs),
-		}
+		{"doctype": RULE, "service_category": resolve_service_category(service_category), **_values(kwargs)}
 	)
 	doc.insert()
 	return success_response(data={"rule": _record(doc.name)}, message=_("SLA rule created"))

@@ -6,11 +6,11 @@
 The desk is the source of truth for officers. Field and link checks (officer roles, active
 links, duplicate desks) live in the desk's own `validate()`, so they hold for every writer.
 This module holds what spans entities: projecting a rule onto the desk's officer rows
-and writing the category's Grievance SLA Configuration.
+and writing the category's base SLA days.
 
-The SLA row is per category, not per desk. If departments A and B both serve category X,
-changing `sla_days` through A's rule changes B's too. The days themselves are stored on the
-category's base Grievance SLA Rule.
+The auto-escalate and notify-on-breach flags are the desk's own. `sla_days` is per category,
+not per desk: it is stored on the category's base Grievance SLA Rule, so if departments A and
+B both serve category X, changing `sla_days` through A's rule changes B's too.
 """
 
 import frappe
@@ -20,15 +20,11 @@ from frappe.utils import today
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
+from oan_grievance_service.services import classification
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 DOCTYPE = "Grievance RBAC Assignment"
-SLA_DOCTYPE = "Grievance SLA Configuration"
-SLA_ORDER = "modified desc, name desc"
-# Request fields that change the desk itself. The rest change the category's SLA row.
+# Request fields that change the desk's officers or scope. `sla_days` changes the category's base rule.
 DESK_FIELDS = {"department", "l1_officer", "l2_officer", "active"}
 
 
@@ -101,29 +97,6 @@ def split_officers(rows: list, l1_level: str | None = None, l2_level: str | None
 	return primary, (seconds[0] if seconds else None)
 
 
-def active_sla_rows(categories) -> dict:
-	"""The SLA row runtime uses for each category: active, latest modified first.
-
-	`sla.resolve_policy` reads the same way, so what the API shows and edits is what routing
-	enforces even if legacy data holds more than one active row for a category. `sla_days` is
-	the category's base Grievance SLA Rule's, the one place SLA days are stored.
-	"""
-	from oan_grievance_service.services import classification
-
-	rows = frappe.get_all(
-		SLA_DOCTYPE,
-		filters={"service_category": ["in", list(categories)], "active": 1},
-		fields=["name", "service_category", "auto_escalate"],
-		order_by=SLA_ORDER,
-	)
-	days = classification.base_days({row.service_category for row in rows})
-	by_category = {}
-	for row in rows:
-		row.sla_days = days.get(row.service_category)
-		by_category.setdefault(row.service_category, row)
-	return by_category
-
-
 def create(
 	*,
 	service_category: str,
@@ -132,26 +105,27 @@ def create(
 	l2_officer: str | None = None,
 	sla_days: int | None = None,
 	auto_escalate: bool = True,
+	notify_on_breach: bool = True,
 	active: bool = True,
 ):
-	"""Create the desk, and set the category's SLA when `sla_days` is given. Returns the desk."""
+	"""Create the desk, and set the category's base SLA days when `sla_days` is given. Returns the desk."""
 	state = {
 		"service_category": resolve_service_category(service_category),
 		"department": resolve_department(department) if department else None,
 		"l1_officer": l1_officer,
 		"l2_officer": l2_officer,
-		"sla_days": sla_days,
-		"auto_escalate": auto_escalate,
 		"active": active,
 	}
 	_validate_officers(state)
 	desk = frappe.new_doc(DOCTYPE)
 	desk.effective_from = today()
 	desk.category_scope = state["service_category"]
+	desk.auto_escalate = 1 if auto_escalate else 0
+	desk.notify_on_breach = 1 if notify_on_breach else 0
 	_write_desk(desk, state, seats=(None, None))
 	desk.insert()
 	if sla_days is not None:
-		save_sla_configuration(state["service_category"], sla_days, auto_escalate)
+		classification.set_base_days(state["service_category"], sla_days)
 	return desk
 
 
@@ -186,17 +160,12 @@ def update(desk, changes: dict):
 		_update_desk(desk, changes)
 	else:
 		desk.assigned_by = frappe.session.user
+	for field in ("auto_escalate", "notify_on_breach"):
+		if field in changes:
+			desk.set(field, 1 if changes[field] else 0)
 	desk.save()
-	if {"sla_days", "auto_escalate"} & changes.keys():
-		sla = active_sla_rows([desk.category_scope]).get(desk.category_scope)
-		sla_days = changes.get("sla_days", sla.sla_days if sla else None)
-		# A category with no SLA yet gets one only once sla_days is given.
-		if sla_days is not None:
-			save_sla_configuration(
-				desk.category_scope,
-				sla_days,
-				changes.get("auto_escalate", bool(sla.auto_escalate) if sla else True),
-			)
+	if changes.get("sla_days") is not None:
+		classification.set_base_days(desk.category_scope, changes["sla_days"])
 
 
 def _update_desk(desk, changes: dict):

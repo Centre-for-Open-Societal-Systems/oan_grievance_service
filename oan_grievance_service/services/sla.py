@@ -7,8 +7,8 @@ The clock starts from the creation date/time of the grievance.
 
 What each workflow state does to the clock is its SLA category, set per state in
 setup/install.py (WORKFLOW_STATES): Running, Paused or Stopped. A state can also carry
-a timer - how long a case may sit there - configured per service category on the SLA
-Configuration's State Timers.
+a timer - how long a case may sit there - set once for every case on the Grievance
+Deferral Policy's State Timers.
 
 What belongs here: the SLA clock (start, pause, resume, stop, consumed percentage, working days calculation),
 state timers, and walking a case up the escalation chain.
@@ -20,7 +20,7 @@ Scheduling lives in tasks.py; this module only answers what a run should do.
 
 import logging
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import timedelta
 
 import frappe
@@ -56,15 +56,11 @@ CACHE_KEY_HOLIDAYS_PREFIX = "grievance_holidays_"
 
 @dataclass(frozen=True, slots=True)
 class SLAPolicy:
-	"""Resolved SLA policy configuration for a service category."""
+	"""The SLA a case runs on: its category's rule days and the flags of the desk that routed it."""
 
-	name: str
 	sla_days: int
-	auto_escalate: bool
+	auto_escalate: bool = True
 	notify_on_breach: bool = True
-	first_response_hours: int | None = None
-	update_cadence_hours: int | None = None
-	remand_execution_hours: int | None = None
 	holiday_list: str | None = None
 
 
@@ -137,53 +133,33 @@ def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name:
 	return cur_dt
 
 
-def resolve_policy(service_category, grievance=None) -> SLAPolicy | None:
-	"""One policy per service category: its active SLA configuration, with the SLA days of its rules.
+def resolve_policy(service_category, grievance=None) -> SLAPolicy:
+	"""The SLA days of the category's rules, with the flags of the desk that routed `grievance`.
 
 	The days come only from the category's Grievance SLA Rules (`classification.sla_days_for`).
 	With `grievance`, they are the rule that matches the case (its type, area and filing date),
 	for example 3 days in season against 15 out of it; without it, the base rule's. A category
-	with no rule has 0 days: no deadline, as before for a category without an SLA.
+	with no rule has 0 days: no deadline.
+
+	Auto-escalate and notify-on-breach are the desk's (`grievance.routing_rule`). A case no desk
+	has routed yet, or no `grievance`, has both on. Working days skip the default holiday list.
 	"""
-	policy = _category_policy(service_category)
-	if policy is None:
-		return None
 	from oan_grievance_service.services import classification
 
-	return replace(policy, sla_days=classification.sla_days_for(service_category, grievance) or 0)
-
-
-def _category_policy(service_category) -> SLAPolicy | None:
-	rows = frappe.get_all(
-		"Grievance SLA Configuration",
-		filters={
-			"service_category": service_category,
-			"active": 1,
-		},
-		fields=[
-			"name",
-			"auto_escalate",
-			"notify_on_breach",
-			"first_response_hours",
-			"update_cadence_hours",
-			"remand_execution_hours",
-			"holiday_list",
-		],
-		order_by="modified desc, name desc",
-		limit=1,
+	desk = grievance.get("routing_rule") if grievance else None
+	flags = (
+		frappe.db.get_value(
+			"Grievance RBAC Assignment", desk, ["auto_escalate", "notify_on_breach"], as_dict=True
+		)
+		if desk
+		else None
 	)
-	if not rows:
-		return None
-	r = rows[0]
 	return SLAPolicy(
-		name=r.name,
-		sla_days=0,  # filled in by resolve_policy from the rules
-		auto_escalate=bool(r.auto_escalate),
-		notify_on_breach=bool(r.notify_on_breach),
-		first_response_hours=r.first_response_hours,
-		update_cadence_hours=r.update_cadence_hours,
-		remand_execution_hours=r.remand_execution_hours,
-		holiday_list=r.holiday_list or get_default_holiday_list(),
+		sla_days=classification.sla_days_for(service_category, grievance) or 0,
+		auto_escalate=bool(flags.auto_escalate) if flags else True,
+		notify_on_breach=bool(flags.notify_on_breach) if flags else True,
+		holiday_list=get_default_holiday_list(),
+	)
 	)
 
 
@@ -304,7 +280,7 @@ def arm_escalation(grievance, policy=None):
 	the case starts climbing, the rung's own hours own the schedule and the deadline is
 	no longer the thing being waited on.
 
-	Turning `auto_escalate` off simply leaves the clock unarmed. That is the whole
+	Turning the desk's `auto_escalate` off simply leaves the clock unarmed. That is the whole
 	switch: the batch selects on `next_escalation_at`, so a null is invisible to it,
 	and no per-case policy lookup is needed at escalation time. The SLA window, the
 	reminders and the compliance reporting all carry on untouched.
@@ -316,8 +292,8 @@ def arm_escalation(grievance, policy=None):
 	if grievance.escalated or not grievance.sla_due_date:
 		return
 
-	policy = policy or resolve_policy(grievance.service_category)
-	if not policy or not policy.auto_escalate:
+	policy = policy or resolve_policy(grievance.service_category, grievance)
+	if not policy.auto_escalate:
 		grievance.db_set("next_escalation_at", None, update_modified=False)
 		return
 
@@ -422,34 +398,28 @@ def on_status_change(grievance, to_state, from_state=None):
 		reset_clock(grievance)
 
 
-def state_timer(service_category, state):
+def state_timer(state):
 	"""(hours, on_expiry) for a state, or None when it has no timer.
 
-	Read from the category's SLA Configuration, which starts with the
+	Read from the Grievance Deferral Policy's State Timers, which start with the
 	`DEFAULT_STATE_TIMERS` rows.
 	"""
-	config = (
-		frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": service_category, "active": 1}
-		)
-		if service_category
-		else None
+	row = frappe.db.get_value(
+		"Grievance State Timer",
+		{
+			"parenttype": "Grievance Deferral Policy",
+			"parent": "Grievance Deferral Policy",
+			"workflow_state": state,
+		},
+		["hours", "on_expiry"],
+		as_dict=True,
 	)
-	if config:
-		row = frappe.db.get_value(
-			"Grievance State Timer",
-			{"parenttype": "Grievance SLA Configuration", "parent": config, "workflow_state": state},
-			["hours", "on_expiry"],
-			as_dict=True,
-		)
-		if row:
-			return row.hours, row.on_expiry
-	return None
+	return (row.hours, row.on_expiry) if row else None
 
 
 def arm_state_timer(grievance, state):
 	"""Stamp when the case's new state runs out, or clear the previous state's deadline."""
-	timer = state_timer(grievance.service_category, state)
+	timer = state_timer(state)
 	deadline = add_to_date(now_datetime(), hours=timer[0]) if timer else None
 	if deadline or grievance.get("state_deadline"):
 		grievance.db_set("state_deadline", deadline, update_modified=False)
@@ -639,13 +609,13 @@ def escalate(grievance, reason=None, reassign=True):
 	`escalated` stays a flag, never a status, so the lifecycle stage is untouched.
 	Returns the user the case was handed to, or None when it could not move.
 
-	The category's `notify_on_breach` decides whether the breach notification is queued.
-	The escalation, its timeline entry and the reassignment happen either way.
+	The `notify_on_breach` of the desk that routed the case decides whether the breach
+	notification is queued. The escalation, its timeline entry and the reassignment happen
+	either way.
 	"""
 	from oan_grievance_service.services import notifications
 
-	policy = resolve_policy(grievance.service_category)
-	notify = policy.notify_on_breach if policy else True
+	notify = resolve_policy(grievance.service_category, grievance).notify_on_breach
 
 	previous_assignee = grievance.assigned_to
 	target, level = higher_authority_of(

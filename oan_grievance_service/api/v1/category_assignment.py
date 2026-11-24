@@ -5,14 +5,14 @@
 
 A category assignment is a category-only Grievance RBAC Assignment: one desk per
 (department, service category), with no area, type, or provider scope. Several
-departments can serve the same category. SLA days and auto-escalate are stored on
-the category's Grievance SLA Configuration, which is shared by every department
-serving that category. The desk's own `active` flag is the only on/off switch, so
-deactivating a desk never touches the SLA row. Area-aware desks are left alone and
-still win when they are the nearer match. Desk officers are assigned standard role levels.
+departments can serve the same category. The auto-escalate and notify-on-breach flags
+are the desk's own. SLA days are the category's base Grievance SLA Rule's, shared by every
+department serving that category. Deactivating a desk never touches the rule. Area-aware
+desks are left alone and still win when they are the nearer match. Desk officers are
+assigned standard role levels.
 
 Handlers stay thin. Field and link checks live in the desk's `validate()`, and the
-workflow (officer projection, SLA row) lives in `services/category_assignment.py`.
+workflow (officer projection, base SLA days) lives in `services/category_assignment.py`.
 """
 
 from collections import defaultdict
@@ -33,12 +33,21 @@ from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import category_assignment as service
+from oan_grievance_service.services import classification
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ADMIN_ROLES
 from oan_grievance_service.services.resolvers import resolve_department, resolve_service_category
 
 route = prefixed("/api/v1/category-assignments")
 
-DESK_FIELDS = ["name", "category_scope", "department_scope", "routing_strategy", "active"]
+DESK_FIELDS = [
+	"name",
+	"category_scope",
+	"department_scope",
+	"routing_strategy",
+	"auto_escalate",
+	"notify_on_breach",
+	"active",
+]
 
 
 class CategoryAssignmentRecord(BaseModel):
@@ -50,7 +59,8 @@ class CategoryAssignmentRecord(BaseModel):
 	l2_officer: str | None = None
 	l2_officer_name: str | None = None
 	sla_days: int | None = None
-	auto_escalate: bool | None = None
+	auto_escalate: bool
+	notify_on_breach: bool
 	active: bool
 	l1_role_level: str | None = None
 	l2_role_level: str | None = None
@@ -77,6 +87,7 @@ class CreateCategoryAssignment(Body):
 	l2_officer: NonBlank | None = None
 	sla_days: int | None = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = True
+	notify_on_breach: bool = True
 	active: bool = True
 
 	_blank = field_validator("department", "l1_officer", "l2_officer", mode="before")(blank_to_none)
@@ -91,6 +102,7 @@ class UpdateCategoryAssignment(Body):
 	l2_officer: NonBlank | None = None
 	sla_days: int = Field(default=None, ge=1, title=N_("SLA days"))
 	auto_escalate: bool = None
+	notify_on_breach: bool = None
 	active: bool = None
 
 	_blank = field_validator("department", "l1_officer", "l2_officer", mode="before")(blank_to_none)
@@ -107,7 +119,7 @@ class ListCategoryAssignments(PageParams, Body):
 
 
 def _records(desks: list) -> list[dict]:
-	"""Project desk rows to API records with one query each for officers, SLA rows, and names."""
+	"""Project desk rows to API records with one query each for officers, base SLA days, and names."""
 	if not desks:
 		return []
 	officers = defaultdict(list)
@@ -118,7 +130,7 @@ def _records(desks: list) -> list[dict]:
 		order_by="parent, idx",
 	):
 		officers[row.parent].append(row)
-	sla_rows = service.active_sla_rows({desk.category_scope for desk in desks})
+	days = classification.base_days({desk.category_scope for desk in desks})
 	splits = [service.split_officers(officers[desk.name]) for desk in desks]
 	full_names = {
 		row.name: row.full_name
@@ -130,7 +142,6 @@ def _records(desks: list) -> list[dict]:
 	}
 	records = []
 	for desk, (primary, secondary) in zip(desks, splits, strict=True):
-		sla = sla_rows.get(desk.category_scope)
 		records.append(
 			CategoryAssignmentRecord(
 				name=desk.name,
@@ -140,8 +151,9 @@ def _records(desks: list) -> list[dict]:
 				l1_officer_name=full_names.get(primary.user) if primary else None,
 				l2_officer=secondary.user if secondary else None,
 				l2_officer_name=full_names.get(secondary.user) if secondary else None,
-				sla_days=sla.sla_days if sla else None,
-				auto_escalate=bool(sla.auto_escalate) if sla else None,
+				sla_days=days.get(desk.category_scope),
+				auto_escalate=bool(desk.auto_escalate),
+				notify_on_breach=bool(desk.notify_on_breach),
 				active=bool(desk.active),
 				l1_role_level=primary.role_level if primary else None,
 				l2_role_level=secondary.role_level if secondary else None,
@@ -156,9 +168,9 @@ def _record(name: str) -> dict:
 
 
 SLA_NOTE = (
-	"The SLA window and auto-escalate flag belong to the service category, not to this rule. "
-	"Departments that serve the same category share one SLA row, so changing them here "
-	"changes them for every department's rule on that category."
+	"auto_escalate and notify_on_breach are this rule's own. sla_days is the service category's "
+	"base SLA rule, shared by every department that serves the category, so changing it here "
+	"changes it for every department's rule on that category."
 )
 
 
@@ -169,7 +181,7 @@ SLA_NOTE = (
 @api_doc(
 	summary="List category assignments",
 	description="Admin list of category-to-department routing rules, filterable by category, department, and active flag. "
-	+ "sla_days and auto_escalate are the category's shared values.",
+	+ "sla_days is the category's shared base SLA days; auto_escalate and notify_on_breach are each rule's own.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentListData,
 )
@@ -249,10 +261,11 @@ def create_assignment(
 	sla_days: int | str | None = None,
 	l2_officer: str | None = None,
 	auto_escalate: bool | str = True,
+	notify_on_breach: bool | str = True,
 	active: bool | str = True,
 	**kwargs,
 ):
-	"""Create a category-only RBAC desk and set the category's SLA."""
+	"""Create a category-only RBAC desk and set the category's base SLA days."""
 	desk = service.create(
 		service_category=service_category,
 		department=department,
@@ -260,6 +273,7 @@ def create_assignment(
 		l2_officer=l2_officer,
 		sla_days=sla_days,
 		auto_escalate=auto_escalate,
+		notify_on_breach=notify_on_breach,
 		active=active,
 	)
 	return success_response(
@@ -274,7 +288,7 @@ def create_assignment(
 @validate_request(UpdateCategoryAssignment, exclude_unset=True)
 @api_doc(
 	summary="Update a category assignment",
-	description="Change department, officers, SLA window, or the auto-escalate and active flags. "
+	description="Change department, officers, SLA window, or the auto-escalate, notify-on-breach and active flags. "
 	+ "The service category is fixed once created. "
 	+ "Changing l1_officer or l2_officer replaces only that seat. Other officers on the desk, "
 	+ "such as those added on the Nodal Officers tab, are kept. "
@@ -300,7 +314,7 @@ def update_assignment(assignment: str, **kwargs):
 @validate_request(AssignmentRef)
 @api_doc(
 	summary="Deactivate a category assignment",
-	description="Retire a category routing rule. The RBAC desk stays for audit and is marked inactive. The category's SLA row is not changed. Same as PATCH with active false.",
+	description="Retire a category routing rule. The RBAC desk stays for audit and is marked inactive. The category's SLA rules are not changed. Same as PATCH with active false.",
 	tags=["Administration"],
 	response_model=CategoryAssignmentData,
 )

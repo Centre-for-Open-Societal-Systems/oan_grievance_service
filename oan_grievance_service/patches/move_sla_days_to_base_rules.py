@@ -32,7 +32,7 @@ def execute():
 		doc = frappe.get_doc(
 			{
 				"doctype": RULE,
-				"sla_configuration": config.name,
+				"service_category": category,
 				"rule_label": "Base",
 				"sla_days": config.sla_days,
 				"is_urgent": 0,
@@ -55,12 +55,12 @@ def execute():
 
 
 def _configurations() -> list:
-	"""(name, service_category, sla_days) of the active configurations, newest first, from the column the
+	"""(service_category, sla_days) of the active configurations, newest first, from the column the
 	doctype no longer has. Empty on a site that never had it."""
 	if not frappe.db.has_column("Grievance SLA Configuration", "sla_days"):
 		return []
 	return frappe.db.sql(
-		"""select name, service_category, sla_days from `tabGrievance SLA Configuration`
+		"""select service_category, sla_days from `tabGrievance SLA Configuration`
 		where active = 1 and ifnull(service_category, '') != '' and ifnull(sla_days, 0) > 0
 		order by modified desc""",
 		as_dict=True,

@@ -558,7 +558,7 @@ class Grievance(Document):
 					updates["next_escalation_at"] = get_datetime(self.next_escalation_at) + shift
 				self.db_set(updates, update_modified=False)
 				if "next_escalation_at" not in updates:
-					sla.arm_escalation(self, sla.resolve_policy(self.service_category))
+					sla.arm_escalation(self, sla.resolve_policy(self.service_category, self))
 				# A later deadline is news for the submitter; an earlier one is not.
 				if shift.total_seconds() > 0:
 					from oan_grievance_service.services import notifications
