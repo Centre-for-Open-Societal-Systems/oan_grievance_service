@@ -39,6 +39,10 @@ frappe:
       # ReadWriteMany from the NFS server.
       storageClass: nfs-csi
 
+  # Creates the OAN Administrator role (frappe-service adminRole job), which the admin API of oan_auth_service accepts.
+  adminRole:
+    enabled: true
+
   siteConfig:
     values:
       host_name: https://grievance-service.development.oanstaging.com
