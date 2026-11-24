@@ -249,6 +249,17 @@ iamServices:
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
   application: oan-client
+# Staff Login: the same identity provider as `agent`, listed after it. The login page picks the provider by
+# `key`, and `staff` is the key of its Staff Login option.
+- key: staff
+  label: Staff
+  enabled: 1
+  sort_order: 25
+  base_url: "https://staff-iam.{{ .Values.global.baseDomain }}"
+  provider_id: 1
+  issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
+  client_id: staff-portal
+  application: oan-client
 - key: beneficiary
   label: National ID (eSignet)
   enabled: 1
