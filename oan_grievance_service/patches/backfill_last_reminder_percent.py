@@ -17,8 +17,9 @@ import frappe
 
 def execute():
 	grievance = frappe.qb.DocType("Grievance")
-	# Lowest first, so a case that sent both ends at 80.
-	for flag, percent in (("reminder_50_sent", 50), ("reminder_80_sent", 80)):
+	# Lowest first, so a case that sent several ends at the highest.
+	# reminder_20_sent exists only where an earlier build of this change ran.
+	for flag, percent in (("reminder_20_sent", 20), ("reminder_50_sent", 50), ("reminder_80_sent", 80)):
 		if not frappe.db.has_column("Grievance", flag):
 			continue
 		(
