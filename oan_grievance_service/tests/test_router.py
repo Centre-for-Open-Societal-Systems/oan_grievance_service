@@ -10,6 +10,9 @@ from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
 from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
+from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
+	save_sla_configuration,
+)
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
@@ -100,14 +103,7 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
 		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
-			frappe.get_doc(
-				{
-					"doctype": "Grievance SLA Configuration",
-					"service_category": "Inputs",
-					"sla_days": 15,
-					"active": 1,
-				}
-			).insert(ignore_permissions=True)
+			save_sla_configuration("Inputs", 15)
 
 		self.area = a_leaf_area()
 
@@ -1179,3 +1175,131 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 
 		# Clean up
 		frappe.db.delete("Grievance Response Template", {"name": tmpl_id})
+
+	def test_list_role_levels_endpoint(self):
+		"""GET /api/v1/role-levels lists role levels ordered by rank."""
+		frappe.set_user("Administrator")
+		req = make_test_request("/api/v1/role-levels", method="GET")
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+		self.assertIn("role_levels", body["data"])
+		self.assertIn("total", body["data"])
+		self.assertIn("pagination", body["data"])
+
+		levels = body["data"]["role_levels"]
+		self.assertGreaterEqual(len(levels), 4)
+
+		# Verify ordering junior to senior
+		orders = [lvl["level_order"] for lvl in levels]
+		self.assertEqual(orders, sorted(orders))
+
+		# Verify expected record shape
+		first = levels[0]
+		self.assertIn("level_code", first)
+		self.assertIn("level_name", first)
+		self.assertIn("level_order", first)
+		self.assertIn("escalation_hours", first)
+		self.assertIn("is_active", first)
+		self.assertIn("description", first)
+
+	def test_list_role_levels_filters_and_pagination(self):
+		"""GET /api/v1/role-levels supports active filtering, search, and pagination."""
+		frappe.set_user("Administrator")
+
+		# Active only
+		req_active = make_test_request("/api/v1/role-levels?is_active=1", method="GET")
+		res_active = frappe.api.handle(req_active)
+		self.assertEqual(res_active.status_code, 200)
+		body_active = json.loads(res_active.get_data(as_text=True))
+		for lvl in body_active["data"]["role_levels"]:
+			self.assertTrue(lvl["is_active"])
+
+		# Inactive only (review_officer)
+		req_inactive = make_test_request("/api/v1/role-levels?is_active=0", method="GET")
+		res_inactive = frappe.api.handle(req_inactive)
+		self.assertEqual(res_inactive.status_code, 200)
+		body_inactive = json.loads(res_inactive.get_data(as_text=True))
+		for lvl in body_inactive["data"]["role_levels"]:
+			self.assertFalse(lvl["is_active"])
+		codes = [lvl["level_code"] for lvl in body_inactive["data"]["role_levels"]]
+		self.assertIn("review_officer", codes)
+
+		# Search filter
+		req_search = make_test_request("/api/v1/role-levels?search=Kebele", method="GET")
+		res_search = frappe.api.handle(req_search)
+		self.assertEqual(res_search.status_code, 200)
+		body_search = json.loads(res_search.get_data(as_text=True))
+		search_codes = [lvl["level_code"] for lvl in body_search["data"]["role_levels"]]
+		self.assertIn("nodal_officer", search_codes)
+
+		# Pagination
+		req_paged = make_test_request("/api/v1/role-levels?page=1&page_size=2", method="GET")
+		res_paged = frappe.api.handle(req_paged)
+		self.assertEqual(res_paged.status_code, 200)
+		body_paged = json.loads(res_paged.get_data(as_text=True))
+		self.assertEqual(len(body_paged["data"]["role_levels"]), 2)
+		self.assertEqual(body_paged["data"]["pagination"]["page"], 1)
+		self.assertEqual(body_paged["data"]["pagination"]["page_size"], 2)
+		self.assertTrue(body_paged["data"]["pagination"]["has_next"])
+
+	def test_get_role_level_endpoint(self):
+		"""GET /api/v1/role-levels/<level_code> returns a single level or 404."""
+		frappe.set_user("Administrator")
+
+		# Existing level
+		req = make_test_request("/api/v1/role-levels/nodal_officer", method="GET")
+		res = frappe.api.handle(req)
+		self.assertEqual(res.status_code, 200)
+		body = json.loads(res.get_data(as_text=True))
+		self.assertEqual(body["status"], "success")
+		record = body["data"]["role_level"]
+		self.assertEqual(record["level_code"], "nodal_officer")
+		self.assertEqual(record["level_name"], "Kebele Nodal Officer")
+		self.assertEqual(record["level_order"], 10)
+		self.assertEqual(record["escalation_hours"], 48)
+		self.assertTrue(record["is_active"])
+
+		# Nonexistent level
+		req_404 = make_test_request("/api/v1/role-levels/nonexistent_level_code", method="GET")
+		res_404 = frappe.api.handle(req_404)
+		self.assertEqual(res_404.status_code, 404)
+
+	def test_role_levels_permissions(self):
+		"""Guest requests to /api/v1/role-levels are refused with 403."""
+		frappe.set_user("Guest")
+		req = make_test_request("/api/v1/role-levels", method="GET")
+		res = frappe.api.handle(req)
+		self.assertIn(res.status_code, (401, 403))
+
+	def test_officer_filter_by_level_tier_code_or_label(self):
+		"""GET /api/v1/officers accepts L-tier ('L1'), level_code ('nodal_officer'), and label."""
+		frappe.set_user("Administrator")
+		res_l1 = frappe.api.handle(make_test_request("/api/v1/officers?level=L1", method="GET"))
+		self.assertEqual(res_l1.status_code, 200)
+		officers_l1 = json.loads(res_l1.get_data(as_text=True))["data"]["officers"]
+
+		res_code = frappe.api.handle(make_test_request("/api/v1/officers?level=nodal_officer", method="GET"))
+		self.assertEqual(res_code.status_code, 200)
+		officers_code = json.loads(res_code.get_data(as_text=True))["data"]["officers"]
+
+		res_label = frappe.api.handle(
+			make_test_request("/api/v1/officers?level=Kebele Nodal Officer", method="GET")
+		)
+		self.assertEqual(res_label.status_code, 200)
+		officers_label = json.loads(res_label.get_data(as_text=True))["data"]["officers"]
+
+		# All three representations resolve to the same officer list
+		self.assertEqual(
+			[o["name"] for o in officers_l1],
+			[o["name"] for o in officers_code],
+		)
+		self.assertEqual(
+			[o["name"] for o in officers_l1],
+			[o["name"] for o in officers_label],
+		)
+
+		# An unconfigured level throws VALIDATION_ERROR 400
+		res_bad = frappe.api.handle(make_test_request("/api/v1/officers?level=L99", method="GET"))
+		self.assertEqual(res_bad.status_code, 400)

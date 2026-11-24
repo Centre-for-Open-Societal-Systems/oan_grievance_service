@@ -38,6 +38,7 @@ import frappe
 from frappe.query_builder import Case, Order
 from frappe.query_builder.functions import Coalesce, Count, Date, Min, Sum, UnixTimestamp
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
+from oan_auth_service.api import operational_log as oplog
 from pypika.terms import ExistsCriterion, LiteralValue
 
 from oan_grievance_service.services import constants as C
@@ -413,7 +414,7 @@ def _request_safely(full=False):
 	try:
 		_request(full)
 	except Exception:
-		frappe.log_error(title="Dashboard rollup refresh was not requested")
+		oplog.log_error(title="Dashboard rollup refresh was not requested")
 
 
 def _kick():

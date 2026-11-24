@@ -3,8 +3,7 @@
 
 """Grievance Service Provider: the directory behind the grievance form's provider dropdown.
 
-What belongs here: the record's own rules (a parent chain without loops) and the queries
-over the directory, such as search.
+What belongs here: the record's own rules and the queries over the directory, such as search.
 
 What does not belong here: who may call the search. That is the endpoint guard in
 api/v1/service_provider.py.
@@ -44,7 +43,6 @@ MAX_PAGE_SIZE = 50
 SYNC_OWNED_FIELDS = (
 	"provider_name",
 	"provider_type",
-	"parent_provider",
 	"administrative_area",
 	"registered_region",
 	"registration_number",
@@ -57,7 +55,6 @@ SYNC_OWNED_FIELDS = (
 class GrievanceServiceProvider(Document):
 	def validate(self):
 		self.provider_name = (self.provider_name or "").strip()
-		self.validate_parent_chain()
 		self.validate_sync_owned_fields()
 		if self.is_new() or self.has_value_changed("provider_type"):
 			ensure_usable(self.provider_type)
@@ -74,26 +71,6 @@ class GrievanceServiceProvider(Document):
 				).format(frappe.bold(self.name), frappe.bold(self.source)),
 				frappe.ValidationError,
 			)
-
-	def validate_parent_chain(self):
-		"""A provider can't be its own parent, and the parent chain must not loop."""
-		if not self.parent_provider:
-			return
-		if self.parent_provider == self.name:
-			frappe.throw(_("A provider cannot be its own parent."), frappe.ValidationError)
-
-		seen = {self.name}
-		current = self.parent_provider
-		while current:
-			if current in seen:
-				frappe.throw(
-					_("Parent Provider {0} would make the parent chain loop.").format(
-						frappe.bold(self.parent_provider)
-					),
-					frappe.ValidationError,
-				)
-			seen.add(current)
-			current = frappe.db.get_value(DOCTYPE, current, "parent_provider")
 
 
 def on_doctype_update():
@@ -112,7 +89,7 @@ def search_providers(
 ) -> tuple[list[dict], int]:
 	"""Active providers matching the filters, one page of rows and the total count.
 
-	`search` matches the provider's name, its registration number and its parent's name.
+	`search` matches the provider's name and its registration number.
 	`area` keeps providers inside that area or in any area above it, so a kebele-level
 	user still sees the woreda, zone, region and national providers. A provider with no
 	area is nationwide and always matches. The most local providers sort first, after
@@ -123,15 +100,15 @@ def search_providers(
 		frappe.throw(
 			_("Provider type {0} does not exist.").format(frappe.bold(provider_type)), frappe.ValidationError
 		)
-	Provider, Parent, Area = _tables()
-	matching = _filtered(Provider, Parent, Area, search, provider_type, area_id)
+	Provider, Area = _tables()
+	matching = _filtered(Provider, Area, search, provider_type, area_id)
 
 	total = matching.select(Count("*")).run()[0][0]
 	if not total:
 		return [], 0
 
 	rows = (
-		_ordered(matching.select(*_columns(Provider, Parent, Area)), Provider, Area, search)
+		_ordered(matching.select(*_columns(Provider, Area)), Provider, Area, search)
 		.limit(page_size)
 		.offset((page - 1) * page_size)
 		.run(as_dict=True)
@@ -141,10 +118,10 @@ def search_providers(
 
 def get_provider(provider_id: str) -> dict:
 	"""One provider row, active or not, so an old grievance can still show its name."""
-	Provider, Parent, Area = _tables()
+	Provider, Area = _tables()
 	rows = (
-		_joined(Provider, Parent, Area)
-		.select(*_columns(Provider, Parent, Area))
+		_joined(Provider, Area)
+		.select(*_columns(Provider, Area))
 		.where(Provider.name == provider_id)
 		.run(as_dict=True)
 	)
@@ -166,7 +143,6 @@ def provider_items(rows: list[dict], with_status: bool = False) -> list[dict]:
 			"id": row.name,
 			"name": row.provider_name,
 			"type": row.provider_type,
-			"parent": {"id": row.parent_id, "name": row.parent_name} if row.parent_id else None,
 			"area": {
 				"id": row.administrative_area,
 				"name": row.area_name,
@@ -188,12 +164,11 @@ def provider_items(rows: list[dict], with_status: bool = False) -> list[dict]:
 def _tables():
 	return (
 		frappe.qb.DocType(DOCTYPE),
-		frappe.qb.DocType(DOCTYPE, alias="parent"),
 		frappe.qb.DocType("Grievance Administrative Area"),
 	)
 
 
-def _columns(Provider, Parent, Area):
+def _columns(Provider, Area):
 	return (
 		Provider.name,
 		Provider.provider_name,
@@ -204,20 +179,12 @@ def _columns(Provider, Parent, Area):
 		Provider.logo,
 		Provider.external_ref,
 		Provider.is_active,
-		Parent.name.as_("parent_id"),
-		Parent.provider_name.as_("parent_name"),
 		Area.area_name,
 	)
 
 
-def _joined(Provider, Parent, Area):
-	return (
-		frappe.qb.from_(Provider)
-		.left_join(Parent)
-		.on(Parent.name == Provider.parent_provider)
-		.left_join(Area)
-		.on(Area.name == Provider.administrative_area)
-	)
+def _joined(Provider, Area):
+	return frappe.qb.from_(Provider).left_join(Area).on(Area.name == Provider.administrative_area)
 
 
 def _resolve_area(area: str | None) -> str | None:
@@ -229,18 +196,14 @@ def _resolve_area(area: str | None) -> str | None:
 	return area_id
 
 
-def _filtered(Provider, Parent, Area, search, provider_type, area_id):
+def _filtered(Provider, Area, search, provider_type, area_id):
 	"""Active providers narrowed by the filters."""
-	query = _joined(Provider, Parent, Area).where(Provider.is_active == 1)
+	query = _joined(Provider, Area).where(Provider.is_active == 1)
 	if provider_type:
 		query = query.where(Provider.provider_type == provider_type)
 	if search:
 		pattern = f"%{_escape_like(search)}%"
-		query = query.where(
-			Provider.provider_name.like(pattern)
-			| Provider.registration_number.like(pattern)
-			| Parent.provider_name.like(pattern)
-		)
+		query = query.where(Provider.provider_name.like(pattern) | Provider.registration_number.like(pattern))
 	if area_id:
 		lft, rgt = get_area_bounds(area_id)
 		inside = (Area.lft >= lft) & (Area.rgt <= rgt)

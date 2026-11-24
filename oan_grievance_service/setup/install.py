@@ -15,7 +15,9 @@ from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.gri
 	save_sla_configuration,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import ticket_number
 from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
+from oan_grievance_service.setup.service_users import ensure_ivr_service_user
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
@@ -76,17 +78,14 @@ WORKFLOW_TRANSITIONS = [
 	(C.STATE_ASSIGNED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_ASSIGNED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_ASSIGNED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	# A reopened case waits for an officer exactly as an assigned one does.
 	(C.STATE_REOPENED, "In Progress", C.STATE_IN_PROGRESS, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_REOPENED, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_REOPENED, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Request More Info", C.STATE_MORE_INFO_NEEDED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
-	(C.STATE_IN_PROGRESS, "Partially Resolve", C.STATE_RESOLVED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Refer Onward", C.STATE_ASSIGNED, OFFICER_ROLES),
 	(C.STATE_IN_PROGRESS, "Reject", C.STATE_REJECTED, OFFICER_ROLES),
 	(C.STATE_MORE_INFO_NEEDED, "Submitter Reply", C.STATE_IN_PROGRESS, SUBMITTER_ROLES),
@@ -143,38 +142,47 @@ ORG_WORKFLOW_TRANSITIONS = [
 # these govern the climb after that, which is why they shorten going up. The department
 # head has none, which is what makes that rung terminal.
 ROLE_LEVELS = [
-	("nodal_officer", "Nodal Officer", 10, 48, "L1. Department-wide coordination point for grievances."),
+	("nodal_officer", "Kebele Nodal Officer", 10, 48, "L1. Kebele-level coordination point for grievances."),
 	(
 		"senior_nodal_officer",
-		"Senior Nodal Officer",
+		"Woreda Nodal Officer",
 		20,
 		24,
-		"L2. Senior coordination; first rung above the nodal officer.",
+		"L2. Woreda-level coordination; first rung above the Kebele nodal officer.",
 	),
-	("department_head", "Category Admin", 30, 0, "Final internal escalation rung for the department."),
+	(
+		"zonal_head",
+		"Zonal Head",
+		25,
+		24,
+		"L3. Zonal-level coordination and escalation point.",
+	),
+	(
+		"department_head",
+		"Regional Bureau Head",
+		30,
+		0,
+		"L4. Final internal escalation rung for the region/department.",
+	),
 ]
 
 # The level a Reviewer's rows carry on a department's desks. A desk row needs a level, but a
 # Reviewer is read-only oversight and not a step of the chain, so it is inactive: `get_chain`
 # and `top_rung` read active levels only. Routing and the officer picker skip these rows.
 REVIEWER_ROLE_LEVEL = (
-	C.ROLE_LEVEL_REVIEW_OFFICER,
+	"review_officer",
 	"Review Officer",
 	910,
 	"Read-only oversight of a department. Not a step of the escalation chain.",
 )
 
-# Service categories. The code is the 3-character CATEGORY segment of the ticket number
-# (services.ticket_number). Three characters allow 32,768 categories, so a
-# service can later be split into much finer groups without the codes running
-# out. Assigned sequentially; a retired code is never reused.
+# The service category the app owns: the catch-all that routing falls back to, and the one the unrouted desk
+# is scoped to. Every other category comes from the seed data (openg2p-data), not from the app. The code is the
+# 3-character CATEGORY segment of the ticket number (services.ticket_number). Three characters allow 32,768
+# categories, so a service can later be split into much finer groups without the codes running out. A retired
+# code is never reused. The catch-all is `SYS`, as in the Routing Matrix.
 SERVICE_CATEGORIES = [
-	("Inputs", "001", 1),
-	("Schemes", "002", 2),
-	("Payments", "003", 3),
-	("Credit", "004", 4),
-	("Markets", "005", 5),
-	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CATEGORY_CODE, 20),
 ]
 
 # Baseline SLA configurations for standard service categories.
@@ -263,20 +271,6 @@ RESPONSE_TEMPLATES = [
 			+ "Resolution Summary:\n"
 			+ "Dear {{ submitter_name }}, your grievance has been resolved. If you are not satisfied "
 			+ "with the outcome, you can reopen it from the grievance page.\n\n"
-			+ "{{ officer_name }}, {{ today }}"
-		),
-	),
-	(
-		"Partially resolved - standard",
-		"Partially Resolve",
-		(
-			"Action Taken:\n"
-			+ "{{ department or 'The department' }} reviewed your grievance {{ ticket_number }} "
-			+ "on {{ service_category }} and took the following action:\n\n"
-			+ "Resolution Summary:\n"
-			+ "Dear {{ submitter_name }}, part of your grievance has been addressed. What remains "
-			+ "open and why:\n\n"
-			+ "If you are not satisfied, you can reopen the grievance from the grievance page.\n\n"
 			+ "{{ officer_name }}, {{ today }}"
 		),
 	),
@@ -555,10 +549,12 @@ NOTIFICATION_EVENTS = [
 
 def after_install():
 	seed_all()
+	ensure_ivr_service_user()
 
 
 def after_migrate():
 	seed_all()
+	ensure_ivr_service_user()
 
 
 def seed_all():
@@ -580,6 +576,7 @@ def seed_all():
 		"notifications": seed_notifications(),
 		"administrative_areas": seed_administrative_areas(),
 		"region_ticket_codes": seed_region_ticket_codes(),
+		"unlocated_area": seed_unlocated_area(),
 		"holiday_list": seed_holiday_list(),
 		"sla_configurations": seed_sla_configurations(),
 	}
@@ -669,16 +666,46 @@ def seed_grievance_types():
 	for name, category in GRIEVANCE_TYPES:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
-		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
-			continue
-		frappe.get_doc(
-			{
+		is_catch_all = name == C.FALLBACK_GRIEVANCE_TYPE and category == C.FALLBACK_SERVICE_CATEGORY
+		if is_catch_all:
+			if frappe.db.exists("Grievance Type", C.FALLBACK_TYPE_CODE):
+				if not frappe.db.get_value("Grievance Type", C.FALLBACK_TYPE_CODE, "type_code"):
+					frappe.db.set_value(
+						"Grievance Type", C.FALLBACK_TYPE_CODE, "type_code", C.FALLBACK_TYPE_CODE
+					)
+				continue
+			existing_by_tuple = frappe.db.get_value(
+				"Grievance Type",
+				{"service_category": category, "type_name": name},
+				["name", "type_code"],
+				as_dict=True,
+			)
+			if existing_by_tuple:
+				if existing_by_tuple.name != C.FALLBACK_TYPE_CODE:
+					frappe.rename_doc(
+						"Grievance Type", existing_by_tuple.name, C.FALLBACK_TYPE_CODE, force=True
+					)
+				if existing_by_tuple.type_code != C.FALLBACK_TYPE_CODE:
+					frappe.db.set_value(
+						"Grievance Type", C.FALLBACK_TYPE_CODE, "type_code", C.FALLBACK_TYPE_CODE
+					)
+				continue
+			row = {
 				"doctype": "Grievance Type",
+				"name": C.FALLBACK_TYPE_CODE,
 				"type_name": name,
 				"service_category": category,
+				"type_code": C.FALLBACK_TYPE_CODE,
 				"is_active": 1,
 			}
-		).insert(ignore_permissions=True)
+			frappe.get_doc(row).insert(ignore_permissions=True, set_name=C.FALLBACK_TYPE_CODE)
+			made.append(name)
+			continue
+
+		if frappe.db.exists("Grievance Type", {"type_name": name, "service_category": category}):
+			continue
+		row = {"doctype": "Grievance Type", "type_name": name, "service_category": category, "is_active": 1}
+		frappe.get_doc(row).insert(ignore_permissions=True, set_name=row.get("type_code"))
 		made.append(name)
 	return made
 
@@ -724,6 +751,27 @@ def seed_region_ticket_codes():
 		frappe.db.set_value("Grievance Administrative Area", name, "ticket_code", ticket_code)
 		made.append(f"{official_code}={ticket_code}")
 	return made
+
+
+def seed_unlocated_area():
+	"""The row that stands for the ticket character of a case filed with no area.
+
+	A top-level "Other" node, so it never appears among the Regions an area picker lists.
+	Runs after the tree seed, which is skipped once any area exists.
+	"""
+	if frappe.db.exists("Grievance Administrative Area", {"code": ticket_number.UNLOCATED_AREA_CODE}):
+		return []
+	frappe.get_doc(
+		{
+			"doctype": "Grievance Administrative Area",
+			"area_name": "Unlocated",
+			"code": ticket_number.UNLOCATED_AREA_CODE,
+			"level_name": "Other",
+			"ticket_code": ticket_number.UNLOCATED_REGION,
+			"is_active": 1,
+		}
+	).insert(ignore_permissions=True)
+	return [ticket_number.UNLOCATED_AREA_CODE]
 
 
 def seed_roles():
@@ -918,18 +966,21 @@ def seed_role_levels():
 
 
 def seed_categories():
-	"""Seed the service categories if they are absent.
-
-	Converting the code of a category that already exists is a one-time data
-	migration, not seeding, so it lives in
-	`patches/convert_service_category_codes_to_base32.py` instead.
-	"""
+	"""Seed the service categories if they are absent."""
 	made = []
 	for name, code, order in SERVICE_CATEGORIES:
 		# An admin may have renamed a seeded category; its code still marks it as seeded.
 		if frappe.db.exists("Grievance Service Category", name) or frappe.db.exists(
 			"Grievance Service Category", {"code": code}
 		):
+			if name == C.FALLBACK_SERVICE_CATEGORY and frappe.db.exists("Grievance Service Category", name):
+				current_code = frappe.db.get_value("Grievance Service Category", name, "code")
+				if current_code != code and not frappe.db.exists(
+					"Grievance Service Category", {"code": code}
+				):
+					frappe.db.set_value(
+						"Grievance Service Category", name, "code", code, update_modified=False
+					)
 			continue
 		frappe.get_doc(
 			{
@@ -967,6 +1018,7 @@ def seed_unrouted_desk():
 			}
 		).insert(ignore_permissions=True)
 		made.append("officer")
+
 	if not frappe.db.exists("Grievance RBAC Assignment", {"department_scope": C.UNROUTED_DEPARTMENT}):
 		frappe.get_doc(
 			{
@@ -980,6 +1032,7 @@ def seed_unrouted_desk():
 					{
 						"user": C.UNROUTED_OFFICER,
 						"role_level": "department_head",
+						"designation": "other officer",
 						"is_primary": 1,
 						"active": 1,
 					}
@@ -1055,65 +1108,15 @@ def seed_service_provider_types():
 	return made
 
 
-# Where a deployment says how to reach A2C: a site_config key, or the same name in upper case
-# as an environment variable. The password lands in the source's encrypted Password field.
-A2C_BANKS_SETTINGS = (
-	"grievance_a2c_banks_url",
-	"grievance_a2c_banks_username",
-	"grievance_a2c_banks_password",
-)
-
-
-def a2c_banks_connection() -> dict | None:
-	"""The deployment's A2C connection as source fields, or None unless all three are set."""
-	values = [
-		str(frappe.conf.get(key) or os.environ.get(key.upper()) or "").strip() for key in A2C_BANKS_SETTINGS
-	]
-	if not all(values):
-		return None
-	return dict(zip(("api_base_url", "api_username", "api_password"), values, strict=True))
-
-
 def seed_service_provider_sources():
-	"""The A2C bank catalog as a source; enabled when the deployment says how to reach it.
+	"""The A2C bank catalog as a source, disabled and blank until an operator completes it.
 
-	It carries the shape of the A2C catalog (login path, list path, field names). When the
-	site config or environment holds the A2C URL, username and password (A2C_BANKS_SETTINGS),
-	the source gets them and is enabled, and enabling queues its first sync, so a new server
-	fills its directory on deploy. Without them it stays disabled and blank until an operator
-	completes it.
-
-	A source that already has a connection or is enabled is left alone: it holds the site's own
-	choice, and a deploy must not undo an operator who switched it off. A connection that does
-	not validate (for example an http URL) is logged and skipped, so it cannot break a migrate.
+	It carries the shape of the A2C catalog (login path, list path, field names). A source that
+	already exists is left alone: it holds the site's own choice.
 	"""
-	existing = frappe.db.exists("Grievance Service Provider Source", A2C_BANKS_SOURCE)
-	doc = frappe.get_doc("Grievance Service Provider Source", A2C_BANKS_SOURCE) if existing else None
-	if doc and (doc.is_enabled or doc.api_base_url):
+	if frappe.db.exists("Grievance Service Provider Source", A2C_BANKS_SOURCE):
 		return []
-
-	connection = a2c_banks_connection()
-	if connection:
-		doc = doc or _a2c_banks_doc()
-		doc.update({**connection, "is_enabled": 1})
-		try:
-			doc.save(ignore_permissions=True)
-			return [A2C_BANKS_SOURCE]
-		except frappe.ValidationError:
-			# Validation runs before anything is written, so the migrate's other seeds are safe.
-			frappe.log_error(
-				title=f"oan_grievance_service: {A2C_BANKS_SOURCE} connection from the config rejected"
-			)
-			frappe.clear_messages()
-	if existing:
-		return []
-	_a2c_banks_doc().insert(ignore_permissions=True)
-	return [A2C_BANKS_SOURCE]
-
-
-def _a2c_banks_doc():
-	"""The A2C source with the catalog's own shape and no connection, disabled."""
-	return frappe.get_doc(
+	frappe.get_doc(
 		{
 			"doctype": "Grievance Service Provider Source",
 			"source_name": A2C_BANKS_SOURCE,
@@ -1128,7 +1131,8 @@ def _a2c_banks_doc():
 			"map_area": "registered_region",
 			"default_provider_type": "Bank",
 		}
-	)
+	).insert(ignore_permissions=True)
+	return [A2C_BANKS_SOURCE]
 
 
 def seed_recipient_custom_field():

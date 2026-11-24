@@ -51,7 +51,9 @@ class GrievanceAdministrativeArea(NestedSet):
 
 		self.ticket_code = self.ticket_code.strip().upper()
 
-		if self.level_name != ticket_number.REGION_LEVEL:
+		is_unlocated = self.code == ticket_number.UNLOCATED_AREA_CODE and not self.parent_administrative_area
+
+		if self.level_name != ticket_number.REGION_LEVEL and not is_unlocated:
 			frappe.throw(
 				_("Only regions carry a Ticket Code; {0} is a {1}.").format(
 					frappe.bold(self.area_name), self.level_name or _("different level")
@@ -73,6 +75,14 @@ class GrievanceAdministrativeArea(NestedSet):
 					"Ticket Code {0} is not a valid character. I, L, O and U are excluded because they are misread."
 				).format(frappe.bold(self.ticket_code)),
 				title=_("Invalid Ticket Code"),
+			)
+
+		if self.ticket_code == ticket_number.UNLOCATED_REGION and not is_unlocated:
+			frappe.throw(
+				_("Ticket Code {0} is reserved for grievances filed with no administrative area.").format(
+					frappe.bold(self.ticket_code)
+				),
+				title=_("Reserved Ticket Code"),
 			)
 
 		clash = frappe.db.get_value(

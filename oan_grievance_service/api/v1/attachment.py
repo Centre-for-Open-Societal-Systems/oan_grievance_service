@@ -347,8 +347,15 @@ class SubmitDocumentsRequest(BaseModel):
 	methods=("POST",),
 	summary="Upload supporting documents",
 	tier="citizen-intake",
+	request_types=("multipart/form-data",),
 )
-@route("", methods=("POST",), summary="Upload supporting documents", tier="citizen-intake")
+@route(
+	"",
+	methods=("POST",),
+	summary="Upload supporting documents",
+	tier="citizen-intake",
+	request_types=("multipart/form-data",),
+)
 @validate_request(SubmitDocumentsRequest)
 @handle_api_errors
 @require_permission("Grievance", "write")
@@ -425,6 +432,7 @@ def get_attachments(ticket_number: str | None = None, grievance: str | None = No
 	methods=("GET",),
 	summary="Stream a clean attachment inline",
 	tier="citizen-intake",
+	response_types=("*/*",),
 )
 @handle_api_errors
 @require_permission("Grievance", "read")
@@ -568,9 +576,13 @@ def _case_for_read(grievance):
 
 def _case_for_write(grievance):
 	from oan_grievance_service.permissions import has_grievance_permission
+	from oan_grievance_service.services import duplicates
 
 	doc = _case_for_read(grievance)
 	if not has_grievance_permission(doc, "write"):
 		audit.log_denied(audit.ACTION_VIEW_ATTACHMENT, grievance=doc.name)
 		frappe.throw(_("You cannot add evidence to this grievance."), frappe.PermissionError)
+	# An officer keeps write access on a finished case, but a confirmed duplicate is
+	# read-only: its evidence belongs on the main ticket.
+	duplicates.assert_not_duplicate(doc)
 	return doc

@@ -8,12 +8,17 @@ leaf Administrative Area, a category and a type. Building that chain inline in
 every test file is how fixtures drift, so it is built once here.
 """
 
+import json
+
 import frappe
 from frappe.utils import now_datetime
 
 from oan_grievance_service.services import constants as C
 
 SEED_CATEGORY = "Inputs"
+# The app creates only the fallback category; the demo categories come from the seed data. Tests that name
+# one of these directly (as an RBAC scope, a grievance category) get it from `seed_test_categories`.
+TEST_CATEGORIES = [(SEED_CATEGORY, "001", 1), ("Credit", "004", 4)]
 _CACHED_LEAF_AREA = None
 _CACHED_DEPARTMENT = None
 _CACHED_SUBMITTER_TYPE = None
@@ -177,6 +182,32 @@ def a_submitter_type():
 		.name
 	)
 	return _CACHED_SUBMITTER_TYPE
+
+
+def seed_test_categories():
+	"""`before_tests` hook: create the service categories the tests refer to by name.
+
+	A category is not enough on its own. Its SLA configuration carries the state timers (the
+	Resolved confirmation window is one), and tests that file a case under `Credit` take one of
+	its types. The install seeders create both for the categories that exist, so they run after.
+	"""
+	from oan_grievance_service.setup.install import seed_grievance_types, seed_sla_configurations
+
+	for name, code, order in TEST_CATEGORIES:
+		if not frappe.db.exists("Grievance Service Category", name):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Service Category",
+					"category_name": name,
+					"code": code,
+					"sort_order": order,
+					"is_active": 1,
+				}
+			).insert(ignore_permissions=True)
+	seed_sla_configurations()
+	seed_grievance_types()
+	# Committed on purpose: each test class rolls back when it ends, which would take the seed with it.
+	frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 
 
 def a_service_category():
@@ -400,3 +431,40 @@ def a_staffed_desk(case, category, department=None):
 		frappe.delete_doc("User", officer, force=True, ignore_permissions=True)
 
 	case.addCleanup(remove)
+
+
+def post_grievance(user="Administrator", **payload):
+	"""File a grievance the way a client does: POST /api/v1/grievances.
+
+	The request goes through the JWT middleware and Frappe's router, so the decorators on
+	`submit` see a real request. Returns the JSON envelope. The session user is restored.
+	"""
+	from oan_auth_service.testing import api_request
+	from oan_auth_service.tests.utils import configured_keys
+
+	from oan_grievance_service.api.router import ensure_routes_registered
+
+	ensure_routes_registered()
+	with configured_keys():
+		response = api_request(frappe.api.handle, "POST", "/api/v1/grievances", json=payload, user=user)
+	return json.loads(response.get_data(as_text=True))
+
+
+def create_officer_with_login(**fields):
+	"""POST /officers for an email that has a login, made first when it is missing.
+
+	Officers can only be made from an existing login. `temporary_password` is not a field of
+	the endpoint any more; when given, it is set on the new login, as an admin would.
+	"""
+	from oan_grievance_service.api.v1.officer import create_officer
+	from oan_grievance_service.services import account
+
+	password = fields.pop("temporary_password", None)
+	email = (fields.get("email") or "").strip().lower()
+	if "@" in email and not frappe.db.exists("User", email):
+		frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
+		).insert(ignore_permissions=True)
+		if password and password.strip():
+			account.issue_temporary_password(email, password)
+	return create_officer(**fields)

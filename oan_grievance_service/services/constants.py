@@ -2,6 +2,10 @@
 # not pick one. Seeded by setup/install.py; intake defaults to them by name.
 FALLBACK_SERVICE_CATEGORY = "Other"
 FALLBACK_GRIEVANCE_TYPE = "Other"
+# Codes of the catch-all in the Routing Matrix (STG-512). The category code is the CATEGORY segment of
+# the ticket number; the type code is the key the seed matches the type on. Both are SYS by convention.
+FALLBACK_CATEGORY_CODE = "SYS"
+FALLBACK_TYPE_CODE = "SYS"
 UNROUTED_DEPARTMENT = "Unrouted"
 UNROUTED_OFFICER = "unrouted@grievance.local"
 
@@ -10,6 +14,8 @@ UNROUTED_OFFICER = "unrouted@grievance.local"
 # others. Each must be declared under "workers" in common_site_config.json, or
 # frappe.enqueue rejects it.
 QUEUE_ROUTING = "grievance_routing"
+# Frappe's built-in short queue: flagging runs in seconds and needs no worker of its own.
+QUEUE_DUPLICATES = "short"
 QUEUE_SLA = "grievance_sla"
 QUEUE_SCAN = "grievance_scan"
 QUEUE_NOTIFICATIONS = "grievance_notifications"
@@ -42,6 +48,9 @@ ORG_TYPES = ("NGO", "FPO", "Cooperative")
 # awaiting-action groups are not listed here; sla.open_states() and
 # sla.awaiting_action_states() read them from the Grievance Workflow.
 RESOLVED_STATES = (STATE_RESOLVED, STATE_CLOSED)
+
+# How long a client may reuse an answer from a reference-data endpoint.
+REFERENCE_CACHE_SECONDS = 300
 
 # `level_name` of the Grievance Administrative Area levels the dashboards count by.
 AREA_LEVEL_COUNTRY = "Country"
@@ -132,15 +141,17 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
 
+# The submission channel (Grievance Submission Type) of the IVR helpline, and what the webhook
+# files a call under when the platform sends no more than the caller's number.
+CHANNEL_IVR = "IVR Helpline"
+IVR_CALLER_NAME = "IVR Caller"
+IVR_DEFAULT_DESCRIPTION = (
+	"Grievance registered through the IVR helpline. The caller gave no details; "
+	"an officer will contact them on the phone number they called from."
+)
+
 # Accounts the officer API never manages, whatever their other roles.
 PRIVILEGED_ROLES = frozenset({"System Manager", "Administrator"})
-# The role level of a Reviewer's rows on a department's desks. It is inactive, so it is not a
-# rung of the escalation chain; it only says "this row is read-only oversight, not an assignee".
-ROLE_LEVEL_REVIEW_OFFICER = "review_officer"
-ROLE_LEVEL_DEPARTMENT_HEAD = "department_head"
-# Role levels excluded from category assignment primary/secondary (L1/L2) desk seats:
-# a department head is the escalation rung, and a reviewer is read-only oversight.
-NON_ASSIGNEE_LEVELS = (ROLE_LEVEL_DEPARTMENT_HEAD, ROLE_LEVEL_REVIEW_OFFICER)
 
 # Who may file on someone else's behalf: assisted submitters (Development Agents, call centre,
 # walk-in intake) and administrators. Officers do not file. The named submitter stays the
@@ -155,3 +166,19 @@ ADMIN_READ_ROLES = [*ADMIN_ROLES, ROLE_REVIEW_OFFICER]
 # Officer may see them is a product decision still to be confirmed. Adding ROLE_REVIEW_OFFICER
 # here is the whole change if the answer is yes.
 REVIEWER_READ_ROLES = ADMIN_ROLES
+
+
+# Sensitive and urgent classification (STG-514). The handling class and priority a case carries are
+# decided once, at filing, by services/classification.py from the type and the category's SLA
+# rules; these are the values it writes.
+HANDLING_STANDARD = "Standard"
+HANDLING_URGENT = "Urgent"
+HANDLING_CLASSES = (HANDLING_STANDARD, HANDLING_URGENT)
+# Priority has one value: an urgent case is Urgent, any other case has no priority (blank). It
+# follows the rule's `is_urgent`; Normal and High were removed.
+PRIORITY_URGENT = "Urgent"
+PRIORITIES = (PRIORITY_URGENT,)
+
+# `level_name` of the areas a Kebele-level officer is seated at: the Kebele and anything below it.
+# A sensitive case never reaches an officer whose every seat is one of these.
+KEBELE_AND_BELOW_LEVELS = frozenset({"Kebele", "Village", "Ward"})

@@ -18,8 +18,8 @@ from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.griev
 	max_deferral_days,
 	requires_supervisor_approval,
 )
+from oan_grievance_service.services import classification, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import sla
 from oan_grievance_service.tests.fixtures import a_grievance, discard_grievance
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
@@ -318,7 +318,9 @@ class TestSlaSettings(FrappeTestCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
 		frappe.set_user("Administrator")
 		self.assertEqual(max_deferral_days(), 12)
-		self.assertEqual(frappe.db.get_value(SLA_DOCTYPE, name, "sla_days"), 8)
+		category = frappe.db.get_value(SLA_DOCTYPE, name, "service_category")
+		# The days are stored on the category's base SLA rule.
+		self.assertEqual(classification.sla_days_for(category), 8)
 
 	# What the engine does with them
 	# ------------------------------
@@ -479,11 +481,11 @@ class TestSlaSettings(FrappeTestCase):
 			row = frappe.db.get_value(
 				SLA_DOCTYPE,
 				{"service_category": category, "active": 1},
-				["name", "sla_days", "auto_escalate", "notify_on_breach"],
+				["name", "auto_escalate", "notify_on_breach"],
 				as_dict=True,
 			)
 			self.assertIsNotNone(row, msg=f"Missing SLA configuration for {category}")
-			self.assertGreater(row.sla_days, 0)
+			self.assertGreater(classification.sla_days_for(category) or 0, 0)
 			self.assertEqual(row.auto_escalate, 1)
 
 		# Second run is completely idempotent (no duplicates created)
@@ -498,8 +500,6 @@ class TestSlaSettings(FrappeTestCase):
 		with patch("oan_grievance_service.setup.install.DEFAULT_SLA_CONFIGURATIONS", [(fresh_cat, 11)]):
 			made = seed_sla_configurations()
 			self.assertIn(fresh_cat, made)
-			created_days = frappe.db.get_value(
-				SLA_DOCTYPE, {"service_category": fresh_cat, "active": 1}, "sla_days"
-			)
-			self.assertEqual(created_days, 11)
+			self.assertTrue(frappe.db.exists(SLA_DOCTYPE, {"service_category": fresh_cat, "active": 1}))
+			self.assertEqual(classification.sla_days_for(fresh_cat), 11)
 			self.assertEqual(seed_sla_configurations(), [])

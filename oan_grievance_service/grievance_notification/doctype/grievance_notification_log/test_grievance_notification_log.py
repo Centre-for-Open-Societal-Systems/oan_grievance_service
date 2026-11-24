@@ -10,6 +10,8 @@ Appendix C role resolves through the Link hops core cannot follow, and that a lo
 cannot be deleted by anyone.
 """
 
+from unittest import mock
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -49,6 +51,12 @@ class NotificationCase(FrappeTestCase):
 
 	def setUp(self):
 		from oan_grievance_service.setup.install import seed_role_levels
+
+		# dispatch_queued commits per row. That would save this fixture for good, because the
+		# cleanup's deletes are rolled back with the class, and later tests would inherit it.
+		patcher = mock.patch.object(frappe.db, "commit")
+		patcher.start()
+		self.addCleanup(patcher.stop)
 
 		seed_role_levels()
 

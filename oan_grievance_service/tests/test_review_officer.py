@@ -18,7 +18,6 @@ from oan_grievance_service.api.v1.category_assignment import (
 	update_assignment,
 )
 from oan_grievance_service.api.v1.officer import (
-	create_officer,
 	get_officer,
 	list_officers,
 	reset_temporary_password,
@@ -29,6 +28,7 @@ from oan_grievance_service.api.v1.response_config import create_response_templat
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.setup.install import ROLES
 from oan_grievance_service.tests.fixtures import a_grievance, discard_grievance
+from oan_grievance_service.tests.fixtures import create_officer_with_login as create_officer
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
 	_department,
@@ -57,6 +57,17 @@ class TestReviewOfficer(FrappeTestCase):
 			service_category=self.category, department="S434", l1_officer=self.l1, sla_days=10
 		)
 		self.assignment = created["data"]["assignment"]["name"]
+		frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment Officer",
+				"parent": self.assignment,
+				"parenttype": "Grievance RBAC Assignment",
+				"parentfield": "officers",
+				"user": self.reviewer,
+				"role_level": "review_officer",
+				"active": 1,
+			}
+		).insert(ignore_permissions=True)
 		self.made = []
 		frappe.clear_messages()
 
@@ -66,7 +77,26 @@ class TestReviewOfficer(FrappeTestCase):
 			discard_grievance(name)
 
 	def _case(self, **overrides):
-		doc = a_grievance(**overrides)
+		gtype = frappe.db.get_value("Grievance Type", {"service_category": self.category}, "name")
+		if not gtype:
+			gtype = (
+				frappe.get_doc(
+					{
+						"doctype": "Grievance Type",
+						"type_name": f"Type for {self.category}",
+						"service_category": self.category,
+						"is_active": 1,
+					}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+		defaults = {
+			"service_category": self.category,
+			"grievance_type": gtype,
+			"assigned_dept": self.department,
+		}
+		doc = a_grievance(**{**defaults, **overrides})
 		self.made.append(doc.name)
 		return doc
 
@@ -128,8 +158,11 @@ class TestReviewOfficer(FrappeTestCase):
 		for ptype in ("write", "create", "delete", "submit", "cancel"):
 			self.assertFalse(permissions.has_grievance_permission(case, ptype, self.reviewer), msg=ptype)
 
-	def test_grievance_list_condition_hides_nothing(self):
-		self.assertEqual(permissions.grievance_query_conditions(self.reviewer), "(1 = 1)")
+	def test_unplaced_reviewer_is_denied_access_by_default(self):
+		unplaced = _user("stg434-unplaced@example.com", "Unplaced Reviewer", role=C.ROLE_REVIEW_OFFICER)
+		self.assertEqual(permissions.grievance_query_conditions(unplaced), "(1 = 0)")
+		cond = permissions.grievance_query_conditions(self.reviewer)
+		self.assertIn("STG434 Agency", cond)
 
 	def test_frappe_permissions_refuse_a_write_without_any_role_check_of_ours(self):
 		department = frappe.db.get_value("Grievance Department", {}, "name")
@@ -146,8 +179,9 @@ class TestReviewOfficer(FrappeTestCase):
 		case = self._case()
 		# An admin's own request is applied at once, so raise it as an officer to keep it pending.
 		frappe.set_user(self.l1)
+		other_dept = _department("STG434 Other Dept", "S434O")
 		request = change_request.raise_change_request(
-			frappe.get_doc("Grievance", case.name), "Move department", {"assigned_dept": self.department}
+			frappe.get_doc("Grievance", case.name), "Move department", {"assigned_dept": other_dept}
 		)
 		self.assertEqual(request.status, "Pending")
 		frappe.set_user(self.reviewer)

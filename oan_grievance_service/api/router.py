@@ -97,13 +97,17 @@ def _register() -> None:
 		officer,
 		officer_statistics,
 		organization,
+		positions,
 		profile,
 		response_config,
+		role_level,
 		service_provider,
 		service_provider_source,
+		sla_rules,
 		sla_settings,
 		submitter,
 		taxonomy,
+		webhooks,
 	)
 
 	# An unbound copy each time. On a dev hot-reload Frappe rebuilds its URL map

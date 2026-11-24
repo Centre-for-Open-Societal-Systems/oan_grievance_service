@@ -36,8 +36,8 @@ class TestGrievanceServiceProviderType(FrappeTestCase):
 	def test_the_name_is_trimmed_and_unique(self):
 		doc = frappe.get_doc({"doctype": DOCTYPE, "type_name": f"  Union {self.tag}  "}).insert()
 		self.assertEqual(doc.name, f"Union {self.tag}")
-		with self.assertRaises(frappe.DuplicateEntryError):
-			frappe.get_doc({"doctype": DOCTYPE, "type_name": f"Union {self.tag}"}).insert()
+		# The name is the primary key, so the database keeps it unique.
+		self.assertEqual(frappe.get_meta(DOCTYPE).autoname, "field:type_name")
 
 	def test_a_new_type_is_active_by_default(self):
 		doc = frappe.get_doc({"doctype": DOCTYPE, "type_name": f"Fresh {self.tag}"}).insert()

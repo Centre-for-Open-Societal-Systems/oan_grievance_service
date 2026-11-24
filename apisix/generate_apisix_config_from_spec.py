@@ -11,10 +11,12 @@ Usage:
     python3 apisix/generate_apisix_config_from_spec.py
 """
 
+import copy
 import os
 from pathlib import Path
 
 from oan_auth_service import gateway_apisix as gw
+from oan_auth_service.openapi_generator import write_gateway
 
 # Development and generator baseline defaults (see apisix/README.md).
 # Deployments override these by setting the environment variables directly.
@@ -40,32 +42,8 @@ SITE_NAME = "${FRAPPE_SITE_NAME}"
 GATEWAY_JWT = False
 
 
-# Frappe upstreams. Ports come from the environment when the file is generated; hosts are
-# placeholders, see above.
-def _api_upstream():
-	try:
-		upstream = gw.upstream(
-			host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
-			port_env="OAN_GRIEVANCE_UPSTREAM_PORT",
-			# Frappe picks the site from the Host header, so send the site name, not the gateway's.
-			pass_host="rewrite",
-			upstream_host=SITE_NAME,
-			timeout={"connect": 5, "send": 20, "read": 20},
-			retries=2,
-		)
-		upstream["nodes"][0]["host"] = "${OAN_GRIEVANCE_UPSTREAM_HOST}"
-		return upstream
-	except gw.GatewayConfigError:
-		return {
-			"scheme": "http",
-			"nodes": [{"host": "${OAN_GRIEVANCE_UPSTREAM_HOST}", "port": 8000, "weight": 1}],
-			"pass_host": "rewrite",
-			"upstream_host": SITE_NAME,
-			"timeout": {"connect": 5, "send": 20, "read": 20},
-			"retries": 2,
-		}
-
-
+# The realtime socket.io upstream. Ports come from the environment when the file is generated;
+# hosts are placeholders, see above.
 def _socket_upstream():
 	try:
 		upstream = gw.upstream(
@@ -89,7 +67,6 @@ def _socket_upstream():
 		}
 
 
-API_UPSTREAM = _api_upstream()
 SOCKET_UPSTREAM = _socket_upstream()
 
 # ---------------------------------------------------------------------------
@@ -117,6 +94,13 @@ TIERS = {
 		"policy": "redis",
 		"note": "Dashboard charts: counts from the dashboard rollups, read by the OAN dashboards with their Frappe API key; APISIX has no consumer for them, so it limits by address. Same as RATE_LIMIT in api/v1/charts.py.",
 	},
+	"ivr-webhooks": {
+		"limit_by": "ip",
+		"minute": 120,
+		"hour": 3000,
+		"policy": "redis",
+		"note": "Inbound IVR webhook, called with the gateway key of the IVR platform consumer; not rate limited.",
+	},
 	"officer-core": {
 		"limit_by": "consumer",
 		"minute": 300,
@@ -125,24 +109,6 @@ TIERS = {
 		"note": "Back-office and staff triage operations: bulk listing, notes, assignment, rejection, and officer options.",
 	},
 }
-
-
-# ---------------------------------------------------------------------------
-# Tier assignments
-# ---------------------------------------------------------------------------
-def tier_overrides() -> dict[tuple[str, str], str]:
-	"""(method, public path) -> tier, from the `tier=` set on each endpoint's `@route`.
-
-	Read from the internal spec, which keeps `x-gateway-tier`; the public spec strips it
-	so the throttling decision stays out of the client contract.
-	"""
-	spec = gw.load_spec(INTERNAL_SPEC_PATH)
-	return {
-		(method.upper(), gw.public_path(path)): op["x-gateway-tier"]
-		for path, methods in spec["paths"].items()
-		for method, op in methods.items()
-		if "x-gateway-tier" in op
-	}
 
 
 def socket_service():
@@ -188,27 +154,13 @@ def socket_service():
 # ---------------------------------------------------------------------------
 # `${NAME}` placeholders in the ADC document become these chart values.
 HELM_VALUES = {
-	"OAN_GRIEVANCE_UPSTREAM_HOST": ".Values.web.serviceName",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST": ".Values.socket.serviceName",
-	"OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST": ".Values.web.externalHosts",
 	"OAN_GRIEVANCE_SOCKET_UPSTREAM_EXTERNAL_HOST": ".Values.socket.externalHosts",
-	"FRAPPE_SITE_NAME": ".Values.siteName",
-	"WEB_PORT": ".Values.web.port",
 	"SOCKET_PORT": ".Values.socket.port",
 }
-HELM_REQUIRED = {
-	"OAN_GRIEVANCE_UPSTREAM_HOST",
-	"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST",
-	"FRAPPE_SITE_NAME",
-	"APISIX_REDIS_HOST",
-}
+HELM_REQUIRED = {"OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST", "APISIX_REDIS_HOST"}
 # The third placeholder is the address of Frappe in another cluster, for a central gateway.
 HELM_BACKENDS = {
-	f"{APP}-service-v1": (
-		"${OAN_GRIEVANCE_UPSTREAM_HOST}",
-		"${WEB_PORT}",
-		"${OAN_GRIEVANCE_UPSTREAM_EXTERNAL_HOST}",
-	),
 	f"{APP}-realtime-v1": (
 		"${OAN_GRIEVANCE_SOCKET_UPSTREAM_HOST}",
 		"${SOCKET_PORT}",
@@ -217,44 +169,55 @@ HELM_BACKENDS = {
 }
 
 
+# The IVR webhook is called with the IVR vendor's gateway key, the same key it uses for A2C.
+# The gateway checks it and calls Frappe with the API key and secret of the Grievance IVR
+# Integration user, which APISIX reads from its environment, so the vendor never holds the
+# Frappe secret and can be cut off at the gateway alone.
+IVR_ROUTE = f"{APP}-ivr-webhooks-custom-post"
+IVR_FRAPPE_AUTHORIZATION = "$env://OAN_GRIEVANCE_IVR_FRAPPE_AUTHORIZATION"
+
+
+def add_ivr_webhook_auth(doc):
+	service = doc["services"][0]
+	route = next(r for r in service["routes"] if r["name"] == IVR_ROUTE)
+	# A route's proxy-rewrite replaces the service's whole, so the /v1 -> /api/v1 rewrite is repeated.
+	rewrite = copy.deepcopy(service["plugins"]["proxy-rewrite"])
+	rewrite["headers"] = {"set": {"Authorization": IVR_FRAPPE_AUTHORIZATION}}
+	# The one caller is the IVR vendor, already limited by its gateway key, so no rate limit.
+	route["plugins"].pop("limit-count", None)
+	route["plugins"].update(
+		{
+			"key-auth": {"header": "apikey", "hide_credentials": True},
+			"consumer-restriction": {"type": "consumer_name", "whitelist": [gw.IVR_VENDOR_CONSUMER]},
+			"proxy-rewrite": rewrite,
+		}
+	)
+	# The vendor is a server, so its path needs no CORS preflight route.
+	preflight = next(r for r in service["routes"] if r["name"] == f"{APP}-cors-preflight")
+	preflight["uris"] = [u for u in preflight["uris"] if u not in ("/v1/webhooks", "/v1/webhooks/*")]
+	doc["consumers"] = [*doc.get("consumers", []), gw.shared_consumer(gw.IVR_VENDOR_CONSUMER, APP)]
+
+
 def main():
-	spec = gw.load_spec(SPEC_PATH)
-	# oan_auth_service's endpoints are served by this bench too.
-	routes = gw.with_auth_routes(gw.reconcile(gw.spec_routes(spec), tier_overrides()))
-	doc = gw.build_document(
-		routes,
-		app=APP,
-		tiers={**TIERS, **gw.AUTH_TIERS},
-		api_upstream=API_UPSTREAM,
-		service_plugins=gw.service_plugins(
-			methods="GET,POST,PATCH,DELETE,OPTIONS",
-			credentials=False,
-			max_body_mb=15,
-			cors_origins=gw.env("CORS_ORIGINS_REGEX", r"https?://localhost(:[0-9]+)?"),
-		),
+	internal = gw.load_spec(INTERNAL_SPEC_PATH)
+	public = gw.load_spec(SPEC_PATH)
+	write_gateway(
+		app_name=APP,
+		internal_spec=internal,
+		public_spec=public,
+		tiers=TIERS,
+		upstream_host_env="OAN_GRIEVANCE_UPSTREAM_HOST",
+		upstream_port_env="OAN_GRIEVANCE_UPSTREAM_PORT",
+		gateway_dir=SCRIPT_DIR,
+		title="OAN Grievance Service",
 		extra_services=[socket_service()],
-		consumers=[gw.jwt_issuer_consumer()] if GATEWAY_JWT else None,
+		customize_document=add_ivr_webhook_auth,
 		gateway_jwt=GATEWAY_JWT,
+		helm_values=HELM_VALUES,
+		helm_required=HELM_REQUIRED,
+		helm_backends=HELM_BACKENDS,
+		helm_ints={"SOCKET_PORT"},
 	)
-	provenance = [
-		f"Source Spec: {spec['info']['title']} v{spec['info']['version']}",
-		"Generated by generate_apisix_config_from_spec.py -- do not hand-edit;",
-		"change the OpenAPI spec or an endpoint's `tier=` and re-run.",
-	]
-	gw.write_document(
-		doc, OUTPUT_PATH, ["OAN Grievance Service ADC config (adc lint|validate|diff|sync)", *provenance]
-	)
-	gw.write_helm_templates(
-		doc,
-		K8S_DIR,
-		["OAN Grievance Service APISIX Ingress Controller resources", *provenance],
-		app=APP,
-		backends=HELM_BACKENDS,
-		values=HELM_VALUES,
-		required=HELM_REQUIRED,
-		ints={"WEB_PORT", "SOCKET_PORT"},
-	)
-	gw.report(OUTPUT_PATH, routes, doc, spec)
 
 
 if __name__ == "__main__":

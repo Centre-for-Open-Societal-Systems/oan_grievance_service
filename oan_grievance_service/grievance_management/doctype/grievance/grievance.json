@@ -38,6 +38,12 @@
   "grievance_type",
   "col_classification",
   "associated_service_provider",
+  "sec_handling",
+  "is_sensitive",
+  "handling_class",
+  "col_handling",
+  "priority",
+  "status_pin",
   "sec_detail",
   "description",
   "desired_outcome",
@@ -291,6 +297,55 @@
    "label": "Associated Service Provider"
   },
   {
+   "fieldname": "sec_handling",
+   "fieldtype": "Section Break",
+   "label": "Sensitive and Urgent Handling"
+  },
+  {
+   "default": "0",
+   "description": "Set at filing from the grievance type. Read only: services/classification.py decides it.",
+   "fieldname": "is_sensitive",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sensitive",
+   "read_only": 1
+  },
+  {
+   "default": "Standard",
+   "description": "Urgent inside the season window of an urgent type, fixed at filing.",
+   "fieldname": "handling_class",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Handling Class",
+   "options": "Standard\nUrgent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_handling",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Urgent for an urgent case, blank otherwise. Set from the matching SLA rule at filing.",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "\nUrgent",
+   "read_only": 1
+  },
+  {
+   "description": "Sensitive cases only. Encrypted at rest; sent to the submitter with the reference number.",
+   "fieldname": "status_pin",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "Status PIN",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "fieldname": "sec_detail",
    "fieldtype": "Section Break",
    "label": "Grievance Detail"
@@ -506,7 +561,7 @@
  "is_submittable": 0,
  "links": [],
  "max_attachments": 5,
- "modified": "2026-11-03 12:00:00.000000",
+ "modified": "2026-11-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance",

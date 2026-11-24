@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import frappe
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	get_area_bounds,
@@ -12,8 +13,8 @@ from oan_grievance_service.grievance_masters.doctype.grievance_administrative_ar
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
+from oan_grievance_service.services import audit, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import sla
 
 UNBOUNDED = 999999999
 DESK = "Grievance RBAC Assignment"
@@ -214,8 +215,8 @@ def ranked_assignments(grievance):
 	fits = _desk_area_fits([a.name for a, _ in scoped], case_area, case_lft, case_rgt)
 	scoped.sort(
 		key=lambda row: (
-			fits.get(row[0].name, (UNBOUNDED, False))[0],
 			-row[1],
+			fits.get(row[0].name, (UNBOUNDED, False))[0],
 			str(row[0].creation),
 			row[0].name,
 		)
@@ -329,24 +330,62 @@ def _covering_case(officers, grievance):
 
 
 def _available(officers):
-	return [o for o in officers if not getattr(o, "on_leave", 0)]
+	from oan_grievance_service.grievance_access_control.positions import (
+		is_officer_on_leave,
+		prefetch_positions,
+	)
+
+	prefetch_positions([getattr(o, "user", None) for o in officers])
+	return [
+		o
+		for o in officers
+		if not getattr(o, "on_leave", 0) and not is_officer_on_leave(getattr(o, "user", None))
+	]
 
 
-def pick_officer_by_strategy(assignment_doc, grievance=None):
+def _is_kebele_level_seat(officer) -> bool:
+	"""Whether the officer's row on the desk is seated at Kebele level or below."""
+	area = getattr(officer, "administrative_area", None)
+	if not area:
+		return False
+	return frappe.db.get_value("Grievance Administrative Area", area, "level_name") in (
+		C.KEBELE_AND_BELOW_LEVELS
+	)
+
+
+def pick_officer_by_strategy(assignment_doc, grievance=None, sensitive=False):
+	"""The officer of the desk who takes the case, or None.
+
+	`sensitive` bypasses the Kebele: seats at Kebele level or below are never candidates, so
+	the case goes to the lowest rung seated at Woreda level or above (the focal person).
+	"""
 	if not assignment_doc.get("officers"):
 		return None
 
-	eligible = _available(
-		[
-			o
-			for o in assignment_doc.officers
-			if getattr(o, "active", 1) and getattr(o, "role_level", None) != C.ROLE_LEVEL_REVIEW_OFFICER
-		]
-	)
+	from oan_grievance_service.grievance_access_control.positions import supervisor_of
+
+	chain = GrievanceRoleLevel.get_chain()
+	chain_codes = {rung.name for rung in chain}
+
+	candidates = []
+	for o in assignment_doc.officers:
+		user = getattr(o, "user", None)
+		if getattr(o, "position", None) and not getattr(o, "reports_to", None):
+			o.reports_to = supervisor_of(o.position, getattr(o, "administrative_area", None))
+
+		if (
+			user
+			and getattr(o, "active", 1)
+			and (not chain_codes or getattr(o, "role_level", None) in chain_codes)
+			and not (sensitive and _is_kebele_level_seat(o))
+		):
+			candidates.append(o)
+
+	eligible = _available(candidates)
 	if not eligible:
 		return None
 
-	order = {rung.name: rung.level_order for rung in GrievanceRoleLevel.get_chain()}
+	order = {rung.name: rung.level_order for rung in chain}
 	rank_of = {o.user: order.get(o.role_level, float("inf")) for o in eligible}
 	active_officers = []
 	for rank in sorted(set(rank_of.values())):
@@ -382,6 +421,8 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 		return winner.user
 
 	elif strategy == "Least Loaded":
+		from oan_grievance_service.grievance_access_control.positions import max_open_cases_for
+
 		users = [o.user for o in active_officers if o.user]
 		counts = {}
 		if users:
@@ -401,7 +442,7 @@ def pick_officer_by_strategy(assignment_doc, grievance=None):
 				user=o.user,
 				officer_doc=o,
 				open_count=counts.get(o.user, 0),
-				max_cap=getattr(o, "max_open_cases", 0) or 0,
+				max_cap=getattr(o, "max_open_cases", 0) or max_open_cases_for(o.user),
 			)
 			for o in active_officers
 		]
@@ -421,16 +462,22 @@ def apply_routing(grievance, commit_status=True):
 	from oan_grievance_service.services import lifecycle, notifications
 
 	doc = officer_user = None
+	sensitive = bool(_field_of(grievance, "is_sensitive"))
 	routing_on = auto_routing_enabled()
 	desks = ranked_assignments(grievance) if routing_on else assignments_for_unrouted()
+	tried_specific_desk = False
 	for assignment in desks:
 		candidate = frappe.get_doc("Grievance RBAC Assignment", assignment.name)
 		# A desk with neither scope is a last-resort head desk; it must not take cases ahead of
 		# the Unrouted triage desk.
 		if not (candidate.department_scope or candidate.category_scope):
 			continue
-		# No officer covers the case's region: any officer on the desk beats none.
-		officer_user = pick_officer_by_strategy(candidate, grievance) or pick_officer_by_strategy(candidate)
+		if candidate.department_scope != C.UNROUTED_DEPARTMENT:
+			tried_specific_desk = True
+			officer_user = pick_officer_by_strategy(candidate, grievance, sensitive)
+		else:
+			# Triage desk catches cases without area filter
+			officer_user = pick_officer_by_strategy(candidate, sensitive=sensitive)
 		if officer_user:
 			doc = candidate
 			break
@@ -447,14 +494,17 @@ def apply_routing(grievance, commit_status=True):
 		"assigned_to": officer_user,
 	}
 	if hasattr(grievance, "db_set"):
+		audit.record_version(grievance, updates)
 		grievance.db_set(updates, update_modified=False)
 
 	if commit_status:
-		reason = (
-			f"Auto-routed by assignment {doc.name}"
-			if routing_on
-			else f"Auto-routing is off; sent to triage desk {doc.name}"
-		)
+		if not routing_on:
+			reason = f"Auto-routing is off; sent to triage desk {doc.name}"
+		elif doc.department_scope == C.UNROUTED_DEPARTMENT and tried_specific_desk:
+			area_name = grievance.get("administrative_area") or "unspecified area"
+			reason = f"No officer on matching desk covers area '{area_name}'; sent to triage desk {doc.name}"
+		else:
+			reason = f"Auto-routed by assignment {doc.name}"
 		lifecycle.transition(grievance, "Assign", reason=reason, automated=True)
 		notifications.queue(grievance, C.EVENT_ASSIGNED_AUTO)
 	return doc
@@ -469,7 +519,7 @@ def enqueue_routing(grievance_name: str) -> None:
 			enqueue_after_commit=True,
 		)
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title=f"Failed to enqueue routing for grievance: {grievance_name}",
 			message=frappe.get_traceback(),
 		)
@@ -502,7 +552,7 @@ def drain_routing_queue(limit: int = 50) -> int:
 			if apply_routing(doc):
 				routed_count += 1
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Scheduled queue routing failed for {name}",
 				message=frappe.get_traceback(),
 			)

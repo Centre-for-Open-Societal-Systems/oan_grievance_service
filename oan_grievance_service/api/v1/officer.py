@@ -22,10 +22,12 @@ until they replace it through `POST /api/v1/auth/password/initial`. The mechanis
 oan_auth_service; this resource only decides who may issue one, and to whom.
 """
 
+import logging
 from typing import Literal
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from oan_auth_service.api.router import prefixed
 from oan_auth_service.api.utils import (
 	PageParams,
@@ -50,7 +52,7 @@ DESK_HEAD_ROLES = [*ADMIN_ROLES, ROLE_DESK_HEAD]
 
 route = prefixed("/api/v1/officers")
 
-Level = Literal["L1", "L2", "L3"]
+Level = str
 Status = Literal["Active", "On Leave", "Inactive"]
 Role = Literal["Officer", "Reviewer"]
 
@@ -94,6 +96,7 @@ class OfficerAssignment(BaseModel):
 	department: str | None = None
 	level: Level | None = None
 	region: str | None = None
+	position_id: str | None = None
 	active: bool
 	on_leave: bool
 
@@ -148,7 +151,6 @@ class CreateOfficer(Body):
 
 	full_name: PersonName = Field(min_length=1)
 	email: NonBlank
-	temporary_password: str | None = Field(default=None, max_length=128)
 	role: Role = "Officer"
 	designation: NonBlank | None = None
 	level: Level | None = None
@@ -165,7 +167,6 @@ class CreateOfficer(Body):
 
 	_email = field_validator("email")(normalize_email)
 	_blank = field_validator(
-		"temporary_password",
 		"phone",
 		"region",
 		"reports_to",
@@ -174,7 +175,6 @@ class CreateOfficer(Body):
 		"department",
 		mode="before",
 	)(blank_to_none)
-	_temporary_password = field_validator("temporary_password")(validate_temporary_password)
 
 	@model_validator(mode="after")
 	def _fields_follow_role(self):
@@ -239,11 +239,12 @@ class OfficerFilters(Body):
 	service_category: str | None = None
 	region: str | None = None
 	q: str | None = None
+	position: str | None = None
 
 	_role = field_validator("role", mode="before")(role_or_default)
-	_blank = field_validator("level", "department", "service_category", "region", "q", mode="before")(
-		blank_to_none
-	)
+	_blank = field_validator(
+		"level", "department", "service_category", "region", "q", "position", mode="before"
+	)(blank_to_none)
 
 	@model_validator(mode="after")
 	def _filters_follow_role(self):
@@ -252,6 +253,27 @@ class OfficerFilters(Body):
 				type(self), {"level": "Not accepted when role is Reviewer: it applies to officers only"}
 			)
 		return self
+
+
+class OfficerCandidate(BaseModel):
+	name: str
+	full_name: str
+	email: str
+	phone: str | None = None
+	delegated: bool
+
+
+class OfficerCandidateData(BaseModel):
+	candidates: list[OfficerCandidate]
+
+
+class CandidatesQuery(Body):
+	role: Role = "Officer"
+	q: str | None = None
+	limit: int = Field(default=50, ge=1, le=200)
+
+	_role = field_validator("role", mode="before")(role_or_default)
+	_q = field_validator("q", mode="before")(blank_to_none)
 
 
 class StatusCountsQuery(OfficerFilters):
@@ -278,7 +300,7 @@ class ListOfficers(PageParams, OfficerFilters):
 	summary="List officers",
 	description="Admin list of officers (role Officer, the default) or Reviewers. level L3 lists the "
 	+ "department heads, which the Admin tab shows. Filterable by level, department, status, "
-	+ "service category and region. region matches an account's area exactly. q matches name "
+	+ "service category and region. region matches the area and every area under it. position is a Position ID. q matches name "
 	+ "or email. A Reviewer has no level, so level is refused for role Reviewer, and so is "
 	+ "status On Leave. Listing Reviewers needs an admin role: a Review Officer reads Officer "
 	+ "lists only.",
@@ -293,6 +315,7 @@ def list_officers(
 	service_category: str | None = None,
 	region: str | None = None,
 	q: str | None = None,
+	position: str | None = None,
 	page: int | str = 1,
 	page_size: int | str = 20,
 	**kwargs,
@@ -312,6 +335,7 @@ def list_officers(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 		start=params.start,
 		page_size=params.page_size,
 	)
@@ -319,6 +343,30 @@ def list_officers(
 		data={"officers": service.records(ids)},
 		message=_("Officers retrieved"),
 		pagination=page_meta(total, params.page, params.page_size),
+	)
+
+
+# Registered before `/<officer>` so the dynamic route never captures "candidates".
+@route(
+	"/candidates", methods=("GET",), summary="List accounts that can be made officers", tier="officer-core"
+)
+@handle_api_errors
+@require_role(DESK_HEAD_ROLES)
+@validate_request(CandidatesQuery)
+@api_doc(
+	summary="List accounts that can be made officers",
+	description="Enabled logins that hold the Officer (or, for role Reviewer, the Review Officer) "
+	+ "role but are on no desk, so hold no position yet. Place one with POST /api/v1/officers. An "
+	+ "identity-provider login shows up here once the provider has granted the role. q matches "
+	+ "name or email. System Manager and Administrator accounts are never listed.",
+	tags=["Administration"],
+	response_model=OfficerCandidateData,
+)
+def officer_candidates(role: str = "Officer", q: str | None = None, limit: int | str = 50, **kwargs):
+	"""Return the holders of the officer role who are on no desk."""
+	return success_response(
+		data={"candidates": service.list_candidates(role=role, q=q, limit=int(limit))},
+		message=_("Officer candidates retrieved"),
 	)
 
 
@@ -331,7 +379,7 @@ def list_officers(
 	summary="Count officers by status",
 	description="Active, On Leave and Inactive totals for the officers tabs, so the UI shows the "
 	+ "counts from here instead of hardcoding them. Takes the list's filters (role, level, "
-	+ "department, service_category, region, q) without status, so a tab's counts follow the "
+	+ "department, service_category, region, position, q) without status, so a tab's counts follow the "
 	+ "same filters as its list. Each person is counted once, in the status the record shows: "
 	+ "the most available of their desk rows wins. The list's status filter matches an account "
 	+ "with a row in that status, so one whose rows differ can be on two pages and is still one "
@@ -347,6 +395,7 @@ def officer_status_counts(
 	service_category: str | None = None,
 	region: str | None = None,
 	q: str | None = None,
+	position: str | None = None,
 	**kwargs,
 ):
 	"""Count the accounts the list would return, by status."""
@@ -358,6 +407,7 @@ def officer_status_counts(
 		service_category=service_category,
 		region=region,
 		q=q,
+		position=position,
 	)
 	return success_response(data=counts, message=_("Officer status counts retrieved"))
 
@@ -398,18 +448,15 @@ def get_officer(officer: str, **kwargs):
 	+ "assignment for the department (or with no department). For an L3 a missing "
 	+ "category assignment is created with the head on it, and with create_department (default "
 	+ "false) the department is created too, refused when it already exists. reports_to is an L2 officer and is only for "
-	+ "an L1. The login is created when the email is new. An existing login keeps its own "
-	+ "roles and is given the officer or review role; a System Manager or Administrator is "
-	+ "never managed here. temporary_password is optional: when provided, the account holder signs in with it "
-	+ "only to replace it through /api/v1/auth/password/initial. When omitted, they log in with Keycloak. It is applied to a new login "
-	+ "only. An email that already has a login keeps its own password and the message says so.",
+	+ "an L1. The email must already have a login; an unknown email is a 404. The login keeps its own "
+	+ "password and roles and is given the officer or review role; a System Manager or Administrator "
+	+ "is never managed here.",
 	tags=["Administration"],
 	response_model=OfficerData,
 )
 def create_officer(
 	full_name: str,
 	email: str,
-	temporary_password: str | None = None,
 	role: str = "Officer",
 	designation: str | None = None,
 	level: str | None = None,
@@ -435,26 +482,17 @@ def create_officer(
 			"department": department,
 			"email": email,
 			"service_categories": service_categories,
-			"temporary_password": temporary_password,
 			"phone": phone,
 			"region": region,
 			"status": status,
 			"reports_to": reports_to,
 		},
 	)
-	if is_unrestricted(caller) and role == "Officer" and level != "L3":
+	if is_unrestricted(caller) and role == "Officer" and not service.is_head(level):
 		if not service_categories:
-			field_errors(CreateOfficer, {"service_categories": "Required for an L1 or L2 officer"})
-	user_id, password_status = service.create(**fields)
-	if password_status is False:
-		message = _("{0} created. {1} already had a login, so their existing password is unchanged.").format(
-			role, user_id
-		)
-	elif password_status is None:
-		message = _("{0} created. They can log in with Keycloak.").format(role)
-	else:
-		message = _("{0} created").format(role)
-	return success_response(data={"officer": service.record(user_id)}, message=message)
+			field_errors(CreateOfficer, {"service_categories": "Required for a non-head officer"})
+	user_id = service.create(**fields)
+	return success_response(data={"officer": service.record(user_id)}, message=_("{0} created").format(role))
 
 
 @route("/<officer>", methods=("PATCH",), summary="Update an officer", tier="officer-core")
@@ -507,8 +545,14 @@ def reset_temporary_password(officer: str, temporary_password: str, **kwargs):
 
 	service.reset_temporary_password(officer, temporary_password)
 	found = service.record(officer)
-	frappe.logger("oan_grievance_service").info(
-		f"temporary password reissued by={frappe.session.user} for={officer} role={found['role']}"
+	# A privileged action, so WARNING: a site that hides INFO chatter still keeps it. The officer
+	# is an email address, so the event carries it masked. The password itself is never passed.
+	oplog.emit(
+		"security.temporary_password_reissued",
+		logging.WARNING,
+		user=frappe.session.user,
+		target_user=officer,
+		target_role=found["role"],
 	)
 	return success_response(
 		data={"officer": found},

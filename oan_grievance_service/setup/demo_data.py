@@ -241,7 +241,7 @@ CATEGORIES = [
 # Each person's position on the desk, in the order they are created: a later one reports to the
 # one before it (L1 to the L2, the L2 to the Category Admin).
 POSITIONS = [
-	("admin", "Officer", "L3", "Category Admin"),
+	("admin", "Officer", "L4", "Category Admin"),
 	("l2", "Officer", "L2", "Senior Nodal Officer"),
 	("l1", "Officer", "L1", "Nodal Officer"),
 	("reviewer", "Reviewer", None, "Review Officer"),
@@ -313,7 +313,7 @@ def _seed_types() -> list[str]:
 def _seed_platform_admin() -> str:
 	prefix, full_name, phone = PLATFORM_ADMIN
 	email = f"{prefix}@{DOMAIN}"
-	user = account.new_or_existing_user(email)
+	user = _login(email)
 	account.write_user(user, {"full_name": full_name, "phone": phone}, C.ROLE_ADMIN)
 	_set_password(email)
 	return email
@@ -329,6 +329,7 @@ def _seed_staff() -> list[str]:
 		):
 			email = email_of(entry["slug"], position)
 			if not officer.role_of(email):
+				_login(email)
 				officer.create(
 					full_name=full_name,
 					email=email,
@@ -338,9 +339,9 @@ def _seed_staff() -> list[str]:
 					department=department,
 					service_categories=[category],
 					phone=phone,
-					reports_to=above if role == "Officer" and level != "L3" else None,
+					reports_to=above if role == "Officer" and level != "L4" else None,
 					# The Category Admin opens the department, and its desk, for everyone after them.
-					create_department=level == "L3"
+					create_department=level == "L4"
 					and not frappe.db.exists("Grievance Department", department),
 				)
 				made.append(email)
@@ -348,6 +349,15 @@ def _seed_staff() -> list[str]:
 			if role == "Officer":
 				above = email
 	return made
+
+
+def _login(email: str):
+	"""The demo person's User, created without a role or a welcome email when it is new."""
+	if frappe.db.exists("User", email):
+		return frappe.get_doc("User", email)
+	return frappe.get_doc(
+		{"doctype": "User", "email": email, "first_name": email, "send_welcome_email": 0, "enabled": 1}
+	).insert(ignore_permissions=True)
 
 
 def _set_password(email: str) -> None:

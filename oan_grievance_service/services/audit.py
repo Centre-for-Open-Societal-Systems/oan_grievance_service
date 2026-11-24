@@ -9,6 +9,7 @@ import time
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 ACTION_VIEW_DETAIL = "view_detail"
 ACTION_VIEW_LIST = "view_list"
@@ -57,7 +58,7 @@ def record_access(action, grievance=None, scope=None, decision="Allowed", durabl
 		if durable:
 			frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 	except Exception:
-		frappe.log_error(
+		oplog.log_error(
 			title="Access audit write failed",
 			message=f"action={action}; durable={durable}\n{frappe.get_traceback()}",
 		)
@@ -102,6 +103,25 @@ def on_grievance_view(doc, method=None):
 def log_denied(action, grievance=None, scope=None, durable=False):
 	"""An unauthorised attempt is denied and logged."""
 	record_access(action, grievance=grievance, scope=scope, decision="Denied", durable=durable)
+
+
+def record_version(doc, updates):
+	"""Write the Version row that `save()` would have, for changes about to go through `db_set`.
+
+	`db_set` skips the change log, so call this before it: `db_set` updates `doc` in memory,
+	and the old values are read from there.
+	"""
+	changed = [[field, doc.get(field), value] for field, value in updates.items() if doc.get(field) != value]
+	if not changed:
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Version",
+			"ref_doctype": doc.doctype,
+			"docname": doc.name,
+			"data": frappe.as_json({"changed": changed}),
+		}
+	).insert(ignore_permissions=True)
 
 
 class ImmutableRecord:

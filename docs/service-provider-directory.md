@@ -33,7 +33,6 @@ DocType `Grievance Service Provider`, module Grievance Masters. The ID is `SP-{#
 | :-------------------- | :-------------------------------------------------- | :------------------------------------------------------------------------------------------------ |
 | `provider_name`       | Data, required, indexed                             | Display name. Trimmed on save                                                                     |
 | `provider_type`       | Link to `Grievance Service Provider Type`, required | Which kind of provider it is. The list of types is data (§3.1), not fixed in the code             |
-| `parent_provider`     | Link to this DocType                                | The head office of a branch. A provider cannot be its own parent and the chain cannot loop        |
 | `administrative_area` | Link to `Grievance Administrative Area`             | Where it operates. **Empty means nationwide**                                                     |
 | `registered_region`   | Data                                                | The region text exactly as the source gave it. Kept even when it matches no `administrative_area` |
 | `registration_number` | Data, indexed                                       | Searchable                                                                                        |
@@ -43,7 +42,7 @@ DocType `Grievance Service Provider`, module Grievance Masters. The ID is `SP-{#
 | `external_ref`        | Data, read-only                                     | The source's own ID, such as `PB-0452`. Unique together with `source`                             |
 | `last_synced_at`      | Datetime, read-only                                 | When the sync last confirmed the provider                                                         |
 
-A provider that has a `source` belongs to that source: its name, type, parent, area, region text, logo and registration number are changed at the source, and only `is_active` can be edited by hand. The sync is the only writer of the other fields.
+A provider that has a `source` belongs to that source: its name, type, area, region text, logo and registration number are changed at the source, and only `is_active` can be edited by hand. The sync is the only writer of the other fields.
 
 ### 3.1 Provider types
 
@@ -76,13 +75,13 @@ The endpoints follow the platform conventions: `@route`, `@handle_api_errors`, t
 
 `GET /api/v1/service-providers`
 
-| Param           | Type   | Default | Notes                                                                                                                        |
-| :-------------- | :----- | :------ | :--------------------------------------------------------------------------------------------------------------------------- |
-| `search`        | string |         | Case-insensitive match on the name, the registration number or the parent's name. 2 to 100 characters. Blank means no search |
-| `provider_type` | string |         | The name of a provider type (§3.1), for example `Bank`. An unknown name is a 400                                             |
-| `area`          | string |         | Area ID or path code. See below                                                                                              |
-| `page`          | int    | 1       | 1 or more                                                                                                                    |
-| `page_size`     | int    | 20      | 1 to 50                                                                                                                      |
+| Param           | Type   | Default | Notes                                                                                                   |
+| :-------------- | :----- | :------ | :------------------------------------------------------------------------------------------------------ |
+| `search`        | string |         | Case-insensitive match on the name, the registration number. 2 to 100 characters. Blank means no search |
+| `provider_type` | string |         | The name of a provider type (§3.1), for example `Bank`. An unknown name is a 400                        |
+| `area`          | string |         | Area ID or path code. See below                                                                         |
+| `page`          | int    | 1       | 1 or more                                                                                               |
+| `page_size`     | int    | 20      | 1 to 50                                                                                                 |
 
 Only active providers are returned.
 
@@ -102,7 +101,6 @@ Example, `GET /api/v1/service-providers?search=cbe&provider_type=Bank&area=zone-
         "id": "SP-00002",
         "name": "CBE - Bahir Dar Branch",
         "type": "Bank",
-        "parent": { "id": "SP-00001", "name": "Commercial Bank of Ethiopia" },
         "area": { "id": "zone-ET0314", "name": "Bahir Dar", "path_label": "Amhara › Bahir Dar" },
         "registration_number": null,
         "external_ref": null,
@@ -126,13 +124,13 @@ Example, `GET /api/v1/service-providers?search=cbe&provider_type=Bank&area=zone-
 
 `external_ref`, `registered_region` and `logo` carry what the source sent, under A2C's own names, so a response can be checked against the source. They are `null` for a hand-made provider (the example above was added by hand). For a synced A2C bank:
 
-| A2C `data.banks[]`  | GET `items[]`                                              |
-| :------------------ | :--------------------------------------------------------- |
-| `name` (`PB-0308`)  | `external_ref`                                             |
-| `bank_name`         | `name`                                                     |
-| `logo`              | `logo`                                                     |
-| `registered_region` | `registered_region`, and `area` when the name matches      |
-| none                | `id` (`SP-#####`), `type`, `parent`, `registration_number` |
+| A2C `data.banks[]`  | GET `items[]`                                         |
+| :------------------ | :---------------------------------------------------- |
+| `name` (`PB-0308`)  | `external_ref`                                        |
+| `bank_name`         | `name`                                                |
+| `logo`              | `logo`                                                |
+| `registered_region` | `registered_region`, and `area` when the name matches |
+| none                | `id` (`SP-#####`), `type`, `registration_number`      |
 
 Checked on 2026-10-21 against the A2C dev backend: all 14 banks matched field for field.
 
@@ -170,8 +168,8 @@ For administrators (Grievance Admin, System Manager, Administrator). A signed-in
 
 ## 5. Tests
 
-- `grievance_masters/doctype/grievance_service_provider/test_grievance_service_provider.py`: ID series, defaults, trimming, required and valid type, parent chain (self and loop), no delete permission, and that the type constant matches the DocType options.
-- `tests/test_service_provider_api.py`: name, registration number and parent-name search; case; wildcards; blank search; type filter; prefix and locality ordering; area filter (ancestors, subtree, siblings, other regions, nationwide); response shape and path label; paging; invalid input; inactive lookup; 404s; access (submitter allowed, no-role user and guest refused, middleware 401).
+- `grievance_masters/doctype/grievance_service_provider/test_grievance_service_provider.py`: ID series, defaults, trimming, required and valid type, no delete permission, and that the type constant matches the DocType options.
+- `tests/test_service_provider_api.py`: name and registration number search; case; wildcards; blank search; type filter; prefix and locality ordering; area filter (ancestors, subtree, siblings, other regions, nationwide); response shape and path label; paging; invalid input; inactive lookup; 404s; access (submitter allowed, no-role user and guest refused, middleware 401).
 
 - `grievance_masters/doctype/grievance_service_provider_source/test_grievance_service_provider_source.py`: https-only URL, no credentials in the URL, paths, an incomplete source cannot be enabled, login and token modes, the secret stays encrypted, the seeded source, synced providers locked to `is_active`, and the `(source, external_ref)` constraint.
 - `tests/test_service_provider_sync.py`: create, no-op re-run, rename and move keeping the ID, removal of dropped providers (archived, survivors keep their IDs), deactivation instead when still in use, a returning provider, other sources and hand-made providers untouched, empty list refused, unknown regions, bad items, partial runs, every failure of the source (refused login, unreachable, unusable answers) with no secret in the message, rollback on a crash, queueing and the 409, and the two endpoints with their access rules. Only the A2C HTTP calls are mocked.
@@ -188,7 +186,7 @@ All three queue the same job under the same ID per source, and Frappe drops a se
 
 The search endpoint never syncs. It reads the directory as it is, so a server whose sources have not synced yet answers with an empty list. A sync that does not run because no worker listens on the `long` queue is a deployment problem (§6.4), not something a search request papers over.
 
-Nothing starts a sync for a source that is disabled or has no credentials. A new server fills itself on deploy only when its configuration holds the A2C connection (§6.1); without it the directory stays empty until someone completes the `A2C Banks` record by hand.
+Nothing starts a sync for a source that is disabled or has no credentials. A new server's directory stays empty until someone completes the `A2C Banks` record (§6.1).
 
 **The daily job.** `tasks.enqueue_service_provider_syncs` (registered under `daily` in `hooks.py`) queues a sync of every enabled source on the `long` queue and returns. Frappe's `daily` event is the cron expression `0 0 * * *`: **midnight in the site's timezone** (System Settings), picked up on the next scheduler tick, which is at most 4 minutes later by default. On the dev site the timezone is Asia/Kolkata, so the job runs at about 00:00 IST (18:30 UTC). Frappe registers the job when `bench migrate` runs, and the scheduler and a background worker must be running. A source whose last run is still going is skipped until the next day, and a source that cannot be queued is written to the Error Log without stopping the others. The scheduler and the endpoint queue the same job under the same ID per source, so they can never run the same source at once. To keep a source out of the schedule, disable it.
 
@@ -226,17 +224,9 @@ The result is written on the source (`last_synced_at`, `last_sync_status`, `last
 
 A source called `A2C Banks` is created on every `bench migrate` and on install, with the A2C catalog's paths and field names already filled in (login `/v1/auth/login`, list `/v1/catalog/facets`, list key `banks`, ID `name`, name `bank_name`, area `registered_region`, logo `logo`, type `Bank`).
 
-**From the deployment's configuration (no manual step).** If the site config or the environment holds all three of these, the seed fills in the connection and ticks Enabled, and enabling queues the first sync (§6), so a new server fills its directory on deploy:
+The source starts disabled and blank, and the record is the only place its connection lives. An existing source is never overwritten, so a deploy cannot undo an operator's own choice. To change the connection later, edit the record.
 
-| site_config key                | Environment variable           | Goes to                             |
-| :----------------------------- | :----------------------------- | :---------------------------------- |
-| `grievance_a2c_banks_url`      | `GRIEVANCE_A2C_BANKS_URL`      | API Base URL                        |
-| `grievance_a2c_banks_username` | `GRIEVANCE_A2C_BANKS_USERNAME` | Username                            |
-| `grievance_a2c_banks_password` | `GRIEVANCE_A2C_BANKS_PASSWORD` | Password (encrypted Password field) |
-
-The site config wins over the environment. With fewer than three, the source stays disabled and blank. A source that already has a URL or is enabled is never overwritten, so a deploy cannot undo an operator's own choice or switch a source back on that was switched off. To change the connection later, edit the record. A connection that does not validate, such as an `http` URL, is written to the Error Log and skipped; it cannot fail the migrate.
-
-**By hand**, when the configuration does not hold the connection:
+To complete it, once per site:
 
 1. As System Manager, open the `Grievance Service Provider Source` record `A2C Banks` in Desk. No app role has Desk access, so this is a site-operator task.
 2. Set **API Base URL** (https only, no trailing slash; the dev backend is `https://a2c-backend-development.oanstaging.com/api`).
@@ -262,7 +252,6 @@ The first source is the A2C bank catalog, not the "All Providers" table the desi
 So the first sync is an **API** source, and only `facets` can enumerate. What that means for the design:
 
 - **Reference.** `external_ref` = `name` (`PB-####`). `provider_name` = `bank_name`. `provider_type` is always `Bank`: this source holds no cooperatives, input stores or markets, which need another source or manual entry.
-- **No branches.** There is no parent field, so no head-office and branch pairs from this source.
 - **Removal by absence.** The list shows only active banks and has no `updated_at`. A bank that drops off the list looks the same as a deleted one, so every run is a full sync and anything missing is removed. The list is small, so this is cheap.
 - **Area.** `registered_region` is a region name, not a code. `services/resolvers.resolve_administrative_area` already matches a Region by its display name, which is unique across the country, so open point 3 of the design is mostly answered. Names that do not match leave the area empty and count a warning; the text itself is still kept in `registered_region`, so nothing A2C sent is lost.
 - **Logo.** Stored as A2C sent it (`logo`, usually a path such as `/files/product-imaged05e46.jpg` that is relative to A2C's own host) and returned by the GET endpoints. The frontend must resolve it against the A2C host; the directory does not build a full URL.
@@ -286,7 +275,7 @@ The design's `DatabaseAdapter` and its `map_*` column mapping still fit a databa
 
 ### 6.4 What a deployment must provide
 
-- **The A2C connection** in the site config or environment (§6.1), so the seed enables the source.
+- **The A2C connection** entered on the `A2C Banks` source and the source enabled (§6.1).
 - **A worker on the `long` queue.** Syncs run there (`JOB_QUEUE = "long"`). With docker compose the upstream `queue-long` service listens on it. In a Helm deployment the worker Deployment must run `bench worker --queue long` (or the chart's equivalent for the long queue); without it every queued sync waits in Redis and the directory stays empty.
 - **The scheduler enabled** for the nightly refresh (`bench --site <site> enable-scheduler`).
 

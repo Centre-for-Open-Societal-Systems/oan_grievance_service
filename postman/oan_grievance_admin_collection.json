@@ -1,0 +1,2476 @@
+{
+  "info": {
+    "_postman_id": "a9c7b12d-e4f8-4b9a-8a12-c5d9e7f12345",
+    "name": "OAN Grievance - Administration & Officer Management",
+    "description": "End-to-end administration workflows for **Grievance Admin** and **System Manager**.\n\n### Core Capabilities Covered:\n1. **Admin Authentication**: Sign in and refresh tokens.\n2. **User Identity Onboarding (`/v1/admin/users`)**: Create user accounts, assign roles (`Grievance Officer`, `Grievance Review Officer`), retrieve user details, and issue temporary passwords.\n3. **Officer Onboarding & Management (`/v1/officers`)**: Place officers on category desks as Nodal Officers (L1), Senior Officers (L2), Department Heads (L3), or Reviewers. Filter officers by level, department, status, category, and region; fetch status counts, manage leave/status, re-issue passwords, and inspect performance statistics.\n4. **Category Desk Routing (`/v1/category-assignments`)**: Configure primary and secondary routing desks, SLA days, and auto-escalation.\n5. **SLA Policies & Configuration (`/v1/sla-*`)**: Manage global deferral ceiling, auto-escalation thresholds, and per-category SLA timers.\n6. **Response Templates (`/v1/response-templates`)**: Manage pre-written investigation templates for officers.\n7. **Notification Templates (`/v1/notification-templates`)**: Manage automated event notification templates and review placeholder dictionaries.\n8. **Taxonomy & Master Data (`/v1/service-categories`, `/v1/grievance-types`)**: Manage categories and grievance types.\n\n### Running in Newman / CI:\n```bash\nnewman run postman/oan_grievance_admin_collection.json -e postman/local.postman_environment.json\n```",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "default"
+    },
+    {
+      "key": "admin_email",
+      "value": "administrator",
+      "type": "default"
+    },
+    {
+      "key": "admin_password",
+      "value": "admin",
+      "type": "secret"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "secret"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "secret"
+    },
+    {
+      "key": "officer_email",
+      "value": "newman.l1.officer@example.com",
+      "type": "default"
+    },
+    {
+      "key": "officer_name",
+      "value": "Tigist Alemu",
+      "type": "default"
+    },
+    {
+      "key": "officer_phone",
+      "value": "+251911123456",
+      "type": "default"
+    },
+    {
+      "key": "officer_designation",
+      "value": "Nodal Officer",
+      "type": "default"
+    },
+    {
+      "key": "supervisor_email",
+      "value": "newman.l2.officer@example.com",
+      "type": "default"
+    },
+    {
+      "key": "supervisor_name",
+      "value": "Yonas Mekonnen",
+      "type": "default"
+    },
+    {
+      "key": "dept_head_email",
+      "value": "head.moa@example.com",
+      "type": "default"
+    },
+    {
+      "key": "dept_head_name",
+      "value": "Dr. Fikru Tadesse",
+      "type": "default"
+    },
+    {
+      "key": "reviewer_email",
+      "value": "reviewer.moa@example.com",
+      "type": "default"
+    },
+    {
+      "key": "reviewer_name",
+      "value": "Almaz Bekele",
+      "type": "default"
+    },
+    {
+      "key": "department",
+      "value": "MoA",
+      "type": "default"
+    },
+    {
+      "key": "service_category",
+      "value": "Inputs",
+      "type": "default"
+    },
+    {
+      "key": "grievance_type",
+      "value": "Fertilizer Shortage",
+      "type": "default"
+    },
+    {
+      "key": "region",
+      "value": "Oromia",
+      "type": "default"
+    },
+    {
+      "key": "officer_temp_password",
+      "value": "",
+      "type": "secret"
+    },
+    {
+      "key": "category_assignment_id",
+      "value": "",
+      "type": "default"
+    },
+    {
+      "key": "response_template_id",
+      "value": "",
+      "type": "default"
+    },
+    {
+      "key": "notif_template_id",
+      "value": "",
+      "type": "default"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Admin Authentication",
+      "item": [
+        {
+          "name": "1. Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Login successful with 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Access token received\", function () {",
+                  "    var res = pm.response.json();",
+                  "    var d = res.data || res.message || res;",
+                  "    pm.expect(d.access_token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.access_token) pm.collectionVariables.set(\"access_token\", data.access_token);",
+                  "    if (data && data.refresh_token) pm.collectionVariables.set(\"refresh_token\", data.refresh_token);",
+                  "    if (pm.environment && pm.environment.name && data) {",
+                  "        if (data.access_token) pm.environment.set(\"access_token\", data.access_token);",
+                  "        if (data.refresh_token) pm.environment.set(\"refresh_token\", data.refresh_token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Authenticates admin credentials (`usr` and `pwd`) and stores the returned Bearer `access_token` and `refresh_token` in collection and environment variables.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usr\": \"{{admin_email}}\",\n  \"pwd\": \"{{admin_password}}\",\n  \"remember_me\": false\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2. Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.access_token) pm.collectionVariables.set(\"access_token\", data.access_token);",
+                  "    if (data && data.refresh_token) pm.collectionVariables.set(\"refresh_token\", data.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Exchanges the single-use refresh token for a fresh access and refresh token pair.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. User Account Onboarding (/v1/admin/users)",
+      "item": [
+        {
+          "name": "1. List System Users",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users?role=Grievance Officer&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Grievance Officer",
+                  "description": "Filter by assigned role"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List user accounts holding a service role. Supports search, email, role, and enabled filters."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Onboard User Account (L2 Senior Officer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 201 or 200\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.temporary_password) pm.collectionVariables.set(\"officer_temp_password\", data.temporary_password);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Create a user account in the auth service for a Senior Nodal Officer (L2). A temporary password is generated and returned once in the response.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{supervisor_name}}\",\n  \"email\": \"{{supervisor_email}}\",\n  \"phone_number\": \"+251911223344\",\n  \"roles\": [\n    \"Grievance Officer\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. Onboard User Account (L1 Nodal Officer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 201 or 200\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.temporary_password) pm.collectionVariables.set(\"officer_temp_password\", data.temporary_password);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Create a user account in the auth service for a Nodal Officer (L1) with role Grievance Officer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{officer_name}}\",\n  \"email\": \"{{officer_email}}\",\n  \"phone_number\": \"{{officer_phone}}\",\n  \"roles\": [\n    \"Grievance Officer\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4. Onboard User Account (L3 Department Head)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 201 or 200\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Create a user account for a Department Head (L3) with roles Grievance Officer and Grievance Desk Head.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{dept_head_name}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"phone_number\": \"+251911556677\",\n  \"roles\": [\n    \"Grievance Officer\",\n    \"Grievance Desk Head\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5. Onboard User Account (Reviewer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 201 or 200\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Create a user account for an internal Reviewer holding Grievance Review Officer (read-only oversight).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{reviewer_name}}\",\n  \"email\": \"{{reviewer_email}}\",\n  \"phone_number\": \"+251911889900\",\n  \"roles\": [\n    \"Grievance Review Officer\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6. Get User Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Account details, contact info, assigned roles, and app profiles of an onboarded user."
+          },
+          "response": []
+        },
+        {
+          "name": "7. Update User Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Update user account profile information (e.g. first_name, last_name, mobile).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Tigist\",\n  \"last_name\": \"Alemu (Updated)\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "8. Get User Roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/{{officer_email}}/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{officer_email}}",
+                "roles"
+              ]
+            },
+            "description": "List the service roles granted to a specific user account."
+          },
+          "response": []
+        },
+        {
+          "name": "9. Issue User Temporary Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.temporary_password) pm.collectionVariables.set(\"officer_temp_password\", data.temporary_password);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/users/{{officer_email}}/temporary-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "users",
+                "{{officer_email}}",
+                "temporary-password"
+              ]
+            },
+            "description": "Generate a new temporary password for the user and revoke existing sessions.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"temporary_password\": \"TempPass#2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "10. List Assignable Roles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/admin/roles",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "admin",
+                "roles"
+              ]
+            },
+            "description": "List all roles within the service scope that can be granted by an administrator."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Officer Management & Desks (/v1/officers)",
+      "item": [
+        {
+          "name": "1. Onboard Senior Nodal Officer (L2) on Desks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Places an existing user account onto category desks as a Senior Nodal Officer (L2). L2 officers act as supervisors and the first escalation rung for Nodal Officers.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{supervisor_name}}\",\n  \"email\": \"{{supervisor_email}}\",\n  \"designation\": \"Senior Nodal Officer\",\n  \"level\": \"L2\",\n  \"department\": \"{{department}}\",\n  \"service_categories\": [\n    \"{{service_category}}\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2. Onboard Nodal Officer (L1) on Desks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.officer) pm.collectionVariables.set(\"officer_email\", data.officer.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Places an existing user account onto category desks as a Nodal Officer (L1). Requires level L1, department, service_categories, and an L2 supervisor (reports_to).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{officer_name}}\",\n  \"email\": \"{{officer_email}}\",\n  \"designation\": \"{{officer_designation}}\",\n  \"level\": \"L1\",\n  \"department\": \"{{department}}\",\n  \"service_categories\": [\n    \"{{service_category}}\"\n  ],\n  \"phone\": \"{{officer_phone}}\",\n  \"reports_to\": \"{{supervisor_email}}\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. Onboard Department Head (L3 Category Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Creates a Department Head (L3) officer. An L3 is the department's final escalation rung who approves reassignments. Only one head handles a category in a department.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{dept_head_name}}\",\n  \"email\": \"{{dept_head_email}}\",\n  \"designation\": \"Department Head\",\n  \"level\": \"L3\",\n  \"department\": \"{{department}}\",\n  \"service_categories\": [\n    \"{{service_category}}\"\n  ],\n  \"create_department\": false\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4. Onboard Reviewer on Category Desks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ]
+            },
+            "description": "Places a Reviewer on a department's desks with read-only access limited to those desks. A Reviewer takes role='Reviewer', has no level or supervisor, and cases are never assigned to them.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{reviewer_name}}\",\n  \"email\": \"{{reviewer_email}}\",\n  \"role\": \"Reviewer\",\n  \"designation\": \"Regional Reviewer\",\n  \"department\": \"{{department}}\",\n  \"service_categories\": [\n    \"{{service_category}}\"\n  ]\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5. List All Officers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List all officers. Paginated with page and page_size, returned newest first."
+          },
+          "response": []
+        },
+        {
+          "name": "6. List Officers (Filtered by Level & Department)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers?role=Officer&level=L1&department={{department}}&service_category={{service_category}}&status=Active&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                },
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "department",
+                  "value": "{{department}}"
+                },
+                {
+                  "key": "service_category",
+                  "value": "{{service_category}}"
+                },
+                {
+                  "key": "status",
+                  "value": "Active"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List Nodal Officers (L1) in a department and service category with Active status."
+          },
+          "response": []
+        },
+        {
+          "name": "7. List Reviewers",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers?role=Reviewer&department={{department}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Reviewer"
+                },
+                {
+                  "key": "department",
+                  "value": "{{department}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List Reviewer accounts. Note that Reviewers have no level and cannot be On Leave."
+          },
+          "response": []
+        },
+        {
+          "name": "8. Officer Status Counts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+                  "pm.test(\"Contains status count fields\", function () {",
+                  "    var res = pm.response.json();",
+                  "    var d = res.data || res.message || res;",
+                  "    pm.expect(d).to.have.property('active');",
+                  "    pm.expect(d).to.have.property('on_leave');",
+                  "    pm.expect(d).to.have.property('inactive');",
+                  "    pm.expect(d).to.have.property('total');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/status-counts?role=Officer&department={{department}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "status-counts"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "Officer"
+                },
+                {
+                  "key": "department",
+                  "value": "{{department}}"
+                }
+              ]
+            },
+            "description": "Returns Active, On Leave, and Inactive totals for dashboard and administration tabs."
+          },
+          "response": []
+        },
+        {
+          "name": "9. Get Officer Profile & Desk Assignments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Inspect an officer record: contact details, designation, level, supervisor, and category desk seats."
+          },
+          "response": []
+        },
+        {
+          "name": "10. Update Officer (Designation & Phone)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Update officer details: designation, phone number, and service category assignments.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{officer_name}}\",\n  \"designation\": \"Lead Nodal Officer\",\n  \"phone\": \"+251911998877\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "11. Set Officer On Leave",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Marks the officer as 'On Leave'. The auto-routing engine will temporarily bypass this officer.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"On Leave\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "12. Mark Officer Active (Return from Leave)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Reactivates an officer returning from leave.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Active\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "13. Reissue Officer Temporary Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}/password-resets",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}",
+                "password-resets"
+              ]
+            },
+            "description": "Reissues a temporary password to an officer. All existing sessions are terminated and the officer must change password on their next sign-in.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"temporary_password\": \"TempPass#2026\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "14. Officer Performance Statistics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/statistics?level=L1&department={{department}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "statistics"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "L1"
+                },
+                {
+                  "key": "department",
+                  "value": "{{department}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Officer KPI metrics: assigned cases, resolved count, avg resolution days, and resolution rate."
+          },
+          "response": []
+        },
+        {
+          "name": "15. Deactivate Officer (Inactive)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/officers/{{officer_email}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "officers",
+                "{{officer_email}}"
+              ]
+            },
+            "description": "Deactivates an officer account and retires their desk assignment rows.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Inactive\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Category Desk Assignments (/v1/category-assignments)",
+      "item": [
+        {
+          "name": "1. List Category Desk Assignments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.assignments && data.assignments.length > 0) pm.collectionVariables.set(\"category_assignment_id\", data.assignments[0].name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/category-assignments?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "category-assignments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List active and configured category-to-department routing rules."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Create Category Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.assignment) pm.collectionVariables.set(\"category_assignment_id\", data.assignment.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/category-assignments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "category-assignments"
+              ]
+            },
+            "description": "Assigns a category and department to primary (L1) and escalation (L2) officers with SLA days.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"service_category\": \"{{service_category}}\",\n  \"department\": \"{{department}}\",\n  \"l1_officer\": \"{{officer_email}}\",\n  \"l2_officer\": \"{{supervisor_email}}\",\n  \"sla_days\": 7,\n  \"auto_escalate\": true,\n  \"active\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Category Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "category-assignments",
+                "{{category_assignment_id}}"
+              ]
+            },
+            "description": "Retrieve detailed configuration of a single category desk assignment."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Update Category Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "category-assignments",
+                "{{category_assignment_id}}"
+              ]
+            },
+            "description": "Update SLA days or toggle auto-escalation on a category desk assignment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sla_days\": 10,\n  \"auto_escalate\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5. Deactivate Category Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/category-assignments/{{category_assignment_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "category-assignments",
+                "{{category_assignment_id}}"
+              ]
+            },
+            "description": "Soft-deactivates a category desk assignment (`active = 0`). Hard deletion is forbidden."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. SLA Policies & Configurations (/v1/sla-*)",
+      "item": [
+        {
+          "name": "1. Get Global SLA Policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/sla-policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "sla-policy"
+              ]
+            },
+            "description": "Read the global SLA policy (maximum deferral days, escalation threshold, supervisor approval requirement)."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Update Global SLA Policy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/sla-policy",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "sla-policy"
+              ]
+            },
+            "description": "Update global SLA limits across all categories.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"requires_supervisor_approval\": true\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. List Category SLA Settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/sla-configurations?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "sla-configurations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List per-category SLA configurations and reminder thresholds."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Update Category SLA Setting",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/sla-configurations/{{service_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "sla-configurations",
+                "{{service_category}}"
+              ]
+            },
+            "description": "Update SLA window and breach notification settings for a specific category.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sla_days\": 7,\n  \"notify_on_breach\": true,\n  \"auto_escalate\": true\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Response Templates (/v1/response-templates)",
+      "item": [
+        {
+          "name": "1. List Response Templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.templates && data.templates.length > 0) pm.collectionVariables.set(\"response_template_id\", data.templates[0].name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/response-templates?service_category={{service_category}}&page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "response-templates"
+              ],
+              "query": [
+                {
+                  "key": "service_category",
+                  "value": "{{service_category}}"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List pre-written response templates available to officers."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Create Response Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.template) pm.collectionVariables.set(\"response_template_id\", data.template.name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/response-templates",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "response-templates"
+              ]
+            },
+            "description": "Create a canned response template for grievance investigations.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Standard Intake Acknowledgment\",\n  \"body\": \"Thank you for reaching out. We have received your inquiry regarding fertilizer distribution and an officer has been assigned.\",\n  \"service_category\": \"{{service_category}}\",\n  \"status\": \"In Progress\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Response Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/response-templates/{{response_template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "response-templates",
+                "{{response_template_id}}"
+              ]
+            },
+            "description": "Get the content and metadata of a response template."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Update Response Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/response-templates/{{response_template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "response-templates",
+                "{{response_template_id}}"
+              ]
+            },
+            "description": "Edit template title, body text, or category mapping.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Intake Acknowledgment\",\n  \"body\": \"Thank you for contacting us. Your grievance is actively under review by the agricultural extension team.\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5. Deactivate Response Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/response-templates/{{response_template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "response-templates",
+                "{{response_template_id}}"
+              ]
+            },
+            "description": "Soft-deactivates the response template (`active = 0`)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Notification Templates (/v1/notification-templates)",
+      "item": [
+        {
+          "name": "1. List Notification Templates",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code >= 200 && pm.response.code < 300) {",
+                  "    var res = pm.response.json();",
+                  "    var envelope = res.message || res;",
+                  "    var data = envelope.data || envelope;",
+                  "    if (data && data.templates && data.templates.length > 0) pm.collectionVariables.set(\"notif_template_id\", data.templates[0].name);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/notification-templates?page=1&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "notification-templates"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "List all configurable SMS, Email, and In-App notification event templates."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Get Notification Options & Channels",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/notification-templates/options",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "notification-templates",
+                "options"
+              ]
+            },
+            "description": "Returns available notification channels, events, and languages."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Notification Placeholders",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/notification-templates/placeholders",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "notification-templates",
+                "placeholders"
+              ]
+            },
+            "description": "Dictionary of dynamic placeholders available for message bodies (e.g. {{ticket_number}}, {{submitter_name}})."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Get Notification Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/notification-templates/{{notif_template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "notification-templates",
+                "{{notif_template_id}}"
+              ]
+            },
+            "description": "Fetch one notification template by its identifier."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Update Notification Template",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/notification-templates/{{notif_template_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "notification-templates",
+                "{{notif_template_id}}"
+              ]
+            },
+            "description": "Update subject or message body content for an event notification.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Grievance status update: {{ticket_number}}\",\n  \"template\": \"Hello {{submitter_name}}, your grievance {{ticket_number}} is now {{status}}.\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Taxonomy & Master Data",
+      "item": [
+        {
+          "name": "1. List Service Categories",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/service-categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-categories"
+              ]
+            },
+            "description": "List service categories configured in the grievance catalog."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Create Service Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/service-categories",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "service-categories"
+              ]
+            },
+            "description": "Add a new service category to the grievance registry.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category_name\": \"Agri Extension Services\",\n  \"code\": \"EXT-01\",\n  \"description\": \"Agricultural extension, farm training and advisory services\"\n}"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. List Grievance Types",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/grievance-types?category={{service_category}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievance-types"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "{{service_category}}"
+                }
+              ]
+            },
+            "description": "List sub-types under a service category."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Create Grievance Type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 2xx\", function () {",
+                  "    pm.response.to.be.success;",
+                  "});",
+                  "pm.test(\"Response status is success\", function () {",
+                  "    var res = pm.response.json();",
+                  "    pm.expect(res.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/grievance-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "grievance-types"
+              ]
+            },
+            "description": "Add a specific grievance type under an active category.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type_name\": \"Delay in Extension Visit\",\n  \"service_category\": \"{{service_category}}\",\n  \"description\": \"Agronomist or DA failed to visit plot within scheduled period\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

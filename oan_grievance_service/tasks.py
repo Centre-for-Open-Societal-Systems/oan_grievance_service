@@ -6,15 +6,18 @@ batch must finish inside 30 minutes, so each job filters on an indexed column an
 
 import frappe
 from frappe.utils import now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
 )
+from oan_grievance_service.grievance_management.doctype.grievance_settings import grievance_settings
 from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
 	GrievanceRoleLevel,
 )
+from oan_grievance_service.services import audit, lifecycle, notifications, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import lifecycle, notifications, sla
+from oan_grievance_service.services.grievance_log import grievance_fields, logged_job
 
 
 def open_grievances_with_sla(extra_filters=None):
@@ -53,6 +56,7 @@ def open_grievances_with_sla(extra_filters=None):
 	)
 
 
+@logged_job("sla_reminders")
 def send_sla_reminders():
 	"""Reminders to the assigned officer at 50% and 80% of the window."""
 	sent = 0
@@ -68,16 +72,29 @@ def send_sla_reminders():
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_80)
 			notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
 			grievance.db_set("reminder_80_sent", 1, update_modified=False)
+			oplog.emit(
+				"sla.reminder_sent",
+				**grievance_fields(grievance),
+				threshold_percent=80,
+				consumed_percent=percent,
+			)
 			sent += 1
 		elif percent >= 50 and not row.reminder_50_sent:
 			grievance = frappe.get_doc("Grievance", row.name)
 			notifications.queue(grievance, C.EVENT_SLA_REMINDER_50)
 			grievance.db_set("reminder_50_sent", 1, update_modified=False)
+			oplog.emit(
+				"sla.reminder_sent",
+				**grievance_fields(grievance),
+				threshold_percent=50,
+				consumed_percent=percent,
+			)
 			sent += 1
 
 	return sent
 
 
+@logged_job("sla_escalation")
 def escalate_breached():
 	"""Hand every overdue case one rung up the chain.
 
@@ -89,7 +106,7 @@ def escalate_breached():
 	"""
 	# Site-wide stop, one read per run. Per-category is the `auto_escalate` tick on the
 	# SLA configuration, which works by leaving `next_escalation_at` unarmed.
-	if frappe.conf.get("grievance_auto_escalation_enabled") is False:
+	if not grievance_settings.auto_escalation_enabled():
 		return 0
 
 	due_now = frappe.get_all(
@@ -108,7 +125,7 @@ def escalate_breached():
 			if sla.escalate(frappe.get_doc("Grievance", name)):
 				escalated += 1
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title="Grievance escalation failed",
 				message=f"{name}\n\n{frappe.get_traceback()}",
 			)
@@ -116,10 +133,7 @@ def escalate_breached():
 	return escalated
 
 
-# How long a change request waits on someone whose rung sets no hours of its own.
-DEFAULT_CHANGE_REQUEST_HOURS = 24
-
-
+@logged_job("change_request_forwarding")
 def forward_stale_change_requests():
 	"""Hand every change request nobody has acted on one step up the hierarchy.
 
@@ -134,7 +148,7 @@ def forward_stale_change_requests():
 		fields=["name", "pending_with", "pending_since"],
 	)
 	hours_by_level = {rung.name: rung.escalation_hours for rung in GrievanceRoleLevel.get_chain()}
-	default_hours = frappe.conf.get("grievance_change_request_hours") or DEFAULT_CHANGE_REQUEST_HOURS
+	default_hours = grievance_settings.change_request_hours()
 
 	forwarded = 0
 	for row in pending:
@@ -148,7 +162,7 @@ def forward_stale_change_requests():
 			frappe.get_doc("Grievance Change Request", row.name).forward()
 			forwarded += 1
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title="Change request forwarding failed",
 				message=f"{row.name}\n\n{frappe.get_traceback()}",
 			)
@@ -156,6 +170,7 @@ def forward_stale_change_requests():
 	return forwarded
 
 
+@logged_job("state_timers")
 def expire_state_timers():
 	"""Act on every case that has sat in its current state longer than its timer allows.
 
@@ -185,6 +200,7 @@ def expire_state_timers():
 			if not timer:
 				continue
 
+			oplog.emit("sla.state_timer_expired", **grievance_fields(grievance), state=state, action=timer[1])
 			if timer[1] == "Escalate":
 				sla.escalate(grievance, reason=f"No action while {state}")
 				continue
@@ -199,6 +215,7 @@ def expire_state_timers():
 				reason = f"Closed - no activity while {state}"
 				body = f"Grievance auto-closed: no activity while {state}."
 
+			audit.record_version(grievance, {"closure_reason": reason})
 			grievance.db_set("closure_reason", reason, update_modified=False)
 			lifecycle.transition(
 				grievance,
@@ -215,7 +232,7 @@ def expire_state_timers():
 				author_user=None,
 			)
 		except Exception:
-			frappe.log_error(
+			oplog.log_error(
 				title="Grievance state timer failed",
 				message=f"{name}\n\n{frappe.get_traceback()}",
 			)

@@ -1,10 +1,21 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and Contributors
 # See license.txt
 
+import importlib.util
+from pathlib import Path
+from unittest import mock
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1 import grievance as grievance_api
+_load_spec = importlib.util.spec_from_file_location(
+	"grievance_ci_seed_load",
+	Path(__file__).resolve().parents[2] / "ci" / "seed" / "load.py",
+)
+_seed_load = importlib.util.module_from_spec(_load_spec)
+_load_spec.loader.exec_module(_seed_load)
+existing_under_another_name = _seed_load.existing_under_another_name
+
 from oan_grievance_service.api.v1._options import get_grievance_types, get_service_categories
 from oan_grievance_service.api.v1.category_assignment import create_assignment
 from oan_grievance_service.api.v1.taxonomy import (
@@ -26,10 +37,26 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 	get_default_category,
 	rename_category,
 )
-from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import get_fallback_type
+from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
+	GrievanceType,
+	get_fallback_type,
+)
+from oan_grievance_service.services import classification, ticket_number
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import ticket_number
-from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_submitter_type, discard_grievance
+from oan_grievance_service.setup.install import (
+	seed_categories,
+	seed_grievance_types,
+	seed_sla_configurations,
+	seed_unrouted_desk,
+)
+from oan_grievance_service.tests.fixtures import (
+	a_grievance,
+	a_leaf_area,
+	a_role_level,
+	a_submitter_type,
+	discard_grievance,
+	post_grievance,
+)
 from oan_grievance_service.tests.test_category_assignment import (
 	_department,
 	_keep_transaction,
@@ -99,16 +126,10 @@ class TestTaxonomy(FrappeTestCase):
 				result = create_service_category(category_name=f"STG406 {bad}", code=bad)
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(bad, result))
 
-	def test_duplicate_name_or_code_is_rejected(self):
-		self._category()
-		with _keep_transaction():
-			same_name = create_service_category(category_name=CATEGORY, code="Q53")
-			self.assertEqual(same_name["code"], "DUPLICATE_ENTRY", msg=same_name)
-			same_code = create_service_category(category_name="STG406 Other name", code=CODE)
-			self.assertEqual(same_code["code"], "DUPLICATE_ENTRY", msg=same_code)
-			other = self._category(name="STG406 Second", code="Q54")
-			clash = update_service_category(other["category_name"], code=CODE)
-			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
+	def test_name_and_code_are_unique(self):
+		meta = frappe.get_meta("Grievance Service Category")
+		self.assertEqual(meta.autoname, "field:category_name")
+		self.assertTrue(meta.get_field("code").unique)
 
 	def test_unknown_fields_blank_names_and_empty_updates_are_rejected(self):
 		self._category()
@@ -140,11 +161,12 @@ class TestTaxonomy(FrappeTestCase):
 		sla_row = frappe.db.get_value(
 			"Grievance SLA Configuration",
 			{"service_category": name, "active": 1},
-			["name", "sla_days", "auto_escalate", "notify_on_breach", "active"],
+			["name", "auto_escalate", "notify_on_breach", "active"],
 			as_dict=True,
 		)
 		self.assertIsNotNone(sla_row)
-		self.assertEqual(sla_row.sla_days, 14)
+		# The days are the category's base SLA rule's.
+		self.assertEqual(classification.sla_days_for(name), 14)
 		self.assertEqual(sla_row.auto_escalate, 1)
 		self.assertEqual(sla_row.notify_on_breach, 0)
 		self.assertEqual(sla_row.active, 1)
@@ -164,10 +186,10 @@ class TestTaxonomy(FrappeTestCase):
 		code = "Q90"
 		res = create_service_category(category_name=name, code=code)
 		self.assertEqual(res["status"], "success", msg=res)
-		sla_days = frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": name, "active": 1}, "sla_days"
+		self.assertTrue(
+			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
 		)
-		self.assertEqual(sla_days, C.DEFAULT_SLA_DAYS)
+		self.assertEqual(classification.sla_days_for(name), C.DEFAULT_SLA_DAYS)
 
 	def test_missing_category_is_not_found(self):
 		for result in (
@@ -415,7 +437,7 @@ class TestTaxonomy(FrappeTestCase):
 		self._category()
 		update_service_category(CATEGORY, is_default=True)
 		catch_all = get_fallback_type(CATEGORY)
-		saved = grievance_api.submit(
+		saved = post_grievance(
 			submitter_type=a_submitter_type(),
 			submitter_name="Test Submitter",
 			contact_mobile="+251911234567",
@@ -482,6 +504,146 @@ class TestTaxonomy(FrappeTestCase):
 		# The same name under another category is a different type.
 		elsewhere = self._type(category="STG406 Second", name=first["type_name"])
 		self.assertNotEqual(elsewhere["grievance_type_id"], first["grievance_type_id"])
+
+	def test_type_carries_its_routing_defaults(self):
+		self._category()
+		first, second = "nodal_officer", "senior_nodal_officer"
+		# The review officer rung is inactive: it is no step of the chain.
+		retired = "review_officer"
+		created = self._type(type_code="q51-01", external_referral="Input regulator", entry_role_level=first)
+		self.assertEqual(created["type_code"], "Q51-01")
+		self.assertEqual(
+			(created["external_referral"], created["entry_role_level"]), ("Input regulator", first)
+		)
+		type_id = created["grievance_type_id"]
+
+		# Admin edits take effect, and a type made without them has none.
+		updated = update_grievance_type(type_id, entry_role_level=second)
+		self.assertEqual(updated["status"], "success", msg=updated)
+		record = updated["data"]["grievance_type"]
+		self.assertEqual(
+			(record["external_referral"], record["entry_role_level"]), ("Input regulator", second)
+		)
+		bare = self._type(name="STG406 Bare")
+		self.assertEqual(
+			(bare["type_code"], bare["external_referral"], bare["entry_role_level"]), (None, None, None)
+		)
+		# The department is a desk's and the turnaround the SLA configuration's: the type has neither.
+		self.assertNotIn("department", record)
+		self.assertNotIn("sla_l1_days", record)
+		self.assertEqual(get_grievance_type(type_id)["data"]["grievance_type"]["entry_role_level"], second)
+
+		with _keep_transaction():
+			clash = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-01"
+			)
+			self.assertEqual(clash["code"], "DUPLICATE_ENTRY", msg=clash)
+			for result in (
+				# The level is a role level of the hierarchy: an unknown or an inactive one is refused.
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 A", entry_role_level="no_such_level"
+				),
+				update_grievance_type(type_id, entry_role_level=retired),
+				update_grievance_type(type_id, entry_role_level=""),
+				update_grievance_type(type_id, type_code="Q51-09"),
+				# Fields the type no longer takes are refused by the request schema.
+				update_grievance_type(type_id, department="Anything"),
+				update_grievance_type(type_id, sla_l1_days=5),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+		listed = list_grievance_types(service_category=CATEGORY)["data"]["grievance_types"]
+		self.assertEqual({row["type_code"] for row in listed}, {"Q51-01", None})
+
+	def test_routing_defaults_can_be_cleared_with_null_but_not_blank(self):
+		self._category()
+		created = self._type(
+			type_code="Q51-02", external_referral="Court", entry_role_level="department_head"
+		)
+		type_id = created["grievance_type_id"]
+		cleared = update_grievance_type(type_id, external_referral=None, entry_role_level=None)
+		self.assertEqual(cleared["status"], "success", msg=cleared)
+		record = cleared["data"]["grievance_type"]
+		self.assertEqual((record["external_referral"], record["entry_role_level"]), (None, None))
+		with _keep_transaction():
+			for result in (
+				update_grievance_type(type_id, external_referral=""),
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 Blank", external_referral=""
+				),
+				# The code is fixed once set, whatever its case.
+				update_grievance_type(type_id, type_code="q51-02"),
+			):
+				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
+
+	def test_a_type_keeps_a_level_that_is_retired_later(self):
+		self._category()
+		level = a_role_level()
+		kind = self._type(entry_role_level=level)
+		frappe.db.set_value("Grievance Role Level", level, "is_active", 0)
+		renamed = update_grievance_type(kind["grievance_type_id"], type_name="STG406 Renamed")
+		self.assertEqual(renamed["status"], "success", msg=renamed)
+		self.assertEqual(renamed["data"]["grievance_type"]["entry_role_level"], level)
+
+	def test_only_an_administrator_sets_routing_defaults(self):
+		self._category()
+		kind = self._type()
+		with (
+			_keep_transaction(),
+			mock.patch("oan_grievance_service.api.v1.taxonomy.is_unrestricted", return_value=False),
+		):
+			for result in (
+				create_grievance_type(
+					service_category=CATEGORY, type_name="STG406 Head", entry_role_level="nodal_officer"
+				),
+				# The code is the key the seed matches on, so a head cannot claim one.
+				create_grievance_type(service_category=CATEGORY, type_name="STG406 Claim", type_code="SYS"),
+				update_grievance_type(kind["grievance_type_id"], external_referral="Court"),
+				update_grievance_type(kind["grievance_type_id"], entry_role_level=None),
+			):
+				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
+			# The name and the active flag stay with the category head.
+			renamed = update_grievance_type(kind["grievance_type_id"], type_name="STG406 Renamed by head")
+			self.assertEqual(renamed["status"], "success", msg=renamed)
+
+	def test_a_type_code_race_is_a_duplicate_not_a_server_error(self):
+		self._category()
+		self._type(type_code="Q51-03")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			# Validation passes, as it would for two requests at once: the unique index refuses the second.
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin", type_code="Q51-03"
+			)
+			self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+
+	def test_another_unique_violation_is_not_reported_as_a_code_clash(self):
+		self._category()
+		with (
+			_keep_transaction(),
+			mock.patch.object(GrievanceType, "insert", side_effect=frappe.UniqueValidationError),
+		):
+			result = create_grievance_type(service_category=CATEGORY, type_name="STG406 Odd")
+		self.assertEqual(result["code"], "DUPLICATE_ENTRY", msg=result)
+		self.assertNotIn("Type code", str(result))
+
+	def test_a_lowercase_code_clash_names_the_stored_code(self):
+		self._category()
+		self._type(type_code="Q51-05")
+		with _keep_transaction(), mock.patch.object(GrievanceType, "validate_routing_defaults"):
+			twin = create_grievance_type(
+				service_category=CATEGORY, type_name="STG406 Twin2", type_code="q51-05"
+			)
+		self.assertEqual(twin["code"], "DUPLICATE_ENTRY", msg=twin)
+		self.assertIn("Q51-05", str(twin))
+
+	def test_type_list_searches_the_code_as_well_as_the_name(self):
+		self._category()
+		self._type(type_code="Q51-04", name="STG406 Searchable")
+		self._type(name="STG406 Other one")
+		by_code = list_grievance_types(search="q51-04")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_code], ["STG406 Searchable"])
+		by_name = list_grievance_types(search="STG406 Other")["data"]["grievance_types"]
+		self.assertEqual([row["type_name"] for row in by_name], ["STG406 Other one"])
 
 	def test_type_request_validation_and_unknown_category(self):
 		self._category()
@@ -733,6 +895,83 @@ class TestTaxonomy(FrappeTestCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
 		frappe.set_user("Administrator")
 		self.assertFalse(frappe.db.exists("Grievance Service Category", "STG406 Refused"))
+
+	def test_canonical_fallback_and_unrouted_records(self):
+		"""Install seeds SYS for fallback category/type, unrouted desk, and fallback SLA config."""
+		seed_categories()
+		seed_grievance_types()
+		seed_unrouted_desk()
+		seed_sla_configurations()
+
+		# Category Other has code SYS and is default
+		cat = frappe.get_doc("Grievance Service Category", C.FALLBACK_SERVICE_CATEGORY)
+		self.assertEqual(cat.code, C.FALLBACK_CATEGORY_CODE)
+		self.assertEqual(cat.is_default, 1)
+
+		# Type SYS has code SYS and is named SYS
+		self.assertTrue(frappe.db.exists("Grievance Type", C.FALLBACK_TYPE_CODE))
+		t = frappe.get_doc("Grievance Type", C.FALLBACK_TYPE_CODE)
+		self.assertEqual(t.type_code, C.FALLBACK_TYPE_CODE)
+		self.assertEqual(t.service_category, C.FALLBACK_SERVICE_CATEGORY)
+		self.assertEqual(t.type_name, C.FALLBACK_GRIEVANCE_TYPE)
+
+		# Unrouted desk exists
+		unrouted_desks = frappe.get_all(
+			"Grievance RBAC Assignment",
+			filters={"department_scope": C.UNROUTED_DEPARTMENT},
+			pluck="name",
+		)
+		self.assertEqual(len(unrouted_desks), 1)
+
+		# SLA configuration for Other exists
+		other_slas = frappe.get_all(
+			"Grievance SLA Configuration",
+			filters={"service_category": C.FALLBACK_SERVICE_CATEGORY},
+			pluck="name",
+		)
+		self.assertEqual(len(other_slas), 1)
+
+		# Second seeding run is idempotent and does not create duplicate entries
+		seed_categories()
+		seed_grievance_types()
+		seed_unrouted_desk()
+		seed_sla_configurations()
+
+		self.assertEqual(
+			frappe.db.count("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
+			1,
+		)
+		self.assertEqual(
+			frappe.db.count("Grievance RBAC Assignment", {"department_scope": C.UNROUTED_DEPARTMENT}),
+			1,
+		)
+		self.assertEqual(
+			frappe.db.count("Grievance SLA Configuration", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
+			1,
+		)
+
+		# Verify seed deduplication logic (existing_under_another_name)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance SLA Configuration",
+				{"name": "GR-SLA-9999", "service_category": C.FALLBACK_SERVICE_CATEGORY},
+			),
+			other_slas[0],
+		)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance RBAC Assignment",
+				{"name": "GR-RBAC-9999", "department_scope": C.UNROUTED_DEPARTMENT},
+			),
+			unrouted_desks[0],
+		)
+		self.assertEqual(
+			existing_under_another_name(
+				"Grievance Type",
+				{"name": "GTYPE-9999", "type_code": C.FALLBACK_TYPE_CODE},
+			),
+			C.FALLBACK_TYPE_CODE,
+		)
 
 
 def _ensure_default():

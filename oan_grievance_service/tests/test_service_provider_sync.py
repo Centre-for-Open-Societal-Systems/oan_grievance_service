@@ -67,6 +67,13 @@ def bank(ref, name, region=None, logo=None):
 	return {"name": ref, "bank_name": name, "logo": logo, "registered_region": region}
 
 
+def _providers_still_in_use():
+	"""Make Frappe refuse every provider delete, as it does for a provider another record links to."""
+	return mock.patch.object(
+		sync.frappe, "delete_doc", side_effect=frappe.LinkExistsError("Grievance Service Provider in use")
+	)
+
+
 class TestServiceProviderSync(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -277,14 +284,12 @@ class TestServiceProviderSync(FrappeTestCase):
 
 	def test_a_provider_that_is_still_in_use_is_deactivated_instead_of_removed(self):
 		self._run([bank("PB-1", "Alpha Bank"), bank("PB-2", "Beta Bank")])
-		head_office = self._providers()["PB-2"].name
-		branch = a_service_provider(f"Branch {self.tag}", provider_type="Bank", parent_provider=head_office)
 
-		result, _ = self._run([bank("PB-1", "Alpha Bank")])
+		with _providers_still_in_use():
+			result, _ = self._run([bank("PB-1", "Alpha Bank")])
 
 		self.assertEqual((result["removed"], result["deactivated"]), (0, 1))
 		self.assertEqual(self._providers()["PB-2"].is_active, 0)
-		self.assertEqual(frappe.db.get_value(PROVIDER, branch, "parent_provider"), head_office)
 		self.assertIn("1 deactivated", self._status().last_sync_message)
 
 	def test_a_provider_the_source_dropped_and_brings_back_is_added_again(self):
@@ -605,11 +610,9 @@ class TestServiceProviderSync(FrappeTestCase):
 
 	def test_the_source_list_shows_status_and_counts_but_never_a_secret(self):
 		self._run([bank("PB-1", "Alpha Bank"), bank("PB-2", "Beta Bank")])
-		# A branch under PB-2 keeps it in use, so dropping it deactivates instead of removing.
-		a_service_provider(
-			f"Branch {self.tag}", provider_type="Bank", parent_provider=self._providers()["PB-2"].name
-		)
-		self._run([bank("PB-1", "Alpha Bank")])
+		# Something linking to PB-2 keeps it in use, so dropping it deactivates instead of removing.
+		with _providers_still_in_use():
+			self._run([bank("PB-1", "Alpha Bank")])
 		frappe.set_user(self.admin)
 
 		result = list_service_provider_sources()

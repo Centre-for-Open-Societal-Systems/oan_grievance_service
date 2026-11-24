@@ -5,8 +5,8 @@
 """Sync and validate Postman Collection against OpenAPI 3.1 specification.
 
 Non-destructively scans openapi/openapi_v1.public.yaml, detects endpoints missing
-from postman/oan_grievance_rest_collection.json, and scaffolds them with
-proper URLs, headers, sample request bodies, and test assertions without
+from every postman/*_collection.json, and scaffolds them into
+postman/oan_grievance_rest_collection.json with proper URLs, headers, sample request bodies, and test assertions without
 overwriting existing custom tests or environment variable flows.
 
 Usage:
@@ -37,9 +37,7 @@ except ImportError:
 # Default paths relative to app root
 DEFAULT_SPEC = Path("openapi/openapi_v1.public.yaml")
 DEFAULT_COLLECTION = Path("postman/oan_grievance_rest_collection.json")
-
-# Endpoints maintained in dedicated sibling collections
-EXCLUDED_TAGS = {"Dashboard Charts"}
+COLLECTION_GLOB = "*_collection.json"
 
 
 def to_path_pattern(path_or_url: str | list[str]) -> str:
@@ -330,7 +328,13 @@ def sync_collection(
 		_log(f"Repaired {raw_fixed} requests with out-of-sync raw URLs.")
 
 	components = spec.get("components", {})
+	# An endpoint counts as covered when any sibling collection has it.
 	postman_endpoints = extract_postman_endpoints(collection.get("item", []))
+	for sibling_path in sorted(collection_path.parent.glob(COLLECTION_GLOB)):
+		if sibling_path == collection_path:
+			continue
+		with open(sibling_path, encoding="utf-8") as f:  # nosemgrep: frappe-security-file-traversal
+			postman_endpoints.update(extract_postman_endpoints(json.load(f).get("item", [])))
 
 	missing_endpoints: list[tuple[str, str, dict[str, Any]]] = []
 
@@ -339,11 +343,6 @@ def sync_collection(
 		for method_name, operation in methods.items():
 			method = method_name.upper()
 			if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"}:
-				continue
-
-			# Skip excluded tags (e.g. Dashboard Charts maintained in separate file)
-			tags = set(operation.get("tags", []))
-			if tags.intersection(EXCLUDED_TAGS):
 				continue
 
 			pattern = to_path_pattern(path)
@@ -405,7 +404,10 @@ def main() -> None:
 	parser = argparse.ArgumentParser(description="Sync Postman Collection from OpenAPI spec")
 	parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC, help="Path to openapi_v1.public.yaml")
 	parser.add_argument(
-		"--collection", type=Path, default=DEFAULT_COLLECTION, help="Path to Postman JSON collection"
+		"--collection",
+		type=Path,
+		default=DEFAULT_COLLECTION,
+		help="Collection that receives scaffolded requests; its *_collection.json siblings count as coverage",
 	)
 	parser.add_argument("--dry-run", action="store_true", help="Preview changes without modifying file")
 	parser.add_argument("--check", action="store_true", help="Audit mode: exit 1 if endpoints missing")

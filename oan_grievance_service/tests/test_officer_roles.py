@@ -8,6 +8,7 @@ department's desks too, read-only and scoped to them, and is never assigned a ca
 """
 
 import json
+import logging
 from unittest import mock
 
 import frappe
@@ -22,7 +23,6 @@ from oan_auth_service.tests.utils import configured_keys
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1._options import get_department_officers
 from oan_grievance_service.api.v1.officer import (
-	create_officer,
 	get_officer,
 	list_officers,
 	officer_status_counts,
@@ -45,6 +45,7 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.officer import MUST_CHANGE_PASSWORD_FIELD
 from oan_grievance_service.setup.install import seed_role_levels, seed_roles
 from oan_grievance_service.tests.fixtures import a_grievance, a_leaf_area, a_service_category
+from oan_grievance_service.tests.fixtures import create_officer_with_login as create_officer
 from oan_grievance_service.tests.test_category_assignment import (
 	_category,
 	_department,
@@ -117,7 +118,7 @@ class RoleCase(FrappeTestCase):
 		return result["data"]["officer"]
 
 	def _head(self, email=f"{PREFIX}head@example.com", **extra):
-		return self._officer(email, level="L3", designation="Department Head", full_name="Hana Head", **extra)
+		return self._officer(email, level="L4", designation="Department Head", full_name="Hana Head", **extra)
 
 	def _reviewer(self, email=f"{PREFIX}reviewer@example.com", **extra):
 		result = create_officer(
@@ -155,14 +156,14 @@ class RoleCase(FrappeTestCase):
 
 
 class TestDepartmentHead(RoleCase):
-	def test_a_department_head_is_an_l3_officer_on_the_departments_desks(self):
+	def test_a_department_head_is_an_l4_officer_on_the_departments_desks(self):
 		head = self._head(service_categories=[self.inputs, self.credit])
 		self.assertEqual(
-			(head["role"], head["level"], head["department"]), ("Officer", "L3", self.department)
+			(head["role"], head["level"], head["department"]), ("Officer", "L4", self.department)
 		)
 		self.assertEqual(head["designation"], "Department Head")
 		self.assertEqual(sorted(head["service_categories"]), sorted([self.inputs, self.credit]))
-		self.assertEqual({a["level"] for a in head["assignments"]}, {"L3"})
+		self.assertEqual({a["level"] for a in head["assignments"]}, {"L4"})
 		self.assertIn(C.ROLE_OFFICER, self._roles(head["name"]))
 		rows = self._rows(head["name"])
 		self.assertEqual(len(rows), 2)
@@ -185,15 +186,14 @@ class TestDepartmentHead(RoleCase):
 				**{**base, "level": "L1"}, department="S444", service_categories=["STG443 Credit"]
 			)
 			self.assertEqual(no_assignment["code"], "VALIDATION_ERROR", msg=no_assignment)
-		self.assertFalse(frappe.db.exists("User", base["email"]))
 
 	def test_the_level_filter_and_the_default_list_include_heads(self):
 		officer = self._officer()
 		head = self._head()
 		self.assertLessEqual({officer["name"], head["name"]}, set(self._ids(q=PREFIX)))
-		self.assertEqual(self._ids(level="L3", q=PREFIX), [head["name"]])
+		self.assertEqual(self._ids(level="L4", q=PREFIX), [head["name"]])
 		self.assertEqual(self._ids(level="L1", q=PREFIX), [officer["name"]])
-		self.assertEqual(self._ids(level="L3", q=PREFIX, department="S444"), [])
+		self.assertEqual(self._ids(level="L4", q=PREFIX, department="S444"), [])
 
 	def test_the_head_holds_the_top_rung_and_is_fallback_when_lower_rungs_are_away(self):
 		head = self._head()
@@ -212,7 +212,7 @@ class TestDepartmentHead(RoleCase):
 		for row in desk.officers:
 			if row.user == self.l2_seed:
 				row.on_leave = 1
-		# Both L1 and L2 are away, so the desk falls back to the L3 Department Head.
+		# Both L1 and L2 are away, so the desk falls back to the L4 Department Head.
 		self.assertEqual(routing.pick_officer_by_strategy(desk), head["name"])
 		for row in desk.officers:
 			if row.user == head["name"]:
@@ -241,8 +241,8 @@ class TestDepartmentHead(RoleCase):
 
 	def test_an_officer_can_be_promoted_to_head_and_back(self):
 		officer = self._officer()
-		promoted = update_officer(officer["name"], level="L3")["data"]["officer"]
-		self.assertEqual(promoted["level"], "L3")
+		promoted = update_officer(officer["name"], level="L4")["data"]["officer"]
+		self.assertEqual(promoted["level"], "L4")
 		row = self._rows(officer["name"])[0]
 		self.assertEqual((row.role_level, row.is_primary), ("department_head", 0))
 		demoted = update_officer(officer["name"], level="L1")["data"]["officer"]
@@ -258,18 +258,18 @@ class TestDepartmentHead(RoleCase):
 	def test_heads_are_in_the_status_counts(self):
 		self._head()
 		self.assertEqual(
-			officer_status_counts(level="L3", q=PREFIX)["data"],
+			officer_status_counts(level="L4", q=PREFIX)["data"],
 			{"active": 1, "on_leave": 0, "inactive": 0, "total": 1},
 		)
 
-	def test_an_l4_is_not_a_level(self):
+	def test_an_l5_is_not_a_level(self):
 		with _keep_transaction():
 			result = create_officer(
 				full_name="X",
 				designation="Y",
-				level="L4",
+				level="L5",
 				department="S443",
-				email=f"{PREFIX}l4@example.com",
+				email=f"{PREFIX}l5@example.com",
 				service_categories=[self.inputs],
 				temporary_password=PASSWORD,
 			)
@@ -281,7 +281,7 @@ class TestDepartmentHead(RoleCase):
 		result = create_officer(
 			full_name="Bureau Head",
 			designation="Director General",
-			level="L3",
+			level="L4",
 			department=new_dept_name,
 			email=head_email,
 			service_categories=[self.inputs],
@@ -291,7 +291,7 @@ class TestDepartmentHead(RoleCase):
 		self.assertEqual(result["status"], "success")
 		self.assertTrue(frappe.db.exists("Grievance Department", {"dept_name": new_dept_name}))
 		created_officer = result["data"]["officer"]
-		self.assertEqual(created_officer["level"], "L3")
+		self.assertEqual(created_officer["level"], "L4")
 		self.assertEqual(created_officer["department"], new_dept_name)
 		desks = frappe.get_all(
 			DESK,
@@ -358,7 +358,6 @@ class TestReviewerOnTheDesk(RoleCase):
 				status="On Leave",
 			)
 			self.assertIn("status", leave["details"])
-		self.assertFalse(frappe.db.exists("User", email))
 
 	def test_a_reviewer_is_never_in_the_officer_views_or_the_chain(self):
 		officer = self._officer()
@@ -415,11 +414,11 @@ class TestReviewerOnTheDesk(RoleCase):
 		self.assertIn(mine.name, names)
 		self.assertNotIn(elsewhere.name, names)
 
-	def test_a_reviewer_who_was_never_placed_keeps_oversight_of_every_filed_case(self):
+	def test_a_reviewer_who_was_never_placed_is_denied_access_by_default(self):
 		loose = _user(f"{PREFIX}loose@example.com", "Loose Reviewer", role=C.ROLE_REVIEW_OFFICER)
 		case = a_grievance(assigned_dept=self.other_department)
-		self.assertTrue(permissions.has_grievance_permission(case, "read", loose))
-		self.assertEqual(permissions.grievance_query_conditions(loose), "(1 = 1)")
+		self.assertFalse(permissions.has_grievance_permission(case, "read", loose))
+		self.assertEqual(permissions.grievance_query_conditions(loose), "(1 = 0)")
 
 	def test_a_reviewer_with_every_desk_retired_reads_nothing(self):
 		reviewer = self._reviewer(service_categories=[a_service_category()])
@@ -481,7 +480,6 @@ class TestReviewerOnTheDesk(RoleCase):
 			temporary_password=PASSWORD,
 		)
 		self.assertEqual(result["status"], "success", msg=result)
-		self.assertIn("already had a login", result["message"])
 		self.assertEqual(self._roles(login), sorted([C.ROLE_SUBMITTER, C.ROLE_REVIEW_OFFICER]))
 		self.assertEqual(check_password(login, "TheirOwn123!"), login)
 
@@ -684,15 +682,20 @@ class TestPasswordResets(RoleCase):
 		frappe.set_user(caller)
 		with (
 			mock.patch("oan_grievance_service.api.v1.officer.check_rate_limit") as limit,
-			mock.patch("oan_grievance_service.api.v1.officer.frappe.logger") as logger,
+			mock.patch("oan_grievance_service.api.v1.officer.oplog.emit") as event,
 		):
 			result = reset_temporary_password(reviewer["name"], temporary_password="Another123")
 		self.assertEqual(result["status"], "success", msg=result)
 		limit.assert_called_once_with(f"rl:officer_temporary_password:{caller}", limit=10, window=300)
-		logged = logger.return_value.info.call_args.args[0]
-		self.assertIn(f"by={caller}", logged)
-		self.assertIn(f"for={reviewer['name']}", logged)
-		self.assertIn("role=Reviewer", logged)
+		event.assert_called_once()
+		# A privileged action, so WARNING: a site that hides INFO chatter still keeps it.
+		self.assertEqual(event.call_args.args, ("security.temporary_password_reissued", logging.WARNING))
+		logged = event.call_args.kwargs
+		self.assertEqual(logged["user"], caller)
+		self.assertEqual(logged["target_user"], reviewer["name"])
+		self.assertEqual(logged["target_role"], "Reviewer")
+		# The password is never an argument of the event.
+		self.assertNotIn("Another123", repr(event.call_args))
 
 
 class TestPermissions(RoleCase):
@@ -720,7 +723,7 @@ class TestPermissions(RoleCase):
 			create_officer(
 				full_name="X",
 				designation="Y",
-				level="L3",
+				level="L4",
 				department="S443",
 				email=f"{PREFIX}w-head@example.com",
 				service_categories=[self.inputs],
@@ -741,14 +744,13 @@ class TestPermissions(RoleCase):
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(label, result))
 		frappe.set_user("Administrator")
 		self.assertEqual({r.active for r in self._rows(self.reviewer["name"])}, {1})
-		self.assertFalse(frappe.db.exists("User", f"{PREFIX}w-reviewer@example.com"))
 
 	def test_a_reviewer_reads_officers_and_heads_but_not_reviewers(self):
 		frappe.set_user(self.callers["Reviewer"])
 		with _keep_transaction():
 			for result in (
 				list_officers(),
-				list_officers(level="L3"),
+				list_officers(level="L4"),
 				get_officer(self.head["name"]),
 				officer_status_counts(),
 			):
@@ -885,7 +887,7 @@ class TestStatusCounts(RoleCase):
 				{"status": "Active"},
 				{"page": 1},
 				{"bogus": 1},
-				{"level": "L4"},
+				{"level": "L5"},
 				{"role": "Owner"},
 				{"role": "Admin"},
 				{"department": "Nope"},

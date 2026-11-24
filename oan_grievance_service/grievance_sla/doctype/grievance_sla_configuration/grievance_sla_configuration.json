@@ -8,7 +8,6 @@
  "engine": "InnoDB",
  "field_order": [
   "service_category",
-  "sla_days",
   "holiday_list",
   "active",
   "col_sla_esc",
@@ -30,14 +29,6 @@
    "in_list_view": 1,
    "label": "Grievance Service Category",
    "options": "Grievance Service Category",
-   "reqd": 1
-  },
-  {
-   "description": "Expected response time in days",
-   "fieldname": "sla_days",
-   "fieldtype": "Int",
-   "in_list_view": 1,
-   "label": "SLA Days",
    "reqd": 1
   },
   {
@@ -125,7 +116,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-08 10:00:00.000000",
+ "modified": "2026-11-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance SLA",
  "name": "Grievance SLA Configuration",

@@ -27,6 +27,7 @@ from typing import NamedTuple
 import frappe
 from frappe import _
 from frappe.utils import add_to_date, flt, now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -65,6 +66,7 @@ DEFAULT_HIGH_THRESHOLD = 0.85
 NGRAM_SIZES = (3, 4, 5)
 # One submitter's recent tickets are the pool; the cap only guards a runaway account.
 POOL_LIMIT = 200
+FLAG_ATTEMPTS = 2
 # A ticket is flagged against its best few matches, not every similar ticket it ever had.
 MAX_FLAGS = 3
 
@@ -284,23 +286,57 @@ def flag_possible_duplicates(grievance):
 	return rows
 
 
+def enqueue_flagging(grievance_name: str) -> None:
+	"""Flag look-alikes after the filing commits, so scoring never delays the submitter."""
+	try:
+		frappe.enqueue(
+			"oan_grievance_service.services.duplicates.flag_grievance_job",
+			queue=C.QUEUE_DUPLICATES,
+			grievance_name=grievance_name,
+			enqueue_after_commit=True,
+		)
+	except Exception:
+		oplog.log_error(
+			title=f"Failed to enqueue duplicate flagging for grievance: {grievance_name}",
+			message=frappe.get_traceback(),
+		)
+
+
+def flag_grievance_job(grievance_name: str) -> None:
+	if not frappe.db.exists("Grievance", grievance_name):
+		return
+	flag_without_failing(frappe.get_doc("Grievance", grievance_name))
+
+
 def flag_without_failing(grievance):
 	"""Flag a grievance that is already filed, without ever losing the filing.
 
 	Flagging only advises an officer. A fault in the scoring or in writing a review row must
 	not roll back the farmer's grievance, so it is undone to a savepoint and logged instead.
+	A deadlock (e.g. on the review-row naming series) aborts the whole transaction and takes the
+	savepoint with it, so it is rolled back in full and tried once more.
 	"""
 	save_point = "flag_possible_duplicates"
-	frappe.db.savepoint(save_point)
-	try:
-		return flag_possible_duplicates(grievance)
-	except Exception:
-		frappe.db.rollback(save_point=save_point)
-		frappe.log_error(
-			title=f"Failed to flag possible duplicates for grievance: {grievance.name}",
-			message=frappe.get_traceback(),
-		)
+	for attempt in range(1, FLAG_ATTEMPTS + 1):
+		frappe.db.savepoint(save_point)
+		try:
+			return flag_possible_duplicates(grievance)
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < FLAG_ATTEMPTS:
+				continue
+			_log_flag_failure(grievance)
+		except Exception:
+			frappe.db.rollback(save_point=save_point)
+			_log_flag_failure(grievance)
 		return []
+
+
+def _log_flag_failure(grievance):
+	oplog.log_error(
+		title=f"Failed to flag possible duplicates for grievance: {grievance.name}",
+		message=frappe.get_traceback(),
+	)
 
 
 def pending_reviews(grievance_name):

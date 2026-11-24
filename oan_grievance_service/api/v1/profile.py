@@ -2,6 +2,7 @@
 
 import frappe
 from frappe import _
+from oan_auth_service.api import operational_log as oplog
 from pydantic import BaseModel, Field
 
 from oan_grievance_service.api.v1.organization import OrganizationRecord, organization_record
@@ -10,6 +11,10 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 )
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.administrative_area import (
+	match_administrative_area,
+	refreshed_administrative_area,
+)
 from oan_grievance_service.services.constants import ORG_STATUS_ACTIVE, ORG_TYPES
 
 # Submitter Profile fields the identity provider supplies (the "Identity provider details" section).
@@ -59,10 +64,13 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 		from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
 			split_dedupe_key,
 		)
-		from oan_grievance_service.services.identity import SCHEME_FAYDA, mask_contact
+		from oan_grievance_service.services.identity import SCHEME_FAYDA, SCHEME_USER, mask_contact
 
 		scheme, ident_val = split_dedupe_key(profile.get("dedupe_key"))
-		identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
+		# A user key is an internal login id, so it is never shown.
+		identities = (
+			[{"scheme": scheme, "value": ident_val}] if scheme and ident_val and scheme != SCHEME_USER else []
+		)
 		contact = mask_contact(profile, show_identity=True)
 
 		# An NGO, FPO or cooperative representative also gets the organization itself: the
@@ -134,19 +142,12 @@ class RegistrationExtras(BaseModel):
 	fayda_id: str | int | None = Field(
 		default=None, description="Fayda National ID. Required for Individual Farmer."
 	)
-	national_id: str | int | None = Field(default=None, description="Alias of fayda_id.")
 	registration_number: str | None = Field(default=None, description="Organization registration number.")
-	org_number: str | None = Field(default=None, description="Alias of registration_number.")
-	farmer_id: str | None = None
 	dedupe_key: str | None = Field(default=None, description="Ignored for Individual Farmer.")
 	administrative_area: str | None = None
-	region: str | None = Field(default=None, description="Alias of administrative_area.")
 	administrative_unit: str | None = None
-	woreda: str | None = Field(default=None, description="Alias of administrative_unit.")
 	preferred_language: str | None = None
 	contact_mobile: str | int | None = Field(default=None, description="Fallback for phone_number.")
-	phone: str | int | None = Field(default=None, description="Fallback for phone_number.")
-	phone_country_code: str | None = Field(default=None, description="Alias of country_code.")
 	contact_email: str | None = Field(default=None, description="Fallback for email.")
 
 
@@ -181,10 +182,8 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	mobile_no = user_doc.mobile_no if hasattr(user_doc, "mobile_no") else user_doc.get("mobile_no")
 
 	# Assemble phone number if provided split
-	incoming_phone = (
-		mobile_no or kwargs.get("contact_mobile") or kwargs.get("phone_number") or kwargs.get("phone")
-	)
-	country_code = kwargs.get("country_code") or kwargs.get("phone_country_code")
+	incoming_phone = mobile_no or kwargs.get("contact_mobile") or kwargs.get("phone_number")
+	country_code = kwargs.get("country_code")
 	if incoming_phone:
 		from oan_auth_service.api.utils import assemble_phone_number
 
@@ -222,7 +221,6 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	# and let the format check report a bad Fayda ID instead of failing on .strip().
 	submitter_type = str(kwargs.get("submitter_type") or "Individual Farmer").strip()
 	fayda_id = str(kwargs.get("fayda_id") or "").strip() or None
-	national_id = str(kwargs.get("national_id") or "").strip() or None
 	dedupe_key = kwargs.get("dedupe_key")
 
 	registration_number = kwargs.get("registration_number")
@@ -232,7 +230,7 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		submitter_type in ORG_TYPES and not registration_number
 	)
 	if needs_fayda:
-		if not (fayda_id or national_id):
+		if not fayda_id:
 			frappe.throw(
 				_("A Fayda ID is required to register as {0}.").format(submitter_type),
 				frappe.ValidationError,
@@ -249,14 +247,11 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 		submitter_name=full_name or kwargs.get("submitter_name"),
 		contact_mobile=contact_mobile,
 		contact_email=email,
-		administrative_area=kwargs.get("administrative_area") or kwargs.get("region"),
-		administrative_unit=kwargs.get("administrative_unit") or kwargs.get("woreda"),
+		administrative_area=kwargs.get("administrative_area"),
+		administrative_unit=kwargs.get("administrative_unit"),
 		preferred_language=kwargs.get("preferred_language"),
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=kwargs.get("org_number"),
-		farmer_id=kwargs.get("farmer_id"),
 		dedupe_key=dedupe_key,
 		# Set here and not as a field default: a profile created anywhere else (an IVR or
 		# webhook intake, a desk entry) must not be filed under Web Portal by accident.
@@ -276,7 +271,8 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 
 	A development agent (Keycloak, `Grievance Assisted Submitter`) gets a Development
 	Agent profile from their `User`; the identity provider supplies no national-ID
-	details for them, so none are written and `id_source` stays empty.
+	details for them, so none are written and `id_source` stays empty. With no phone
+	number on the `User`, the profile has none and is keyed on the user.
 
 	Never refuses the login. A profile that cannot be built from the claims (no phone
 	number, a taken Fayda ID) is logged and skipped; the user signs in with what they had.
@@ -323,9 +319,9 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False
@@ -342,13 +338,14 @@ def _create_agent_profile(user: str, principal: dict, login_option: str) -> bool
 			submitter_type="Development Agent",
 			contact_email=principal.get("email"),
 			submission_channel="Web Portal",
+			mobile_optional=True,
 		)
 	except Exception:
 		frappe.db.rollback(save_point="delegated_login_profile")
 		frappe.clear_messages()
-		frappe.log_error(
+		oplog.log_error(
 			title="oan_grievance_service: no submitter profile from delegated login",
-			message=f"login option {login_option!r}, user {user!r}\n{frappe.get_traceback()}",
+			message=f"login option {login_option!r}, user {oplog.mask_user(user)!r}\n{frappe.get_traceback()}",
 			defer_insert=True,
 		)
 		return False
@@ -369,10 +366,9 @@ def _identity_fields(principal: dict, login_option: str) -> dict:
 		"postal_code": text(address.get("postal_code")),
 		"country": text(address.get("country")),
 	}
-	# The provider's region name is matched to ours; no match leaves the area unset.
-	area = region and frappe.db.get_value(
-		"Grievance Administrative Area", {"area_name": region, "level_name": "Region"}, "name"
-	)
+	# The provider's names are matched to ours, region then woreda (`locality`) then kebele
+	# (from `street_address`); the deepest unambiguous match is the area, and none leaves it out.
+	area = match_administrative_area(region, fields["locality"], fields["street_address"])
 	if area:
 		fields["administrative_area"] = area
 	return fields
@@ -380,8 +376,13 @@ def _identity_fields(principal: dict, login_option: str) -> dict:
 
 def _refresh_identity(profile_name: str, identity: dict) -> bool:
 	"""Write the identity provider's details onto the profile. True if any value changed."""
-	fields = {k: v for k, v in identity.items() if k in IDENTITY_PROFILE_FIELDS or k == "administrative_area"}
-	current = frappe.db.get_value("Grievance Submitter Profile", profile_name, list(fields), as_dict=True)
+	fields = {k: v for k, v in identity.items() if k in IDENTITY_PROFILE_FIELDS}
+	current = frappe.db.get_value(
+		"Grievance Submitter Profile", profile_name, [*fields, "administrative_area"], as_dict=True
+	)
+	fields["administrative_area"] = refreshed_administrative_area(
+		current, identity.get("administrative_area")
+	)
 	changes = {k: v for k, v in fields.items() if (current.get(k) or None) != v}
 	if not changes:
 		return False

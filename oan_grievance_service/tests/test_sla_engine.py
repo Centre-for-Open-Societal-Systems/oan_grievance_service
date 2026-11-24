@@ -8,8 +8,8 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, add_to_date, get_datetime, now_datetime
 
 from oan_grievance_service.api.v1.change_request import raise_change_request
+from oan_grievance_service.services import classification, lifecycle, sla
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import lifecycle, sla
 from oan_grievance_service.tasks import escalate_breached, send_sla_reminders
 from oan_grievance_service.tests.fixtures import (
 	a_department,
@@ -113,13 +113,13 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 			{
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_a,
-				"sla_days": 5,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
 				"auto_escalation_threshold": 100,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
+		classification.set_base_days(self.cat_a, 5)
 
 		# Configure SLA policy for Category B (10 days, with holiday list)
 		for name in frappe.get_all(
@@ -131,13 +131,13 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 			{
 				"doctype": "Grievance SLA Configuration",
 				"service_category": self.cat_b,
-				"sla_days": 10,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
 				"auto_escalation_threshold": 80,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
+		classification.set_base_days(self.cat_b, 10)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")

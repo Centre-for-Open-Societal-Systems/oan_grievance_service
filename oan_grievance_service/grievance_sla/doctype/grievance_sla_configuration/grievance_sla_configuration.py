@@ -28,7 +28,14 @@ def save_sla_configuration(
 	auto_escalate: bool = True,
 	notify_on_breach: bool | None = None,
 ):
-	"""Create or update the active SLA configuration for a service category."""
+	"""Create or update the active SLA configuration for a service category, and its SLA days.
+
+	The days are stored on the category's base Grievance SLA Rule, the one source of SLA days,
+	which overrides this configuration, so it is saved after it. A configuration without an
+	active base rule is not served: its cases get no deadline.
+	"""
+	from oan_grievance_service.services import classification
+
 	name = frappe.db.get_value(
 		"Grievance SLA Configuration",
 		{"service_category": service_category, "active": 1},
@@ -40,7 +47,6 @@ def save_sla_configuration(
 		else frappe.new_doc("Grievance SLA Configuration")
 	)
 	sla.service_category = service_category
-	sla.sla_days = sla_days
 	sla.auto_escalate = 1 if auto_escalate else 0
 	if notify_on_breach is not None:
 		sla.notify_on_breach = 1 if notify_on_breach else 0
@@ -49,14 +55,13 @@ def save_sla_configuration(
 		for state, hours, on_expiry in C.DEFAULT_STATE_TIMERS:
 			sla.append("state_timers", {"workflow_state": state, "hours": hours, "on_expiry": on_expiry})
 	sla.save()
+	classification.set_base_days(service_category, sla_days)
 	return sla
 
 
 class GrievanceSLAConfiguration(Document):
 	def validate(self):
 		self.validate_one_active_row()
-		if self.sla_days is not None and self.sla_days <= 0:
-			frappe.throw(_("SLA Days must be greater than zero."))
 		if (self.auto_escalation_threshold or 0) > 100:
 			frappe.throw(_("Auto Escalation Threshold cannot exceed 100%."))
 		if self.first_response_hours is not None and self.first_response_hours < 0:

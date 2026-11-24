@@ -84,31 +84,6 @@ class TestGrievanceServiceProvider(FrappeTestCase):
 
 		self.assertEqual(doc.provider_type, kind.name)
 
-	def test_a_provider_cannot_be_its_own_parent(self):
-		doc = frappe.get_doc("Grievance Service Provider", a_service_provider(f"Self {self.tag}"))
-		doc.parent_provider = doc.name
-		with self.assertRaises(frappe.ValidationError):
-			doc.save()
-
-	def test_the_parent_chain_cannot_loop(self):
-		head = a_service_provider(f"Head {self.tag}", provider_type="Bank")
-		branch = a_service_provider(f"Branch {self.tag}", provider_type="Bank", parent_provider=head)
-		sub_branch = a_service_provider(f"Sub {self.tag}", provider_type="Bank", parent_provider=branch)
-
-		doc = frappe.get_doc("Grievance Service Provider", head)
-		doc.parent_provider = sub_branch
-		with self.assertRaises(frappe.ValidationError):
-			doc.save()
-
-	def test_a_branch_can_name_a_parent(self):
-		head = a_service_provider(f"Head {self.tag}", provider_type="Bank")
-		branch = a_service_provider(f"Branch {self.tag}", provider_type="Bank", parent_provider=head)
-		self.assertEqual(frappe.db.get_value("Grievance Service Provider", branch, "parent_provider"), head)
-
-	def test_the_parent_must_exist(self):
-		with self.assertRaises(frappe.LinkValidationError):
-			a_service_provider(f"Orphan {self.tag}", parent_provider="SP-99999")
-
 	def test_nobody_can_delete_a_provider(self):
 		permissions = frappe.get_meta("Grievance Service Provider").permissions
 		self.assertFalse(

@@ -28,6 +28,7 @@ before_request = ["oan_grievance_service.api.router.ensure_routes_registered"]
 # are seeded so a fresh site comes up usable.
 
 after_install = "oan_grievance_service.setup.install.after_install"
+before_tests = "oan_grievance_service.tests.fixtures.seed_test_categories"
 after_migrate = [
 	"oan_grievance_service.setup.install.after_migrate",
 	"oan_grievance_service.services.dashboard_rollup.ensure_built",
@@ -71,6 +72,9 @@ _CLEAR_LOOKUP_CACHE = {
 	"after_delete": "oan_grievance_service.api.v1._options.clear_reference_cache",
 }
 doc_events = {
+	"User": {
+		"after_rename": "oan_grievance_service.services.identity.rekey_user_profile",
+	},
 	"Grievance": {
 		"onload": "oan_grievance_service.services.audit.on_grievance_view",
 		# The charts read the rollups, so a case filed or moved refreshes them at once.
@@ -131,7 +135,15 @@ scheduler_events = {
 
 on_user_profile = ["oan_grievance_service.api.v1.profile.resolve_user_profile_hook"]
 on_user_registered = ["oan_grievance_service.api.v1.profile.on_user_registered_hook"]
-oan_auth_on_delegated_login = ["oan_grievance_service.api.v1.profile.on_delegated_login_hook"]
+oan_auth_on_delegated_login = [
+	"oan_grievance_service.api.v1.profile.on_delegated_login_hook",
+	# An officer's first sign-in takes the position assignments waiting on their email.
+	"oan_grievance_service.grievance_access_control.positions.claim_on_login",
+]
+
+# Scopes oan_auth_service's /v1/admin/* endpoints (users, roles, permissions) to the roles and
+# doctypes named "Grievance" or "Grievance <...>". Without it those endpoints answer 400.
+oan_service_prefix = "Grievance"
 
 # Portal
 # ------------------

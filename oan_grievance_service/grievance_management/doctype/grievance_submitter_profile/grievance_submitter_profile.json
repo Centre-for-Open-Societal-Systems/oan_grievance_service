@@ -47,7 +47,7 @@
    "reqd": 1
   },
   {
-   "description": "Canonical, scheme-prefixed party key: fayda:<id>, org:<no> or phone:<e164>. The one indexed column party resolution and duplicate detection match on.",
+   "description": "Canonical, scheme-prefixed party key: fayda:<id>, org:<no>, phone:<e164> or user:<user>. The one indexed column party resolution and duplicate detection match on.",
    "fieldname": "dedupe_key",
    "fieldtype": "Data",
    "in_standard_filter": 1,
@@ -81,7 +81,7 @@
    "fieldname": "contact_mobile",
    "fieldtype": "Data",
    "label": "Contact Mobile",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.submitter_type != 'Development Agent'"
   },
   {
    "fieldname": "contact_email",
@@ -182,7 +182,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 11:39:29.020183",
+ "modified": "2026-11-04 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Submitter Profile",

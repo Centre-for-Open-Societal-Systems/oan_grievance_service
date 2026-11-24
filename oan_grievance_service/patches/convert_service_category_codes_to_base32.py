@@ -17,7 +17,17 @@ place and allocate new ones instead.
 
 import frappe
 
-from oan_grievance_service.setup.install import SERVICE_CATEGORIES
+from oan_grievance_service.services import constants as C
+
+# The categories the app created on install before the seed data took that over, with their Base32 codes.
+SERVICE_CATEGORIES = [
+	("Inputs", "001", 1),
+	("Schemes", "002", 2),
+	("Payments", "003", 3),
+	("Credit", "004", 4),
+	("Markets", "005", 5),
+	(C.FALLBACK_SERVICE_CATEGORY, "006", 6),
+]
 
 
 def execute():

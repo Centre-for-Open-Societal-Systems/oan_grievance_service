@@ -26,12 +26,18 @@ from oan_grievance_service.grievance_management.doctype.grievance.grievance impo
 	MIN_DESCRIPTION_LENGTH,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_submitter_profile.grievance_submitter_profile import (
+	build_dedupe_key,
 	split_dedupe_key,
 )
-from oan_grievance_service.services.constants import STAFF_ROLES
+from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.constants import ASSISTED_FILER_ROLES, STAFF_ROLES
+from oan_grievance_service.services.farmer_registry import farmer_contact_details, find_farmer
 from oan_grievance_service.services.identity import (
+	FAYDA_PATTERN,
 	SCHEME_FAYDA,
 	SCHEME_ORG,
+	SCHEME_USER,
+	SUBMITTER_TYPE_RULES,
 	derive_dedupe_key,
 	validate_mobile,
 )
@@ -50,7 +56,6 @@ class RegisterSubmitterRequest(BaseModel):
 	contact_mobile: str | None = Field(default=None, description="Contact mobile number")
 	country_code: str | None = Field(default=None, description="Country phone code prefix (e.g. +251)")
 	phone_number: str | None = Field(default=None, description="National phone number")
-	phone: str | None = Field(default=None, description="Phone number alias")
 	contact_email: SafeEmail | None = Field(default=None, description="Contact email address")
 	administrative_area: str | None = Field(default=None, description="Administrative area Link")
 	administrative_unit: str | None = Field(default=None, description="Administrative unit / woreda / branch")
@@ -58,12 +63,9 @@ class RegisterSubmitterRequest(BaseModel):
 	fayda_id: str | None = Field(
 		default=None, title=N_("Fayda ID"), description="Fayda National ID (16 digits)"
 	)
-	national_id: str | None = Field(default=None, title=N_("National ID"), description="National ID alias")
 	registration_number: str | None = Field(
 		default=None, description="Official organization registration/certificate number"
 	)
-	org_number: str | None = Field(default=None, description="Organization number alias")
-	farmer_id: str | None = Field(default=None, title=N_("Farmer ID"), description="Farmer ID alias")
 	dedupe_key: str | None = Field(default=None, description="Explicit dedupe key")
 	submission_channel: str | None = Field(
 		default=None,
@@ -95,15 +97,18 @@ def _create_or_update_submitter_profile(
 	administrative_unit: str | None = None,
 	preferred_language: str | None = None,
 	fayda_id: str | None = None,
-	national_id: str | None = None,
 	registration_number: str | None = None,
-	org_number: str | None = None,
-	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 	submission_channel: str | None = None,
+	*,
+	mobile_optional: bool = False,
 	**kwargs,
 ):
-	"""Internal helper to validate inputs and persist a Submitter Profile."""
+	"""Internal helper to validate inputs and persist a Submitter Profile.
+
+	`mobile_optional` is for a user-bound profile from a server-side caller: with no
+	mobile number and no other identifier, the profile is keyed on the user.
+	"""
 	submitter_type = (submitter_type or "Individual Farmer").strip()
 
 	if not frappe.db.exists("Grievance Submitter Type", submitter_type):
@@ -131,7 +136,7 @@ def _create_or_update_submitter_profile(
 	if not submitter_name:
 		frappe.throw(_("Submitter Name is required."), frappe.ValidationError, title=_("Missing Name"))
 
-	incoming_phone = contact_mobile or kwargs.get("phone_number") or kwargs.get("phone")
+	incoming_phone = contact_mobile or kwargs.get("phone_number")
 	country_code = kwargs.get("country_code")
 	if incoming_phone:
 		from oan_auth_service.api.utils import assemble_phone_number
@@ -140,13 +145,13 @@ def _create_or_update_submitter_profile(
 
 	if not contact_mobile and user_doc:
 		contact_mobile = user_doc.mobile_no or ""
-	contact_mobile = (contact_mobile or "").strip()
-	if not contact_mobile:
+	contact_mobile = (contact_mobile or "").strip() or None
+	if contact_mobile:
+		contact_mobile = validate_mobile(contact_mobile)
+	elif not mobile_optional:
 		frappe.throw(
 			_("Contact mobile number is required."), frappe.ValidationError, title=_("Missing Mobile")
 		)
-
-	contact_mobile = validate_mobile(contact_mobile)
 
 	if (
 		not contact_email
@@ -165,12 +170,12 @@ def _create_or_update_submitter_profile(
 		submitter_type=submitter_type,
 		mobile=contact_mobile,
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=org_number,
-		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 	)
+	rule = SUBMITTER_TYPE_RULES.get(submitter_type)
+	if not derived_key and mobile_optional and user_doc and rule and rule.user_fallback:
+		derived_key = build_dedupe_key(SCHEME_USER, user_doc.name)
 	if not derived_key:
 		frappe.throw(
 			_("Submitter registration requires a valid contact phone number or identifier."),
@@ -182,23 +187,42 @@ def _create_or_update_submitter_profile(
 	is_blocked = 0 if is_farmer else 1
 	blocked_reason = None if is_farmer else _("Pending admin verification for non-farmer submitter type.")
 
-	admin_area = administrative_area or kwargs.get("region")
+	admin_area = administrative_area
 	if admin_area and frappe.db.exists("Grievance Administrative Area", admin_area):
 		admin_area = str(admin_area).strip()
 	else:
 		admin_area = None
 
-	admin_unit = administrative_unit or kwargs.get("woreda")
+	admin_unit = administrative_unit
 	if admin_unit:
 		admin_unit = str(admin_unit).strip()
 
 	existing_name = frappe.db.get_value("Grievance Submitter Profile", {"dedupe_key": derived_key}, "name")
-	if not existing_name and user_doc:
-		existing_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user_doc.name}, "name")
+	if user_doc:
+		own = frappe.db.get_value(
+			"Grievance Submitter Profile", {"user": user_doc.name}, ["name", "dedupe_key"], as_dict=True
+		)
+		# A user-keyed profile holds this account's history, so it cannot move to another's key.
+		if (
+			own
+			and existing_name
+			and own.name != existing_name
+			and split_dedupe_key(own.dedupe_key)[0] == SCHEME_USER
+		):
+			frappe.throw(
+				_(
+					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
+				).format(derived_key),
+				frappe.DuplicateEntryError,
+				title=_("Already Registered"),
+			)
+		existing_name = existing_name or (own and own.name)
 
 	if existing_name:
 		profile = frappe.get_doc("Grievance Submitter Profile", existing_name)
-		if user_doc and profile.user and profile.user != user_doc.name:
+		# A user key with no user is someone's old account, not one for whoever takes that name.
+		orphaned = not profile.user and split_dedupe_key(profile.dedupe_key)[0] == SCHEME_USER
+		if user_doc and (orphaned or (profile.user and profile.user != user_doc.name)):
 			frappe.throw(
 				_(
 					"A Submitter Profile with dedupe key '{0}' is already registered under another account."
@@ -210,7 +234,9 @@ def _create_or_update_submitter_profile(
 			profile.user = user_doc.name
 		profile.submitter_type = submitter_type
 		profile.submitter_name = submitter_name
-		profile.contact_mobile = contact_mobile
+		# A user-fallback update has no phone to give, so it never removes the one on file.
+		if contact_mobile:
+			profile.contact_mobile = contact_mobile
 		if contact_email:
 			profile.contact_email = contact_email
 		if submission_channel:
@@ -218,10 +244,11 @@ def _create_or_update_submitter_profile(
 
 		# Preserve verified national / org key if no new explicit identifier was provided in the update
 		old_scheme, _old_val = split_dedupe_key(profile.dedupe_key)
-		has_explicit_id = bool(fayda_id or national_id or registration_number or org_number or dedupe_key)
-		if old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id:
-			pass
-		else:
+		has_explicit_id = bool(fayda_id or registration_number or dedupe_key)
+		# Nor does a user key ever replace a phone or verified key, so a farmer promoted to
+		# Development Agent through a phone-less login keeps their phone key.
+		keep_key = old_scheme in (SCHEME_FAYDA, SCHEME_ORG) and not has_explicit_id
+		if not keep_key and split_dedupe_key(derived_key)[0] != SCHEME_USER:
 			profile.dedupe_key = derived_key
 
 		if admin_area:
@@ -262,6 +289,7 @@ def _create_or_update_submitter_profile(
 	allow_guest=True,
 	summary="Dropdown options and reference data for submitters",
 	tier="public-reference",
+	cache_seconds=C.REFERENCE_CACHE_SECONDS,
 )
 # nosemgrep: frappe-semgrep-rules.rules.security.guest-whitelisted-method
 @handle_api_errors
@@ -288,6 +316,8 @@ def options(
 	    service_categories: Active service categories (e.g. Inputs, Schemes, Payments, etc.)
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	"""
+	# The message is translated, so a cached answer holds for one language only.
+	frappe.local.response_headers.set("Vary", "Accept-Language")
 	data = {
 		"submitter_types": get_submitter_types(),
 		"identity_schemes": get_identity_schemes(),
@@ -327,16 +357,12 @@ def register_submitter(
 	contact_mobile: str | None = None,
 	country_code: str | None = None,
 	phone_number: str | None = None,
-	phone: str | None = None,
 	contact_email: str | None = None,
 	administrative_area: str | None = None,
 	administrative_unit: str | None = None,
 	preferred_language: str | None = None,
 	fayda_id: str | None = None,
-	national_id: str | None = None,
 	registration_number: str | None = None,
-	org_number: str | None = None,
-	farmer_id: str | None = None,
 	dedupe_key: str | None = None,
 	submission_channel: str | None = None,
 	**kwargs,
@@ -361,23 +387,21 @@ def register_submitter(
 		contact_mobile=contact_mobile,
 		country_code=country_code,
 		phone_number=phone_number,
-		phone=phone,
 		contact_email=contact_email,
 		administrative_area=administrative_area,
 		administrative_unit=administrative_unit,
 		preferred_language=preferred_language,
 		fayda_id=fayda_id,
-		national_id=national_id,
 		registration_number=registration_number,
-		org_number=org_number,
-		farmer_id=farmer_id,
 		dedupe_key=dedupe_key,
 		submission_channel=submission_channel,
 		**kwargs,
 	)
 
 	scheme, ident_val = split_dedupe_key(profile.dedupe_key)
-	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val else []
+	# A user key is an internal login id, so it is never shown.
+	is_user_key = scheme == SCHEME_USER
+	identities = [{"scheme": scheme, "value": ident_val}] if scheme and ident_val and not is_user_key else []
 
 	from oan_grievance_service.services.identity import mask_contact
 
@@ -392,7 +416,7 @@ def register_submitter(
 		"country_code": contact["country_code"],
 		"phone_number": contact["phone_number"],
 		"contact_email": contact["contact_email"],
-		"dedupe_key": profile.dedupe_key,
+		"dedupe_key": None if is_user_key else profile.dedupe_key,
 		"identities": identities,
 		"administrative_area": profile.administrative_area,
 		"administrative_unit": profile.administrative_unit,
@@ -467,4 +491,44 @@ def block_submitter(profile_id: str, reason: str, **kwargs):
 			"active": bool(profile.active),
 		},
 		message=_("Submitter profile blocked successfully."),
+	)
+
+
+@route(
+	"/search",
+	methods=("GET",),
+	summary="Look a farmer up in the registry by Fayda ID",
+	tier="officer-core",
+)
+@handle_api_errors
+@require_role(ASSISTED_FILER_ROLES)
+def search_farmer(fayda_id: str = "", **kwargs):
+	"""Registry ID and name of the farmer with this Fayda ID."""
+	fayda_id = fayda_id.strip()
+	if not FAYDA_PATTERN.match(fayda_id):
+		frappe.throw(_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id), frappe.ValidationError)
+
+	return success_response(
+		data={"farmer": find_farmer(fayda_id)},
+		message=_("Farmer found successfully."),
+	)
+
+
+@route(
+	"/search/details",
+	methods=("GET",),
+	summary="Phone, email and location of a farmer found by search, to pre-fill a submitter",
+	tier="officer-core",
+)
+@handle_api_errors
+@require_role(ASSISTED_FILER_ROLES)
+def farmer_details(registry_id: str = "", **kwargs):
+	"""Contact details of the farmer with this registry ID (the `registry_id` that search returns)."""
+	registry_id = registry_id.strip()
+	if not registry_id:
+		frappe.throw(_("Registry ID is required."), frappe.ValidationError)
+
+	return success_response(
+		data={"farmer": farmer_contact_details(registry_id)},
+		message=_("Farmer details retrieved successfully."),
 	)

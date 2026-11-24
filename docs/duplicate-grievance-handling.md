@@ -15,14 +15,16 @@ read-only. Code: `services/duplicates.py`. Algorithm background: `GRIEVANCE_SIMI
    and are only flagged in the next steps. The setting stays unticked until the web client handles
    the 409 and sends `confirm_new`; until then a farmer is never refused, and the next steps still
    flag the repeat for an officer.
-1. A grievance is filed. Straight after the insert, `duplicates.flag_possible_duplicates` compares
-   it with the same submitter's earlier grievances. Flagging only advises an officer, so a fault in
-   it is logged (Error Log) and undone to a savepoint; it never loses the farmer's grievance.
+1. A grievance is filed. Once the filing commits, a queued job (`duplicates.enqueue_flagging`) runs
+   `flag_possible_duplicates`, which compares it with the same submitter's earlier grievances.
+   Flagging only advises an officer, so a fault in it is logged (Error Log) and undone to a
+   savepoint; it never loses the farmer's grievance.
 2. Each earlier ticket that scores at or above the threshold becomes a `Grievance Duplicate` row
    awaiting review (best three at most). The ticket itself is untouched and the submitter is told
    nothing.
-3. The officer sees `possible_duplicate` in `current_state` and a `possible_duplicate_of` chip in
-   the list, then rules:
+3. The officer sees `possible_duplicate` (the main ticket, match level and what matched) when
+   opening the case (`GET /v1/grievances/{ticket}/timeline`) and in the `current_state` that
+   actions return, and a `possible_duplicate_of` chip in the list, then rules:
    - `POST /v1/grievances/{ticket}/duplicate/confirm` sets `duplicate_of`, takes the workflow
      action `Confirm Duplicate`, adds the public timeline message and marks the row confirmed.
      The ticket's other pending flags are dismissed as superseded.
@@ -85,10 +87,12 @@ cooperative names can cross the threshold on a description similarity of about 0
   `Grievance Officer` and `Grievance Admin`.
 - The generic `/action` endpoint refuses `Confirm Duplicate` and does not list it, because only the
   duplicate endpoints name the main ticket.
-- Comments (`/message`) and change requests (defer SLA, reassign, reclassify) are refused on a
-  duplicate. The farmer sees the `Duplicate` status and the timeline message.
+- Comments (`/message`), attachment uploads and change requests (defer SLA, reassign, reclassify)
+  are refused on a duplicate; removing evidence was already refused on a stopped case. The farmer sees the `Duplicate` status and the timeline message. Opening a confirmed duplicate (`/timeline`) returns `duplicate_of`, the main ticket, for the banner that links to it.
 - Status cards: `Duplicate` (labelled Duplicates) is new, `In Progress` counts In Progress and
   More Info Needed together, and `All` includes duplicates. A farmer still sees the status `More Info Needed` on the case itself, because that is the cue to reply.
+- Ticket export: the Closure section treats the move into Duplicate as the closure, with the
+  remarks starting "Duplicate of" the main ticket.
 - Dashboard: a `duplicates` KPI, `Duplicate` in the status distribution, and the duplicate count
   inside Total and every other count. `dup_pending` (awaiting duplicate review) no longer counts a
   dismissed flag.

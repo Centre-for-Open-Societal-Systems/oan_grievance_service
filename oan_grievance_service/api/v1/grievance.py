@@ -62,6 +62,7 @@ from oan_grievance_service.services import (
 	audit,
 	duplicates,
 	identity,
+	intake,
 	lifecycle,
 	organization,
 	response_body,
@@ -314,23 +315,6 @@ class DismissDuplicateRequest(BaseModel):
 
 
 STAFF_ROLES = C.STAFF_ROLES
-
-# Columns the server derives on submission. Accepting any of these from the caller
-# would let a client forge case ownership -- permissions.py scopes read and write
-# access on `submitter` and `assisted_by_officer` -- or rewrite the filing-time
-# area snapshot that Grievance.set_administrative_area_metadata is meant to own.
-CLIENT_IMMUTABLE_FIELDS = frozenset(
-	{
-		"submitter",
-		"submitter_name",
-		"contact_mobile",
-		"contact_email",
-		"assisted_by_officer",
-		"area_lft",
-		"area_path_code",
-		"status",
-	}
-)
 
 
 def _resolve_submitter_identity(kwargs):
@@ -692,6 +676,9 @@ def list_grievances(
 		"sla_due_date",
 		"state_deadline",
 		"on_hold_since",
+		"is_sensitive",
+		"handling_class",
+		"priority",
 		"creation as submitted_on",
 		"modified as updated_at",
 	]
@@ -779,6 +766,15 @@ def list_grievances(
 
 		item["is_anonymous"] = bool(item.get("is_anonymous"))
 		item["status"] = public_status(item.get("status"))
+		sensitive = bool(item.get("is_sensitive"))
+		shown = _classification_view(item, is_staff)
+		for fieldname in ("is_sensitive", "handling_class", "priority"):
+			item.pop(fieldname, None)
+		item.update(shown)
+		if not is_staff and sensitive:
+			# Neither the alias nor the column it aliases: the desk of a sensitive case is not the
+			# submitter's to see.
+			item["assigned_dept"] = None
 		item["department"] = item.get("assigned_dept")
 		item["assigned_to_name"] = assignee_names.get(item.get("assigned_to"))
 		if not is_staff:
@@ -837,7 +833,6 @@ def _grievance_page(items, page, page_size, total_count):
 ACTIONS_REQUIRING_REASON = {
 	"Close Case",
 	"In Progress",
-	"Partially Resolve",
 	"Refer Onward",
 	"Reject",
 	"Reopen",
@@ -928,33 +923,58 @@ def _possible_duplicate(doc):
 	return view
 
 
-def _current_state(doc, extra=None):
+def _classification_view(source, is_staff) -> dict:
+	"""The sensitive, handling class and priority an officer sees on a case, from the case itself.
+
+	Never worked out here: `services/classification.py` wrote them at filing. A submitter is
+	shown none of them: that a case is classed sensitive is for the people who work it.
+	"""
+	if not is_staff:
+		return {}
+	return {
+		"is_sensitive": bool(source.get("is_sensitive")),
+		"handling_class": source.get("handling_class") or C.HANDLING_STANDARD,
+		# Urgent, or null: priority has no other value.
+		"priority": C.PRIORITY_URGENT if source.get("priority") == C.PRIORITY_URGENT else None,
+	}
+
+
+def _current_state(doc, extra=None, as_submitter=False):
 	"""The `current_state` block every mutating endpoint echoes back.
 
 	One definition, so a field added for one endpoint's client is there for all of
 	them and the shape cannot drift between them. `extra` carries the fields only
-	one endpoint has a reason to report.
+	one endpoint has a reason to report. `as_submitter` gives the submitter's view whoever
+	the caller is: for a sensitive case filed on someone's behalf, which the filer must not
+	learn more about than the submitter would.
 	"""
 	user = frappe.session.user
-	is_staff = permissions.is_staff(user)
+	is_staff = permissions.is_staff(user) and not as_submitter
 	state = {
 		"status": public_status(doc.status),
 		"escalated": bool(doc.escalated),
 		"assigned_to": doc.assigned_to if is_staff else None,
-		"assigned_to_name": _assignee_name(doc),
-		"department": doc.assigned_dept,
+		"assigned_to_name": _assignee_name(doc) if is_staff else None,
+		"department": doc.assigned_dept if is_staff or not doc.is_sensitive else None,
+		**_classification_view(doc, is_staff),
 		"updated_at": to_tz_aware_iso(doc.modified),
 		"available_actions": _get_available_actions_for_user(doc),
 		"can_request_more_info": identity.is_reachable(doc),
 		"duplicate_of": tn.display(doc.duplicate_of) if doc.duplicate_of else None,
-		"possible_duplicate": _possible_duplicate(doc),
+		"possible_duplicate": _possible_duplicate(doc) if is_staff else None,
 	}
 	if extra:
 		state.update(extra)
 	return state
 
 
-@route("", methods=("POST",), summary="Submit a new grievance", tier="citizen-intake")
+@route(
+	"",
+	methods=("POST",),
+	summary="Submit a new grievance",
+	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
+)
 @validate_request(SubmitGrievanceRequest)
 @handle_api_errors
 @require_permission("Grievance", "create")
@@ -973,7 +993,6 @@ def submit(**kwargs):
 	from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_type import (
 		get_fallback_type,
 	)
-	from oan_grievance_service.services import notifications
 
 	client_submission_uuid = (
 		kwargs.get("client_submission_uuid") or kwargs.get("client_uuid") or frappe.generate_hash(length=32)
@@ -1057,38 +1076,32 @@ def submit(**kwargs):
 	prepared = prepare_uploads(None)
 	doc.insert(ignore_permissions=True)
 
-	submitter_user = (
-		frappe.db.get_value("Grievance Submitter Profile", doc.submitter, "user") if doc.submitter else None
-	)
-	submission = GrievanceTimeline.record(
-		grievance=doc.name,
-		entry_type="submission",
-		is_internal=False,
-		body=(doc.description or "").strip() or f"Grievance submitted ({doc.ticket_number})",
-		author_user=doc.assisted_by_officer
-		or submitter_user
-		or (frappe.session.user if frappe.session.user != "Guest" else None),
-		author_type="submitter",
-		ref_doctype="Grievance",
-		ref_docname=doc.name,
-	)
+	submission = intake.record_submission(doc)
 	attachments = store_uploads(doc, prepared, timeline_entry=submission.name) if prepared else []
+	intake.dispatch_filed(doc)
 
-	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
-	# Flags only; an officer rules on it. The submitter is told nothing until then.
-	duplicates.flag_without_failing(doc)
-	routing.enqueue_routing(doc.name)
+	# A sensitive case gives its submitter the PIN to check it with, and no hint of the desk. Filed on
+	# someone's behalf, the filer gets neither the PIN (the submitter has it by SMS) nor the staff
+	# view of the case: the permission rules bar them from it once it is filed.
+	from oan_grievance_service.services import classification
 
+	on_behalf = bool(doc.is_sensitive and doc.assisted_by_officer)
+	if not doc.is_sensitive:
+		sensitive_receipt = {"routing_rule": getattr(doc, "routing_rule", None)}
+	elif on_behalf:
+		sensitive_receipt = {"routing_rule": None}
+	else:
+		sensitive_receipt = {"status_pin": classification.pin_of(doc), "routing_rule": None}
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
 			"status": public_status(doc.status),
 			"workflow_state": doc.workflow_state,
 			"client_submission_uuid": doc.client_submission_uuid,
-			"routing_rule": getattr(doc, "routing_rule", None),
+			**sensitive_receipt,
 			"can_request_more_info": bool(doc.contact_mobile or doc.contact_email),
 			"attachments": attachments,
-			"current_state": _current_state(doc),
+			"current_state": _current_state(doc, as_submitter=on_behalf),
 			"timeline_event": _timeline_event_with(submission, doc, attachments),
 		},
 		message=_("Grievance submitted successfully"),
@@ -1350,7 +1363,6 @@ _ACTION_ENTRY_TYPES = {
 	"Request More Info": "info_request",
 	"Submitter Reply": "info_response",
 	"Resolve": "response",
-	"Partially Resolve": "response",
 	"Refer Onward": "response",
 }
 
@@ -1360,6 +1372,7 @@ _ACTION_ENTRY_TYPES = {
 	methods=("POST",),
 	summary="Execute a workflow action on a grievance",
 	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
 )
 @validate_request(GrievanceActionRequest)
 @handle_api_errors
@@ -1441,7 +1454,7 @@ def action(
 
 	if matching_action == "In Progress" or (
 		doc.workflow_state in (C.STATE_ASSIGNED, C.STATE_REOPENED)
-		and matching_action in ("Request More Info", "Resolve", "Partially Resolve")
+		and matching_action in ("Request More Info", "Resolve")
 	):
 		_ensure_owner(doc)
 
@@ -1835,8 +1848,9 @@ def timeline(
 				else None,
 				"active_deferral_request": active_deferral_request,
 			},
+			**_classification_view(doc, is_staff),
 			"assignment": {
-				"department": doc.assigned_dept,
+				"department": doc.assigned_dept if is_staff or not doc.is_sensitive else None,
 				"assigned_to": doc.assigned_to if is_staff else None,
 				"assigned_to_name": _assignee_name(doc),
 				"routed_automatically": bool(doc.routed_automatically),
@@ -1844,6 +1858,10 @@ def timeline(
 			},
 			"available_actions": _get_available_actions_for_user(doc),
 			"can_request_more_info": contact["can_request_more_info"],
+			# Opening a case is this call, so it carries the duplicate flag an officer rules on
+			# (staff only) and, once confirmed, the main ticket, as `current_state` does.
+			"duplicate_of": tn.display(doc.duplicate_of) if doc.duplicate_of else None,
+			"possible_duplicate": _possible_duplicate(doc),
 			"attachments": attachments,
 			"timeline": entries,
 			"has_more": has_more,
@@ -1858,6 +1876,7 @@ def timeline(
 	methods=("GET",),
 	summary="Export a grievance and its timeline as the SOW Annexure form (CSV or PDF)",
 	tier="citizen-intake",
+	response_types=("application/pdf", "text/csv"),
 )
 @handle_api_errors
 @require_permission("Grievance", "export")
@@ -1897,6 +1916,7 @@ def export_form(ticket_number: str, format: str = "pdf", lang: str = "en", **kwa
 	methods=("POST",),
 	summary="Post a message or an internal note, with optional files",
 	tier="citizen-intake",
+	request_types=("application/json", "multipart/form-data"),
 )
 @validate_request(PostMessageRequest)
 @handle_api_errors

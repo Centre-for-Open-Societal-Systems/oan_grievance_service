@@ -41,7 +41,7 @@ from oan_grievance_service.grievance_masters.doctype.grievance_service_category.
 from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
 	save_sla_configuration,
 )
-from oan_grievance_service.permissions import assert_heads_category
+from oan_grievance_service.permissions import assert_heads_category, is_unrestricted
 from oan_grievance_service.services import category_assignment
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES, ROLE_DESK_HEAD
@@ -58,7 +58,18 @@ NAME_LENGTH = 140
 # The only fields a PATCH may write. The request schema already forbids anything else; this
 # keeps that true if a schema ever grows a field the document should not take from a client.
 CATEGORY_EDITABLE = ("category_name", "code", "sort_order", "is_active", "is_default")
-TYPE_EDITABLE = ("type_name", "is_active")
+# What the Routing Matrix owners decide about a type. The code is the key the seed matches on, so it is
+# an administrator's too: a category head may rename or retire a type of their category, but not claim a
+# matrix code or change its referral or path. The owning department is a Desk's (Grievance RBAC
+# Assignment) and the turnaround is the SLA rules', so neither is a field of the type.
+TYPE_ROUTING_FIELDS = ("external_referral", "entry_role_level")
+# Sensitive (STG-514) is the matrix owners' too: a category head must not be able to hide a type from
+# Kebele officers, or expose one to them, by editing a flag. Urgency is not a type field: it is a rule
+# of the category's SLA configuration.
+TYPE_FLAG_FIELDS = ("is_sensitive",)
+TYPE_ADMIN_FIELDS = ("type_code", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
+# The code is set once, when the type is made.
+TYPE_EDITABLE = ("type_name", "is_active", *TYPE_ROUTING_FIELDS, *TYPE_FLAG_FIELDS)
 
 
 # Service categories
@@ -89,6 +100,10 @@ class GrievanceTypeRecord(BaseModel):
 	service_category: str
 	is_active: bool
 	has_grievances: bool
+	type_code: str | None = None
+	external_referral: str | None = None
+	entry_role_level: str | None = None
+	is_sensitive: bool = False
 
 
 class ServiceCategoryDetail(ServiceCategoryRecord):
@@ -438,6 +453,16 @@ class CreateGrievanceType(Body):
 	service_category: NonBlank = Field(description="Parent category, by name or ticket code")
 	type_name: NonBlank = Field(max_length=NAME_LENGTH, description="Unique within the category")
 	is_active: bool = True
+	type_code: NonBlank | None = Field(
+		None,
+		max_length=16,
+		description="Stable key from the Routing Matrix, e.g. C01-01. Unique. Administrator only.",
+	)
+	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH)
+	entry_role_level: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level"
+	)
+	is_sensitive: bool | None = Field(None, description="Administrator only")
 
 
 class UpdateGrievanceType(Body):
@@ -446,6 +471,11 @@ class UpdateGrievanceType(Body):
 	grievance_type: NonBlank
 	type_name: NonBlank = Field(None, max_length=NAME_LENGTH)
 	is_active: bool = None
+	external_referral: NonBlank | None = Field(None, max_length=NAME_LENGTH, description="Null clears it")
+	entry_role_level: NonBlank | None = Field(
+		None, max_length=NAME_LENGTH, description="Code of an active Grievance Role Level. Null clears it."
+	)
+	is_sensitive: bool | None = Field(None, description="Administrator only. Null clears it.")
 
 
 class ListGrievanceTypes(PageParams, Body):
@@ -453,7 +483,7 @@ class ListGrievanceTypes(PageParams, Body):
 
 	service_category: str | None = None
 	is_active: bool | None = None
-	search: str | None = Field(None, description="Matches the type name")
+	search: str | None = Field(None, description="Matches the type name or code")
 
 	_active_blank = field_validator("is_active", mode="before")(blank_to_none)
 
@@ -468,9 +498,20 @@ def _type_records(docs: list) -> list[dict]:
 			"service_category": doc.service_category,
 			"is_active": bool(doc.is_active),
 			"has_grievances": doc.name in grievances,
+			**{
+				field: _routing_value(doc, field)
+				for field in TYPE_ADMIN_FIELDS
+				if field not in TYPE_FLAG_FIELDS
+			},
+			**{field: bool(doc.get(field)) for field in TYPE_FLAG_FIELDS},
 		}
 		for doc in docs
 	]
+
+
+def _routing_value(doc, field: str):
+	"""A type's routing attribute as the API shows it: null when unset."""
+	return doc.get(field) or None
 
 
 @route("/grievance-types", methods=("GET",), summary="List grievance types", tier="officer-core")
@@ -480,7 +521,7 @@ def _type_records(docs: list) -> list[dict]:
 @api_doc(
 	summary="List grievance types",
 	description="Admin list of grievance types by category and name, active and inactive, filterable by "
-	+ "service category, active flag and text in the name.",
+	+ "service category, active flag and text in the name or type code.",
 	tags=["Administration"],
 	response_model=GrievanceTypeListData,
 )
@@ -497,12 +538,12 @@ def list_grievance_types(
 	filters = {} if is_active is None else {"is_active": 1 if is_active else 0}
 	if service_category:
 		filters["service_category"] = resolve_service_category(service_category)
-	or_filters = _search(TYPE, search, ("type_name",))
+	or_filters = _search(TYPE, search, ("type_name", "type_code"))
 	docs = frappe.get_all(
 		TYPE,
 		filters=filters,
 		or_filters=or_filters,
-		fields=["name", "type_name", "service_category", "is_active"],
+		fields=["name", "type_name", "service_category", "is_active", *TYPE_ADMIN_FIELDS],
 		# Name alone is not unique across categories, so the id breaks ties and pages never overlap.
 		order_by="service_category asc, type_name asc, name asc",
 		start=params.start,
@@ -557,14 +598,27 @@ def create_grievance_type(
 	"""Create a grievance type under a category."""
 	category = resolve_service_category(service_category)
 	assert_heads_category(frappe.session.user, category)
+	admin_fields = {field: kwargs.get(field) for field in TYPE_ADMIN_FIELDS}
+	_assert_may_set_admin_fields({field: value for field, value in admin_fields.items() if value is not None})
 	doc = frappe.get_doc(
 		{
 			"doctype": TYPE,
 			"service_category": category,
 			"type_name": type_name,
 			"is_active": 1 if is_active else 0,
+			**admin_fields,
 		}
-	).insert()
+	)
+	try:
+		doc.insert()
+	except frappe.UniqueValidationError:
+		# Two creates with one type code can both pass validation, and the unique index decides.
+		code = (admin_fields["type_code"] or "").strip().upper()
+		if code and frappe.db.exists(TYPE, {"type_code": code}):
+			message = _("Type code '{0}' is already used by another grievance type.").format(code)
+		else:
+			message = _("A grievance type with these values already exists.")
+		frappe.throw(message, frappe.DuplicateEntryError)
 	return success_response(
 		data={"grievance_type": _type_records([doc])[0]}, message=_("Grievance type created")
 	)
@@ -581,7 +635,8 @@ def create_grievance_type(
 @validate_request(UpdateGrievanceType, exclude_unset=True)
 @api_doc(
 	summary="Update a grievance type",
-	description="Change the name or active flag. The service category cannot change. A type "
+	description="Change the name, active flag, external referral or entry role level. The service "
+	+ "category and type code cannot change. A type "
 	+ "cannot be reactivated while its category is inactive, and the catch-all Other type of the "
 	+ "default category cannot be deactivated.",
 	tags=["Administration"],
@@ -594,6 +649,7 @@ def update_grievance_type(grievance_type: str, **kwargs):
 	changes = _editable(kwargs, TYPE_EDITABLE)
 	if not changes:
 		frappe.throw(_("No fields to update."), frappe.ValidationError)
+	_assert_may_set_admin_fields(changes)
 	doc.update(changes)
 	doc.save()
 	return success_response(
@@ -633,10 +689,27 @@ def deactivate_grievance_type(grievance_type: str, **kwargs):
 # -------
 
 
+def _assert_may_set_admin_fields(sent: dict) -> None:
+	"""A type's code and routing defaults are an administrator's to set, not a category head's."""
+	# A key sent as null counts too: clearing a field is as much a change as setting it.
+	if any(field in sent for field in TYPE_ADMIN_FIELDS) and not is_unrestricted(frappe.session.user):
+		frappe.throw(
+			_("Only an administrator can set the code and routing defaults of a type."),
+			frappe.PermissionError,
+		)
+
+
 def _editable(sent: dict, allowed: tuple[str, ...]) -> dict:
-	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores."""
+	"""The sent fields a PATCH may write, with flags as the 0/1 a Check field stores.
+
+	A flag sent as null is cleared, as a Check field has no unset state.
+	"""
 	return {
-		fieldname: int(value) if isinstance(value, bool) else value
+		fieldname: int(bool(value))
+		if fieldname in TYPE_FLAG_FIELDS
+		else int(value)
+		if isinstance(value, bool)
+		else value
 		for fieldname, value in sent.items()
 		if fieldname in allowed
 	}

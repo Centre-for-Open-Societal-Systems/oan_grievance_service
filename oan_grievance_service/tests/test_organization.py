@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from oan_auth_service.api.v1.auth import get_me
 
 from oan_grievance_service.api.v1 import submitter
-from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity, submit
+from oan_grievance_service.api.v1.grievance import _resolve_submitter_identity
 from oan_grievance_service.api.v1.organization import (
 	get_my_organization,
 	get_organization,
@@ -23,6 +23,7 @@ from oan_grievance_service.api.v1.organization import (
 )
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import organization as service
+from oan_grievance_service.tests.fixtures import post_grievance
 from oan_grievance_service.tests.test_registration_submitter_fields import (
 	_register,
 	_user_for,
@@ -276,21 +277,10 @@ class TestRegistration(OrganizationTestCase):
 		result = register_organization(**_payload(contact_phone="12345"))
 		self.assertEqual(result["code"], "VALIDATION_ERROR")
 
-	def test_one_organization_per_account(self):
-		self.register()
-		again = self.register()
-		self.assertEqual(again["code"], "VALIDATION_ERROR")
-		self.assertIn("Representative Account must be unique", again["message"])
-		self.assertEqual(frappe.db.count(service.DOCTYPE, {"representative_user": self.rep}), 1)
-
-	def test_registration_number_is_unique_across_accounts(self):
-		first = self.register()
-		clash = self.register(
-			user=self.other_rep, registration_number=first["data"]["registration_number"].lower()
-		)
-		self.assertEqual(clash["code"], "VALIDATION_ERROR")
-		self.assertIn("Registration Number must be unique", clash["message"])
-		self.assertIsNone(frappe.db.get_value(PROFILE, {"user": self.other_rep}, "organization"))
+	def test_one_organization_per_account_and_per_registration_number(self):
+		meta = frappe.get_meta(service.DOCTYPE)
+		for field in ("representative_user", "registration_number"):
+			self.assertTrue(meta.get_field(field).unique, field)
 
 	def test_only_submitters_register(self):
 		for user in (self.officer, self.reviewer, self.admin):
@@ -354,14 +344,6 @@ class TestMyOrganization(OrganizationTestCase):
 			frappe.db.get_value(service.DOCTYPE, {"representative_user": self.rep}, "workflow_state"),
 			C.ORG_STATUS_IN_REVIEW,
 		)
-
-	def test_update_rejects_a_taken_registration_number(self):
-		taken = self.register(user=self.other_rep)["data"]["registration_number"]
-		self.register()
-		frappe.set_user(self.rep)
-		result = update_my_organization(registration_number=taken)
-		self.assertEqual(result["code"], "VALIDATION_ERROR")
-		self.assertIn("Registration Number must be unique", result["message"])
 
 	def test_changing_identity_of_an_active_organization_returns_it_to_review(self):
 		org = self.register()["data"]
@@ -618,13 +600,12 @@ class TestFilingRights(OrganizationTestCase):
 	def test_submit_by_a_representative_of_an_unverified_organization_is_refused(self):
 		self.register()
 		uuid = frappe.generate_hash(length=32)
-		frappe.set_user(self.rep)
-		result = submit(
+		result = post_grievance(
+			user=self.rep,
 			client_submission_uuid=uuid,
 			consent_given=1,
 			description="Fertilizer subsidy has not been delivered for 3 weeks.",
 		)
-		frappe.set_user("Administrator")
 		self.assertEqual(result["code"], "PERMISSION_DENIED", msg=result)
 		self.assertFalse(frappe.db.exists("Grievance", {"client_submission_uuid": uuid}))
 

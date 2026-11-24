@@ -7,13 +7,68 @@ from frappe.model.document import Document
 
 from oan_grievance_service.services import constants as C
 
+# What makes a type sensitive: an administrator's to set (STG-514). Urgency is not the type's:
+# it is a rule of the category's SLA configuration.
+HANDLING_FIELDS = ("is_sensitive",)
+
 
 class GrievanceType(Document):
 	def validate(self):
 		self.type_name = (self.type_name or "").strip()
+		self.type_code = (self.type_code or "").strip().upper() or None
+		self.external_referral = (self.external_referral or "").strip() or None
 		self.validate_unique_in_category()
+		self.validate_routing_defaults()
 		self.validate_category()
 		self.validate_fallback()
+		self.validate_handling_set_by_an_administrator()
+
+	def validate_handling_set_by_an_administrator(self):
+		"""Only an administrator decides whether a type is Sensitive, on every write path.
+
+		A Desk Head may write the types of the categories they head (Desk, /api/resource, the
+		taxonomy API), so the rule lives here and not only in the endpoint: unflagging a sensitive
+		type would send its next cases to Kebele officers.
+		"""
+		before = None if self.is_new() else self.get_doc_before_save()
+		changed = [
+			field
+			for field in HANDLING_FIELDS
+			if (self.get(field) or None) != ((before.get(field) if before else None) or None)
+		]
+		if not changed:
+			return
+		from oan_grievance_service.permissions import is_unrestricted
+
+		if not is_unrestricted():
+			frappe.throw(
+				_("Only an administrator can change whether a grievance type is sensitive."),
+				frappe.PermissionError,
+			)
+
+	def validate_routing_defaults(self):
+		"""A type's entry level is an active role level, and a type code is used once."""
+		if (
+			self.entry_role_level
+			and (self.is_new() or self.has_value_changed("entry_role_level"))
+			and not frappe.db.get_value("Grievance Role Level", self.entry_role_level, "is_active")
+		):
+			frappe.throw(
+				_("Role level '{0}' is not active.").format(self.entry_role_level),
+				frappe.ValidationError,
+			)
+		if self.type_code and (self.is_new() or self.has_value_changed("type_code")):
+			# Seeding keys on the code: a second type with it would be the same taxonomy entry twice.
+			existing = frappe.db.get_value(
+				"Grievance Type", {"type_code": self.type_code, "name": ["!=", self.name or ""]}, "name"
+			)
+			if existing:
+				frappe.throw(
+					_("Type code '{0}' is already used by grievance type {1}.").format(
+						self.type_code, existing
+					),
+					frappe.DuplicateEntryError,
+				)
 
 	def validate_unique_in_category(self):
 		"""A category never holds the same type twice. The same name under another category is fine."""

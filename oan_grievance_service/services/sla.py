@@ -18,13 +18,15 @@ Those are RBAC assignment queries and live in the Grievance RBAC Assignment modu
 Scheduling lives in tasks.py; this module only answers what a run should do.
 """
 
+import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import frappe
 from frappe.model.workflow import get_workflow
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime
+from oan_auth_service.api import operational_log as oplog
 
 from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 	current_level_of,
@@ -40,7 +42,9 @@ from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grieva
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
 	auto_escalation_threshold,
 )
+from oan_grievance_service.services import audit
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services.grievance_log import grievance_fields
 
 CLOCK_START_ASSIGNMENT = "assignment"
 CLOCK_START_CREATION = "creation"
@@ -137,8 +141,23 @@ def calculate_working_deadline(start_datetime, sla_days: int, holiday_list_name:
 	return cur_dt
 
 
-def resolve_policy(service_category) -> SLAPolicy | None:
-	"""One policy per service category. Grievance type does not narrow the SLA."""
+def resolve_policy(service_category, grievance=None) -> SLAPolicy | None:
+	"""One policy per service category: its active SLA configuration, with the SLA days of its rules.
+
+	The days come only from the category's Grievance SLA Rules (`classification.sla_days_for`).
+	With `grievance`, they are the rule that matches the case (its type, area and filing date),
+	for example 3 days in season against 15 out of it; without it, the base rule's. A category
+	with no rule has 0 days: no deadline, as before for a category without an SLA.
+	"""
+	policy = _category_policy(service_category)
+	if policy is None:
+		return None
+	from oan_grievance_service.services import classification
+
+	return replace(policy, sla_days=classification.sla_days_for(service_category, grievance) or 0)
+
+
+def _category_policy(service_category) -> SLAPolicy | None:
 	rows = frappe.get_all(
 		"Grievance SLA Configuration",
 		filters={
@@ -147,7 +166,6 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 		},
 		fields=[
 			"name",
-			"sla_days",
 			"auto_escalate",
 			"auto_escalation_threshold",
 			"notify_on_breach",
@@ -164,7 +182,7 @@ def resolve_policy(service_category) -> SLAPolicy | None:
 	r = rows[0]
 	return SLAPolicy(
 		name=r.name,
-		sla_days=r.sla_days or 0,
+		sla_days=0,  # filled in by resolve_policy from the rules
 		auto_escalate=bool(r.auto_escalate),
 		# The category's own threshold wins; 0 means it follows the installation-wide one.
 		auto_escalation_threshold=r.auto_escalation_threshold or auto_escalation_threshold(),
@@ -181,7 +199,7 @@ def start_clock(grievance):
 	if grievance.sla_due_date:
 		return
 
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -196,6 +214,13 @@ def start_clock(grievance):
 		update_modified=False,
 	)
 	arm_escalation(grievance, policy=policy)
+	oplog.emit(
+		"sla.clock_started",
+		**grievance_fields(grievance),
+		sla_days=policy.sla_days,
+		started_at=started,
+		next_escalation_at=grievance.get("next_escalation_at"),
+	)
 
 
 def recalculate_sla_on_category_change(grievance, old_category=None, new_category=None):
@@ -205,7 +230,7 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 	the creation / start date, taking into account any banked hold time and holidays.
 	"""
 	cat = new_category or grievance.service_category
-	policy = resolve_policy(cat)
+	policy = resolve_policy(cat, grievance)
 	if not policy or not policy.sla_days:
 		return
 
@@ -226,11 +251,32 @@ def recalculate_sla_on_category_change(grievance, old_category=None, new_categor
 
 	grievance.db_set(updates, update_modified=False)
 	arm_escalation(grievance, policy=policy)
+	oplog.emit(
+		"sla.clock_recalculated",
+		**grievance_fields(grievance),
+		previous_category=old_category,
+		new_category=cat,
+		sla_days=policy.sla_days,
+		banked_hold_seconds=banked or None,
+	)
+
+
+def follow_type_change(grievance):
+	"""Re-length the SLA window when a case moves to another type of the same category.
+
+	Only when the rule that matches the new type gives other SLA days than the case has: otherwise
+	nothing moves, and the reminders already sent stay sent. The clock keeps its start.
+	"""
+	if not grievance.sla_due_date:
+		return
+	policy = resolve_policy(grievance.service_category, grievance)
+	if policy and policy.sla_days and policy.sla_days != grievance.sla_days:
+		recalculate_sla_on_category_change(grievance)
 
 
 def reset_clock(grievance):
 	"""Restart the SLA window from now when category changes on reassignment."""
-	policy = resolve_policy(grievance.service_category)
+	policy = resolve_policy(grievance.service_category, grievance)
 	now = now_datetime()
 	updates = {
 		"sla_start_at": now,
@@ -251,6 +297,7 @@ def reset_clock(grievance):
 	for k, v in updates.items():
 		setattr(grievance, k, v)
 	arm_escalation(grievance, policy=policy)
+	oplog.emit("sla.clock_reset", **grievance_fields(grievance), sla_days=updates["sla_days"])
 
 
 def arm_escalation(grievance, policy=None):
@@ -359,10 +406,23 @@ def on_status_change(grievance, to_state, from_state=None):
 	if category == PAUSED:
 		if grievance.sla_due_date and not grievance.on_hold_since:
 			grievance.db_set("on_hold_since", now_datetime(), update_modified=False)
+			oplog.emit("sla.clock_paused", **grievance_fields(grievance), state=to_state)
 		return
 
 	resume_clock(grievance)
 	if category == STOPPED:
+		# Only the move that stops the clock is an outcome. Resolved to Closed (a manual close or
+		# the auto-close two days later) moves between Stopped states, and judging it again
+		# would count a case that met its deadline as breached once the auto-close ran late.
+		entered_stopped = not (from_state and sla_category_of(from_state) == STOPPED)
+		if entered_stopped and grievance.sla_due_date:
+			# Whether the case met its deadline is judged here, once, after any hold is banked.
+			oplog.emit(
+				"sla.clock_stopped",
+				**grievance_fields(grievance),
+				state=to_state,
+				breached=get_datetime(grievance.sla_due_date) < now_datetime(),
+			)
 		# Also on the way from one Stopped state to the next (Resolved to Closed): the
 		# escalation was disarmed on entering the first and must stay so.
 		if grievance.next_escalation_at:
@@ -496,6 +556,7 @@ def resume_clock(grievance):
 			)
 
 	grievance.db_set(updates, update_modified=False)
+	oplog.emit("sla.clock_resumed", **grievance_fields(grievance), held_seconds=held)
 	return held
 
 
@@ -566,7 +627,7 @@ def higher_authority_of(
 		if officer and officer != user:
 			return officer, next_level
 		if not officer and log_unstaffed_for:
-			frappe.log_error(
+			oplog.log_error(
 				title=f"Grievance escalation rung unstaffed: {next_level.name}",
 				message=(
 					f"No active Grievance RBAC Assignment holds role level '{next_level.name}' for "
@@ -598,6 +659,7 @@ def escalate(grievance, reason=None, reassign=True):
 	policy = resolve_policy(grievance.service_category)
 	notify = policy.notify_on_breach if policy else True
 
+	previous_assignee = grievance.assigned_to
 	target, level = higher_authority_of(
 		grievance.assigned_to,
 		department=grievance.assigned_dept,
@@ -605,13 +667,16 @@ def escalate(grievance, reason=None, reassign=True):
 		log_unstaffed_for=grievance.name,
 		category=grievance.service_category,
 	)
+	if target and grievance.get("is_sensitive"):
+		from oan_grievance_service import permissions
+
+		# A sensitive case never lands on a Kebele-level officer: with nobody else above, it stays put.
+		if permissions.is_kebele_level_officer(target):
+			target = level = None
 	if not target:
-		updates = {
-			"escalated": 1,
-			"next_escalation_at": None,
-			**_first_escalation(grievance),
-		}
-		grievance.db_set(updates, update_modified=False)
+		changes = {"escalated": 1, **_first_escalation(grievance)}
+		audit.record_version(grievance, changes)
+		grievance.db_set({**changes, "next_escalation_at": None}, update_modified=False)
 		grievance.escalated = 1
 		grievance.next_escalation_at = None
 
@@ -626,6 +691,14 @@ def escalate(grievance, reason=None, reassign=True):
 			author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 		)
 
+		oplog.emit(
+			"escalation.no_higher_authority",
+			logging.WARNING,
+			**grievance_fields(grievance),
+			reason=reason,
+			escalated_at=grievance.get("escalated_at"),
+			notified=bool(notify and grievance.assigned_to),
+		)
 		if notify and grievance.assigned_to:
 			notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=grievance.assigned_to)
 		return grievance.assigned_to or True
@@ -634,14 +707,11 @@ def escalate(grievance, reason=None, reassign=True):
 	# terminal rung and the ladder stops here.
 	hours = level.escalation_hours or 0
 	next_at = add_to_date(now_datetime(), hours=hours) if hours else None
-	updates = {
-		"escalated": 1,
-		"next_escalation_at": next_at,
-		**_first_escalation(grievance),
-	}
+	changes = {"escalated": 1, **_first_escalation(grievance)}
 	if reassign:
-		updates["assigned_to"] = target
-	grievance.db_set(updates, update_modified=False)
+		changes["assigned_to"] = target
+	audit.record_version(grievance, changes)
+	grievance.db_set({**changes, "next_escalation_at": next_at}, update_modified=False)
 	grievance.escalated = 1
 	grievance.next_escalation_at = next_at
 	if reassign:
@@ -659,6 +729,18 @@ def escalate(grievance, reason=None, reassign=True):
 		author_user=frappe.session.user if frappe.session.user != "Guest" else None,
 	)
 
+	oplog.emit(
+		"escalation.escalated",
+		**grievance_fields(grievance),
+		reason=reason,
+		rung=level_role,
+		from_user=previous_assignee,
+		to_user=target,
+		reassigned=bool(reassign),
+		escalated_at=grievance.get("escalated_at"),
+		next_escalation_at=next_at,
+		notified=bool(notify),
+	)
 	if notify:
 		notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=target)
 	return target
