@@ -15,13 +15,15 @@ set -euo pipefail
 : "${ECR_REPO:?ECR_REPO is required}"
 : "${IMMUTABLE_TAG:?IMMUTABLE_TAG is required}"
 
+# DEPLOY_ENV picks the values: dev (develop) or staging (the staging branch, a promoted chart).
+DEPLOY_ENV="${DEPLOY_ENV:-dev}"
 CHART_TGZ="built-chart/oan-grievance-service-${IMMUTABLE_TAG}.tgz"
-VALUES=helm/environments/dev/oan-grievance-service.yaml
+VALUES="helm/environments/${DEPLOY_ENV}/oan-grievance-service.yaml"
 NS="${GRIEVANCE_NAMESPACE}"
 
 test -f "${CHART_TGZ}" || { echo "${CHART_TGZ} is missing: run package_chart.py package first" >&2; exit 1; }
 
-echo "=== Deploying to oan_dev: namespace ${NS} ==="
+echo "=== Deploying to ${DEPLOY_ENV}: namespace ${NS} ==="
 echo "=== Image: ${ECR_REPO}:${IMMUTABLE_TAG} ==="
 
 # The postgres password the create-site job uses, copied from the frappe-common release.
@@ -99,4 +101,4 @@ trap - TERM INT
 helm -n "${NS}" status grievance
 kubectl -n "${NS}" get pods
 
-echo "=== oan_dev deploy complete: grievance ${IMMUTABLE_TAG} ==="
+echo "=== ${DEPLOY_ENV} deploy complete: grievance ${IMMUTABLE_TAG} ==="
