@@ -10,6 +10,8 @@
   "max_deferral_days",
   "col_ceiling",
   "requires_supervisor_approval",
+  "sec_state_timers",
+  "state_timers",
   "sec_note",
   "policy_note"
  ],
@@ -40,11 +42,23 @@
    "label": "Require Supervisor Approval"
   },
   {
+   "fieldname": "sec_state_timers",
+   "fieldtype": "Section Break",
+   "label": "State Timers"
+  },
+  {
+   "description": "How long a case may sit in a state, and what happens when the time runs out. Applies to every case.",
+   "fieldname": "state_timers",
+   "fieldtype": "Table",
+   "label": "State Timers",
+   "options": "Grievance State Timer"
+  },
+  {
    "fieldname": "sec_note",
    "fieldtype": "Section Break"
   },
   {
-   "description": "These are installation-wide settings, not an SLA window. The windows and the auto-escalate and notify-on-breach flags are per service category on Grievance SLA Configuration.",
+   "description": "These are installation-wide settings, not an SLA window. The windows are the service categories' SLA Rules; the auto-escalate and notify-on-breach flags are each desk's (Grievance RBAC Assignment).",
    "fieldname": "policy_note",
    "fieldtype": "Small Text",
    "label": "Note",

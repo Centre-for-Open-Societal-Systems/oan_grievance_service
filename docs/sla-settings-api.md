@@ -2,37 +2,30 @@
 
 Audience: frontend developers building the Administration SLA tab (STG-414). Backend ticket: STG-412.
 
-Two cards on that tab are backed by two records:
-
-| Card                                 | Endpoint                     | Record                                                             |
-| :----------------------------------- | :--------------------------- | :----------------------------------------------------------------- |
-| Global SLA Policy                    | `/api/v1/sla-policy`         | `Grievance Deferral Policy`, a Single (one per installation)       |
-| Per-category SLA (`SlaCategoryCard`) | `/api/v1/sla-configurations` | `Grievance SLA Configuration`, one active row per service category |
+| Card              | Endpoint             | Record                                                       |
+| :---------------- | :------------------- | :----------------------------------------------------------- |
+| Global SLA Policy | `/api/v1/sla-policy` | `Grievance Deferral Policy`, a Single (one per installation) |
 
 ## 1. Quick reference
 
-| #   | Method  | Endpoint                              | Purpose                            | Roles                 |
-| :-- | :------ | :------------------------------------ | :--------------------------------- | :-------------------- |
-| 1   | `GET`   | `/api/v1/sla-policy`                  | Read the global SLA policy         | Admin, Review Officer |
-| 2   | `PATCH` | `/api/v1/sla-policy`                  | Update the global SLA policy       | Admin                 |
-| 3   | `GET`   | `/api/v1/sla-configurations`          | List per-category SLA settings     | Admin, Review Officer |
-| 4   | `PATCH` | `/api/v1/sla-configurations/{config}` | Update one category's SLA settings | Admin                 |
+| #   | Method  | Endpoint             | Purpose                      | Roles                 |
+| :-- | :------ | :------------------- | :--------------------------- | :-------------------- |
+| 1   | `GET`   | `/api/v1/sla-policy` | Read the global SLA policy   | Admin, Review Officer |
+| 2   | `PATCH` | `/api/v1/sla-policy` | Update the global SLA policy | Admin                 |
 
 **Admin** means Grievance Admin, System Manager or Administrator. **Review Officer** is the read-only Grievance Review Officer role. Every other role, and guests, get 403.
 
-Auth, the success and error envelopes, and the strictness rules (unknown body fields and query parameters return 400) are the same as in [taxonomy-api.md](taxonomy-api.md) section 2. List responses carry `data.pagination`.
+Auth, the success and error envelopes, and the strictness rules (unknown body fields and query parameters return 400) are the same as in [taxonomy-api.md](taxonomy-api.md) section 2.
 
-## 2. Same data as Category Assignments (STG-404)
+## 2. Where the per-category settings went
 
-`sla_days` and `auto_escalate` on `/api/v1/category-assignments` and on `/api/v1/sla-configurations` are **one stored value**, not two. Both read and write the category's `Grievance SLA Configuration`, except `sla_days`, which is stored on the category's base `Grievance SLA Rule` (STG-514, see [sensitive-urgent-handling.md](sensitive-urgent-handling.md)): the SLA rules are the one source of SLA days, and these endpoints read and write the base rule's. Departments that serve the same category share that row, so:
+There is no per-category SLA record any more. `Grievance SLA Configuration` and `/api/v1/sla-configurations` were removed:
 
-- a PATCH here shows up in `GET /api/v1/category-assignments` on the next read, and the other way round;
-- a configuration lists every department with an active category assignment for its category in `departments`;
-- there is one configuration per category, not one per department. The mock's "category + department" cards are one card per category with its departments listed.
-
-`notify_on_breach` is new with this API and lives on the same row. Category assignments do not return it.
-
-Why not a second table: routing reads that row (`sla.resolve_policy`), so any copy would be a setting that looks editable and changes nothing.
+- **SLA days** are the category's SLA rules (`/api/v1/sla-rules`, see [sensitive-urgent-handling.md](sensitive-urgent-handling.md)). `sla_days` on `/api/v1/category-assignments` and on `POST /api/v1/service-categories` reads and writes the category's base rule, shared by every department that serves it.
+- **`auto_escalate` and `notify_on_breach`** are each category assignment's (the desk, `Grievance RBAC Assignment`), read and written on `/api/v1/category-assignments`. A case follows the flags of the desk that routed it (`routing_rule`), read when its escalation is armed and when it breaches. A case no desk has routed has both on.
+- **State timers** (how long a case may sit in Resolved or More Info Needed, and what happens then) are on the `Grievance Deferral Policy` Desk form and apply to every case.
+- **The holiday list** is the default `Grievance Holiday List` (`is_default`).
+- The per-category threshold, first-response hours, update cadence and remand hours are gone. The three hour fields were never read, and the escalation threshold was removed in STG-516 (cases escalate at their SLA deadline).
 
 ## 3. Global policy
 
@@ -77,58 +70,7 @@ What a change does:
 - `max_deferral_days` and `requires_supervisor_approval` apply to the next deferral request or approval. `max_deferral_days` is the only limit on a deferral's length; it ships at 30 days, and the `cap_max_deferral_days` patch set any site above 30 back to 30 (STG-516).
 - There is no escalation threshold (removed in STG-516). A case escalates automatically only once its full SLA window has elapsed, so the first escalation is armed at the SLA deadline. The warnings before the deadline are the SLA reminders at 20 %, 50 % and 80 % of the window. A request that still sends `auto_escalation_threshold` is refused with 400, like any unknown field.
 
-## 4. Per-category settings
+## 4. Not covered here
 
-### `GET /api/v1/sla-configurations`
-
-Query parameters, all optional: `service_category` (name or ticket code), `department`, `page`, `page_size`. `department` keeps the categories that department has an active category assignment for. Rows are ordered by service category. Only **active** configurations are listed, because those are the ones routing enforces.
-
-```json
-{
-  "status": "success",
-  "message": "SLA configurations retrieved",
-  "data": {
-    "sla_configurations": [
-      {
-        "name": "GR-SLA-0003",
-        "service_category": "Inputs",
-        "departments": ["Inputs Supply & Distribution Agency"],
-        "sla_days": 14,
-        "auto_escalate": true,
-        "notify_on_breach": true,
-        "modified": "2026-10-08T16:28:13.552116"
-      }
-    ],
-    "pagination": { "page": 1, "page_size": 20, "total_count": 1, "total_pages": 1, "has_next": false, "has_prev": false }
-  }
-}
-```
-
-| Field              | Meaning                                                                                                                                 | Card control                 |
-| :----------------- | :-------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------- |
-| `name`             | The configuration id. Use it in the `PATCH` path                                                                                        |                              |
-| `service_category` | Fixed once created                                                                                                                      | Service Category (read-only) |
-| `departments`      | Departments with an active category assignment for this category, by name                                                               | department line              |
-| `sla_days`         | Working days from the start of the clock to the deadline                                                                                | SLA Days                     |
-| `auto_escalate`    | `true`: a case that reaches the threshold is handed up the chain. `false`: the clock, reminders and reporting run, nobody is reassigned | Auto-escalate on breach      |
-| `notify_on_breach` | `true`: an escalation queues the SLA breach notification. `false`: the case still escalates, the notification is not sent               | Notify on breach             |
-
-### `PATCH /api/v1/sla-configurations/{config}`
-
-`{config}` is the `name` from the list. Send any of `sla_days` (integer, 1 or more), `auto_escalate`, `notify_on_breach`. Omitted fields stay as they are. The body must not be empty. Responds with the saved record under `data.sla_configuration`, with the same fields as a list row.
-
-```json
-{ "sla_days": 10, "auto_escalate": false }
-```
-
-An unknown or inactive `{config}` returns 404. Sending `service_category` or any other field returns 400.
-
-Changing `sla_days` does not move the deadline of cases that already have one. It applies to cases whose clock starts, or is recalculated for a category change, after the change. This is the same behaviour as saving an SLA window from the category assignment.
-
-The mock's second toggle, "Notify on escalation", has no field. It repeats the same SLA breach notification as "Notify on breach", so the SLA tab needs one toggle.
-
-## 5. Not covered here
-
-- There is no separate create or delete endpoint. A configuration is created either atomically with a service category (`POST /api/v1/service-categories` with `sla_days`) or with the first category assignment for a category (`POST /api/v1/category-assignments`).
-- First-response hours, update cadence, the holiday list and state timers stay on the Desk form.
-- The mock's grievance type dropdown has no effect on the SLA. One window applies to every grievance type in a category.
+- State timers stay on the Desk form of `Grievance Deferral Policy`.
+- The mock's grievance type dropdown has no effect here: SLA days by type are SLA rules.

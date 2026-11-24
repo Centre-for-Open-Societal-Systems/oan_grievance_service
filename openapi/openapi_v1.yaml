@@ -2224,7 +2224,8 @@ paths:
       - Administration
       summary: List category assignments
       description: Admin list of category-to-department routing rules, filterable by category, department,
-        and active flag. sla_days and auto_escalate are the category's shared values.
+        and active flag. sla_days is the category's shared base SLA days; auto_escalate and notify_on_breach
+        are each rule's own.
       operationId: get_api_v1_category_assignments
       responses:
         '200':
@@ -2312,9 +2313,9 @@ paths:
       summary: Create a category assignment
       description: Create the category-only Grievance RBAC Assignment for a service category, in one department
         or, with no department, in every department. One rule per department and category, including inactive
-        rules. Officers are optional and can be added later. The SLA window and auto-escalate flag belong
-        to the service category, not to this rule. Departments that serve the same category share one
-        SLA row, so changing them here changes them for every department's rule on that category.
+        rules. Officers are optional and can be added later. auto_escalate and notify_on_breach are this
+        rule's own. sla_days is the service category's base SLA rule, shared by every department that
+        serves the category, so changing it here changes it for every department's rule on that category.
       operationId: post_api_v1_category_assignments
       responses:
         '200':
@@ -2422,12 +2423,12 @@ paths:
       tags:
       - Administration
       summary: Update a category assignment
-      description: Change department, officers, SLA window, or the auto-escalate and active flags. The
-        service category is fixed once created. Changing l1_officer or l2_officer replaces only that seat.
-        Other officers on the desk, such as those added on the Nodal Officers tab, are kept. The SLA window
-        and auto-escalate flag belong to the service category, not to this rule. Departments that serve
-        the same category share one SLA row, so changing them here changes them for every department's
-        rule on that category.
+      description: Change department, officers, SLA window, or the auto-escalate, notify-on-breach and
+        active flags. The service category is fixed once created. Changing l1_officer or l2_officer replaces
+        only that seat. Other officers on the desk, such as those added on the Nodal Officers tab, are
+        kept. auto_escalate and notify_on_breach are this rule's own. sla_days is the service category's
+        base SLA rule, shared by every department that serves the category, so changing it here changes
+        it for every department's rule on that category.
       operationId: patch_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -2488,7 +2489,7 @@ paths:
       - Administration
       summary: Deactivate a category assignment
       description: Retire a category routing rule. The RBAC desk stays for audit and is marked inactive.
-        The category's SLA row is not changed. Same as PATCH with active false.
+        The category's SLA rules are not changed. Same as PATCH with active false.
       operationId: delete_api_v1_category_assignments_assignment
       responses:
         '200':
@@ -7025,7 +7026,7 @@ paths:
       description: 'Add one rule to a service category. service_category and sla_days are required; is_urgent
         defaults to false (true makes the case Urgent, with priority Urgent). priority is not sent: it
         follows is_urgent. A category''s first rule must be its base rule (no type, area or window); creating
-        a category with sla_days, or setting sla_days on /sla-configurations, makes it. Every rule sets
+        a category with sla_days, or setting sla_days on a category assignment, makes it. Every rule sets
         sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the
         case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type
         of its category, an administrative_area (covering the areas inside it) and a recurring window
@@ -7373,153 +7374,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateGlobalSlaPolicy'
-  /api/v1/sla-configurations:
-    get:
-      tags:
-      - Administration
-      summary: List per-category SLA settings
-      description: The SLA window, auto-escalate flag and notify-on-breach flag of each service category,
-        with the departments that have an active category assignment for it. These are the same sla_days
-        and auto_escalate values the category assignments show. Filter by service category or department.
-      operationId: get_api_v1_sla_configurations
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SlaConfigurationListResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: page
-        in: query
-        required: false
-        schema:
-          default: 1
-          minimum: 1
-          type: integer
-        description: Page number, 1-indexed
-      - name: page_size
-        in: query
-        required: false
-        schema:
-          default: 20
-          maximum: 100
-          minimum: 1
-          type: integer
-        description: Items per page
-      - name: service_category
-        in: query
-        required: false
-        schema:
-          type: string
-          default: null
-          nullable: true
-      - name: department
-        in: query
-        required: false
-        schema:
-          type: string
-          default: null
-          nullable: true
-      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.list_sla_configurations
-      x-gateway-tier: officer-core
-      security:
-      - BearerAuth: []
-  /api/v1/sla-configurations/{config}:
-    patch:
-      tags:
-      - Administration
-      summary: Update a category's SLA settings
-      description: Change sla_days, auto_escalate or notify_on_breach on one service category's SLA configuration.
-        Omitted fields stay as they are. The values are shared with every department serving the category
-        and with its category assignments, so a change here shows there. The service category is fixed.
-        sla_days is written to the category's base SLA rule (the one with no type, area or window, see
-        /sla-rules), so it is the days wherever no narrower rule matches.
-      operationId: patch_api_v1_sla_configurations_config
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SlaConfigurationResponse'
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: config
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Config identifier
-      x-legacy-rpc-method: oan_grievance_service.api.v1.sla_settings.update_sla_configuration
-      x-gateway-tier: officer-core
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateSlaConfiguration'
   /api/v1/submitters/options:
     get:
       tags:
@@ -8038,10 +7892,11 @@ paths:
       description: Create a category with a name, a unique 3-character ticket code, a sort order and whether
         it is the default, the category unclassified cases fall to. Making it the default clears the flag
         on the previous default. The code uses the ticket alphabet, which excludes I, L, O and U. It cannot
-        change once tickets have been issued under the category. Optional sla_days (default 7), auto_escalate,
-        and notify_on_breach establish the category's SLA configuration atomically. Optional department
-        also creates the category assignment for that department, with no officers yet; with create_department
-        the department is created too, refused when it already exists.
+        change once tickets have been issued under the category. Optional sla_days (default 7) makes the
+        category's base SLA rule. Optional department also creates the category assignment for that department,
+        with no officers yet and with the auto_escalate and notify_on_breach flags; without department
+        those two are not used. With create_department the department is created too, refused when it
+        already exists.
       operationId: post_api_v1_service_categories
       responses:
         '200':
@@ -10641,8 +10496,8 @@ components:
           nullable: true
         auto_escalate:
           type: boolean
-          default: null
-          nullable: true
+        notify_on_breach:
+          type: boolean
         active:
           type: boolean
         l1_role_level:
@@ -10660,6 +10515,8 @@ components:
       required:
       - name
       - service_category
+      - auto_escalate
+      - notify_on_breach
       - active
       type: object
     NotificationTemplateRecord:
@@ -11538,56 +11395,6 @@ components:
       required:
       - policy
       type: object
-    SlaConfigurationRecord:
-      properties:
-        name:
-          type: string
-        service_category:
-          type: string
-        departments:
-          items:
-            type: string
-          type: array
-        sla_days:
-          type: integer
-          default: null
-          description: 'The category''s base SLA rule''s days. null: it has none'
-          nullable: true
-        auto_escalate:
-          type: boolean
-        notify_on_breach:
-          type: boolean
-        modified:
-          type: string
-          default: null
-          nullable: true
-      required:
-      - name
-      - service_category
-      - departments
-      - auto_escalate
-      - notify_on_breach
-      type: object
-    SlaConfigurationListData:
-      properties:
-        sla_configurations:
-          items:
-            $ref: '#/components/schemas/SlaConfigurationRecord'
-          type: array
-        pagination:
-          additionalProperties: true
-          type: object
-      required:
-      - sla_configurations
-      - pagination
-      type: object
-    SlaConfigurationData:
-      properties:
-        sla_configuration:
-          $ref: '#/components/schemas/SlaConfigurationRecord'
-      required:
-      - sla_configuration
-      type: object
     ServiceCategoryRecord:
       properties:
         category_name:
@@ -11706,10 +11513,6 @@ components:
           type: array
         sla_days:
           type: integer
-          default: null
-          nullable: true
-        auto_escalate:
-          type: boolean
           default: null
           nullable: true
         grievance_types:
@@ -12191,6 +11994,9 @@ components:
         auto_escalate:
           default: true
           type: boolean
+        notify_on_breach:
+          default: true
+          type: boolean
         active:
           default: true
           type: boolean
@@ -12221,6 +12027,8 @@ components:
           minimum: 1
           type: integer
         auto_escalate:
+          type: boolean
+        notify_on_breach:
           type: boolean
         active:
           type: boolean
@@ -12862,18 +12670,6 @@ components:
         requires_supervisor_approval:
           description: 'true: a senior officer decides a deferral. false: the assigned officer may approve
             it'
-          type: boolean
-      type: object
-    UpdateSlaConfiguration:
-      additionalProperties: false
-      description: Partial update. Omitted fields stay as they are.
-      properties:
-        sla_days:
-          minimum: 1
-          type: integer
-        auto_escalate:
-          type: boolean
-        notify_on_breach:
           type: boolean
       type: object
     RegisterSubmitterRequest:
@@ -14552,56 +14348,6 @@ components:
       - status
       - data
       description: GlobalSlaPolicyData response
-    SlaConfigurationListResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/SlaConfigurationListData'
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: SlaConfigurationListData response
-    SlaConfigurationResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          example: success
-          enum:
-          - success
-        message:
-          type: string
-          nullable: true
-          description: Optional response message
-        data:
-          $ref: '#/components/schemas/SlaConfigurationData'
-        meta:
-          $ref: '#/components/schemas/ApiMeta'
-        request_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: Tracing correlation ID
-      required:
-      - status
-      - data
-      description: SlaConfigurationData response
     ServiceCategoryListResponse:
       type: object
       properties:

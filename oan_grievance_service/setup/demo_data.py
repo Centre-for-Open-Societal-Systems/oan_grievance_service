@@ -20,10 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils.password import update_password
 
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
-from oan_grievance_service.services import account, officer
+from oan_grievance_service.services import account, classification, officer
 from oan_grievance_service.services import constants as C
 
 PASSWORD = "admin@123"
@@ -285,8 +282,8 @@ def _seed_categories() -> list[str]:
 				}
 			).insert(ignore_permissions=True)
 			made.append(name)
-		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": name}):
-			save_sla_configuration(service_category=name, sla_days=entry["sla_days"])
+		if not frappe.db.exists("Grievance SLA Rule", {"service_category": name, "is_base": 1}):
+			classification.set_base_days(name, entry["sla_days"])
 	return made
 
 

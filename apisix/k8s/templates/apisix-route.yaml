@@ -1106,7 +1106,6 @@ spec:
       - /v1/service-provider-sources
       - /v1/service-providers
       - /v1/service-providers/:provider_id
-      - /v1/sla-configurations
       - /v1/sla-policy
       - /v1/sla-rules
       - /v1/sla-rules/:rule_id
@@ -1177,7 +1176,6 @@ spec:
       - /v1/orgs/:org_id/status
       - /v1/response-templates/:template
       - /v1/service-categories/:category
-      - /v1/sla-configurations/:config
       - /v1/sla-policy
       - /v1/sla-rules/:rule_id
       methods:
@@ -1489,8 +1487,6 @@ spec:
       - /v1/service-provider-sources/*
       - /v1/service-providers
       - /v1/service-providers/*
-      - /v1/sla-configurations
-      - /v1/sla-configurations/*
       - /v1/sla-policy
       - /v1/sla-policy/*
       - /v1/sla-rules

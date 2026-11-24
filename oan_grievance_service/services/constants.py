@@ -112,7 +112,7 @@ EVENT_EC_ID = {
 
 # SLA window, in days, for a category created without one.
 DEFAULT_SLA_DAYS = 7
-# State timers every new SLA Configuration starts with: (state, hours, on_expiry).
+# State timers the Grievance Deferral Policy starts with: (state, hours, on_expiry).
 DEFAULT_STATE_TIMERS = (
 	(STATE_RESOLVED, 7 * 24, "Auto Close"),
 	(STATE_MORE_INFO_NEEDED, 7 * 24, "Auto Close"),

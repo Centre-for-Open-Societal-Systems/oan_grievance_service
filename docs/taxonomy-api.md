@@ -154,9 +154,9 @@ Response `200`:
 | `sort_order`       | integer | no       | last position | 0 or more. Omit to place the category at the end          |
 | `is_active`        | boolean | no       | `true`        | Must be `true` when `is_default` is `true`                |
 | `is_default`       | boolean | no       | `false`       | `true` makes this the default and clears the previous one |
-| `sla_days`         | integer | no       |               | 1 or more. When set, creates an SLA configuration row     |
-| `auto_escalate`    | boolean | no       | `true`        | Whether cases auto-escalate when threshold is reached     |
-| `notify_on_breach` | boolean | no       | `true`        | Whether escalation sends a breach notification            |
+| `sla_days`         | integer | no       | 7             | 1 or more. Makes the category's base SLA rule             |
+| `auto_escalate`    | boolean | no       | `true`        | Set on the assignment made with `department`              |
+| `notify_on_breach` | boolean | no       | `true`        | Set on the assignment made with `department`              |
 
 ```json
 { "category_name": "Infrastructure", "code": "007", "sort_order": 7, "is_active": true, "is_default": false, "sla_days": 14, "auto_escalate": true, "notify_on_breach": true }

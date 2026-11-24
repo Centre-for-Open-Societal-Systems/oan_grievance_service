@@ -27,7 +27,14 @@ from oan_auth_service.tests.utils import raw_message_leaks, request_schemas
 from pydantic import ValidationError
 
 import oan_grievance_service.api.v1 as api_v1
-from oan_grievance_service.api.v1 import grievance, officer, organization, sla_settings, taxonomy
+from oan_grievance_service.api.v1 import (
+	category_assignment,
+	grievance,
+	officer,
+	organization,
+	sla_settings,
+	taxonomy,
+)
 from oan_grievance_service.api.v1.grievance import DeferSLARequest, SubmitGrievanceRequest
 from oan_grievance_service.api.v1.submitter import RegisterSubmitterRequest
 from oan_grievance_service.tests.fixtures import a_user_with_role
@@ -186,13 +193,13 @@ class TestSlaMessages(FrappeTestCase):
 		)
 
 	def test_sla_days(self):
-		Update = sla_settings.UpdateSlaConfiguration
-		self.assertEqual(_errors(Update, config="C", sla_days=1), {})
+		Update = category_assignment.UpdateCategoryAssignment
+		self.assertEqual(_errors(Update, assignment="A", sla_days=1), {})
 		self.assertEqual(
-			_errors(Update, config="C", sla_days=0), {"sla_days": "SLA days must be at least 1."}
+			_errors(Update, assignment="A", sla_days=0), {"sla_days": "SLA days must be at least 1."}
 		)
 		self.assertEqual(
-			_errors(Update, config="C", sla_days="soon"), {"sla_days": "SLA days must be a whole number."}
+			_errors(Update, assignment="A", sla_days="soon"), {"sla_days": "SLA days must be a whole number."}
 		)
 
 	def test_category_and_type_names(self):
@@ -276,7 +283,7 @@ class TestLabels(FrappeTestCase):
 
 	def test_acronym_fields_carry_their_title(self):
 		for schema, field, label in (
-			(sla_settings.UpdateSlaConfiguration, "sla_days", "SLA days"),
+			(category_assignment.UpdateCategoryAssignment, "sla_days", "SLA days"),
 			(taxonomy.CreateServiceCategory, "sla_days", "SLA days"),
 			(organization.OrganizationRef, "org_id", "Organization ID"),
 			(SubmitGrievanceRequest, "fayda_id", "Fayda ID"),
@@ -289,7 +296,7 @@ class TestLabels(FrappeTestCase):
 
 	def test_the_title_is_in_the_message(self):
 		self.assertEqual(
-			_errors(sla_settings.UpdateSlaConfiguration, config="C", sla_days=0),
+			_errors(category_assignment.UpdateCategoryAssignment, assignment="A", sla_days=0),
 			{"sla_days": "SLA days must be at least 1."},
 		)
 

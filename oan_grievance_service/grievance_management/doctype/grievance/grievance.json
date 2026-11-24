@@ -495,7 +495,7 @@
    "label": "Closure and Feedback"
   },
   {
-   "description": "When the case's current state runs out of time. Set from the State Timers on its SLA Configuration; in Resolved this is the closure window.",
+   "description": "When the case's current state runs out of time. Set from the State Timers on the Grievance Deferral Policy; in Resolved this is the closure window.",
    "fieldname": "state_deadline",
    "fieldtype": "Datetime",
    "label": "State Deadline",

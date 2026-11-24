@@ -10,9 +10,7 @@ from werkzeug.wrappers import Request, Response
 
 from oan_grievance_service.api.router import ensure_routes_registered
 from oan_grievance_service.api.v1 import administrative_area, grievance, profile, submitter
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
+from oan_grievance_service.services import classification
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_leaf_area
 
@@ -102,8 +100,8 @@ class TestGrievanceRESTRouter(FrappeTestCase):
 			gtype_name = frappe.db.get_value("Grievance Type", {"type_name": "Fertilizer Shortage"}, "name")
 			self.gtype = frappe.get_doc("Grievance Type", gtype_name)
 
-		if not frappe.db.exists("Grievance SLA Configuration", {"service_category": "Inputs", "active": 1}):
-			save_sla_configuration("Inputs", 15)
+		if not frappe.db.exists("Grievance SLA Rule", {"service_category": "Inputs", "is_base": 1}):
+			classification.set_base_days("Inputs", 15)
 
 		self.area = a_leaf_area()
 

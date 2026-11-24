@@ -11,9 +11,6 @@ from datetime import date
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
 from oan_grievance_service.services import classification, sla
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.classification import month_day_in_window
@@ -63,7 +60,7 @@ def a_free_category_code():
 
 
 def a_bare_category():
-	"""A new category with no SLA configuration and no rule."""
+	"""A new category with no rule."""
 	return (
 		frappe.get_doc(
 			{
@@ -78,22 +75,13 @@ def a_bare_category():
 	)
 
 
-def a_bare_configuration(category):
-	"""An active SLA configuration for `category` that has no base rule yet."""
-	return (
-		frappe.get_doc({"doctype": "Grievance SLA Configuration", "service_category": category, "active": 1})
-		.insert(ignore_permissions=True)
-		.name
-	)
-
-
 def a_category(rules=(), sla_days=BASE_SLA_DAYS):
-	"""A new category with an active SLA configuration, its base rule of `sla_days`, and `rules`.
+	"""A new category with its base rule of `sla_days`, and `rules`.
 
 	A rule in `rules` with no type, area or window replaces the base rule's values.
 	"""
 	category = a_bare_category()
-	save_sla_configuration(category, sla_days)
+	classification.set_base_days(category, sla_days)
 	add_rules(category, rules)
 	return category
 
@@ -107,9 +95,7 @@ def add_rules(category, rules):
 			doc.update(rule)
 			doc.save(ignore_permissions=True)
 		else:
-			doc = frappe.get_doc(
-				{"doctype": RULE, "sla_configuration": classification.configuration_of(category), **rule}
-			)
+			doc = frappe.get_doc({"doctype": RULE, "service_category": category, **rule})
 			doc.insert(ignore_permissions=True)
 		names.append(doc.name)
 	return names
@@ -332,24 +318,20 @@ class TestRuleValidation(FrappeTestCase):
 		self.assertFalse(base.priority)
 
 	def test_saving_the_sla_again_changes_the_base_rule_not_adds_one(self):
-		save_sla_configuration(self.category, 9)
+		classification.set_base_days(self.category, 9)
 		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 1)
 		self.assertEqual(self.base().sla_days, 9)
 
 	def test_a_second_base_rule_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc(
-				{
-					"doctype": RULE,
-					"sla_configuration": classification.configuration_of(self.category),
-					**a_rule(sla_days=3),
-				}
-			).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": RULE, "service_category": self.category, **a_rule(sla_days=3)}).insert(
+				ignore_permissions=True
+			)
 
 	def test_a_narrower_rule_needs_the_base_rule_first(self):
-		bare = a_bare_configuration(a_bare_category())
+		bare = a_bare_category()
 		with self.assertRaises(frappe.ValidationError):
-			frappe.get_doc({"doctype": RULE, "sla_configuration": bare, **a_rule(DRY, urgent=True)}).insert(
+			frappe.get_doc({"doctype": RULE, "service_category": bare, **a_rule(DRY, urgent=True)}).insert(
 				ignore_permissions=True
 			)
 
@@ -363,9 +345,8 @@ class TestRuleValidation(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			base.save(ignore_permissions=True)
 
-	def test_a_configuration_without_a_base_rule_gives_its_cases_no_deadline(self):
+	def test_a_category_without_a_base_rule_gives_its_cases_no_deadline(self):
 		category = a_bare_category()
-		a_bare_configuration(category)
 		self.assertIsNone(classification.sla_days_for(category))
 
 
@@ -548,13 +529,6 @@ class TestClassification(FrappeTestCase):
 			self.classify("No such type " + frappe.generate_hash(length=6), self.woreda, None),
 			classification.STANDARD,
 		)
-
-	def test_the_rules_belong_to_the_category_not_to_its_sla_configuration(self):
-		frappe.db.set_value("Grievance SLA Configuration", {"service_category": self.pests}, "active", 0)
-		self.addCleanup(
-			frappe.db.set_value, "Grievance SLA Configuration", {"service_category": self.pests}, "active", 1
-		)
-		self.assertUrgent(self.classify(self.c17, self.woreda, date(2026, 6, 1)), True)
 
 	def test_sensitive_is_the_types_flag_whatever_the_rules(self):
 		sensitive = a_type(self.inputs, sensitive=1)

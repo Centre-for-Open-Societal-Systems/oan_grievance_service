@@ -177,10 +177,6 @@
       "type": "string"
     },
     {
-      "key": "sla_configuration",
-      "value": ""
-    },
-    {
       "key": "admin_email",
       "value": "gr@admin.com"
     },
@@ -3894,98 +3890,6 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"max_deferral_days\": 30,\n  \"requires_supervisor_approval\": true\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "List category SLA settings",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Returns a configuration page\", function () {",
-                  "    var body = pm.response.json();",
-                  "    pm.expect(body.data.sla_configurations).to.be.an(\"array\");",
-                  "    pm.expect(body.data.pagination).to.have.property(\"total_count\");",
-                  "    if (body.data.sla_configurations.length) {",
-                  "        pm.collectionVariables.set(\"sla_configuration\", body.data.sla_configurations[0].name);",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{base_url}}/v1/sla-configurations",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "sla-configurations"
-              ]
-            },
-            "description": "Per-category SLA window, auto-escalate and notify-on-breach flags, with the departments serving each category. Optional query: service_category, department, page, page_size. Saves the first row's id as sla_configuration."
-          },
-          "response": []
-        },
-        {
-          "name": "Update category SLA settings",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test(\"Echoes the saved configuration\", function () {",
-                  "    var c = pm.response.json().data.sla_configuration;",
-                  "    pm.expect(c).to.have.property(\"sla_days\");",
-                  "    pm.expect(c.notify_on_breach).to.be.a(\"boolean\");",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{base_url}}/v1/sla-configurations/{{sla_configuration}}",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "v1",
-                "sla-configurations",
-                "{{sla_configuration}}"
-              ]
-            },
-            "description": "Send any of sla_days, auto_escalate and notify_on_breach. The values are shared with Category Assignments for the same category. Run List category SLA settings first to set sla_configuration.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"notify_on_breach\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"

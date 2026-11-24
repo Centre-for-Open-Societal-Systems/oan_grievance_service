@@ -83,9 +83,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Grievance SLA Configuration",
+   "label": "Grievance SLA Rule",
    "link_count": 0,
-   "link_to": "Grievance SLA Configuration",
+   "link_to": "Grievance SLA Rule",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

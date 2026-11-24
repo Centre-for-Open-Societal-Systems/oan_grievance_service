@@ -91,13 +91,6 @@ def existing_under_another_name(doctype, row):
 				"Grievance Type", {"service_category": service_category, "type_name": type_name}
 			)
 
-	elif doctype == "Grievance SLA Configuration":
-		service_category = row.get("service_category")
-		if service_category and frappe.db.exists(
-			"Grievance SLA Configuration", {"service_category": service_category}
-		):
-			return frappe.db.get_value("Grievance SLA Configuration", {"service_category": service_category})
-
 	elif doctype == "Grievance SLA Rule":
 		# A category has one base rule (no type, area or window), whatever it is named: the
 		# app's install or the STG-514 patch may have made it before the seed is loaded.

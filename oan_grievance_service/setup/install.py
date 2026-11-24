@@ -11,11 +11,11 @@ import os
 
 import frappe
 
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
+from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
+	seed_state_timers,
 )
+from oan_grievance_service.services import classification, ticket_number
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import ticket_number
 from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
 from oan_grievance_service.setup.service_users import ensure_ivr_service_user
 
@@ -185,9 +185,9 @@ SERVICE_CATEGORIES = [
 	(C.FALLBACK_SERVICE_CATEGORY, C.FALLBACK_CATEGORY_CODE, 20),
 ]
 
-# Baseline SLA configurations for standard service categories.
+# Baseline SLA days for standard service categories, as their base SLA rules.
 # Seeded on install and migrate so categories have operational SLA windows out of the box.
-DEFAULT_SLA_CONFIGURATIONS = [
+DEFAULT_BASE_SLA_DAYS = [
 	("Inputs", 14),
 	("Schemes", 14),
 	("Payments", 7),
@@ -558,6 +558,8 @@ NOTIFICATION_EVENTS = [
 
 def after_install():
 	seed_all()
+	# Install only: on migrate an administrator may have removed the defaults on purpose.
+	seed_state_timers()
 	ensure_ivr_service_user()
 
 
@@ -587,7 +589,7 @@ def seed_all():
 		"region_ticket_codes": seed_region_ticket_codes(),
 		"unlocated_area": seed_unlocated_area(),
 		"holiday_list": seed_holiday_list(),
-		"sla_configurations": seed_sla_configurations(),
+		"base_sla_rules": seed_base_sla_rules(),
 	}
 	# Explicit commit after running setup seed data in after_install/after_migrate hook
 	frappe.db.commit()  # nosemgrep
@@ -639,15 +641,15 @@ def seed_holiday_list():
 	return [name]
 
 
-def seed_sla_configurations():
-	"""Seed baseline SLA configurations for standard service categories if absent."""
+def seed_base_sla_rules():
+	"""Seed the base SLA rule of each standard service category that has none."""
 	made = []
-	for category, sla_days in DEFAULT_SLA_CONFIGURATIONS:
+	for category, sla_days in DEFAULT_BASE_SLA_DAYS:
 		if not frappe.db.exists("Grievance Service Category", category):
 			continue
-		if frappe.db.exists("Grievance SLA Configuration", {"service_category": category}):
+		if frappe.db.exists("Grievance SLA Rule", {"service_category": category, "is_base": 1}):
 			continue
-		save_sla_configuration(service_category=category, sla_days=sla_days)
+		classification.set_base_days(category, sla_days)
 		made.append(category)
 	return made
 

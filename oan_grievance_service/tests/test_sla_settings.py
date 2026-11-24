@@ -6,13 +6,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1.category_assignment import create_assignment, get_assignment
-from oan_grievance_service.api.v1.sla_settings import (
-	get_global_policy,
-	list_sla_configurations,
-	update_global_policy,
-	update_sla_configuration,
-)
+from oan_grievance_service.api.v1.category_assignment import create_assignment, update_assignment
+from oan_grievance_service.api.v1.sla_settings import get_global_policy, update_global_policy
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
 	max_deferral_days,
 	requires_supervisor_approval,
@@ -29,7 +24,6 @@ from oan_grievance_service.tests.test_category_assignment import (
 )
 
 POLICY = "Grievance Deferral Policy"
-SLA_DOCTYPE = "Grievance SLA Configuration"
 
 
 class TestSlaSettings(FrappeTestCase):
@@ -45,8 +39,6 @@ class TestSlaSettings(FrappeTestCase):
 		self.department = _department("STG412 Inputs Agency", "S412")
 		self.other_department = _department("STG412 Markets Bureau", "S413")
 		for category in (self.category, self.other_category):
-			for name in frappe.get_all(SLA_DOCTYPE, filters={"service_category": category}, pluck="name"):
-				frappe.delete_doc(SLA_DOCTYPE, name, force=1, ignore_permissions=True)
 			for name in frappe.get_all(
 				"Grievance RBAC Assignment", filters={"category_scope": category}, pluck="name"
 			):
@@ -70,14 +62,6 @@ class TestSlaSettings(FrappeTestCase):
 		)
 		self.assertEqual(created["status"], "success", msg=created)
 		return created["data"]["assignment"]
-
-	def _config(self, category=None):
-		"""The category's SLA configuration as the list endpoint returns it."""
-		result = list_sla_configurations(service_category=category or self.category)
-		self.assertEqual(result["status"], "success", msg=result)
-		rows = result["data"]["sla_configurations"]
-		self.assertEqual(len(rows), 1, msg=rows)
-		return rows[0]
 
 	# Global policy
 	# -------------
@@ -134,183 +118,39 @@ class TestSlaSettings(FrappeTestCase):
 	# Per-category settings
 	# ---------------------
 
-	def test_category_settings_are_the_category_assignment_values(self):
-		assignment = self._assign(sla_days=14, auto_escalate=True)
-		config = self._config()
-		self.assertEqual(config["service_category"], self.category)
-		self.assertEqual(config["departments"], [self.department])
-		self.assertEqual(config["sla_days"], 14)
-		self.assertTrue(config["auto_escalate"])
-		self.assertTrue(config["notify_on_breach"])
+	def test_the_desk_holds_the_flags_and_the_category_the_days(self):
+		assignment = self._assign(sla_days=14)
+		self.assertEqual((assignment["sla_days"], assignment["auto_escalate"]), (14, True))
+		self.assertTrue(assignment["notify_on_breach"])
 
-		# Written here, read there.
-		updated = update_sla_configuration(config["name"], sla_days=9, auto_escalate=False)
+		updated = update_assignment(assignment["name"], sla_days=9, auto_escalate=False)
 		self.assertEqual(updated["status"], "success", msg=updated)
-		record = updated["data"]["sla_configuration"]
-		self.assertEqual((record["sla_days"], record["auto_escalate"]), (9, False))
-		self.assertTrue(record["notify_on_breach"])
-		shown = get_assignment(assignment["name"])["data"]["assignment"]
+		shown = updated["data"]["assignment"]
 		self.assertEqual((shown["sla_days"], shown["auto_escalate"]), (9, False))
-
-		# Written there, read here, on the same record.
-		from oan_grievance_service.api.v1.category_assignment import update_assignment
-
-		self.assertEqual(
-			update_assignment(assignment["name"], sla_days=6, auto_escalate=True)["status"], "success"
-		)
-		again = self._config()
-		self.assertEqual(again["name"], config["name"])
-		self.assertEqual((again["sla_days"], again["auto_escalate"]), (6, True))
-		self.assertEqual(frappe.db.count(SLA_DOCTYPE, {"service_category": self.category}), 1)
-
-	def test_departments_serving_a_category_share_one_row(self):
-		self._assign(sla_days=14)
-		self._assign(department=self.other_department, sla_days=10)
-		config = self._config()
-		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
-		self.assertEqual(config["sla_days"], 10)
-
-	def test_type_scoped_desk_department_is_included_in_sla_config_departments(self):
-		grievance_type = frappe.get_doc(
-			{
-				"doctype": "Grievance Type",
-				"type_name": "STG412 Sub Type",
-				"service_category": self.category,
-				"is_active": 1,
-			}
-		).insert(ignore_permissions=True)
-		# other_department has only a type-scoped desk
-		frappe.get_doc(
-			{
-				"doctype": "Grievance RBAC Assignment",
-				"category_scope": self.category,
-				"grievance_type_scope": grievance_type.name,
-				"department_scope": self.other_department,
-				"effective_from": frappe.utils.today(),
-				"active": 1,
-				"officers": [
-					{
-						"user": self.l1,
-						"role_level": "nodal_officer",
-						"is_primary": 1,
-						"active": 1,
-					}
-				],
-			}
-		).insert(ignore_permissions=True)
-		# self.department has a category-only desk AND a type-scoped desk for the same category
-		self._assign(sla_days=14)
-		frappe.get_doc(
-			{
-				"doctype": "Grievance RBAC Assignment",
-				"category_scope": self.category,
-				"grievance_type_scope": grievance_type.name,
-				"department_scope": self.department,
-				"effective_from": frappe.utils.today(),
-				"active": 1,
-				"officers": [
-					{
-						"user": self.l1,
-						"role_level": "nodal_officer",
-						"is_primary": 1,
-						"active": 1,
-					}
-				],
-			}
-		).insert(ignore_permissions=True)
-		config = self._config()
-		self.assertEqual(config["departments"], sorted([self.department, self.other_department]))
-
-		# list_sla_configurations?department=<dept> matches when department only has type-scoped desk
-		filtered = list_sla_configurations(department=self.other_department)["data"]["sla_configurations"]
-		self.assertEqual(len(filtered), 1)
-		self.assertEqual(filtered[0]["service_category"], self.category)
-
-	def test_update_changes_only_what_was_sent(self):
-		self._assign(sla_days=14)
-		config = self._config()
-		result = update_sla_configuration(config["name"], notify_on_breach=False)
-		self.assertEqual(result["status"], "success", msg=result)
-		record = result["data"]["sla_configuration"]
-		self.assertEqual((record["sla_days"], record["auto_escalate"]), (14, True))
-		self.assertFalse(record["notify_on_breach"])
-		self.assertEqual(frappe.db.get_value(SLA_DOCTYPE, config["name"], "notify_on_breach"), 0)
-
-	def test_update_rejects_bad_input_and_unknown_configs(self):
-		self._assign()
-		name = self._config()["name"]
-		with _keep_transaction():
-			for kwargs in (
-				{},
-				{"sla_days": 0},
-				{"sla_days": "soon"},
-				{"auto_escalate": "maybe"},
-				{"service_category": self.other_category},
-				{"auto_escalation_threshold": 50},
-			):
-				result = update_sla_configuration(name, **kwargs)
-				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=(kwargs, result))
-			self.assertEqual(update_sla_configuration("GR-SLA-9999", sla_days=3)["code"], "NOT_FOUND")
-		self.assertEqual(self._config()["sla_days"], 14)
-
-	def test_inactive_configuration_is_not_served(self):
-		self._assign()
-		name = self._config()["name"]
-		frappe.db.set_value(SLA_DOCTYPE, name, "active", 0)
-		self.assertEqual(
-			list_sla_configurations(service_category=self.category)["data"]["sla_configurations"], []
-		)
-		with _keep_transaction():
-			self.assertEqual(update_sla_configuration(name, sla_days=3)["code"], "NOT_FOUND")
-
-	def test_list_filters_and_paging(self):
-		self._assign(sla_days=14)
-		self._assign(category=self.other_category, department=self.other_department, sla_days=10)
-
-		by_department = list_sla_configurations(department=self.other_department)
-		rows = by_department["data"]["sla_configurations"]
-		self.assertEqual([row["service_category"] for row in rows], [self.other_category])
-
-		both = list_sla_configurations(service_category=self.category, department=self.other_department)
-		self.assertEqual(both["data"]["sla_configurations"], [])
-
-		page = list_sla_configurations(page=1, page_size=1)["data"]
-		self.assertEqual(len(page["sla_configurations"]), 1)
-		self.assertGreaterEqual(page["pagination"]["total_count"], 2)
-
-		with _keep_transaction():
-			self.assertEqual(list_sla_configurations(page=0)["code"], "VALIDATION_ERROR")
-			self.assertEqual(list_sla_configurations(unknown="x")["code"], "VALIDATION_ERROR")
-			self.assertEqual(list_sla_configurations(department="Nope")["code"], "VALIDATION_ERROR")
+		# The days are the category's base rule's; the flag stays on that one desk.
+		self.assertEqual(classification.sla_days_for(self.category), 9)
+		other = self._assign(department=self.other_department, sla_days=9)
+		self.assertTrue(other["auto_escalate"])
 
 	def test_roles(self):
-		self._assign()
-		name = self._config()["name"]
 		admin = _user("stg412-admin@example.com", "Selam Admin", role="Grievance Admin")
 		reviewer = _user("stg412-review@example.com", "Dawit Review", role="Grievance Review Officer")
 		officer = _user("stg412-officer@example.com", "Almaz Officer")
 
 		frappe.set_user(admin)
 		self.assertEqual(update_global_policy(max_deferral_days=12)["status"], "success")
-		self.assertEqual(update_sla_configuration(name, sla_days=8)["status"], "success")
 
 		for user, can_read in ((reviewer, True), (officer, False), ("Guest", False)):
 			frappe.set_user(user)
 			with _keep_transaction():
-				for result in (get_global_policy(), list_sla_configurations()):
-					self.assertEqual(result["status"] == "success", can_read, msg=(user, result))
-					if not can_read:
-						self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
-				for result in (
-					update_global_policy(max_deferral_days=99),
-					update_sla_configuration(name, sla_days=99),
-				):
+				result = get_global_policy()
+				self.assertEqual(result["status"] == "success", can_read, msg=(user, result))
+				if not can_read:
 					self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
+				result = update_global_policy(max_deferral_days=99)
+				self.assertEqual(result["code"], "PERMISSION_DENIED", msg=(user, result))
 		frappe.set_user("Administrator")
 		self.assertEqual(max_deferral_days(), 12)
-		category = frappe.db.get_value(SLA_DOCTYPE, name, "service_category")
-		# The days are stored on the category's base SLA rule.
-		self.assertEqual(classification.sla_days_for(category), 8)
 
 	# What the engine does with them
 	# ------------------------------
@@ -331,8 +171,7 @@ class TestSlaSettings(FrappeTestCase):
 			self.assertEqual(max_deferral_days(), expected)
 
 	def test_notify_on_breach_gates_the_breach_notification(self):
-		self._assign()
-		name = self._config()["name"]
+		desk = self._assign()["name"]
 		officer = self.l1
 		grievance_type = frappe.get_doc(
 			{
@@ -343,12 +182,15 @@ class TestSlaSettings(FrappeTestCase):
 			}
 		).insert(ignore_permissions=True)
 		grievance = a_grievance(
-			service_category=self.category, grievance_type=grievance_type.name, assigned_to=officer
+			service_category=self.category,
+			grievance_type=grievance_type.name,
+			assigned_to=officer,
+			routing_rule=desk,
 		)
 		self.addCleanup(discard_grievance, grievance.name)
 
 		for notify, queued in ((True, 1), (False, 0)):
-			update_sla_configuration(name, notify_on_breach=notify)
+			update_assignment(desk, notify_on_breach=notify)
 			grievance.db_set("escalated", 0)
 			grievance.reload()
 			with (
@@ -361,99 +203,11 @@ class TestSlaSettings(FrappeTestCase):
 			# Escalation itself does not depend on the flag.
 			self.assertEqual(grievance.escalated, 1)
 
-	def test_remove_obsolete_pending_submitter_timers_migrates_to_resolved(self):
-		from oan_grievance_service.patches.remove_obsolete_pending_submitter_timers import execute
-
-		if not frappe.db.exists("Workflow State", "Pending Submitter"):
-			ws = frappe.get_doc(
-				{
-					"doctype": "Workflow State",
-					"workflow_state_name": "Pending Submitter",
-				}
-			).insert(ignore_permissions=True, ignore_links=True)
-			self.addCleanup(frappe.db.delete, "Workflow State", {"name": ws.name})
-
-		self._assign(sla_days=14)
-		config_name = self._config()["name"]
-		frappe.db.delete("Grievance State Timer", {"parent": config_name})
-
-		# Insert a legacy Pending Submitter timer on config
-		frappe.get_doc(
-			{
-				"doctype": "Grievance State Timer",
-				"parenttype": SLA_DOCTYPE,
-				"parent": config_name,
-				"parentfield": "state_timers",
-				"workflow_state": "Pending Submitter",
-				"hours": 72,
-				"on_expiry": "Auto Close",
-			}
-		).insert(ignore_permissions=True, ignore_links=True)
-
-		# Second category that already has a Resolved timer
-		self._assign(category=self.other_category, department=self.other_department, sla_days=10)
-		other_config_name = self._config(category=self.other_category)["name"]
-		frappe.db.delete("Grievance State Timer", {"parent": other_config_name})
-		frappe.get_doc(
-			{
-				"doctype": "Grievance State Timer",
-				"parenttype": SLA_DOCTYPE,
-				"parent": other_config_name,
-				"parentfield": "state_timers",
-				"workflow_state": "Resolved",
-				"hours": 48,
-				"on_expiry": "Auto Close",
-			}
-		).insert(ignore_permissions=True, ignore_links=True)
-		frappe.get_doc(
-			{
-				"doctype": "Grievance State Timer",
-				"parenttype": SLA_DOCTYPE,
-				"parent": other_config_name,
-				"parentfield": "state_timers",
-				"workflow_state": "Pending Submitter",
-				"hours": 120,
-				"on_expiry": "Auto Close",
-			}
-		).insert(ignore_permissions=True, ignore_links=True)
-
-		execute()
-
-		# Assert Pending Submitter was converted to Resolved on config
-		timers = frappe.get_all(
-			"Grievance State Timer",
-			filters={"parent": config_name},
-			fields=["workflow_state", "hours", "on_expiry"],
-		)
-		self.assertEqual(len(timers), 1)
-		self.assertEqual(
-			(timers[0].workflow_state, timers[0].hours, timers[0].on_expiry),
-			("Resolved", 72, "Auto Close"),
-		)
-
-		# Assert other_config kept its original Resolved timer
-		other_timers = frappe.get_all(
-			"Grievance State Timer",
-			filters={"parent": other_config_name},
-			fields=["workflow_state", "hours", "on_expiry"],
-		)
-		self.assertEqual(len(other_timers), 1)
-		self.assertEqual(
-			(other_timers[0].workflow_state, other_timers[0].hours, other_timers[0].on_expiry),
-			("Resolved", 48, "Auto Close"),
-		)
-
-		# No Pending Submitter timers remain anywhere
-		self.assertEqual(frappe.db.count("Grievance State Timer", {"workflow_state": "Pending Submitter"}), 0)
-
-	def test_seed_sla_configurations_creates_baseline_rows_idempotently(self):
-		from oan_grievance_service.setup.install import (
-			DEFAULT_SLA_CONFIGURATIONS,
-			seed_sla_configurations,
-		)
+	def test_seed_base_sla_rules_creates_baseline_rules_idempotently(self):
+		from oan_grievance_service.setup.install import DEFAULT_BASE_SLA_DAYS, seed_base_sla_rules
 
 		# Ensure standard categories exist
-		for idx, (category, _days) in enumerate(DEFAULT_SLA_CONFIGURATIONS):
+		for idx, (category, _days) in enumerate(DEFAULT_BASE_SLA_DAYS):
 			if not frappe.db.exists("Grievance Service Category", category):
 				frappe.get_doc(
 					{
@@ -464,32 +218,16 @@ class TestSlaSettings(FrappeTestCase):
 					}
 				).insert(ignore_permissions=True)
 
-		# Calling seed_sla_configurations ensures active SLA configurations exist
-		seed_sla_configurations()
+		seed_base_sla_rules()
+		for category, _days in DEFAULT_BASE_SLA_DAYS:
+			self.assertGreater(classification.sla_days_for(category) or 0, 0, msg=category)
 
-		for category, _expected_days in DEFAULT_SLA_CONFIGURATIONS:
-			row = frappe.db.get_value(
-				SLA_DOCTYPE,
-				{"service_category": category, "active": 1},
-				["name", "auto_escalate", "notify_on_breach"],
-				as_dict=True,
-			)
-			self.assertIsNotNone(row, msg=f"Missing SLA configuration for {category}")
-			self.assertGreater(classification.sla_days_for(category) or 0, 0)
-			self.assertEqual(row.auto_escalate, 1)
+		# Second run is idempotent (no duplicates created)
+		self.assertEqual(seed_base_sla_rules(), [])
 
-		# Second run is completely idempotent (no duplicates created)
-		re_run_made = seed_sla_configurations()
-		self.assertEqual(re_run_made, [])
-
-		# Test creation on a fresh category without an SLA configuration
+		# A fresh category without a base rule gets one
 		fresh_cat = _category("STG412 Seed Category", "Z99")
-		for name in frappe.get_all(SLA_DOCTYPE, filters={"service_category": fresh_cat}, pluck="name"):
-			frappe.delete_doc(SLA_DOCTYPE, name, force=1, ignore_permissions=True)
-
-		with patch("oan_grievance_service.setup.install.DEFAULT_SLA_CONFIGURATIONS", [(fresh_cat, 11)]):
-			made = seed_sla_configurations()
-			self.assertIn(fresh_cat, made)
-			self.assertTrue(frappe.db.exists(SLA_DOCTYPE, {"service_category": fresh_cat, "active": 1}))
+		with patch("oan_grievance_service.setup.install.DEFAULT_BASE_SLA_DAYS", [(fresh_cat, 11)]):
+			self.assertIn(fresh_cat, seed_base_sla_rules())
 			self.assertEqual(classification.sla_days_for(fresh_cat), 11)
-			self.assertEqual(seed_sla_configurations(), [])
+			self.assertEqual(seed_base_sla_rules(), [])

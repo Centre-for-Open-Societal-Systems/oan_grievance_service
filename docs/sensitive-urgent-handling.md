@@ -20,10 +20,10 @@ The service holds the mechanism only. The Ethiopian values (the Routing Matrix D
 
 The SLA rules (doctype Grievance SLA Rule, `/api/v1/sla-rules`) are the one source of SLA days and urgency. Each rule is its own record linked to a service category, and **every rule carries both**: there is no blank that inherits from somewhere else. **Priority has one value, Urgent**: an urgent rule gives its cases priority Urgent, any other rule no priority. It is never set on its own (Normal and High were removed; the `drop_normal_and_high_priority` patch cleared them).
 
-- The category's **base rule** names no type, no area and no window. It is the category's SLA wherever no narrower rule matches. Every category with an SLA has one: creating a category (or an SLA configuration) with `sla_days` makes it, a narrower rule cannot be added before it, and it cannot be deleted or narrowed. Its `sla_days` is what `/sla-configurations`, `/category-assignments` and `/service-categories` show and set as the category's `sla_days`.
+- The category's **base rule** names no type, no area and no window. It is the category's SLA wherever no narrower rule matches. Every category with an SLA has one: creating a category or a category assignment with `sla_days` makes it, a narrower rule cannot be added before it, and it cannot be deleted or narrowed. Its `sla_days` is what `/category-assignments` and `/service-categories` show and set as the category's `sla_days`.
 - A **narrower rule** names a type, an area or a recurring window, and replaces the base rule's values where it matches.
 
-`Grievance SLA Configuration` keeps only what is category-wide and does not vary by season or area: the holiday list, `auto_escalate` and its threshold, `notify_on_breach`, `first_response_hours`, `update_cadence_hours`, `remand_execution_hours`, and the state timers. It has no `sla_days` any more: its rules (`Grievance SLA Rule`, linked by `sla_configuration`) hold them.
+There is no per-category SLA record besides the rules. `auto_escalate` and `notify_on_breach` are each desk's (`Grievance RBAC Assignment`), and a case follows the desk that routed it. The escalation threshold and the state timers are the `Grievance Deferral Policy`'s, and working days skip the default holiday list; all three apply to every case. The `retire_sla_configurations` patch moved these off the retired `Grievance SLA Configuration`.
 
 There is no separate season record and no calendar of its own: a window is a recurring month and day, the same every year, so any country's season can be written in it.
 
@@ -74,12 +74,12 @@ A rule with a `role_level` is the days for that rung (STG-512, the matrix's L1 a
 
 Everything is data. Nothing needs a code change.
 
-| What                                  | Where                                                                                                                    |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Sensitive sub-type                    | Grievance Type `is_sensitive`, or `PATCH /api/v1/grievance-types/{id}`. Administrators only, on every write path         |
-| A category's SLA days                 | its base rule: `PATCH /api/v1/sla-rules/{id}`, or `sla_days` on `/sla-configurations`, `/category-assignments` or create |
-| SLA days, urgency, priority by season | narrower Grievance SLA Rules, `/api/v1/sla-rules` (below)                                                                |
-| A woreda's own season                 | rules with that woreda's `administrative_area`                                                                           |
+| What                                  | Where                                                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Sensitive sub-type                    | Grievance Type `is_sensitive`, or `PATCH /api/v1/grievance-types/{id}`. Administrators only, on every write path |
+| A category's SLA days                 | its base rule: `PATCH /api/v1/sla-rules/{id}`, or `sla_days` on `/category-assignments` or create                |
+| SLA days, urgency, priority by season | narrower Grievance SLA Rules, `/api/v1/sla-rules` (below)                                                        |
+| A woreda's own season                 | rules with that woreda's `administrative_area`                                                                   |
 
 Only an administrator changes a type's `is_sensitive`. The rule is in the type's own validation (`GrievanceType.validate_handling_set_by_an_administrator`), so it holds for the Desk and `/api/resource` as well as the taxonomy API: a Desk Head may write the other fields of the types they head, never this one. Rules are created, changed and deleted by Grievance Admin and System Manager (DocPerm on Grievance SLA Rule); a Review Officer reads them. Grievance Type and Grievance SLA Rule track changes, so every change is in their version history, and a deleted rule is kept in Deleted Documents.
 
@@ -87,7 +87,7 @@ A rule change applies to cases filed afterwards. A case keeps the class and SLA 
 
 ### Upgrading a site
 
-The `move_sla_days_to_base_rules` patch (last in `patches.txt`) gives every category with an active SLA configuration its base rule, with the `sla_days` the configuration had, Standard and no priority, so every deadline stays what it was. A category that already has a base rule keeps it. The rule is named `<category code>-BASE`, the name the seed gives it, so loading the seed afterwards adds no second copy. Frappe keeps the old column; nothing reads it after the patch.
+The `move_sla_days_to_base_rules` patch gives every category with an active SLA configuration its base rule, with the `sla_days` the configuration had, Standard and no priority, so every deadline stays what it was. A category that already has a base rule keeps it. The rule is named `<category code>-BASE`, the name the seed gives it, so loading the seed afterwards adds no second copy. Frappe keeps the old column; nothing reads it after the patch.
 
 The app does not set the Sensitive flags or the seasonal rules of the matrix on an existing site: they are in the `openg2p-data` seed. A site that already holds the types gets them through the API (or by loading the seed's `Grievance_SLA_Rule.json`).
 
@@ -105,7 +105,7 @@ All under the Administration tag. Reads: Grievance Admin, System Manager, Review
 
 Each returns the rule as `{name, service_category, is_base, rule_label, grievance_type, administrative_area, start_month, start_day, end_month, end_day, sla_days, is_urgent, priority, modified}`, `priority` being `"Urgent"` or `null` (`rule`, or `rules` with `pagination` for the list). A window that is not a window, a type of another category, an unknown area or category, a rule that would tie with another, a narrower rule without a base rule, and deleting or narrowing the base rule are `VALIDATION_ERROR`; an unknown id is `NOT_FOUND`.
 
-`/sla-configurations`, `/category-assignments` and `/service-categories` keep their `sla_days` field: it reads and writes the category's base rule.
+`/category-assignments` and `/service-categories` keep their `sla_days` field: it reads and writes the category's base rule.
 
 ### What the seed gives
 

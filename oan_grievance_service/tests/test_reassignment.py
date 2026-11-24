@@ -26,10 +26,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, get_datetime, now_datetime, today
 
 from oan_grievance_service.api.v1.change_request import raise_change_request
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
-from oan_grievance_service.services import lifecycle, reassignment
+from oan_grievance_service.services import classification, lifecycle, reassignment
 from oan_grievance_service.setup.install import seed_role_levels, seed_workflow
 from oan_grievance_service.tests.fixtures import (
 	a_department,
@@ -160,8 +157,8 @@ def _ensure_category(name, code, sla_days=10):
 			.insert(ignore_permissions=True)
 			.name
 		)
-	if not frappe.db.exists("Grievance SLA Configuration", {"service_category": cat, "active": 1}):
-		save_sla_configuration(cat, sla_days)
+	if not frappe.db.exists("Grievance SLA Rule", {"service_category": cat, "is_base": 1}):
+		classification.set_base_days(cat, sla_days)
 	return cat
 
 
@@ -609,3 +606,47 @@ class TestReassignmentResolution(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			reassignment.resolve(self.grievance, officer=self.officer2, actor="Administrator")
 		self.assertIn("Specify target department or category", str(ctx.exception))
+
+	def test_r15_reassignment_to_desk_with_auto_escalate_disabled_clears_next_escalation_at(self):
+		"""Moving across desks with different auto_escalate re-arms the escalation clock."""
+		desk2 = frappe.get_doc(
+			{
+				"doctype": "Grievance RBAC Assignment",
+				"department_scope": self.dept2,
+				"category_scope": self.cat_c,
+				"auto_escalate": 0,
+				"active": 1,
+				"effective_from": today(),
+				"officers": [
+					{"user": self.officer3, "role_level": "nodal_officer", "is_primary": 1, "active": 1}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertIsNotNone(self.grievance.next_escalation_at)
+
+		# Reassign to dept2 (same category, desk with auto_escalate=0)
+		changes = reassignment.resolve(
+			self.grievance, self.dept2, officer=self.officer3, actor="Administrator"
+		)
+		cr = raise_change_request(self.grievance, "Move to desk with auto_escalate disabled", changes)
+		self.assertEqual(cr.status, "Approved")
+		self.grievance.reload()
+
+		self.assertEqual(self.grievance.assigned_dept, self.dept2)
+		self.assertEqual(self.grievance.routing_rule, desk2.name)
+		self.assertIsNone(self.grievance.next_escalation_at)
+
+		# Reassign back to dept1 (desk with auto_escalate=1)
+		changes_back = reassignment.resolve(
+			self.grievance, self.dept1, officer=self.officer1, actor="Administrator"
+		)
+		cr_back = raise_change_request(
+			self.grievance, "Move back to desk with auto_escalate enabled", changes_back
+		)
+		self.assertEqual(cr_back.status, "Approved")
+		self.grievance.reload()
+
+		self.assertEqual(self.grievance.assigned_dept, self.dept1)
+		self.assertEqual(self.grievance.routing_rule, self.desk1.name)
+		self.assertIsNotNone(self.grievance.next_escalation_at)

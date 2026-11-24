@@ -336,19 +336,6 @@ def base_days(categories) -> dict[str, int]:
 	}
 
 
-def configuration_of(service_category: str) -> str:
-	"""The category's SLA configuration, which its rules override; the active one if it has several."""
-	name = frappe.db.get_value(
-		"Grievance SLA Configuration",
-		{"service_category": service_category},
-		"name",
-		order_by="active desc, creation asc",
-	)
-	if not name:
-		frappe.throw(_("{0} has no SLA configuration.").format(service_category), frappe.DoesNotExistError)
-	return name
-
-
 def set_base_days(service_category: str, sla_days: int):
 	"""Write the category's SLA days on its base rule, creating it (Standard, no priority) if missing.
 
@@ -365,7 +352,7 @@ def set_base_days(service_category: str, sla_days: int):
 	return frappe.get_doc(
 		{
 			"doctype": RULE,
-			"sla_configuration": configuration_of(service_category),
+			"service_category": service_category,
 			"rule_label": _("Base"),
 			"sla_days": sla_days,
 			"is_urgent": 0,
