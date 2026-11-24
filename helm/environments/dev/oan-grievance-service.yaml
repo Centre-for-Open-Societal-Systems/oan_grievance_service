@@ -55,5 +55,5 @@ frappe:
       # write into sites/ while the jobs run, and its failure fails the job.
       fixVolume: false
     createSite:
-      forceCreate: true
+      forceCreate: false
       siteName: grievance-service.development.oanstaging.com
