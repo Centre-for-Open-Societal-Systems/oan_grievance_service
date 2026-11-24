@@ -436,15 +436,14 @@ def pause_view(case, timer_cache=None):
 	case; an Escalate timer is not a close date. While the clock is held the due date is
 	the latest it can reach: the farmer replying at the last moment adds the rest of the
 	wait to it, and a case that is never answered closes instead. `timer_cache` spares a
-	list the repeat lookups of one category and state.
+	list the repeat lookups of one state.
 	"""
 	state = case.get("workflow_state") or case.get("status")
-	key = (case.get("service_category"), state)
 	cache = timer_cache if timer_cache is not None else {}
-	if key not in cache:
-		timer = state_timer(*key)
-		cache[key] = bool(timer and timer[1] == "Auto Close")
-	deadline = case.get("state_deadline") if cache[key] else None
+	if state not in cache:
+		timer = state_timer(state)
+		cache[state] = bool(timer and timer[1] == "Auto Close")
+	deadline = case.get("state_deadline") if cache[state] else None
 	due = case.get("sla_due_date")
 	held_since = case.get("on_hold_since")
 	if held_since and due and deadline:
