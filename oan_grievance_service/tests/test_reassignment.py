@@ -26,10 +26,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, get_datetime, now_datetime, today
 
 from oan_grievance_service.api.v1.change_request import raise_change_request
-from oan_grievance_service.grievance_sla.doctype.grievance_sla_configuration.grievance_sla_configuration import (
-	save_sla_configuration,
-)
-from oan_grievance_service.services import lifecycle, reassignment
+from oan_grievance_service.services import classification, lifecycle, reassignment
 from oan_grievance_service.setup.install import seed_role_levels, seed_workflow
 from oan_grievance_service.tests.fixtures import (
 	a_department,
@@ -160,8 +157,8 @@ def _ensure_category(name, code, sla_days=10):
 			.insert(ignore_permissions=True)
 			.name
 		)
-	if not frappe.db.exists("Grievance SLA Configuration", {"service_category": cat, "active": 1}):
-		save_sla_configuration(cat, sla_days)
+	if not frappe.db.exists("Grievance SLA Rule", {"service_category": cat, "is_base": 1}):
+		classification.set_base_days(cat, sla_days)
 	return cat
 
 

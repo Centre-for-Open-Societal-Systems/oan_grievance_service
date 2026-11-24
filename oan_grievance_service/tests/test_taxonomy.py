@@ -44,9 +44,9 @@ from oan_grievance_service.grievance_masters.doctype.grievance_type.grievance_ty
 from oan_grievance_service.services import classification, ticket_number
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.setup.install import (
+	seed_base_sla_rules,
 	seed_categories,
 	seed_grievance_types,
-	seed_sla_configurations,
 	seed_unrouted_desk,
 )
 from oan_grievance_service.tests.fixtures import (
@@ -146,30 +146,12 @@ class TestTaxonomy(FrappeTestCase):
 				self.assertEqual(result["code"], "VALIDATION_ERROR", msg=result)
 			self.assertEqual(update_service_category(CATEGORY)["code"], "VALIDATION_ERROR")
 
-	def test_create_service_category_with_sla_configuration(self):
+	def test_create_service_category_with_sla_days(self):
 		name = "STG406 SLA Category"
-		code = "Q88"
-		res = create_service_category(
-			category_name=name,
-			code=code,
-			sla_days=14,
-			auto_escalate=True,
-			notify_on_breach=False,
-		)
+		res = create_service_category(category_name=name, code="Q88", sla_days=14)
 		self.assertEqual(res["status"], "success", msg=res)
-
-		sla_row = frappe.db.get_value(
-			"Grievance SLA Configuration",
-			{"service_category": name, "active": 1},
-			["name", "auto_escalate", "notify_on_breach", "active"],
-			as_dict=True,
-		)
-		self.assertIsNotNone(sla_row)
 		# The days are the category's base SLA rule's.
 		self.assertEqual(classification.sla_days_for(name), 14)
-		self.assertEqual(sla_row.auto_escalate, 1)
-		self.assertEqual(sla_row.notify_on_breach, 0)
-		self.assertEqual(sla_row.active, 1)
 
 	def test_create_service_category_with_invalid_sla_days(self):
 		with _keep_transaction():
@@ -186,9 +168,6 @@ class TestTaxonomy(FrappeTestCase):
 		code = "Q90"
 		res = create_service_category(category_name=name, code=code)
 		self.assertEqual(res["status"], "success", msg=res)
-		self.assertTrue(
-			frappe.db.exists("Grievance SLA Configuration", {"service_category": name, "active": 1})
-		)
 		self.assertEqual(classification.sla_days_for(name), C.DEFAULT_SLA_DAYS)
 
 	def test_missing_category_is_not_found(self):
@@ -897,11 +876,11 @@ class TestTaxonomy(FrappeTestCase):
 		self.assertFalse(frappe.db.exists("Grievance Service Category", "STG406 Refused"))
 
 	def test_canonical_fallback_and_unrouted_records(self):
-		"""Install seeds SYS for fallback category/type, unrouted desk, and fallback SLA config."""
+		"""Install seeds SYS for fallback category/type, unrouted desk, and the fallback base SLA rule."""
 		seed_categories()
 		seed_grievance_types()
 		seed_unrouted_desk()
-		seed_sla_configurations()
+		seed_base_sla_rules()
 
 		# Category Other has code SYS and is default
 		cat = frappe.get_doc("Grievance Service Category", C.FALLBACK_SERVICE_CATEGORY)
@@ -923,19 +902,14 @@ class TestTaxonomy(FrappeTestCase):
 		)
 		self.assertEqual(len(unrouted_desks), 1)
 
-		# SLA configuration for Other exists
-		other_slas = frappe.get_all(
-			"Grievance SLA Configuration",
-			filters={"service_category": C.FALLBACK_SERVICE_CATEGORY},
-			pluck="name",
-		)
-		self.assertEqual(len(other_slas), 1)
+		# The fallback category has its base SLA rule
+		self.assertTrue(classification.sla_days_for(C.FALLBACK_SERVICE_CATEGORY))
 
 		# Second seeding run is idempotent and does not create duplicate entries
 		seed_categories()
 		seed_grievance_types()
 		seed_unrouted_desk()
-		seed_sla_configurations()
+		seed_base_sla_rules()
 
 		self.assertEqual(
 			frappe.db.count("Grievance Type", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
@@ -946,18 +920,13 @@ class TestTaxonomy(FrappeTestCase):
 			1,
 		)
 		self.assertEqual(
-			frappe.db.count("Grievance SLA Configuration", {"service_category": C.FALLBACK_SERVICE_CATEGORY}),
+			frappe.db.count(
+				"Grievance SLA Rule", {"service_category": C.FALLBACK_SERVICE_CATEGORY, "is_base": 1}
+			),
 			1,
 		)
 
 		# Verify seed deduplication logic (existing_under_another_name)
-		self.assertEqual(
-			existing_under_another_name(
-				"Grievance SLA Configuration",
-				{"name": "GR-SLA-9999", "service_category": C.FALLBACK_SERVICE_CATEGORY},
-			),
-			other_slas[0],
-		)
 		self.assertEqual(
 			existing_under_another_name(
 				"Grievance RBAC Assignment",

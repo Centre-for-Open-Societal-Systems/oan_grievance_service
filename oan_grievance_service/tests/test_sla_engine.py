@@ -91,7 +91,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"from_date": "2026-01-01",
 				"to_date": "2026-12-31",
 				"weekly_off": "Sunday",
-				"is_default": 0,
+				"is_default": 1,
 			}
 		)
 		self.hlist.append(
@@ -102,45 +102,19 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"weekly_off": 0,
 			},
 		)
+		# Working days skip the default holiday list: this one, in place of the seeded one.
+		frappe.db.set_value("Grievance Holiday List", {"is_default": 1}, "is_default", 0)
 		self.hlist.insert(ignore_permissions=True)
+		frappe.cache.delete_value(sla.CACHE_KEY_DEFAULT_HOLIDAY_LIST)
 
-		# Configure SLA policy for Category A (5 days, no holiday list)
-		for name in frappe.get_all(
-			"Grievance SLA Configuration", filters={"service_category": self.cat_a}, pluck="name"
-		):
-			frappe.delete_doc("Grievance SLA Configuration", name, force=True)
-
-		self.sla_a = frappe.get_doc(
-			{
-				"doctype": "Grievance SLA Configuration",
-				"service_category": self.cat_a,
-				"holiday_list": self.hl_name,
-				"auto_escalate": 1,
-				"active": 1,
-			}
-		).insert(ignore_permissions=True)
+		# Category A has 5 days and Category B 10, as their base rules.
 		classification.set_base_days(self.cat_a, 5)
-
-		# Configure SLA policy for Category B (10 days, with holiday list)
-		for name in frappe.get_all(
-			"Grievance SLA Configuration", filters={"service_category": self.cat_b}, pluck="name"
-		):
-			frappe.delete_doc("Grievance SLA Configuration", name, force=True)
-
-		self.sla_b = frappe.get_doc(
-			{
-				"doctype": "Grievance SLA Configuration",
-				"service_category": self.cat_b,
-				"holiday_list": self.hl_name,
-				"auto_escalate": 1,
-				"active": 1,
-			}
-		).insert(ignore_permissions=True)
 		classification.set_base_days(self.cat_b, 10)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
+		frappe.cache.delete_value(sla.CACHE_KEY_DEFAULT_HOLIDAY_LIST)
 		super().tearDown()
 
 	def test_sla_clock_starts_from_creation_date(self):

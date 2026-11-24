@@ -62,9 +62,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(officers["nodal_officer"].is_primary, 1)
 		self.assertEqual(officers["senior_nodal_officer"].user, self.l2)
 
-		auto_escalate = frappe.db.get_value(
-			"Grievance SLA Configuration", {"service_category": self.category}, "auto_escalate"
-		)
+		auto_escalate = frappe.db.get_value("Grievance RBAC Assignment", assignment["name"], "auto_escalate")
 		# The days are the category's base SLA rule's.
 		sla_days = frappe.db.get_value(
 			"Grievance SLA Rule", {"service_category": self.category, "is_base": 1}, "sla_days"
@@ -94,9 +92,8 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(deactivated["status"], "success")
 		self.assertFalse(deactivated["data"]["assignment"]["active"])
 		self.assertEqual(frappe.db.get_value("Grievance RBAC Assignment", assignment["name"], "active"), 0)
-		self.assertEqual(
-			frappe.db.get_value("Grievance SLA Configuration", {"service_category": self.category}, "active"),
-			1,
+		self.assertTrue(
+			frappe.db.exists("Grievance SLA Rule", {"service_category": self.category, "is_base": 1})
 		)
 
 		again = deactivate_assignment(assignment["name"])
@@ -168,9 +165,8 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		second = self._assignment(department=other)
 		deactivate_assignment(first)
 		self.assertTrue(frappe.db.get_value("Grievance RBAC Assignment", second, "active"))
-		self.assertEqual(
-			frappe.db.get_value("Grievance SLA Configuration", {"service_category": self.category}, "active"),
-			1,
+		self.assertTrue(
+			frappe.db.exists("Grievance SLA Rule", {"service_category": self.category, "is_base": 1})
 		)
 
 	def test_patch_active_false_matches_delete(self):
@@ -737,7 +733,7 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 
 	def test_changes_are_tracked_and_attributed(self):
 		# Frappe skips Version rows while tests run, so check what produces them in production.
-		for doctype in ("Grievance RBAC Assignment", "Grievance SLA Configuration"):
+		for doctype in ("Grievance RBAC Assignment", "Grievance SLA Rule"):
 			self.assertTrue(frappe.get_meta(doctype).track_changes, msg=doctype)
 		name = self._assignment()
 		frappe.db.set_value("Grievance RBAC Assignment", name, "assigned_by", None)
@@ -746,19 +742,6 @@ class TestGrievanceCategoryAssignment(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.get_value("Grievance RBAC Assignment", name, "assigned_by"), "Administrator"
 		)
-
-	def test_one_active_sla_row_per_category(self):
-		self._assignment()
-		extra = frappe.new_doc("Grievance SLA Configuration")
-		extra.service_category = self.category
-		with self.assertRaises(frappe.DuplicateEntryError):
-			extra.insert()
-		extra.active = 0
-		extra.insert()
-		from oan_grievance_service.services import sla
-
-		self.assertNotEqual(sla.resolve_policy(self.category).name, extra.name)
-		self.assertEqual(sla.resolve_policy(self.category).sla_days, 7)
 
 	def test_unknown_list_filters_are_rejected(self):
 		self._assignment()

@@ -1,7 +1,7 @@
 """The configuration API of sensitive, urgent and seasonal handling (STG-514).
 
 Sensitive is a flag of the grievance type. SLA days and urgency (priority follows it) are the category's SLA
-rules, one record each, at /sla-rules; /sla-configurations shows and sets the base rule's days.
+rules, one record each, at /sla-rules.
 """
 
 from datetime import date
@@ -17,7 +17,6 @@ from oan_grievance_service.api.v1.sla_rules import (
 	list_rules,
 	update_rule,
 )
-from oan_grievance_service.api.v1.sla_settings import list_sla_configurations, update_sla_configuration
 from oan_grievance_service.api.v1.taxonomy import (
 	create_grievance_type,
 	list_grievance_types,
@@ -334,32 +333,3 @@ class TestSlaRulesApi(ApiFixture):
 		self.assertEqual(get_rule(rule["name"])["status"], "success")
 		self.refused(lambda: update_rule(rule["name"], sla_days=2), "PERMISSION_DENIED")
 		self.refused(lambda: delete_rule(rule["name"]), "PERMISSION_DENIED")
-
-
-class TestSlaConfigurationDays(ApiFixture):
-	"""`/sla-configurations` still shows and sets `sla_days`: the category's base rule's."""
-
-	def configuration(self):
-		listed = list_sla_configurations(service_category=self.category)["data"]["sla_configurations"]
-		return listed[0]
-
-	def test_the_configuration_shows_the_base_rules_days(self):
-		record = self.configuration()
-		self.assertEqual(record["sla_days"], BASE_SLA_DAYS)
-		self.assertNotIn("rules", record)
-
-	def test_setting_sla_days_on_the_configuration_changes_the_base_rule(self):
-		config = self.configuration()["name"]
-		result = update_sla_configuration(config, sla_days=6)
-		self.assertEqual(result["data"]["sla_configuration"]["sla_days"], 6, msg=result)
-		self.assertEqual(
-			frappe.db.get_value(RULE, {"service_category": self.category, "is_base": 1}, "sla_days"), 6
-		)
-		self.assertEqual(frappe.db.count(RULE, {"service_category": self.category}), 1)
-		self.assertEqual(classification.sla_days_for(self.category), 6)
-
-	def test_other_configuration_fields_leave_the_days_alone(self):
-		config = self.configuration()["name"]
-		result = update_sla_configuration(config, auto_escalate=False)
-		record = result["data"]["sla_configuration"]
-		self.assertEqual((record["sla_days"], record["auto_escalate"]), (BASE_SLA_DAYS, False), msg=result)

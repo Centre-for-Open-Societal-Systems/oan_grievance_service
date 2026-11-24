@@ -27,12 +27,16 @@ FLAGS = ("auto_escalate", "notify_on_breach")
 
 def execute():
 	if frappe.db.table_exists(CONFIG):
-		configs = frappe.db.sql(
-			f"""select name, service_category, {", ".join(FLAGS)} from `tab{CONFIG}`
-			where active = 1 and ifnull(service_category, '') != ''
-			order by modified desc, name desc""",
-			as_dict=True,
-		)
+		table = frappe.qb.DocType(CONFIG)
+		configs = (
+			frappe.qb.from_(table)
+			.select(table.name, table.service_category, *(table[field] for field in FLAGS))
+			.where(
+				(table.active == 1) & (table.service_category.isnotnull()) & (table.service_category != "")
+			)
+			.orderby(table.modified, order=frappe.qb.desc)
+			.orderby(table.name, order=frappe.qb.desc)
+		).run(as_dict=True)
 		policy = frappe.get_doc(POLICY)
 		if configs and not policy.state_timers:
 			for row in frappe.get_all(
