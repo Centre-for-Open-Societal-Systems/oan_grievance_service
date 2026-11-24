@@ -118,18 +118,19 @@ DEFAULT_STATE_TIMERS = (
 	(STATE_MORE_INFO_NEEDED, 7 * 24, "Auto Close"),
 )
 # Reminder thresholds as a percentage of the SLA window, and the event each one sends.
-SLA_REMINDER_THRESHOLDS = (20, 50, 80)
 SLA_REMINDER_EVENTS = {
 	20: EVENT_SLA_REMINDER_20,
 	50: EVENT_SLA_REMINDER_50,
 	80: EVENT_SLA_REMINDER_80,
 }
-# Global default ceiling on a single deferral.
+SLA_REMINDER_THRESHOLDS = tuple(sorted(SLA_REMINDER_EVENTS))
+# The last reminder before the deadline also sends the at-risk report.
+SLA_AT_RISK_THRESHOLD = max(SLA_REMINDER_THRESHOLDS)
+# Grievance field holding the highest reminder threshold already sent in the current window
+# (0 for none), so a new threshold needs no new column.
+REMINDER_SENT_FIELD = "last_reminder_percent"
+# Default ceiling on a single deferral, for a Grievance Deferral Policy never saved.
 DEFAULT_MAX_DEFERRAL_DAYS = 30
-# Business rule: no deferral may push a deadline out by more than this, whatever the policy says.
-MAX_DEFERRAL_DAYS_LIMIT = 30
-# Global default share of the SLA window consumed before a case escalates: at the deadline.
-DEFAULT_ESCALATION_THRESHOLD = 100
 
 
 # Canonical Frappe user roles used for API authentication and authorization.

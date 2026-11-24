@@ -63,6 +63,7 @@ from oan_auth_service.api import operational_log as oplog
 from oan_grievance_service.grievance_management.doctype.grievance_attachment.grievance_attachment import (
 	ALLOWED_MIME_TYPES,
 	EXTENSION_FOR_MIME,
+	MAX_PDF_FIELDS,
 	MAX_SIZE_BYTES,
 )
 from oan_grievance_service.services import constants as C
@@ -223,8 +224,6 @@ def _assert_pdf_acceptable(file_name: str, content: bytes) -> None:
 
 # Every signature dictionary carries the byte range it signs.
 _PDF_SIGNATURE_MARKER = re.compile(rb"/ByteRange\s*\[")
-# A crafted form tree must not keep the upload request walking it.
-_MAX_PDF_FIELDS = 10000
 
 
 def _is_signed_pdf(reader, content: bytes) -> bool:
@@ -246,7 +245,7 @@ def _is_signed_pdf(reader, content: bytes) -> bool:
 		if int(form.get("/SigFlags", 0)) & 1:
 			return True
 		stack, seen = list(form.get("/Fields", [])), 0
-		while stack and seen < _MAX_PDF_FIELDS:
+		while stack and seen < MAX_PDF_FIELDS:
 			field = stack.pop().get_object()
 			seen += 1
 			# An empty signature field is only a place to sign; a value is a signature.

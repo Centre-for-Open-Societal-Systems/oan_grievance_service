@@ -179,22 +179,10 @@ class TestSlaMessages(FrappeTestCase):
 
 	def test_global_policy(self):
 		Update = sla_settings.UpdateGlobalSlaPolicy
-		self.assertEqual(_errors(Update, max_deferral_days=1, auto_escalation_threshold=100), {})
+		self.assertEqual(_errors(Update, max_deferral_days=1), {})
 		self.assertEqual(
 			_errors(Update, max_deferral_days=0),
 			{"max_deferral_days": "Max deferral days must be at least 1."},
-		)
-		self.assertEqual(
-			_errors(Update, max_deferral_days=31),
-			{"max_deferral_days": "Max deferral days must not exceed 30."},
-		)
-		self.assertEqual(
-			_errors(Update, auto_escalation_threshold=0),
-			{"auto_escalation_threshold": "Auto escalation threshold must be at least 1."},
-		)
-		self.assertEqual(
-			_errors(Update, auto_escalation_threshold=101),
-			{"auto_escalation_threshold": "Auto escalation threshold must not exceed 100."},
 		)
 
 	def test_sla_days(self):

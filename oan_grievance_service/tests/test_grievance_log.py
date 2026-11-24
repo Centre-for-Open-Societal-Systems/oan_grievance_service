@@ -147,9 +147,7 @@ class TestSlaAndEscalationEvents(LogCase):
 
 	def test_a_reminder_is_logged_with_its_threshold(self):
 		# The earlier thresholds have gone out, so this sweep sends the 80% reminder alone.
-		row = frappe._dict(
-			name="GRV-0001", on_hold_since=None, reminder_80_sent=0, reminder_50_sent=1, reminder_20_sent=1
-		)
+		row = frappe._dict(name="GRV-0001", on_hold_since=None, last_reminder_percent=50)
 		with (
 			CapturedLog() as captured,
 			mock.patch.object(tasks, "open_grievances_with_sla", return_value=[row]),

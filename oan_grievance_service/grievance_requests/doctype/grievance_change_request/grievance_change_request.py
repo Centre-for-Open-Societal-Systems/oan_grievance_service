@@ -278,7 +278,8 @@ def is_deferral(request) -> bool:
 
 
 def check_deferral_requester(user, grievance):
-	"""Only the first-rung Nodal Officer (L1) on the case's desk may defer its SLA, or an admin.
+	"""Only the officer on the first rung of the role-level chain on the case's desk may defer its
+	SLA, or an admin. The rung is read from the chain, so its label is too.
 
 	A senior officer (the L1's supervisor, L2 and up) decides a deferral and does not raise one:
 	before this they could, and their own request was approved on the spot, so the only check on
@@ -294,8 +295,14 @@ def check_deferral_requester(user, grievance):
 	if is_unrestricted(user):
 		return
 	chain = GrievanceRoleLevel.get_chain()
-	first = chain[0] if chain else None
-	if first and holds_rung(
+	if not chain:
+		frappe.throw(
+			_("No role levels are configured, so only an administrator can defer this grievance's SLA."),
+			frappe.PermissionError,
+			title=_("Deferral Not Permitted"),
+		)
+	first = chain[0]
+	if holds_rung(
 		user,
 		first.name,
 		department=grievance.assigned_dept,
@@ -304,8 +311,8 @@ def check_deferral_requester(user, grievance):
 	):
 		return
 	frappe.throw(
-		_("Only the {0} (L1) handling this grievance can defer its SLA.").format(
-			_(first.level_name or first.name) if first else _("Nodal Officer")
+		_("Only the {0} handling this grievance can defer its SLA.").format(
+			_(first.level_name or first.name)
 		),
 		frappe.PermissionError,
 		title=_("Deferral Not Permitted"),

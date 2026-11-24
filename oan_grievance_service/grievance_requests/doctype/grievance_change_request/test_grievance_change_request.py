@@ -711,9 +711,16 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 	def test_only_the_l1_nodal_officer_may_defer_the_sla(self):
 		"""STG-516: the L1's supervisor (L2) and the department head cannot defer, even on their own authority."""
 		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
+		from oan_grievance_service.grievance_masters.doctype.grievance_role_level.grievance_role_level import (
+			GrievanceRoleLevel,
+		)
+
+		first = GrievanceRoleLevel.get_chain()[0]
 		for senior in (self.senior, self.head):
-			with self.subTest(senior=senior), self.assertRaises(frappe.PermissionError):
+			with self.subTest(senior=senior), self.assertRaises(frappe.PermissionError) as raised:
 				self._raise_deferral(senior, 5)
+			# The rung's own label, as configured, names who may defer.
+			self.assertIn(first.level_name or first.name, str(raised.exception))
 		self.assertFalse(frappe.db.exists("Grievance Change Request", {"grievance": self.grievance.name}))
 
 		request = self._raise_deferral(self.officer1, 5)
@@ -788,25 +795,19 @@ class TestGrievanceChangeRequest(FrappeTestCase):
 		)
 		self.assertEqual(self._raise_deferral(self.officer1, 7).status, "Pending")
 
-	def test_deferral_above_30_days_refused_even_when_the_policy_allows_more(self):
-		"""STG-516: 30 days is the business limit, whatever the stored ceiling says."""
+	def test_deferral_length_is_capped_by_the_policy_ceiling(self):
+		"""STG-516: the policy's max_deferral_days is the one limit, whatever it is set to."""
 		self.grievance.db_set("sla_due_date", add_days(today(), 5), update_modified=False)
-		frappe.db.set_single_value("Grievance Deferral Policy", "max_deferral_days", 60)
+		frappe.db.set_single_value("Grievance Deferral Policy", "max_deferral_days", 10)
 		frappe.clear_document_cache("Grievance Deferral Policy", "Grievance Deferral Policy")
 		try:
 			with self.assertRaises(frappe.ValidationError) as raised:
-				self._raise_deferral(self.officer1, 31)
-			self.assertIn("may not exceed 30 days", str(raised.exception))
-			self.assertEqual(self._raise_deferral(self.officer1, 30).status, "Pending")
+				self._raise_deferral(self.officer1, 11)
+			self.assertIn("may not exceed 10 days", str(raised.exception))
+			self.assertEqual(self._raise_deferral(self.officer1, 10).status, "Pending")
 		finally:
 			frappe.db.rollback()
 			frappe.clear_document_cache("Grievance Deferral Policy", "Grievance Deferral Policy")
-
-	def test_deferral_ceiling_cannot_be_set_above_30_days(self):
-		policy = frappe.get_doc("Grievance Deferral Policy")
-		policy.max_deferral_days = 31
-		with self.assertRaises(frappe.ValidationError):
-			policy.save(ignore_permissions=True)
 
 	# ---------------------------------------------------------
 	# Forwarding & Escalation Tests

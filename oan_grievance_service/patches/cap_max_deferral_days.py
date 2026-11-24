@@ -1,21 +1,23 @@
 # Copyright (c) 2026, COSS - Centre for Open Societal Systems and contributors
 # For license information, please see license.txt
 
-"""Bring a deferral ceiling set above the 30-day limit back down to it (STG-516).
+"""Bring a deferral ceiling set above 30 days back down to 30 (STG-516).
 
-The policy accepted any ceiling, and a deferral is checked against it, so a site set to
-more than 30 days accepted deferrals longer than the business rule allows. The Single now
-refuses such a value, so it is corrected here rather than left to fail its next save.
+No deferral may push a deadline out by more than 30 days. `max_deferral_days` on the policy is
+the one place that limit lives, so a site that raised it above 30 is set back to 30 here.
+
+The 30 is written out, not imported: a patch records what was done at the time, and must not
+change if the shipped default ever does.
 """
 
 import frappe
 
-from oan_grievance_service.services import constants as C
+CEILING_DAYS = 30
 
 
 def execute():
 	doctype = "Grievance Deferral Policy"
 	configured = frappe.db.get_single_value(doctype, "max_deferral_days")
-	if configured and configured > C.MAX_DEFERRAL_DAYS_LIMIT:
-		frappe.db.set_single_value(doctype, "max_deferral_days", C.MAX_DEFERRAL_DAYS_LIMIT)
+	if configured and configured > CEILING_DAYS:
+		frappe.db.set_single_value(doctype, "max_deferral_days", CEILING_DAYS)
 		frappe.clear_document_cache(doctype, doctype)

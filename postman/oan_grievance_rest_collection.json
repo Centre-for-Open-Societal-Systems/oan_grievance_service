@@ -3828,7 +3828,6 @@
                   "pm.test(\"Returns the policy\", function () {",
                   "    var p = pm.response.json().data.policy;",
                   "    pm.expect(p).to.have.property(\"max_deferral_days\");",
-                  "    pm.expect(p).to.have.property(\"auto_escalation_threshold\");",
                   "    pm.expect(p.requires_supervisor_approval).to.be.a(\"boolean\");",
                   "});"
                 ],
@@ -3849,7 +3848,7 @@
                 "sla-policy"
               ]
             },
-            "description": "Installation-wide policy: max_deferral_days, auto_escalation_threshold (percent) and requires_supervisor_approval (true: a senior officer decides a deferral; false: the assigned officer may approve it)."
+            "description": "Installation-wide policy: max_deferral_days and requires_supervisor_approval (true: a senior officer decides a deferral; false: the assigned officer may approve it)."
           },
           "response": []
         },
@@ -3866,7 +3865,6 @@
                   "pm.test(\"Echoes the saved policy\", function () {",
                   "    var p = pm.response.json().data.policy;",
                   "    pm.expect(p.max_deferral_days).to.eql(30);",
-                  "    pm.expect(p.auto_escalation_threshold).to.eql(100);",
                   "    pm.expect(p.requires_supervisor_approval).to.eql(true);",
                   "});"
                 ],
@@ -3892,10 +3890,10 @@
                 "sla-policy"
               ]
             },
-            "description": "Send any of the three fields; omitted fields stay as they are.",
+            "description": "Send either field or both; omitted fields stay as they are.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"max_deferral_days\": 30,\n  \"auto_escalation_threshold\": 100,\n  \"requires_supervisor_approval\": true\n}",
+              "raw": "{\n  \"max_deferral_days\": 30,\n  \"requires_supervisor_approval\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"

@@ -116,7 +116,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"service_category": self.cat_a,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
-				"auto_escalation_threshold": 100,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -134,7 +133,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"service_category": self.cat_b,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
-				"auto_escalation_threshold": 80,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -435,17 +433,16 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"total_hold_time": 0,
 				"on_hold_since": None,
 				"escalated": 0,
-				**sla.cleared_reminder_flags(),
+				**sla.cleared_reminders(),
 			},
 			update_modified=False,
 		)
 		g.reload()
 		return g
 
-	def test_low_threshold_no_longer_escalates_before_the_deadline(self):
+	def test_first_escalation_waits_for_the_deadline(self):
 		"""Devtest: filed 1:13 PM, escalated 2:02 PM on a one-day SLA. A 3% threshold armed the
 		bump 43 minutes in; now the first escalation waits for the deadline."""
-		self.sla_a.db_set("auto_escalation_threshold", 3, update_modified=False)
 		filed = add_to_date(now_datetime(), minutes=-49)
 		g = self._case_with_clock(filed, add_days(filed, 1))
 		g.db_set("next_escalation_at", None, update_modified=False)
@@ -462,8 +459,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		self.assertFalse(g.escalated)
 
 	def test_escalation_fires_once_the_sla_has_elapsed(self):
-		"""A one-day SLA escalates on the sweep after the day is up, whatever the threshold."""
-		self.sla_a.db_set("auto_escalation_threshold", 80, update_modified=False)
+		"""A one-day SLA escalates on the sweep after the day is up."""
 		filed = add_to_date(now_datetime(), hours=-25)
 		g = self._case_with_clock(filed, add_days(filed, 1))
 		sla.arm_escalation(g)
@@ -516,7 +512,7 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		self.assertEqual(self._sweep_reminders(g), [])
 
 		g.reload()
-		self.assertTrue(g.reminder_20_sent and g.reminder_50_sent and g.reminder_80_sent)
+		self.assertEqual(g.last_reminder_percent, C.SLA_AT_RISK_THRESHOLD)
 
 	def test_reminders_already_passed_are_not_skipped(self):
 		"""A case first swept at 86% gets the 20% and 50% reminders too, not only the 80% one."""
@@ -550,16 +546,39 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		# Other events still go out once per case.
 		self.assertTrue(notifications._already_queued(g.name, C.EVENT_SLA_BREACH, recipient, "Email"))
 
-		g.db_set(sla.cleared_reminder_flags(), update_modified=False)
+		g.db_set(sla.cleared_reminders(), update_modified=False)
 		self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_20])
 
-	def test_backfill_patch_marks_20_percent_sent_where_50_already_went(self):
-		from oan_grievance_service.patches import backfill_reminder_20_sent
+	def test_a_new_threshold_needs_no_new_field(self):
+		"""The sweep keeps one number per case, so adding a threshold is a constants change."""
+		start = add_to_date(now_datetime(), hours=-35)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		events = {**C.SLA_REMINDER_EVENTS, 30: "sla_reminder_30"}
+		with (
+			patch.object(C, "SLA_REMINDER_EVENTS", events),
+			patch.object(C, "SLA_REMINDER_THRESHOLDS", tuple(sorted(events))),
+		):
+			self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_20, "sla_reminder_30"])
+		g.reload()
+		self.assertEqual(g.last_reminder_percent, 30)
+
+	def test_backfill_patch_carries_the_old_flags(self):
+		"""A case whose 50% reminder went out under the old flags is not reminded at 20% or 50% again.
+
+		The old columns exist only on a site that ran the earlier code; a fresh site has nothing
+		to carry, and the patch must leave it alone."""
+		from oan_grievance_service.patches import backfill_last_reminder_percent
 
 		start = add_to_date(now_datetime(), hours=-60)
 		g = self._case_with_clock(start, add_to_date(start, hours=100))
-		g.db_set("reminder_50_sent", 1, update_modified=False)
-		backfill_reminder_20_sent.execute()
+		if not frappe.db.has_column("Grievance", "reminder_50_sent"):
+			backfill_last_reminder_percent.execute()
+			g.reload()
+			self.assertEqual(g.last_reminder_percent, 0)
+			return
+		grievance = frappe.qb.DocType("Grievance")
+		frappe.qb.update(grievance).set(grievance.reminder_50_sent, 1).where(grievance.name == g.name).run()
+		backfill_last_reminder_percent.execute()
 		g.reload()
-		self.assertTrue(g.reminder_20_sent)
+		self.assertEqual(g.last_reminder_percent, 50)
 		self.assertEqual(self._sweep_reminders(g), [])

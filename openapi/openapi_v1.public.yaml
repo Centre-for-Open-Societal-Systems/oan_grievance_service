@@ -7094,10 +7094,10 @@ paths:
       tags:
       - Administration
       summary: Get the global SLA policy
-      description: 'The installation-wide SLA settings: the most days one deferral may add, the default
-        auto-escalate threshold in percent, and whether a deferral needs a senior officer''s approval
-        (requires_supervisor_approval; false lets the assigned officer approve it). Categories without
-        a threshold of their own follow this one.'
+      description: 'The installation-wide SLA settings: the most days one deferral may add, and whether
+        a deferral needs a senior officer''s approval (requires_supervisor_approval; false lets the assigned
+        officer approve it). A case escalates automatically once its full SLA window has elapsed; there
+        is no escalation threshold.'
       operationId: get_api_v1_sla_policy
       responses:
         '200':
@@ -7142,9 +7142,8 @@ paths:
       tags:
       - Administration
       summary: Update the global SLA policy
-      description: Change any of max_deferral_days, auto_escalation_threshold and requires_supervisor_approval.
-        Omitted fields stay as they are. A new threshold applies to cases whose escalation is armed after
-        the change. A new deferral setting applies to the next deferral request.
+      description: Change max_deferral_days, requires_supervisor_approval or both. Omitted fields stay
+        as they are. A new setting applies to the next deferral request.
       operationId: patch_api_v1_sla_policy
       responses:
         '200':
@@ -11299,8 +11298,6 @@ components:
       properties:
         max_deferral_days:
           type: integer
-        auto_escalation_threshold:
-          type: integer
         requires_supervisor_approval:
           type: boolean
         modified:
@@ -11309,7 +11306,6 @@ components:
           nullable: true
       required:
       - max_deferral_days
-      - auto_escalation_threshold
       - requires_supervisor_approval
       type: object
     GlobalSlaPolicyData:
@@ -12649,13 +12645,7 @@ components:
       description: Partial update. Omitted fields stay as they are.
       properties:
         max_deferral_days:
-          description: Most days any single deferral may add to the SLA clock. 30 at most
-          maximum: 30
-          minimum: 1
-          type: integer
-        auto_escalation_threshold:
-          description: Stored and returned. Escalation always waits for the full SLA window
-          maximum: 100
+          description: Most days any single deferral may add to the SLA clock
           minimum: 1
           type: integer
         requires_supervisor_approval:

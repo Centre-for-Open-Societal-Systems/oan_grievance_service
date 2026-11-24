@@ -8,9 +8,10 @@ notify-on-breach flags are per service category and live on `Grievance SLA
 Configuration`; what lives here is what has exactly one answer for the whole
 installation, which is what makes this a Single rather than another per-category row:
 
-- how far one deferral may push a deadline, and who is allowed to decide it;
-- the share of the window a case may consume before it escalates, for every category
-  that does not set a threshold of its own.
+- how far one deferral may push a deadline, and who is allowed to decide it.
+
+`max_deferral_days` is the only limit on a deferral's length: nothing in the code caps it
+further. It ships at 30 days.
 
 It also retires two duplicates. `max_deferral_days` and `deferral_requires_l2_approval`
 existed as per-category fields that nothing ever read, and the ceiling was actually
@@ -29,10 +30,6 @@ class GrievanceDeferralPolicy(Document):
 	def validate(self):
 		if self.max_deferral_days is not None and self.max_deferral_days < 0:
 			frappe.throw(_("The deferral ceiling cannot be negative."))
-		if (self.max_deferral_days or 0) > C.MAX_DEFERRAL_DAYS_LIMIT:
-			frappe.throw(_("The deferral ceiling cannot exceed {0} days.").format(C.MAX_DEFERRAL_DAYS_LIMIT))
-		if (self.auto_escalation_threshold or 0) > 100:
-			frappe.throw(_("The auto escalation threshold cannot exceed 100%."))
 
 
 def get_policy():
@@ -41,16 +38,10 @@ def get_policy():
 
 
 def max_deferral_days():
-	"""Ceiling on a single deferral request, never above the 30-day business limit."""
-	configured = get_policy().max_deferral_days
-	return min(configured or C.DEFAULT_MAX_DEFERRAL_DAYS, C.MAX_DEFERRAL_DAYS_LIMIT)
+	"""Ceiling on a single deferral request."""
+	return get_policy().max_deferral_days or C.DEFAULT_MAX_DEFERRAL_DAYS
 
 
 def requires_supervisor_approval():
 	"""Whether a deferral must be decided by someone above the assigned officer."""
 	return bool(get_policy().requires_supervisor_approval)
-
-
-def auto_escalation_threshold():
-	"""Share of the window consumed before escalation, where a category sets no threshold."""
-	return get_policy().auto_escalation_threshold or C.DEFAULT_ESCALATION_THRESHOLD

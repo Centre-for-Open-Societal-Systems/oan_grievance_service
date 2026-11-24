@@ -39,7 +39,7 @@ def open_grievances_with_sla(extra_filters=None):
 			"sla_due_date",
 			"on_hold_since",
 			"total_hold_time",
-			*(sla.reminder_flag(t) for t in C.SLA_REMINDER_THRESHOLDS),
+			C.REMINDER_SENT_FIELD,
 			"escalated",
 			"assigned_dept",
 			"assigned_to",
@@ -57,10 +57,11 @@ def open_grievances_with_sla(extra_filters=None):
 
 @logged_job("sla_reminders")
 def send_sla_reminders():
-	"""Reminders to the assigned officer at 20%, 50% and 80% of the window.
+	"""Reminders to the assigned officer at each of `C.SLA_REMINDER_THRESHOLDS` of the window.
 
-	Each threshold sends once per SLA window: its flag on the case is what stops a repeat, and
-	the flags are cleared only when the window starts again or the deadline moves. Every
+	Each threshold sends once per SLA window: the case records the highest threshold already
+	sent (`C.REMINDER_SENT_FIELD`), which is reset only when the window starts again or the
+	deadline moves. Every
 	threshold the case has passed is sent, lowest first, so a case first seen past 80% (an
 	hourly sweep after a long wait in routing, or after an outage) still gets the 20% and 50%
 	reminders instead of skipping them.
@@ -72,14 +73,15 @@ def send_sla_reminders():
 		if row.on_hold_since:
 			continue
 		percent = sla.consumed_percent(row)
-		due = [t for t in C.SLA_REMINDER_THRESHOLDS if percent >= t and not row.get(sla.reminder_flag(t))]
+		last_sent = row.get(C.REMINDER_SENT_FIELD) or 0
+		due = [t for t in C.SLA_REMINDER_THRESHOLDS if last_sent < t <= percent]
 		if not due:
 			continue
 
 		grievance = frappe.get_doc("Grievance", row.name)
 		for threshold in due:
 			notifications.queue(grievance, C.SLA_REMINDER_EVENTS[threshold])
-			if threshold == 80:
+			if threshold == C.SLA_AT_RISK_THRESHOLD:
 				notifications.queue(grievance, C.EVENT_SLA_AT_RISK)
 			oplog.emit(
 				"sla.reminder_sent",
@@ -88,7 +90,7 @@ def send_sla_reminders():
 				consumed_percent=percent,
 			)
 			sent += 1
-		grievance.db_set({sla.reminder_flag(t): 1 for t in due}, update_modified=False)
+		grievance.db_set(C.REMINDER_SENT_FIELD, due[-1], update_modified=False)
 
 	return sent
 

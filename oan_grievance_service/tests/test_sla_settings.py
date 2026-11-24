@@ -14,7 +14,6 @@ from oan_grievance_service.api.v1.sla_settings import (
 	update_sla_configuration,
 )
 from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.grievance_deferral_policy import (
-	auto_escalation_threshold,
 	max_deferral_days,
 	requires_supervisor_approval,
 )
@@ -89,25 +88,18 @@ class TestSlaSettings(FrappeTestCase):
 		policy = result["data"]["policy"]
 		self.assertEqual(
 			set(policy),
-			{"max_deferral_days", "auto_escalation_threshold", "requires_supervisor_approval", "modified"},
+			{"max_deferral_days", "requires_supervisor_approval", "modified"},
 		)
 
-		updated = update_global_policy(
-			max_deferral_days=21, auto_escalation_threshold=80, requires_supervisor_approval=False
-		)
+		updated = update_global_policy(max_deferral_days=21, requires_supervisor_approval=False)
 		self.assertEqual(updated["status"], "success", msg=updated)
 		self.assertEqual(
-			{key: updated["data"]["policy"][key] for key in list(policy)[:3]},
-			{
-				"max_deferral_days": 21,
-				"auto_escalation_threshold": 80,
-				"requires_supervisor_approval": False,
-			},
+			{key: updated["data"]["policy"][key] for key in list(policy)[:2]},
+			{"max_deferral_days": 21, "requires_supervisor_approval": False},
 		)
 
 		# What the API saved is what the engine reads, with no cache in between.
 		self.assertEqual(max_deferral_days(), 21)
-		self.assertEqual(auto_escalation_threshold(), 80)
 		self.assertFalse(requires_supervisor_approval())
 		self.assertEqual(frappe.db.get_single_value(POLICY, "requires_supervisor_approval"), 0)
 
@@ -115,7 +107,6 @@ class TestSlaSettings(FrappeTestCase):
 		partial = update_global_policy(requires_supervisor_approval=True)
 		self.assertEqual(partial["data"]["policy"]["requires_supervisor_approval"], True)
 		self.assertEqual(partial["data"]["policy"]["max_deferral_days"], 21)
-		self.assertEqual(partial["data"]["policy"]["auto_escalation_threshold"], 80)
 		self.assertTrue(requires_supervisor_approval())
 		self.assertEqual(get_global_policy()["data"]["policy"]["requires_supervisor_approval"], True)
 
@@ -124,7 +115,6 @@ class TestSlaSettings(FrappeTestCase):
 		frappe.clear_document_cache(POLICY, POLICY)
 		policy = get_global_policy()["data"]["policy"]
 		self.assertEqual(policy["max_deferral_days"], C.DEFAULT_MAX_DEFERRAL_DAYS)
-		self.assertEqual(policy["auto_escalation_threshold"], C.DEFAULT_ESCALATION_THRESHOLD)
 		self.assertTrue(policy["requires_supervisor_approval"])
 
 	def test_global_policy_rejects_bad_input(self):
@@ -133,8 +123,8 @@ class TestSlaSettings(FrappeTestCase):
 				{},
 				{"max_deferral_days": 0},
 				{"max_deferral_days": "many"},
-				{"auto_escalation_threshold": 0},
-				{"auto_escalation_threshold": 101},
+				# Removed in STG-516: an unknown field like any other.
+				{"auto_escalation_threshold": 80},
 				{"requires_supervisor_approval": "nobody"},
 				{"deferral_approval": "l2_approval"},
 			):
@@ -325,20 +315,20 @@ class TestSlaSettings(FrappeTestCase):
 	# What the engine does with them
 	# ------------------------------
 
-	def test_global_threshold_applies_unless_the_category_sets_its_own(self):
-		self._assign()
-		name = self._config()["name"]
-		self.assertEqual(sla.resolve_policy(self.category).auto_escalation_threshold, 100)
+	def test_the_policy_is_the_only_deferral_ceiling(self):
+		"""max_deferral_days is the one limit on a deferral's length: no code cap sits above it."""
+		updated = update_global_policy(max_deferral_days=45)
+		self.assertEqual(updated["status"], "success", msg=updated)
+		self.assertEqual(max_deferral_days(), 45)
 
-		update_global_policy(auto_escalation_threshold=70)
-		self.assertEqual(sla.resolve_policy(self.category).auto_escalation_threshold, 70)
+	def test_cap_patch_brings_a_ceiling_above_30_down_to_30(self):
+		from oan_grievance_service.patches import cap_max_deferral_days
 
-		frappe.db.set_value(SLA_DOCTYPE, name, "auto_escalation_threshold", 90)
-		self.assertEqual(sla.resolve_policy(self.category).auto_escalation_threshold, 90)
-
-		update_global_policy(auto_escalation_threshold=100)
-		frappe.db.set_value(SLA_DOCTYPE, name, "auto_escalation_threshold", 0)
-		self.assertEqual(sla.resolve_policy(self.category).auto_escalation_threshold, 100)
+		for configured, expected in ((45, 30), (21, 21)):
+			frappe.db.set_single_value(POLICY, "max_deferral_days", configured)
+			cap_max_deferral_days.execute()
+			frappe.clear_document_cache(POLICY, POLICY)
+			self.assertEqual(max_deferral_days(), expected)
 
 	def test_notify_on_breach_gates_the_breach_notification(self):
 		self._assign()
