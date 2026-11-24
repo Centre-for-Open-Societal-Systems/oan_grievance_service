@@ -1,0 +1,44 @@
+name: Promote develop to staging
+
+# The only way onto `staging`: fast-forward it to `develop`. A plain push can only fast-forward, so if `staging` has
+# commits `develop` lacks, the job fails instead of making the branches diverge. Never merge a PR into `staging`.
+# Set the PROMOTE_TOKEN secret (a PAT or GitHub App token on the ruleset's bypass list) when `staging` is locked;
+# without it the job pushes with GITHUB_TOKEN.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: promote-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: Fast-forward staging to develop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out develop
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTE_TOKEN || github.token }}
+
+      - name: Check that staging can fast-forward
+        run: |
+          git fetch origin staging
+          if ! git merge-base --is-ancestor origin/staging origin/develop; then
+            echo "::error::staging has commits that develop does not. Merge staging into develop with a merge commit, then run this again."
+            exit 1
+          fi
+
+      - name: Fast-forward staging
+        run: |
+          before=$(git rev-parse --short origin/staging)
+          git push origin origin/develop:refs/heads/staging
+          {
+            echo "### staging fast-forwarded"
+            echo "\`$before\` -> \`$(git rev-parse --short origin/develop)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
