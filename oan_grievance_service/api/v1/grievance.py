@@ -146,7 +146,7 @@ class ListGrievancesRequest(PageParams):
 	to_date: str | None = None
 	search: str | None = None
 	sort_by: str = "creation"
-	sort_order: str = "asc"
+	sort_order: str = "desc"
 
 
 class GrievanceActionRequest(Body):
@@ -478,7 +478,7 @@ def list_grievances(
 	to_date: str | None = None,
 	search: str | None = None,
 	sort_by: str = "creation",
-	sort_order: str = "asc",
+	sort_order: str = "desc",
 	**kwargs,
 ):
 	"""Retrieve paginated and filtered list of grievances.
@@ -496,6 +496,9 @@ def list_grievances(
 	Status filters use the queue cards (All, Submitted, Reopened, In Progress, More Info
 	Needed, Rejected, Resolved, Closed; officers also get Assigned). Workflow
 	stages that are not a card are reported as the card they roll up into.
+
+	Ordered by submission date, most recent first, unless `sort_by` / `sort_order` say otherwise.
+	Escalated cases come first whatever the order.
 	"""
 	effective_limit = limit if limit is not None else page_size
 	offset = (page - 1) * effective_limit
@@ -649,11 +652,14 @@ def list_grievances(
 		"escalated",
 	}
 	order_field = sort_by if sort_by in allowed_sort_fields else "creation"
-	order_direction = "desc" if str(sort_order).lower() == "desc" else "asc"
+	order_direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+	# Newest submission first unless the caller asks otherwise (STG-516); escalated cases stay
+	# grouped at the top, as before.
 	if order_field == "escalated":
-		order_by = f"`tabGrievance`.escalated {order_direction}, `tabGrievance`.creation asc"
+		order_by = f"`tabGrievance`.escalated {order_direction}, `tabGrievance`.creation desc"
 	else:
 		order_by = f"`tabGrievance`.escalated desc, `tabGrievance`.{order_field} {order_direction}"
+	order_by += ", `tabGrievance`.name desc"
 
 	fields = [
 		"name",
@@ -2322,6 +2328,7 @@ def options(
 	category: str | None = None,
 	department: str | None = None,
 	administrative_area: str | None = None,
+	ticket_number: str | None = None,
 	**kwargs,
 ):
 	"""Management and lookup options for submitters, grievance officers and admins.
@@ -2342,6 +2349,8 @@ def options(
 	    department (str, optional): Department ID. Limits service_categories to that department's
 	        category assignments and, for staff, fetches its assigned officers.
 	    administrative_area (str, optional): Administrative area to scope officer assignments.
+	    ticket_number (str, optional): The case being reassigned. Scopes officers to its region
+	        and category and leaves out the category admin.
 
 	Returns:
 	    departments: Departments with a staffed desk
@@ -2350,8 +2359,23 @@ def options(
 	    grievance_types: Active grievance types (optionally filtered by service_category)
 	    submission_channels: Active intake channels
 	    officers: Active officers under the specified department and/or service category (staff only, present only if either is passed)
+
+	With `ticket_number` the officers are the assignees that case can be reassigned to: only
+	officers whose region covers the case's administrative area (the case's own area wins over
+	`administrative_area`), in the case's category unless another is named, and never the
+	category admin (the top rung), who is not an assignee for a reassignment.
 	"""
 	cat = service_category or category
+	exclude_role_levels = None
+	if ticket_number and permissions.is_staff():
+		from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
+			top_rung,
+		)
+
+		case = _load(ticket_number, ptype="read")
+		administrative_area = case.administrative_area
+		cat = cat or case.service_category
+		exclude_role_levels = {top_rung()} - {None}
 	# One lookup serves both lists, so a short name works for either. An unknown department
 	# matches nothing: no categories and no officers, and no further queries.
 	department_id = find_department(department)
@@ -2372,6 +2396,7 @@ def options(
 			service_category=cat,
 			administrative_area=administrative_area,
 			exclude_user=frappe.session.user,
+			exclude_role_levels=exclude_role_levels,
 		)
 
 	return success_response(data=data, message=_("Grievance options fetched successfully"))

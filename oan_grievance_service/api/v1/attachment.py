@@ -196,27 +196,44 @@ def validate_timeline_entry(case_name: str, timeline_entry: str | None):
 		frappe.throw(_("You cannot attach files to an internal entry."), frappe.PermissionError)
 
 
-def prepare_uploads(case_name: str | None) -> list[dict]:
+def prepare_uploads(case_name: str | None, known_checksums=()) -> list[dict]:
 	"""Check and clean the request's files without storing anything; [] when none came.
 
 	Callers that also move the case run this before the move, so a bad file refuses
 	the whole request rather than leaving a move recorded without its evidence.
+
+	A file whose content (SHA-256, after the location strip) is already on the case, is in
+	`known_checksums` (files a form has validated but not filed yet), or comes twice in this
+	request is refused as a duplicate, whatever it is called.
 	"""
 	if not has_uploads():
 		return []
 	uploads = get_uploaded_files()
-	check_attachment_limit(case_name, len(uploads))
+	known = {checksum for checksum in known_checksums if checksum}
+	check_attachment_limit(case_name, len(uploads) + len(known))
+	on_case = (
+		set(frappe.get_all("Grievance Attachment", filters={"grievance": case_name}, pluck="checksum_sha256"))
+		if case_name
+		else set()
+	)
 	prepared = []
 	for upload in uploads:
 		validated = scanning.validate_upload(upload.file_name, upload.content)
 		cleaned = scanning.strip_location_metadata(upload.content, validated.mime_type)
+		checksum = scanning.sha256_of(cleaned)
+		if checksum in on_case or checksum in known:
+			frappe.throw(
+				_("{0} has already been attached to this grievance.").format(frappe.bold(upload.file_name)),
+				title=_("Duplicate File"),
+			)
+		known.add(checksum)
 		prepared.append(
 			{
 				"file_name": validated.file_name,
 				"content": cleaned,
 				"mime_type": validated.mime_type,
 				"size_bytes": len(cleaned),
-				"checksum_sha256": scanning.sha256_of(cleaned),
+				"checksum_sha256": checksum,
 			}
 		)
 	return prepared
@@ -303,6 +320,71 @@ def _resolve_case_name(grievance: str | None) -> str | None:
 		frappe.db.get_value("Grievance", {"ticket_number": normalized}, "name")
 		or frappe.db.get_value("Grievance", {"ticket_number": name}, "name")
 		or frappe.db.get_value("Grievance", {"client_submission_uuid": name}, "name")
+	)
+
+
+class ValidateUploadsRequest(BaseModel):
+	model_config = {"extra": "allow"}
+
+	grievance: str | None = Field(
+		None, description="Ticket number of the case the files will be attached to; omit for a new filing"
+	)
+	attached_checksums: str | list[str] | None = Field(
+		None,
+		description="checksum_sha256 of the files the form has already validated and holds, as a list "
+		"or comma-separated, so a second copy of one is refused",
+	)
+
+
+@route(
+	"/validate",
+	methods=("POST",),
+	summary="Check files before they are attached",
+	tier="citizen-intake",
+	request_types=("multipart/form-data",),
+)
+@validate_request(ValidateUploadsRequest)
+@handle_api_errors
+@require_permission("Grievance", "write")
+def validate_uploads(
+	grievance: str | None = None,
+	attached_checksums: str | list[str] | None = None,
+	**kwargs,
+):
+	"""Run every upload check on the files now, and store nothing.
+
+	For a form to call as each file is attached, so a file that would be refused is refused
+	at once, not when the grievance or response is finally sent: wrong or disguised type, too
+	large, unreadable, password-protected or signed PDF, or a duplicate (by SHA-256) of a file
+	already on the case or among `attached_checksums`. The same checks run again when the
+	files are sent for real. Returns each file's type, size and `checksum_sha256`.
+	"""
+	from oan_auth_service.api.utils import parse_multi_value
+
+	if grievance:
+		case_name = _case_for_write(grievance).name
+	elif frappe.has_permission("Grievance", "create"):
+		case_name = None
+	else:
+		frappe.throw(_("You cannot attach files to a grievance."), frappe.PermissionError)
+
+	prepared = prepare_uploads(case_name, known_checksums=parse_multi_value(attached_checksums) or ())
+	if not prepared:
+		frappe.throw(
+			_("No file was uploaded. Send it as multipart form data under the key 'file' or 'files'."),
+			title=_("No File"),
+		)
+	return success_response(
+		data=[
+			{
+				"file_name": item["file_name"],
+				"mime_type": item["mime_type"],
+				"size_bytes": item["size_bytes"],
+				"checksum_sha256": item["checksum_sha256"],
+			}
+			for item in prepared
+		],
+		message=_("{0} file(s) can be attached").format(len(prepared)),
 	)
 
 

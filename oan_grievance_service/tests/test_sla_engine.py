@@ -2,6 +2,7 @@
 # See license.txt
 
 from datetime import datetime
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -115,7 +116,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"service_category": self.cat_a,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
-				"auto_escalation_threshold": 100,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -133,7 +133,6 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 				"service_category": self.cat_b,
 				"holiday_list": self.hl_name,
 				"auto_escalate": 1,
-				"auto_escalation_threshold": 80,
 				"active": 1,
 			}
 		).insert(ignore_permissions=True)
@@ -415,3 +414,171 @@ class TestSLAEngineAndCategoryRecalculation(FrappeTestCase):
 		)
 		self.assertEqual(target, "head_worker@example.com")
 		self.assertEqual(level.name, "department_head")
+
+	# STG-516: escalation waits for the full SLA window
+	# --------------------------------------------------
+
+	def _case_with_clock(self, started, due):
+		"""An assigned case of Category A whose SLA window runs from `started` to `due`."""
+		g = a_grievance(
+			service_category=self.cat_a,
+			grievance_type=self.gtype_a.name,
+			workflow_state="Assigned",
+			status="Assigned",
+		)
+		g.db_set(
+			{
+				"sla_start_at": started,
+				"sla_due_date": due,
+				"total_hold_time": 0,
+				"on_hold_since": None,
+				"escalated": 0,
+				**sla.cleared_reminders(),
+			},
+			update_modified=False,
+		)
+		g.reload()
+		return g
+
+	def test_first_escalation_waits_for_the_deadline(self):
+		"""Devtest: filed 1:13 PM, escalated 2:02 PM on a one-day SLA. A 3% threshold armed the
+		bump 43 minutes in; now the first escalation waits for the deadline."""
+		filed = add_to_date(now_datetime(), minutes=-49)
+		g = self._case_with_clock(filed, add_days(filed, 1))
+		g.db_set("next_escalation_at", None, update_modified=False)
+
+		sla.arm_escalation(g)
+		g.reload()
+		self.assertEqual(get_datetime(g.next_escalation_at), get_datetime(g.sla_due_date))
+
+		with patch(
+			"oan_grievance_service.tasks.grievance_settings.auto_escalation_enabled", return_value=True
+		):
+			escalate_breached()
+		g.reload()
+		self.assertFalse(g.escalated)
+
+	def test_escalation_fires_once_the_sla_has_elapsed(self):
+		"""A one-day SLA escalates on the sweep after the day is up."""
+		filed = add_to_date(now_datetime(), hours=-25)
+		g = self._case_with_clock(filed, add_days(filed, 1))
+		sla.arm_escalation(g)
+
+		with patch(
+			"oan_grievance_service.tasks.grievance_settings.auto_escalation_enabled", return_value=True
+		):
+			escalate_breached()
+		g.reload()
+		self.assertTrue(g.escalated)
+
+	def test_rearm_patch_moves_early_escalations_to_the_deadline(self):
+		from oan_grievance_service.patches import rearm_escalation_at_sla_deadline
+
+		filed = add_to_date(now_datetime(), minutes=-10)
+		g = self._case_with_clock(filed, add_days(filed, 1))
+		g.db_set("next_escalation_at", add_to_date(filed, minutes=43), update_modified=False)
+
+		rearm_escalation_at_sla_deadline.execute()
+		g.reload()
+		self.assertEqual(get_datetime(g.next_escalation_at), get_datetime(g.sla_due_date))
+
+	# STG-516: reminders at 20%, 50% and 80%, each once per window
+	# ------------------------------------------------------------
+
+	def _sweep_reminders(self, g):
+		"""Run the reminder sweep and return the events it queued for `g`, in order."""
+		with patch("oan_grievance_service.tasks.notifications.queue") as queue:
+			send_sla_reminders()
+		return [call.args[1] for call in queue.call_args_list if call.args[0].name == g.name]
+
+	def test_each_reminder_threshold_is_sent_once_as_it_is_reached(self):
+		def elapsed(hours):
+			"""Slide the 100-hour window so that `hours` of it have gone."""
+			start = add_to_date(now_datetime(), hours=-hours)
+			g.db_set(
+				{"sla_start_at": start, "sla_due_date": add_to_date(start, hours=100)}, update_modified=False
+			)
+
+		start = add_to_date(now_datetime(), hours=-25)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_20])
+		self.assertEqual(self._sweep_reminders(g), [], "the 20% reminder must not repeat")
+
+		elapsed(55)
+		self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_50])
+
+		elapsed(85)
+		self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_80, C.EVENT_SLA_AT_RISK])
+		self.assertEqual(self._sweep_reminders(g), [])
+
+		g.reload()
+		self.assertEqual(g.last_reminder_percent, C.SLA_AT_RISK_THRESHOLD)
+
+	def test_reminders_already_passed_are_not_skipped(self):
+		"""A case first swept at 86% gets the 20% and 50% reminders too, not only the 80% one."""
+		start = add_to_date(now_datetime(), hours=-85)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		self.assertEqual(
+			self._sweep_reminders(g),
+			[C.EVENT_SLA_REMINDER_20, C.EVENT_SLA_REMINDER_50, C.EVENT_SLA_REMINDER_80, C.EVENT_SLA_AT_RISK],
+		)
+
+	def test_reminders_of_a_new_window_are_not_deduplicated_away(self):
+		"""After a deferral or reopen clears the flags, the reminders are queued again, not dropped."""
+		from oan_grievance_service.services import notifications
+
+		start = add_to_date(now_datetime(), hours=-25)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		recipient = "Administrator"
+		for event in (C.EVENT_SLA_REMINDER_20, C.EVENT_SLA_BREACH):
+			frappe.get_doc(
+				{
+					"doctype": "Grievance Notification Log",
+					"grievance": g.name,
+					"event": event,
+					"recipient": recipient,
+					"channel": "Email",
+					"status": "Sent",
+				}
+			).insert(ignore_permissions=True)
+		for event in (*C.SLA_REMINDER_EVENTS.values(), C.EVENT_SLA_AT_RISK):
+			self.assertFalse(notifications._already_queued(g.name, event, recipient, "Email"), event)
+		# Other events still go out once per case.
+		self.assertTrue(notifications._already_queued(g.name, C.EVENT_SLA_BREACH, recipient, "Email"))
+
+		g.db_set(sla.cleared_reminders(), update_modified=False)
+		self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_20])
+
+	def test_a_new_threshold_needs_no_new_field(self):
+		"""The sweep keeps one number per case, so adding a threshold is a constants change."""
+		start = add_to_date(now_datetime(), hours=-35)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		events = {**C.SLA_REMINDER_EVENTS, 30: "sla_reminder_30"}
+		with (
+			patch.object(C, "SLA_REMINDER_EVENTS", events),
+			patch.object(C, "SLA_REMINDER_THRESHOLDS", tuple(sorted(events))),
+		):
+			self.assertEqual(self._sweep_reminders(g), [C.EVENT_SLA_REMINDER_20, "sla_reminder_30"])
+		g.reload()
+		self.assertEqual(g.last_reminder_percent, 30)
+
+	def test_backfill_patch_carries_the_old_flags(self):
+		"""A case whose 50% reminder went out under the old flags is not reminded at 20% or 50% again.
+
+		The old columns exist only on a site that ran the earlier code; a fresh site has nothing
+		to carry, and the patch must leave it alone."""
+		from oan_grievance_service.patches import backfill_last_reminder_percent
+
+		start = add_to_date(now_datetime(), hours=-60)
+		g = self._case_with_clock(start, add_to_date(start, hours=100))
+		if not frappe.db.has_column("Grievance", "reminder_50_sent"):
+			backfill_last_reminder_percent.execute()
+			g.reload()
+			self.assertEqual(g.last_reminder_percent, 0)
+			return
+		grievance = frappe.qb.DocType("Grievance")
+		frappe.qb.update(grievance).set(grievance.reminder_50_sent, 1).where(grievance.name == g.name).run()
+		backfill_last_reminder_percent.execute()
+		g.reload()
+		self.assertEqual(g.last_reminder_percent, 50)
+		self.assertEqual(self._sweep_reminders(g), [])

@@ -258,3 +258,69 @@ class TestCorruptPdf(FrappeTestCase):
 	def test_the_check_only_runs_for_pdfs(self):
 		# A JPEG never goes near the PDF reader.
 		self.assertEqual(scanning.validate_upload("photo.jpg", _real_jpeg()).mime_type, "image/jpeg")
+
+
+def _pdf_with_signature_field(signed: bool = True, sig_flags: int | None = None) -> bytes:
+	"""A real PDF carrying a signature form field, filled with a signature when `signed`."""
+	from pypdf import PdfReader, PdfWriter
+	from pypdf.generic import (
+		ArrayObject,
+		ByteStringObject,
+		DictionaryObject,
+		NameObject,
+		NumberObject,
+		TextStringObject,
+	)
+
+	writer = PdfWriter(clone_from=PdfReader(io.BytesIO(_real_pdf())))
+	field = DictionaryObject(
+		{NameObject("/FT"): NameObject("/Sig"), NameObject("/T"): TextStringObject("Signature1")}
+	)
+	if signed:
+		signature = DictionaryObject(
+			{
+				NameObject("/Type"): NameObject("/Sig"),
+				NameObject("/Filter"): NameObject("/Adobe.PPKLite"),
+				NameObject("/SubFilter"): NameObject("/adbe.pkcs7.detached"),
+				NameObject("/ByteRange"): ArrayObject([NumberObject(0)] * 4),
+				NameObject("/Contents"): ByteStringObject(b"\x00" * 8),
+			}
+		)
+		field[NameObject("/V")] = writer._add_object(signature)
+	form = DictionaryObject({NameObject("/Fields"): ArrayObject([writer._add_object(field)])})
+	if sig_flags is not None:
+		form[NameObject("/SigFlags")] = NumberObject(sig_flags)
+	writer._root_object[NameObject("/AcroForm")] = writer._add_object(form)
+	out = io.BytesIO()
+	writer.write(out)
+	return out.getvalue()
+
+
+class TestSignedAndEncryptedPdf(FrappeTestCase):
+	"""STG-516: signed and password-protected PDFs are refused when they are attached."""
+
+	def test_a_signed_pdf_is_refused(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			scanning.validate_upload("contract.pdf", _pdf_with_signature_field(signed=True, sig_flags=3))
+		self.assertIn("digitally signed", str(caught.exception))
+
+	def test_a_signature_is_found_from_the_form_flags_alone(self):
+		content = _pdf_with_signature_field(signed=False, sig_flags=1)
+		self.assertNotIn(b"/ByteRange", content)
+		with self.assertRaises(frappe.ValidationError):
+			scanning.validate_upload("contract.pdf", content)
+
+	def test_an_empty_signature_field_is_not_a_signature(self):
+		content = _pdf_with_signature_field(signed=False)
+		self.assertEqual(scanning.validate_upload("form.pdf", content).mime_type, "application/pdf")
+
+	def test_a_password_protected_pdf_is_refused(self):
+		from pypdf import PdfReader, PdfWriter
+
+		writer = PdfWriter(clone_from=PdfReader(io.BytesIO(_real_pdf())))
+		writer.encrypt("secret")
+		out = io.BytesIO()
+		writer.write(out)
+		with self.assertRaises(frappe.ValidationError) as caught:
+			scanning.validate_upload("statement.pdf", out.getvalue())
+		self.assertIn("password-protected", str(caught.exception))

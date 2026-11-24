@@ -101,12 +101,14 @@ def get_department_officers(
 	service_category: str | None = None,
 	administrative_area: str | None = None,
 	exclude_user: str | None = None,
+	exclude_role_levels: set[str] | frozenset[str] | None = None,
 ) -> list[dict]:
 	"""Retrieve active officers assigned to a department, optionally filtered by category/area.
 
 	Returns only what an officer picker needs: no email or reporting line. An officer
 	on several matching desks appears once, with their primary desk first.
-	`exclude_user` (the caller) is left out, so nobody is offered themselves.
+	`exclude_user` (the caller) is left out, so nobody is offered themselves. An officer
+	whose matching desk rows are all on one of `exclude_role_levels` is left out too.
 	"""
 	if not department and not service_category:
 		return []
@@ -133,6 +135,8 @@ def get_department_officers(
 	unique = {}
 	for off in officers:
 		if off["user_id"] in unique or off["user_id"] == exclude_user:
+			continue
+		if exclude_role_levels and off.get("role_level") in exclude_role_levels:
 			continue
 		off.pop("administrative_area_scope", None)
 		off["is_primary"] = bool(off.get("is_primary"))
