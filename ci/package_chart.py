@@ -207,10 +207,14 @@ def promote_build(env, work):
 	index = urllib.request.urlopen(source + "index.yaml", timeout=60).read().decode("utf-8")
 
 	def tree_of(commit):
-		try:
-			return run(["git", "rev-parse", commit + "^{tree}"]).strip()
-		except subprocess.CalledProcessError:
-			return None
+		result = subprocess.run(
+			["git", "rev-parse", "--verify", "--quiet", commit + "^{tree}"],
+			cwd=str(ROOT),
+			stdout=subprocess.PIPE,
+			stderr=subprocess.DEVNULL,
+			text=True,
+		)
+		return result.stdout.strip() if result.returncode == 0 else None
 
 	entry = promote.built_from_tree(promote.index_entries(index, CHART), tree, tree_of)
 	archive = work / "develop.tgz"
