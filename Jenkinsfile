@@ -165,6 +165,14 @@ pipeline {
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-ecr-creds'
                 ]]) {
+                    script {
+                        if (env.BRANCH_NAME == 'staging') {
+                            // The workspace holds the staging branch only; promote needs the develop commits the chart index names.
+                            withCredentials([gitUsernamePassword(credentialsId: scm.userRemoteConfigs[0].credentialsId, gitToolName: 'Default')]) {
+                                sh 'git fetch --quiet --no-tags origin +refs/heads/develop:refs/remotes/origin/develop'
+                            }
+                        }
+                    }
                     sh "python3 ci/package_chart.py ${env.BRANCH_NAME == 'staging' ? 'promote' : 'package'}"
                 }
                 // The deploy stage runs on the VPN deploy agent, which gets the archive from here.
