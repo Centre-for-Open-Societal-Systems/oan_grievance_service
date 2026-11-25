@@ -79,12 +79,11 @@ corsOriginRegexes:
   - https://grievance\.qa\.oanstaging\.com
   - https?://localhost(:[0-9]+)?
 
-# The Frappe desk (/app) on its own host, sent to the frappe nginx Service (templates/desk.yaml). Private (10.0.0.0/8) on
+# The Frappe desk (/app) on its own host, sent to the frappe nginx Service (templates/desk.yaml). Public on
 # this QA instance; `allowlist` (CIDRs) restricts it, `enabled: false` removes it.
 desk:
   enabled: true
   host: grievance-service-desk.qa.oanstaging.com
   serviceName: grievance-frappe
   port: 8080
-  allowlist:
-    - 10.0.0.0/8
+  allowlist: []
