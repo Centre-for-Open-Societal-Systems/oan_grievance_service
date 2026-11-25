@@ -26,8 +26,19 @@ secrets:
   jwt:
     create: true
     name: oan-grievance-jwt
+  # Token of the Grievance IVR Integration user (created by oan_grievance_service install).
+  # frappe.apiCredential below sets it on that user, so the gateway and Frappe share one value.
+  ivr:
+    create: true
+    name: oan-grievance-ivr-frappe-credential
 
 frappe:
+  apiCredential:
+    enabled: true
+    users:
+      - user: grievance-ivr-integration@id.openagrinet.internal
+        secretName: oan-grievance-ivr-frappe-credential
+
   image:
     # Set per environment. package_chart.py needs both keys to exist.
     repository: ""
@@ -266,6 +277,18 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
+  application: oan-client
+# Operators of central RBAC (oan_identitygovernance_service) call the admin API with the token they logged in
+# with. It comes from the central-rbac client of the staff realm, so this option accepts that client only and
+# reads the operator's roles under the same application as the options above.
+- key: rbac
+  label: RBAC
+  enabled: 1
+  sort_order: 90
+  base_url: "https://staff-iam.{{ .Values.global.baseDomain }}"
+  provider_id: 1
+  issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
+  client_id: central-rbac
   application: oan-client
 - key: beneficiary
   label: National ID (eSignet)
