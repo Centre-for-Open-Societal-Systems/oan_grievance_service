@@ -6852,20 +6852,21 @@ paths:
       tags:
       - Administration
       summary: Create an SLA rule
-      description: 'Add one rule to a service category. service_category and sla_days are required; is_urgent
-        defaults to false (true makes the case Urgent, with priority Urgent). priority is not sent: it
-        follows is_urgent. A category''s first rule must be its base rule (no type, area or window); creating
-        a category with sla_days, or setting sla_days on a category assignment, makes it. Every rule sets
-        sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives the
-        case priority Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type
-        of its category, an administrative_area (covering the areas inside it) and a recurring window
-        (start_month, start_day, end_month, end_day: all four, or none for all year; a start after the
-        end wraps the year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none
-        of them: it is the category''s SLA wherever no narrower rule matches, a category needs it before
-        any other rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a
-        type''s rule before the category''s, a narrower area before a wider one, a windowed rule before
-        an all-year one. Two windowed rules, or two all-year rules, for the same type and area may not
-        share a day. A change applies to cases filed afterwards.'
+      description: 'Add rules to a service category. service_category and sla_days are required; grievance_types
+        (several allowed) makes one rule per type, all sharing the other fields, and none makes one rule
+        for every type; is_urgent defaults to false (true makes the case Urgent, with priority Urgent).
+        priority is not sent: it follows is_urgent. A category''s first rule must be its base rule (no
+        type, area or window); creating a category with sla_days, or setting sla_days on a category assignment,
+        makes it. Every rule sets sla_days and is_urgent for the cases it matches on their filing date;
+        an urgent rule gives the case priority Urgent, any other rule no priority (priority is read only).
+        A rule may name a grievance_type of its category, an administrative_area (covering the areas inside
+        it) and a recurring window (start_month, start_day, end_month, end_day: all four, or none for
+        all year; a start after the end wraps the year end, for example 10/1 to 4/30). The category''s
+        base rule (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches,
+        a category needs it before any other rule, and it cannot be deleted or narrowed. The most specific
+        matching rule wins: a type''s rule before the category''s, a narrower area before a wider one,
+        a windowed rule before an all-year one. Two windowed rules, or two all-year rules, for the same
+        type and area may not share a day. A change applies to cases filed afterwards.'
       operationId: post_api_v1_sla_rules
       responses:
         '200':
@@ -6873,7 +6874,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SlaRuleResponse'
+                $ref: '#/components/schemas/SlaRulesCreatedResponse'
         '400':
           description: Validation or Bad Input Error
           content:
@@ -11155,6 +11156,16 @@ components:
       required:
       - rule
       type: object
+    SlaRulesCreated:
+      properties:
+        rules:
+          description: One rule per grievance type sent, in the order sent
+          items:
+            $ref: '#/components/schemas/SlaRuleRecord'
+          type: array
+      required:
+      - rules
+      type: object
     GlobalSlaPolicyRecord:
       properties:
         max_deferral_days:
@@ -12334,12 +12345,6 @@ components:
           description: 'Role level code of the rung these days are for, e.g. nodal_officer. Blank: the
             days for the whole case, the ones the SLA clock runs on'
           nullable: true
-        grievance_type:
-          minLength: 1
-          type: string
-          default: null
-          description: 'A type of the rule''s category. Blank: every type'
-          nullable: true
         administrative_area:
           minLength: 1
           type: string
@@ -12375,6 +12380,15 @@ components:
           description: Id, name or code of the category
           minLength: 1
           type: string
+        grievance_types:
+          items:
+            minLength: 1
+            type: string
+          type: array
+          default: null
+          description: 'Types of the category the rule is for; one rule is made for each, all with the
+            same days, urgency, area and window. Blank: one rule for every type'
+          nullable: true
         sla_days:
           description: Working days for a case this rule matches
           minimum: 1
@@ -12403,12 +12417,6 @@ components:
           default: null
           description: 'Role level code of the rung these days are for, e.g. nodal_officer. Blank: the
             days for the whole case, the ones the SLA clock runs on'
-          nullable: true
-        grievance_type:
-          minLength: 1
-          type: string
-          default: null
-          description: 'A type of the rule''s category. Blank: every type'
           nullable: true
         administrative_area:
           minLength: 1
@@ -12440,6 +12448,12 @@ components:
           type: integer
           default: null
           description: All four window fields, or none for all year
+          nullable: true
+        grievance_type:
+          minLength: 1
+          type: string
+          default: null
+          description: 'A type of the rule''s category. Blank: every type'
           nullable: true
         sla_days:
           minimum: 1
@@ -14118,6 +14132,31 @@ components:
       - status
       - data
       description: SlaRuleData response
+    SlaRulesCreatedResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SlaRulesCreated'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: SlaRulesCreated response
     GlobalSlaPolicyResponse:
       type: object
       properties:

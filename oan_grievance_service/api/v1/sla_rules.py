@@ -104,6 +104,10 @@ class SlaRuleListData(BaseModel):
 	pagination: dict
 
 
+class SlaRulesCreated(BaseModel):
+	rules: list[SlaRuleRecord] = Field(description="One rule per grievance type sent, in the order sent")
+
+
 class RuleRef(Body):
 	rule_id: NonBlank
 
@@ -115,9 +119,6 @@ class _RuleScope(Body):
 		description="Role level code of the rung these days are for, e.g. nodal_officer. "
 		+ "Blank: the days for the whole case, the ones the SLA clock runs on",
 	)
-	grievance_type: NonBlank | None = Field(
-		None, description="A type of the rule's category. Blank: every type"
-	)
 	administrative_area: NonBlank | None = Field(
 		None, description="Covers the areas inside it. Blank: everywhere"
 	)
@@ -126,13 +127,16 @@ class _RuleScope(Body):
 	end_month: int | None = Field(None, ge=1, le=12)
 	end_day: int | None = Field(None, ge=1, le=31, description="All four window fields, or none for all year")
 
-	_blank = field_validator(
-		"rule_label", "role_level", "grievance_type", "administrative_area", mode="before"
-	)(blank_to_none)
+	_blank = field_validator("rule_label", "role_level", "administrative_area", mode="before")(blank_to_none)
 
 
 class CreateSlaRule(_RuleScope):
 	service_category: NonBlank = Field(description="Id, name or code of the category")
+	grievance_types: list[NonBlank] | None = Field(
+		None,
+		description="Types of the category the rule is for; one rule is made for each, all with the "
+		+ "same days, urgency, area and window. Blank: one rule for every type",
+	)
 	sla_days: int = Field(ge=1, description="Working days for a case this rule matches")
 	is_urgent: bool = Field(False, description="true: Urgent handling and priority Urgent")
 
@@ -141,6 +145,10 @@ class UpdateSlaRule(_RuleScope):
 	"""Partial update. Omitted fields stay as they are; null clears a scope field."""
 
 	rule_id: NonBlank
+	grievance_type: NonBlank | None = Field(
+		None, description="A type of the rule's category. Blank: every type"
+	)
+	_blank_type = field_validator("grievance_type", mode="before")(blank_to_none)
 	# Typed optional so an omitted field is told apart from a sent one; a sent null is refused.
 	sla_days: int | None = Field(None, ge=1)
 	is_urgent: bool | None = Field(None, description="true: Urgent handling and priority Urgent")
@@ -284,22 +292,35 @@ def get_rule(rule_id: str, **kwargs):
 @validate_request(CreateSlaRule)
 @api_doc(
 	summary="Create an SLA rule",
-	description="Add one rule to a service category. service_category and sla_days are required; "
+	description="Add rules to a service category. service_category and sla_days are required; "
+	+ "grievance_types (several allowed) makes one rule per type, all sharing the other fields, "
+	+ "and none makes one rule for every type; "
 	+ "is_urgent defaults to false (true makes the case Urgent, with priority Urgent). priority is "
 	+ "not sent: it follows is_urgent. A category's first rule must be its base rule (no "
 	+ "type, area or window); creating a category with sla_days, or setting sla_days on "
 	+ "a category assignment, makes it. "
 	+ RULE_NOTE,
 	tags=["Administration"],
-	response_model=SlaRuleData,
+	response_model=SlaRulesCreated,
 )
-def create_rule(service_category: str, **kwargs):
-	"""Create a rule. `kwargs` holds the other fields of the request."""
-	doc = frappe.get_doc(
-		{"doctype": RULE, "service_category": resolve_service_category(service_category), **_values(kwargs)}
-	)
-	doc.insert()
-	return success_response(data={"rule": _record(doc.name)}, message=_("SLA rule created"))
+def create_rule(service_category: str, grievance_types: list[str] | None = None, **kwargs):
+	"""Create a rule for each grievance type sent (one for every type when none is).
+
+	A rule names one type, so the cluster is one record per type; the request fails whole if any
+	of them is refused. `kwargs` holds the other fields of the request.
+	"""
+	category = resolve_service_category(service_category)
+	values = _values(kwargs)
+	names = []
+	for grievance_type in dict.fromkeys(grievance_types or [None]):
+		doc = frappe.get_doc(
+			{"doctype": RULE, "service_category": category, **values, "grievance_type": grievance_type}
+		)
+		doc.insert()
+		names.append(doc.name)
+	rows = frappe.get_all(RULE, filters={"name": ["in", names]}, fields=RECORD_FIELDS)
+	rules = sorted(_records(rows), key=lambda rule: names.index(rule["name"]))
+	return success_response(data={"rules": rules}, message=_("SLA rules created"))
 
 
 @route("/<rule_id>", methods=("PATCH",), summary="Update an SLA rule", tier="officer-core")
