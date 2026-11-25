@@ -1,0 +1,102 @@
+{{- if .Values.clamav.enabled }}
+{{- /*
+ClamAV daemon (clamd + freshclam) for attachment malware scanning over TCP 3310.
+Uses /init-unprivileged so the container runs as non-root (`clamav` UID 100) without
+requiring CAP_CHOWN or privilege escalation under PodSecurity baseline/restricted.
+Recreate strategy avoids running two ~1.5 GiB clamd instances concurrently during upgrades.
+*/ -}}
+{{- $name := required "clamav.serviceName is required when clamav.enabled is true" .Values.clamav.serviceName }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: malware-scanner
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clamav
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clamav
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: malware-scanner
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+    spec:
+      {{- with .Values.frappe.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.clamav.podSecurityContext | nindent 8 }}
+      containers:
+      - name: clamav
+        image: "{{ .Values.clamav.image.repository }}:{{ .Values.clamav.image.tag }}"
+        imagePullPolicy: {{ .Values.clamav.image.pullPolicy }}
+        command: ["/init-unprivileged"]
+        securityContext:
+          {{- toYaml .Values.clamav.securityContext | nindent 10 }}
+        ports:
+        - name: clamav
+          containerPort: {{ .Values.clamav.port }}
+          protocol: TCP
+        startupProbe:
+          tcpSocket:
+            port: clamav
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 30
+        readinessProbe:
+          tcpSocket:
+            port: clamav
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: clamav
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.clamav.resources | nindent 10 }}
+        volumeMounts:
+        - name: clamav-db
+          mountPath: /var/lib/clamav
+        - name: clamav-run
+          mountPath: /run/clamav
+      volumes:
+      - name: clamav-db
+        emptyDir: {}
+      - name: clamav-run
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: malware-scanner
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - name: clamav
+    port: {{ .Values.clamav.port }}
+    targetPort: clamav
+    protocol: TCP
+{{- end }}

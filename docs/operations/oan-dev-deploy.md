@@ -70,7 +70,6 @@ Never commit the kubeconfig, its token or `ca.crt`.
 
 ## Not set up
 
-- ClamAV: `grievance_clamav_host` is unset, so attachment scans retry until a scanner is configured.
 - `iamServices` and an APISIX route for the new host.
 
 ## Gateway routes
