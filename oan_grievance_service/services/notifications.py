@@ -80,10 +80,6 @@ PARTICIPANT_IDS = {
 PARTICIPANTS_BY_ID = {recipient_id: recipient for recipient, recipient_id in PARTICIPANT_IDS.items()}
 
 CHANNEL_SMS = "SMS"
-# An SMS row handed to the OAN Messaging Service: accepted into its outbox, not yet
-# known to be sent. The linked OAN Message shows the delivery outcome.
-STATUS_QUEUED_WITH_OAN = "Queued with OAN"
-_SOURCE_REF_UNSAFE = re.compile(r"[^A-Za-z0-9._:-]")
 CHANNEL_EMAIL = "Email"
 # Core's create_system_notification writes per-user Notification Log rows carrying
 # document_type, document_name, title and description, which a frontend reads over the
@@ -909,46 +905,8 @@ def _send_email_row(row, grievance):
 	return {"communication": communication}
 
 
-def _oan_enabled() -> bool:
-	"""Whether this site sends SMS through the OAN Messaging Service."""
-	from oan_messaging_connector.send_now import is_configured
-
-	return is_configured()
-
-
-def _queue_with_oan(row, mobile, text):
-	"""Hand one SMS row to the OAN Messaging Service.
-
-	``queue_sms`` adds an outbox row in this transaction (sent after the commit that
-	follows, with a fixed key, retried safely and polled for delivery) and never raises.
-	It returns None when the message cannot be queued (a text longer than one SMS part,
-	or a number that is not an Ethiopian mobile once spaces and dashes are removed); the
-	reason is in the Error Log, and the row fails.
-	"""
-	from oan_messaging_connector.api import queue_sms
-
-	source = _SOURCE_REF_UNSAFE.sub("-", f"grievance:{row.grievance}:{row.event}")[:128]
-	name = queue_sms(
-		recipient=mobile,
-		text=text,
-		purpose="transactional",
-		source_reference=source,
-		reference_doctype="Grievance Notification Log",
-		reference_name=row.name,
-		event=row.event,
-		language=row.language,
-	)
-	if not name:
-		raise ValueError("OAN Messaging did not queue the SMS; see the Error Log for the reason.")
-	return {"status": STATUS_QUEUED_WITH_OAN, "oan_message": name}
-
-
 def _send_sms_row(row, grievance):
 	"""Deliver one queued SMS row.
-
-	With the OAN Messaging Service configured on the site, the row is handed to it and
-	becomes "Queued with OAN", linked to its OAN Message (see ``_queue_with_oan``).
-	Otherwise Frappe's own SMS sender is used, as below.
 
 	Core writes an SMS Log only on gateway success, and not at all once a send_sms hook
 	is registered, so the Grievance Notification Log row is the durable evidence and the
@@ -960,11 +918,6 @@ def _send_sms_row(row, grievance):
 	gateway that is missing or not answering shows up as Failed in the log.
 	"""
 	mobile = _deliverable_mobile(row.recipient, grievance)
-	if _oan_enabled():
-		# The text that leaves, as Frappe's sender below: a sensitive case's PIN is put back here
-		# and only here; the log row keeps it masked.
-		return _queue_with_oan(row, mobile, strip_html_tags(_outbound_message(row, grievance)))
-
 	hooked = bool(frappe.get_hooks("send_sms"))
 
 	if not hooked and not frappe.db.get_single_value("SMS Settings", "sms_gateway_url"):
@@ -1026,7 +979,7 @@ def _next_queued_row(grievance=None):
 	"""
 	rows = frappe.db.sql(
 		"""
-		select name, grievance, event, channel, recipient, language, message, subject
+		select name, grievance, channel, recipient, message, subject
 		from `tabGrievance Notification Log`
 		where status = 'Queued' and (%(grievance)s is null or grievance = %(grievance)s)
 		order by creation asc, name asc

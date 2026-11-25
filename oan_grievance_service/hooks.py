@@ -10,6 +10,10 @@ app_license = "mit"
 
 required_apps = ["oan_auth_service", "oan_messaging_connector"]
 
+# Frappe's SMS sender (_send_sms) goes through OAN Messaging. The hook sends at once and
+# stores no text, so a sensitive case's PIN never rests in the connector's outbox.
+send_sms = "oan_messaging_connector.sms_hook.send_sms"
+
 add_to_apps_screen = [
 	{
 		"name": "oan_grievance_service",

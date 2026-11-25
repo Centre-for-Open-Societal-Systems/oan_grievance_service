@@ -377,35 +377,6 @@ class TestSensitiveNotifications(SensitiveFixture):
 			frappe.db.get_value("Grievance Notification Log", row.name, "message"), self.masked(case)
 		)
 
-	def test_a_sensitive_sms_handed_to_oan_carries_the_pin(self):
-		"""With OAN Messaging on the site, the SMS that leaves carries the PIN, as with Frappe's sender.
-
-		The Grievance Notification Log row keeps the masked text. `_send_sms_row` is called
-		directly: `dispatch_queued` commits after each row, which this fixture's savepoint cannot
-		survive.
-		"""
-		keys = ("oan_messaging_enabled", "oan_messaging_base_url", "oan_messaging_token")
-		conf = {k: frappe.conf.get(k) for k in keys}
-		self.addCleanup(lambda: [frappe.conf.__setitem__(k, v) for k, v in conf.items()])
-		frappe.conf.oan_messaging_enabled = 1
-		frappe.conf.oan_messaging_base_url = "https://oan-messaging.example.invalid"
-		frappe.conf.oan_messaging_token = "oanmsg_" + "t" * 43
-		enqueue = patch.object(frappe, "enqueue")  # no dispatch job from the test
-		enqueue.start()
-		self.addCleanup(enqueue.stop)
-
-		case = self.a_case(assigned_to=self.focal_officer, contact_mobile="+251900000002")
-		row = notifications.queue(case, self.a_notification())[0]
-		result = notifications._send_sms_row(row, case)
-
-		self.assertEqual(result["status"], notifications.STATUS_QUEUED_WITH_OAN)
-		self.assertEqual(
-			frappe.db.get_value("OAN Message", result["oan_message"], "text"), self.revealed(case)
-		)
-		self.assertEqual(
-			frappe.db.get_value("Grievance Notification Log", row.name, "message"), self.masked(case)
-		)
-
 	def test_no_other_message_ever_gets_the_pin(self):
 		case = self.a_case(assigned_to=self.focal_officer)
 		officer_row = notifications.queue(case, self.a_notification(recipient="Assigned Officer"))[0]
