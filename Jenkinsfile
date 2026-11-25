@@ -45,13 +45,10 @@ pipeline {
             steps {
                 script {
                     def branch = env.BRANCH_NAME
-                    // OAN Messaging connector (a required app). Override with the job variable
-                    // OAN_MESSAGING_CONNECTOR_REPO; it uses the same branch name as this build.
-                    def connectorRepo = env.OAN_MESSAGING_CONNECTOR_REPO ?: 'https://github.com/Centre-for-Open-Societal-Systems/oan_messaging_connector'
                     def appsJson = """[
   {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service", "branch": "${branch}"},
   {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service", "branch": "${branch}"},
-  {"url": "${connectorRepo}", "branch": "${branch}"}
+  {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_messaging_connector", "branch": "${branch}"}
 ]
 """
                     writeFile file: 'apps.json', text: appsJson
