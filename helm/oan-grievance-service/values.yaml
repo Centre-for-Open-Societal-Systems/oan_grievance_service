@@ -70,6 +70,9 @@ frappe:
       jwt_self_registerable_roles:
       - Grievance Submitter
       jwt_issuer: oan-grievance
+      # Points to the in-chart ClamAV Service (clamav.serviceName). Set to "" only if scanning is disabled or external.
+      grievance_clamav_host: oan-grievance-clamav
+      grievance_clamav_port: 3310
     secretValues:
       secret_key:
         secretName: oan-grievance-secret-key
@@ -243,6 +246,32 @@ frappe:
       installApps:
       - oan_auth_service
       - oan_grievance_service
+
+# ClamAV malware scanner daemon (clamd over TCP 3310) for attachment scanning.
+# Keep clamav.serviceName in sync with frappe.siteConfig.values.grievance_clamav_host.
+clamav:
+  enabled: true
+  serviceName: oan-grievance-clamav
+  port: 3310
+  image:
+    repository: clamav/clamav
+    tag: stable
+    pullPolicy: IfNotPresent
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    fsGroup: 100
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 1536Mi
+    limits:
+      memory: 2560Mi
 
 # Public base domain of the environment, used to build the hosts in iamServices. Set per environment.
 global:
