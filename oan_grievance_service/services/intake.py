@@ -18,7 +18,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_timeline.griev
 	GrievanceTimeline,
 )
 from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import duplicates, identity, notifications, routing
+from oan_grievance_service.services import duplicates, guest_access, identity, notifications, routing
 
 PROFILE = "Grievance Submitter Profile"
 
@@ -42,8 +42,13 @@ def record_submission(doc, created_on=None):
 
 
 def dispatch_filed(doc, flag_duplicates=True):
-	"""Tell the submitter, flag look-alikes and queue routing, once the case is in."""
+	"""Tell the submitter, flag look-alikes and queue routing, once the case is in.
+
+	A sensitive anonymous case also sends its submitter the link and PIN they open it with
+	(STG-518); a failure there is logged and never stops the filing.
+	"""
 	notifications.queue(doc, C.EVENT_SUBMISSION_RECEIVED)
+	guest_access.issue_on_filing(doc)
 	# Flags only; an officer rules on it. The submitter is told nothing until then.
 	if flag_duplicates:
 		duplicates.enqueue_flagging(doc.name)

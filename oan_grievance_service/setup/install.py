@@ -17,7 +17,7 @@ from oan_grievance_service.grievance_sla.doctype.grievance_deferral_policy.griev
 from oan_grievance_service.services import classification, ticket_number
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.notifications import PLACEHOLDER_EXPRESSIONS
-from oan_grievance_service.setup.service_users import ensure_ivr_service_user
+from oan_grievance_service.setup.service_users import ensure_guest_service_user, ensure_ivr_service_user
 
 # The three capability roles. The former L1 / L2 / Department Head roles were rungs of a
 # hierarchy rather than distinct capabilities, and are replaced by position in the
@@ -36,6 +36,8 @@ ROLES = [
 	("Grievance Dashboard Reader", 0),
 	(C.ROLE_REVIEW_OFFICER, 0),
 	(C.ROLE_DESK_HEAD, 0),
+	# Held only by the guest service user (setup/service_users.py), never by a person.
+	(C.ROLE_GUEST, 0),
 ]
 
 # The Grievance Workflow: a native Frappe Workflow record, rebuilt from
@@ -328,6 +330,27 @@ NOTIFICATION_EVENTS = [
 		},
 		(),
 	),
+	# The link and PIN of a sensitive anonymous case (STG-518). The record decides only whether a
+	# channel is on: the text, which carries the link and PIN, is built by services/guest_access.py
+	# and the template below is never sent, as no template is for a sensitive case's submitter.
+	(
+		C.EVENT_GUEST_ACCESS_ISSUED,
+		"Grievance Access Link",
+		"Submitter",
+		("SMS", "Email"),
+		"Sensitive anonymous case filed",
+		"Grievance {0}: link and PIN to view it.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_GUEST_ACCESS_BACKFILL,
+		"Grievance Access Link (Existing Case)",
+		"Submitter",
+		("SMS", "Email"),
+		"One-time backfill for cases filed before the access link",
+		"Grievance {0}: link and PIN to view it.",
+		("doc.ticket_number",),
+	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
 		"Duplicate Detected",
@@ -561,11 +584,13 @@ def after_install():
 	# Install only: on migrate an administrator may have removed the defaults on purpose.
 	seed_state_timers()
 	ensure_ivr_service_user()
+	ensure_guest_service_user()
 
 
 def after_migrate():
 	seed_all()
 	ensure_ivr_service_user()
+	ensure_guest_service_user()
 
 
 def seed_all():

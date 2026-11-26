@@ -718,9 +718,41 @@ services:
     - /v1/administrative-areas/:area_id_or_path/ancestors
     - /v1/grievances/health
     - /v1/grievances/ping
+    - /v1/guest-access/session
+    - /v1/guest/grievance
+    - /v1/guest/grievance/attachments
+    - /v1/guest/grievance/attachments/:attachment_id/download
+    - /v1/guest/grievance/attachments/:attachment_id/view
     - /v1/submitters/options
     methods:
     - GET
+    plugins:
+      limit-count:
+        rules:
+        - count: 120
+          time_window: 60
+          key: $remote_addr:min
+        - count: 3000
+          time_window: 3600
+          key: $remote_addr:hour
+        rejected_code: 429
+        show_limit_quota_header: true
+        policy: redis
+        redis_host: redis
+        redis_port: 6379
+        allow_degradation: true
+  - name: oan-grievance-public-reference-public-post
+    description: 'Public unauthenticated reference data: areas, dropdown options, health probes.'
+    labels:
+      app: oan-grievance
+      tier: public-reference
+      auth: public
+    uris:
+    - /v1/guest-access/logout
+    - /v1/guest-access/verify
+    - /v1/guest/grievance/message
+    methods:
+    - POST
     plugins:
       limit-count:
         rules:
@@ -760,6 +792,10 @@ services:
     - /v1/grievance-types/*
     - /v1/grievances
     - /v1/grievances/*
+    - /v1/guest
+    - /v1/guest-access
+    - /v1/guest-access/*
+    - /v1/guest/*
     - /v1/notification-templates
     - /v1/notification-templates/*
     - /v1/notifications

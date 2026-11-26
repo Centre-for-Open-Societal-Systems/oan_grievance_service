@@ -54,6 +54,7 @@ from oan_grievance_service.services.constants import (
 	ROLE_ADMIN,
 	ROLE_ASSISTED_SUBMITTER,
 	ROLE_DESK_HEAD,
+	ROLE_GUEST,
 	ROLE_OFFICER,
 	ROLE_REVIEW_OFFICER,
 	ROLE_SUBMITTER,
@@ -138,6 +139,34 @@ def _barred_from_sensitive(doc, user) -> bool:
 
 def _quote(values):
 	return ", ".join(frappe.db.escape(v) for v in values if v)
+
+
+def guest_bound_case() -> str | None:
+	"""The case a link-and-PIN session is bound to in this request, or None (STG-518).
+
+	Set only by `guest_access.as_guest`, around a guest route, for the guest service user.
+	"""
+	return getattr(frappe.local, "guest_grievance", None)
+
+
+def is_guest(roles) -> bool:
+	"""Whether `roles` are the guest service user's. That user reaches the bound case only."""
+	return ROLE_GUEST in roles
+
+
+def _guest_may(doc, ptype) -> bool:
+	"""A guest reads and writes the case its session is bound to, and only that one.
+
+	Writing follows the submitter's rule: not once the case is in a terminal state.
+	"""
+	bound = guest_bound_case()
+	if not bound or doc.get("name") != bound:
+		return False
+	if ptype == "read":
+		return True
+	from oan_grievance_service.services.sla import terminal_states
+
+	return ptype == "write" and doc.get("workflow_state") not in terminal_states()
 
 
 def officer_case_scopes(user, scopes=None):
@@ -259,6 +288,11 @@ def grievance_query_conditions(user=None):
 	if roles & UNRESTRICTED_ROLES:
 		return ""
 
+	# The guest service user lists the one case its session is bound to, and nothing else.
+	if is_guest(roles):
+		bound = guest_bound_case()
+		return f"`tabGrievance`.name = {frappe.db.escape(bound)}" if bound else "1 = 0"
+
 	clauses = []
 	# An officer seated only at Kebele level reads no sensitive case, through any arm below.
 	barred = (
@@ -328,6 +362,10 @@ def has_grievance_permission(doc, ptype="read", user=None):
 
 	if roles & UNRESTRICTED_ROLES:
 		return True
+
+	# The guest service user reaches the case its session is bound to, by no other route.
+	if is_guest(roles):
+		return _guest_may(doc, ptype)
 
 	# An officer seated only at Kebele level reaches no sensitive case, by any route below.
 	barred = bool(roles & {ROLE_REVIEW_OFFICER, ROLE_OFFICER}) and _barred_from_sensitive(doc, user)

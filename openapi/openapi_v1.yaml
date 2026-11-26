@@ -1650,6 +1650,414 @@ paths:
       x-gateway-tier: officer-core
       security:
       - BearerAuth: []
+  /api/v1/guest-access/verify:
+    post:
+      tags:
+      - Guest Access
+      summary: Check a grievance link and PIN, and open a guest session
+      description: 'Check the ticket and token from the link and the PIN the submitter typed.
+
+
+        A wrong ticket, token or PIN all answer 401 `GUEST_ACCESS_INVALID`. With the right link,
+
+        too many wrong PINs answer 429 `GUEST_ACCESS_LOCKED` (with `retry_after_seconds`) until the
+
+        lock ends, and a closed case answers 410 `GUEST_ACCESS_CLOSED` once the PIN is right.
+
+        On success the session token goes back in the `X-Grievance-Guest-Session` header of every
+
+        guest call; it ends after the idle limit without a call, or at `expires_at` regardless.'
+      operationId: post_api_v1_guest_access_verify
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.verify
+      x-gateway-tier: public-reference
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyGuestAccessRequest'
+  /api/v1/guest-access/session:
+    get:
+      tags:
+      - Guest Access
+      summary: Keep a guest session alive
+      description: Slide the session's idle limit forward ("Stay signed in") and report what is left.
+      operationId: get_api_v1_guest_access_session
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.session
+      x-gateway-tier: public-reference
+      security: []
+  /api/v1/guest-access/logout:
+    post:
+      tags:
+      - Guest Access
+      summary: End a guest session
+      description: End the session now. Answers the same whether or not it was still open.
+      operationId: post_api_v1_guest_access_logout
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.logout
+      x-gateway-tier: public-reference
+      security: []
+  /api/v1/guest/grievance:
+    get:
+      tags:
+      - Guest Access
+      summary: View the grievance a guest session is bound to
+      description: The case, its public timeline and its files, as the submitter is shown them, less identity.
+      operationId: get_api_v1_guest_grievance
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.view_grievance
+      x-gateway-tier: public-reference
+      security: []
+  /api/v1/guest/grievance/message:
+    post:
+      tags:
+      - Guest Access
+      summary: Reply on the grievance a guest session is bound to, with optional files
+      description: A public reply from the submitter. Files sent as multipart attach to it and are scanned.
+      operationId: post_api_v1_guest_grievance_message
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.post_message
+      x-gateway-tier: public-reference
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuestMessageRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/GuestMessageRequest'
+  /api/v1/guest/grievance/attachments:
+    get:
+      tags:
+      - Guest Access
+      summary: List the grievance's files
+      description: Every file on the case with its scan verdict; only Clean ones can be opened.
+      operationId: get_api_v1_guest_grievance_attachments
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.list_attachments
+      x-gateway-tier: public-reference
+      security: []
+  /api/v1/guest/grievance/attachments/{attachment_id}/view:
+    get:
+      tags:
+      - Guest Access
+      summary: Open one of the grievance's files
+      description: The file's bytes, inline (`download=1` for a Save As), once it has been scanned clean.
+      operationId: get_api_v1_guest_grievance_attachments_attachment_id_view
+      responses:
+        '200':
+          description: Success
+          content:
+            '*/*':
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Attachment Id identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.view_attachment
+      x-gateway-tier: public-reference
+      security: []
+  /api/v1/guest/grievance/attachments/{attachment_id}/download:
+    get:
+      tags:
+      - Guest Access
+      summary: Download one of the grievance's files
+      description: The file's bytes as a download, once it has been scanned clean.
+      operationId: get_api_v1_guest_grievance_attachments_attachment_id_download
+      responses:
+        '200':
+          description: Success
+          content:
+            '*/*':
+              schema: *id001
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: attachment_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Attachment Id identifier
+      x-legacy-rpc-method: oan_grievance_service.api.v1.guest_access.download_attachment
+      x-gateway-tier: public-reference
+      security: []
   /api/v1/attachments/validate:
     post:
       tags:
@@ -9080,6 +9488,20 @@ components:
         routing_rule:
           type: string
           nullable: true
+        guest_access:
+          type: object
+          properties:
+            link:
+              type: string
+              example: https://grievance.example.org/g/3001002A0#k=Xk3pQ9vT2mLr8WzA1bNc4e
+              description: 'The case link, its token after #k='
+            pin:
+              type: string
+              example: '482913'
+              description: The PIN the link is opened with
+          description: 'TEMPORARY, while SMS and email are not delivering: the link and PIN of a sensitive
+            anonymous case, for the submitter who filed it themselves. Present only when site_config sets
+            guest_access_show_on_submit.'
         can_request_more_info:
           type: boolean
           description: Whether the submitter can be contacted
@@ -11897,6 +12319,44 @@ components:
           type: string
           default: null
           nullable: true
+      type: object
+    VerifyGuestAccessRequest:
+      properties:
+        ticket_number:
+          maxLength: 32
+          minLength: 1
+          type: string
+        token:
+          description: 'The `k` value after the # in the link'
+          maxLength: 64
+          minLength: 1
+          type: string
+        pin:
+          maxLength: 12
+          minLength: 1
+          type: string
+      required:
+      - ticket_number
+      - token
+      - pin
+      type: object
+    GuestMessageRequest:
+      properties:
+        body:
+          minLength: 1
+          type: string
+        client_message_id:
+          maxLength: 64
+          type: string
+          default: null
+          description: Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.
+          nullable: true
+        files:
+          type: array
+          items: *id001
+          description: Files, sent as multipart/form-data
+      required:
+      - body
       type: object
     ValidateUploadsRequest:
       additionalProperties: true

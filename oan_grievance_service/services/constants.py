@@ -83,6 +83,12 @@ EVENT_MANUAL_ESCALATION = "manual_escalation"
 EVENT_REASSIGNMENT_REQUESTED = "reassignment_requested"
 EVENT_ANONYMITY_DISCLOSURE_REQUESTED = "anonymity_disclosure_requested"
 EVENT_DEADLINE_EXTENDED = "deadline_extended"
+# The link and PIN a sensitive anonymous case's submitter opens it with (STG-518), sent once at
+# filing, or once by the backfill for a case filed before the feature. The text is built in
+# services/guest_access.py, never from the Notification's template.
+EVENT_GUEST_ACCESS_ISSUED = "guest_access_issued"
+EVENT_GUEST_ACCESS_BACKFILL = "guest_access_backfill"
+GUEST_ACCESS_EVENTS = frozenset({EVENT_GUEST_ACCESS_ISSUED, EVENT_GUEST_ACCESS_BACKFILL})
 
 # FSD Appendix C event ids (EC-001 to EC-019), keyed by event code. EC-017 (SLA breach,
 # L2) has no code of its own; the escalation ladder sends a single EVENT_SLA_BREACH for
@@ -150,6 +156,10 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # changes nothing. It holds read-only DocPerms and is never listed on a mutating
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
+# Held only by the guest service user (setup/service_users.py), whom a verified link-and-PIN
+# session runs as. It reads and writes the one case the session is bound to and nothing else
+# (permissions.py); nobody signs in with it.
+ROLE_GUEST = "Grievance Guest"
 
 # The submission channel (Grievance Submission Type) of the IVR helpline, and what the webhook
 # files a call under when the platform sends no more than the caller's number.

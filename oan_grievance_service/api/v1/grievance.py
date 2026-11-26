@@ -1102,6 +1102,13 @@ def submit(**kwargs):
 		sensitive_receipt = {"routing_rule": None}
 	else:
 		sensitive_receipt = {"status_pin": classification.pin_of(doc), "routing_rule": None}
+		# TEMPORARY (STG-518), while SMS and email are not delivering: the link and PIN are shown
+		# once to the submitter who filed for themselves. Off unless `guest_access_show_on_submit`.
+		from oan_grievance_service.services import guest_access
+
+		shown_link = guest_access.link_for_display(doc)
+		if shown_link:
+			sensitive_receipt["guest_access"] = shown_link
 	return success_response(
 		data={
 			"ticket_number": tn.display(doc.ticket_number),
