@@ -34,6 +34,16 @@ def auto_escalation_enabled() -> bool:
 	return bool(frappe.get_cached_doc("Grievance Settings").auto_escalation_enabled)
 
 
+def reopen_escalation_enabled() -> bool:
+	"""Site-wide switch for sending a reopened case one level above its last resolver (STG-521).
+
+	Read raw: a site that saved its settings before this field existed has no value stored for it,
+	and that means the field's default, on. A loaded Check would read it as 0.
+	"""
+	value = frappe.db.get_singles_dict("Grievance Settings").get("reopen_escalation_enabled")
+	return True if value is None else bool(cint(value))
+
+
 def change_request_hours() -> int:
 	"""Hours a change request waits with an approver whose rung sets no hours of its own."""
 	return cint(frappe.get_cached_doc("Grievance Settings").change_request_hours)

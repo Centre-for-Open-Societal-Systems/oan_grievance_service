@@ -688,7 +688,9 @@ paths:
 
         Grievance Workflow''s call. Files sent as multipart attach to the action''s
 
-        timeline entry.'
+        timeline entry. A Reopen escalates the case to the officer one level above
+
+        whoever resolved it last.'
       operationId: post_api_v1_grievances_ticket_number_action
       responses:
         '200':
