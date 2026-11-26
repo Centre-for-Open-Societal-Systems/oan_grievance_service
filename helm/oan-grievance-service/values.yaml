@@ -245,6 +245,7 @@ frappe:
       adminExistingSecret: oan-grievance-admin
       installApps:
       - oan_auth_service
+      - oan_messaging_connector
       - oan_grievance_service
 
 # ClamAV malware scanner daemon (clamd over TCP 3310) for attachment scanning.
@@ -295,7 +296,7 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
-  application: oan-client
+  application: grievance-service
 # Staff Login: the same identity provider as `agent`, listed after it. The login page picks the provider by
 # `key`, and `staff` is the key of its Staff Login option.
 - key: staff
@@ -306,7 +307,7 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
-  application: oan-client
+  application: grievance-service
 # Operators of central RBAC (oan_identitygovernance_service) call the admin API with the token they logged in
 # with. It comes from the central-rbac client of the staff realm, so this option accepts that client only and
 # reads the operator's roles under the same application as the options above.
@@ -318,7 +319,7 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: central-rbac
-  application: oan-client
+  application: grievance-service
 - key: beneficiary
   label: National ID (eSignet)
   enabled: 1

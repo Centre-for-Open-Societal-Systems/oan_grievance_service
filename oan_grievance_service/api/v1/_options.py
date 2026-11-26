@@ -116,11 +116,18 @@ def get_department_officers(
 	from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assignment.grievance_rbac_assignment import (
 		query_active_officer_assignments,
 	)
+	from oan_grievance_service.services.resolvers import resolve_administrative_area
+
+	resolved_area = (
+		(resolve_administrative_area(administrative_area) or administrative_area)
+		if administrative_area
+		else None
+	)
 
 	officers = query_active_officer_assignments(
 		department=department,
 		category=service_category,
-		administrative_area=administrative_area,
+		administrative_area=resolved_area,
 		include_user_details=True,
 		fields=lambda c, p, u: [
 			c.user.as_("user_id"),

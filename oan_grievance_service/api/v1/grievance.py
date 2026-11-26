@@ -710,12 +710,14 @@ def list_grievances(
 	total_count = int(total_records[0].get("total", 0)) if total_records else 0
 
 	from oan_grievance_service.services.administrative_area import (
+		external_area_ids,
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
 
 	area_cache = {}
 	unique_areas = {item.get("administrative_area") for item in items if item.get("administrative_area")}
+	ext_area_map = external_area_ids(unique_areas)
 	for area_id in unique_areas:
 		h = get_administrative_hierarchy(area_id)
 		loc = format_administrative_location(h)
@@ -788,7 +790,9 @@ def list_grievances(
 		# Grouped for reading, as `timeline` returns it. Stored flat in DB,
 		# but exposed formatted to clients as ticket_number.
 		item["ticket_number"] = tn.display(item.get("ticket_number"))
-		area_info = area_cache.get(item.get("administrative_area"))
+		raw_area = item.get("administrative_area")
+		area_info = area_cache.get(raw_area)
+		item["administrative_area"] = ext_area_map.get(raw_area, raw_area)
 		item["location"] = area_info["location"] if area_info else None
 		item["administrative_hierarchy"] = area_info["hierarchy"] if area_info else None
 
@@ -1804,6 +1808,7 @@ def timeline(
 		active_reassignment_request = serialize_cr(req_doc)
 
 	from oan_grievance_service.services.administrative_area import (
+		external_area_id,
 		format_administrative_location,
 		get_administrative_hierarchy,
 	)
@@ -1827,7 +1832,7 @@ def timeline(
 			"service_category": doc.service_category,
 			"grievance_type": doc.grievance_type,
 			"grievance_type_name": grievance_type_name or doc.grievance_type,
-			"administrative_area": doc.administrative_area,
+			"administrative_area": external_area_id(doc.administrative_area),
 			"administrative_hierarchy": area_hierarchy,
 			"location": location_str,
 			"administrative_unit": doc.administrative_unit,

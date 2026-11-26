@@ -275,16 +275,21 @@ def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[
 			else:
 				direct_parents.append(p)
 
+	from pypika.functions import Coalesce
+
 	Area = frappe.qb.DocType("Grievance Administrative Area")
+	ParentArea = frappe.qb.DocType("Grievance Administrative Area").as_("parent")
 	query = (
 		frappe.qb.from_(Area)
+		.left_join(ParentArea)
+		.on(Area.parent_administrative_area == ParentArea.name)
 		.select(
-			Area.name.as_("area_id"),
+			Coalesce(Area.code, Area.name).as_("area_id"),
 			Area.area_name,
 			Area.code,
 			Area.path_code,
 			Area.level_name,
-			Area.parent_administrative_area,
+			Coalesce(ParentArea.code, Area.parent_administrative_area).as_("parent_administrative_area"),
 			Area.is_group,
 			Area.depth,
 		)
@@ -310,7 +315,16 @@ def search_areas(parents=None, level_name=None, search=None, limit=100) -> list[
 		query = query.where(Area.level_name == level_name)
 
 	if search:
-		query = query.where(Area.area_name.like(f"%{search.strip()}%"))
+		pattern = f"%{search.strip()}%"
+		query = query.where(
+			Criterion.any(
+				[
+					Area.area_name.like(pattern),
+					Area.code.like(pattern),
+					Area.path_code.like(pattern),
+				]
+			)
+		)
 
 	return query.run(as_dict=True)
 

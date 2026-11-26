@@ -16,6 +16,7 @@ def resolve_administrative_area(area_identifier):
 	"""
 	if not area_identifier:
 		return None
+	area_identifier = str(area_identifier).strip()
 	if frappe.db.exists("Grievance Administrative Area", area_identifier):
 		return area_identifier
 	return (

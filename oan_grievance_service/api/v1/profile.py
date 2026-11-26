@@ -12,6 +12,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.administrative_area import (
+	external_area_id,
 	match_administrative_area,
 	refreshed_administrative_area,
 )
@@ -41,7 +42,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 				or level
 				or ROLE_OFFICER,
 				"department": primary_scope.get("department_scope"),
-				"administrative_area": primary_scope.get("administrative_area_scope"),
+				"administrative_area": external_area_id(primary_scope.get("administrative_area_scope")),
 				"category": primary_scope.get("category_scope"),
 			}
 
@@ -104,7 +105,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			"phone_number": contact["phone_number"],
 			"contact_email": contact["contact_email"],
 			"identities": identities,
-			"administrative_area": profile.get("administrative_area"),
+			"administrative_area": external_area_id(profile.get("administrative_area")),
 			"administrative_unit": profile.get("administrative_unit"),
 			"id_source": profile.get("id_source"),
 			"address": {

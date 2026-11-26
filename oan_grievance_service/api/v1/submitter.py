@@ -187,11 +187,9 @@ def _create_or_update_submitter_profile(
 	is_blocked = 0 if is_farmer else 1
 	blocked_reason = None if is_farmer else _("Pending admin verification for non-farmer submitter type.")
 
-	admin_area = administrative_area
-	if admin_area and frappe.db.exists("Grievance Administrative Area", admin_area):
-		admin_area = str(admin_area).strip()
-	else:
-		admin_area = None
+	from oan_grievance_service.services.resolvers import resolve_administrative_area
+
+	admin_area = resolve_administrative_area(administrative_area) if administrative_area else None
 
 	admin_unit = administrative_unit
 	if admin_unit:
@@ -407,6 +405,8 @@ def register_submitter(
 
 	contact = mask_contact(profile, show_identity=True)
 
+	from oan_grievance_service.services.administrative_area import external_area_id
+
 	data = {
 		"profile_id": profile.name,
 		"submitter_type": profile.submitter_type,
@@ -418,7 +418,7 @@ def register_submitter(
 		"contact_email": contact["contact_email"],
 		"dedupe_key": None if is_user_key else profile.dedupe_key,
 		"identities": identities,
-		"administrative_area": profile.administrative_area,
+		"administrative_area": external_area_id(profile.administrative_area),
 		"administrative_unit": profile.administrative_unit,
 		"active": bool(profile.active),
 		"is_blocked": bool(profile.is_blocked),
