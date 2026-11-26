@@ -36,8 +36,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from oan_grievance_service.api.v1._schemas import Body, NonBlank, blank_to_none
 from oan_grievance_service.services import classification
+from oan_grievance_service.services.administrative_area import external_area_ids
 from oan_grievance_service.services.constants import ADMIN_READ_ROLES
-from oan_grievance_service.services.resolvers import resolve_service_category
+from oan_grievance_service.services.resolvers import resolve_administrative_area, resolve_service_category
 
 route = prefixed("/api/v1/sla-rules")
 
@@ -169,20 +170,28 @@ class ListSlaRules(PageParams, Body):
 
 def _records(rows: list) -> list[dict]:
 	scope = ("rule_label", "role_level", "grievance_type", "administrative_area", *WINDOW_FIELDS)
-	return [
-		SlaRuleRecord(
-			name=row.name,
-			service_category=row.service_category,
-			is_base=bool(row.is_base),
-			# Int columns store a blank as 0.
-			**{field: row.get(field) or None for field in scope},
-			sla_days=row.sla_days or 0,
-			is_urgent=bool(row.is_urgent),
-			priority=classification.priority_of(row.is_urgent),
-			modified=to_tz_aware_iso(row.modified),
-		).model_dump()
-		for row in rows
-	]
+	ext_areas = external_area_ids(row.get("administrative_area") for row in rows)
+	out = []
+	for row in rows:
+		fields = {field: row.get(field) or None for field in scope}
+		if fields.get("administrative_area"):
+			fields["administrative_area"] = ext_areas.get(
+				fields["administrative_area"], fields["administrative_area"]
+			)
+		out.append(
+			SlaRuleRecord(
+				name=row.name,
+				service_category=row.service_category,
+				is_base=bool(row.is_base),
+				# Int columns store a blank as 0.
+				**fields,
+				sla_days=row.sla_days or 0,
+				is_urgent=bool(row.is_urgent),
+				priority=classification.priority_of(row.is_urgent),
+				modified=to_tz_aware_iso(row.modified),
+			).model_dump()
+		)
+	return out
 
 
 def _record(name: str) -> dict:
@@ -206,6 +215,10 @@ def _values(kwargs: dict) -> dict:
 			)
 	if "is_urgent" in values:
 		values["is_urgent"] = 1 if values["is_urgent"] else 0
+	if values.get("administrative_area"):
+		values["administrative_area"] = (
+			resolve_administrative_area(values["administrative_area"]) or values["administrative_area"]
+		)
 	return values
 
 
@@ -246,7 +259,9 @@ def list_rules(
 	if grievance_type:
 		filters["grievance_type"] = grievance_type
 	if administrative_area:
-		filters["administrative_area"] = administrative_area
+		filters["administrative_area"] = (
+			resolve_administrative_area(administrative_area) or administrative_area
+		)
 	if is_urgent is not None:
 		filters["is_urgent"] = 1 if is_urgent else 0
 	if is_base is not None:
