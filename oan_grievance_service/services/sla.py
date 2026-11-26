@@ -32,6 +32,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 	current_level_of,
 	find_officer_by_role_level,
 	get_officer_supervisor,
+	holds_rung,
 )
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
@@ -545,7 +546,7 @@ def consumed_percent(grievance):
 
 
 def higher_authority_of(
-	user, department=None, administrative_area=None, log_unstaffed_for=None, category=None
+	user, department=None, administrative_area=None, log_unstaffed_for=None, category=None, level=None
 ):
 	"""The person one step above `user` for a department and area, and their rung.
 
@@ -554,6 +555,8 @@ def higher_authority_of(
 	2. Otherwise whoever holds the next rung for the department and area.
 
 	A user with no rung (a submitter, or nobody) enters at the most junior rung.
+	`level` is the rung to climb from when the caller already knows it; otherwise the
+	user's own rung is read.
 	Returns (None, None) at the top of the chain; `log_unstaffed_for` names the
 	grievance to report when a rung has nobody on it.
 	"""
@@ -562,7 +565,7 @@ def higher_authority_of(
 		return None, None
 
 	rank = {rung.name: index for index, rung in enumerate(chain)}
-	current_level = current_level_of(user)
+	current_level = level or current_level_of(user)
 	current_rank = rank.get(current_level, -1)
 	if current_level and current_level not in rank:
 		# Sits on a rung that has since been deactivated: nowhere defined to climb to.
@@ -703,3 +706,148 @@ def escalate(grievance, reason=None, reassign=True):
 	if notify:
 		notifications.queue(grievance, C.EVENT_SLA_BREACH, recipient_override=target)
 	return target
+
+
+# Reopen with escalation (STG-521)
+# --------------------------------
+# A reopened case is escalated: it goes to the officer one rung above whoever resolved it last,
+# never back to that officer. Each reopen climbs from the most recent resolver, so repeated
+# reopens keep moving up.
+
+
+def last_resolver(grievance):
+	"""The user who took the case's most recent Resolve, or None when no one is recorded."""
+	return frappe.db.get_value(
+		"Grievance Status History",
+		{"grievance": grievance.name, "to_status": C.STATE_RESOLVED},
+		"changed_by",
+		order_by="timestamp desc, creation desc",
+	)
+
+
+def rung_on_case(user, grievance):
+	"""The highest rung `user` holds on a desk covering the case; else their rung anywhere, or None.
+
+	The fallback covers an officer the case was reassigned to from outside its area.
+	"""
+	if not user:
+		return None
+	for rung in reversed(GrievanceRoleLevel.get_chain()):
+		if holds_rung(
+			user,
+			rung.name,
+			department=grievance.assigned_dept,
+			area=grievance.administrative_area,
+			category=grievance.service_category,
+		):
+			return rung.name
+	return current_level_of(user)
+
+
+def can_take_escalation(user, grievance):
+	"""Whether `user` may be handed the case now: enabled, not on leave, and, for a sensitive
+	case, not a Kebele-level officer."""
+	from oan_grievance_service import permissions
+
+	if not user or not frappe.db.get_value("User", user, "enabled"):
+		return False
+	# Read from the desk rows themselves, as routing does: `positions.is_officer_on_leave` sees
+	# only the rows that name a position.
+	on_leave = frappe.db.exists(
+		"Grievance RBAC Assignment Officer",
+		{"user": user, "parenttype": "Grievance RBAC Assignment", "active": 1, "on_leave": 1},
+	)
+	if on_leave:
+		return False
+	return not (grievance.get("is_sensitive") and permissions.is_kebele_level_officer(user))
+
+
+def senior_for_reopen(grievance, resolver):
+	"""(base, target, level): who the climb starts from, the officer above them, and that rung.
+
+	The climb starts from the resolver's rung. A resolver with no rung (an admin, say) gives way
+	to the case's officer. `base` is None when neither holds a rung. A senior who is on leave,
+	disabled or barred from a sensitive case is passed over for the rung above them, as is a vacant
+	rung (`higher_authority_of`). The resolver is never the target. `target` is None when nobody
+	above is available.
+	"""
+	base, level = resolver, rung_on_case(resolver, grievance)
+	if not level and grievance.assigned_to and grievance.assigned_to != resolver:
+		base, level = grievance.assigned_to, rung_on_case(grievance.assigned_to, grievance)
+	if not level:
+		return None, None, None
+
+	passed_over = {resolver, base}
+	user = base
+	while True:
+		target, rung = higher_authority_of(
+			user,
+			department=grievance.assigned_dept,
+			administrative_area=grievance.administrative_area,
+			log_unstaffed_for=grievance.name,
+			category=grievance.service_category,
+			level=level,
+		)
+		if not target:
+			return base, None, None
+		if target not in passed_over and can_take_escalation(target, grievance):
+			return base, target, rung
+		# Each step is a rung higher than the last, so this ends at the top of the chain.
+		passed_over.add(target)
+		user, level = target, rung.name
+
+
+def escalate_on_reopen(grievance):
+	"""Hand a reopened case to the officer above its last resolver.
+
+	The case is flagged escalated and its new SLA window (started by the reopen) is kept: the
+	officer it lands on works to that deadline, and the breach ladder climbs from there. The
+	submitter's reason is on the reopen's own timeline entry, so it is not repeated here.
+
+	When nobody above is available (the resolver holds the top rung, or every rung above is vacant
+	or on leave), the case stays with the officer the climb started from, falling back to its
+	current officer. Which of these the business wants is still open (see the ticket). Either way
+	the escalation is recorded and the officer holding the case is told.
+
+	Returns the user the case is now assigned to.
+	"""
+	from oan_grievance_service.services import notifications
+
+	resolver = last_resolver(grievance)
+	base, target, level = senior_for_reopen(grievance, resolver)
+	previous_assignee = grievance.assigned_to
+
+	changes = {"escalated": 1, **_first_escalation(grievance)}
+	if target:
+		changes["assigned_to"] = target
+		body = f"Reopened with escalation: case escalated to {level.level_name or level.name}"
+	else:
+		if base and base != previous_assignee and can_take_escalation(base, grievance):
+			changes["assigned_to"] = base
+		body = "Reopened with escalation: no higher authority is available, so the case stays at this level"
+	audit.record_version(grievance, changes)
+	grievance.db_set(changes, update_modified=False)
+	assignee = grievance.assigned_to
+
+	GrievanceTimeline.record(
+		grievance=grievance.name,
+		entry_type="escalation",
+		is_internal=False,
+		body=body,
+		author_user=frappe.session.user if frappe.session.user != "Guest" else None,
+	)
+	oplog.emit(
+		"escalation.reopen_escalated" if target else "escalation.reopen_no_higher_authority",
+		logging.INFO if target else logging.WARNING,
+		**grievance_fields(grievance),
+		resolver=resolver,
+		from_user=previous_assignee,
+		to_user=assignee,
+		rung=(level.level_name or level.name) if target else None,
+		reassigned=assignee != previous_assignee,
+	)
+	if assignee:
+		if assignee != previous_assignee:
+			notifications.queue(grievance, C.EVENT_REOPENED, recipient_override=assignee)
+		notifications.queue(grievance, C.EVENT_MANUAL_ESCALATION, recipient_override=assignee)
+	return assignee

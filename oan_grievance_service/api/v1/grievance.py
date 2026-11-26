@@ -1401,7 +1401,8 @@ def action(
 	may instead come as `action_taken` and `resolution_summary`, stored together as
 	the reason. Which actions the caller may take from the case's state is the
 	Grievance Workflow's call. Files sent as multipart attach to the action's
-	timeline entry.
+	timeline entry. A Reopen escalates the case to the officer one level above
+	whoever resolved it last.
 	"""
 	if action_taken is not None or resolution_summary is not None:
 		if not (action_taken and action_taken.strip() and resolution_summary and resolution_summary.strip()):
@@ -1471,6 +1472,7 @@ def action(
 		doc.db_set("closure_reason", reason, update_modified=False)
 	elif matching_action == "Reopen":
 		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
+		sla.escalate_on_reopen(doc)
 	elif matching_action == "Submitter Reply":
 		from oan_grievance_service.services import notifications
 
