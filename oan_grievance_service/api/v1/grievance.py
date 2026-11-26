@@ -55,6 +55,9 @@ from oan_grievance_service.api.v1._schemas import (
 from oan_grievance_service.grievance_management.doctype.grievance.grievance import (
 	GrievanceSubmissionPayload,
 )
+from oan_grievance_service.grievance_management.doctype.grievance_settings.grievance_settings import (
+	reopen_escalation_enabled,
+)
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
@@ -1471,12 +1474,18 @@ def action(
 
 	# Submitter closing the case accepts and confirms the resolution.
 	confirmed = matching_action == "Close Case"
-	history = lifecycle.transition(doc, matching_action, reason=reason, note=note, confirmed=confirmed)
+	# A reopen that escalates tells only the officer it lands on (`sla.escalate_on_reopen`), so the
+	# move itself sends nothing; with the setting off, the move notifies as it always has.
+	escalating_reopen = matching_action == "Reopen" and reopen_escalation_enabled()
+	history = lifecycle.transition(
+		doc, matching_action, reason=reason, note=note, confirmed=confirmed, notify=not escalating_reopen
+	)
 	if matching_action == "Close Case":
 		doc.db_set("closure_reason", reason, update_modified=False)
 	elif matching_action == "Reopen":
 		doc.db_set("reopen_count", (doc.reopen_count or 0) + 1, update_modified=False)
-		sla.escalate_on_reopen(doc)
+		if escalating_reopen:
+			sla.escalate_on_reopen(doc)
 	elif matching_action == "Submitter Reply":
 		from oan_grievance_service.services import notifications
 

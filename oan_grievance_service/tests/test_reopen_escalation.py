@@ -101,6 +101,15 @@ class TestReopenWithEscalation(FrappeTestCase):
 			"Grievance Notification Log", {"grievance": name, "recipient": user, "event": event}
 		)
 
+	def _reopen_recipients(self, name):
+		return set(
+			frappe.get_all(
+				"Grievance Notification Log",
+				filters={"grievance": name, "event": C.EVENT_REOPENED},
+				pluck="recipient",
+			)
+		)
+
 	def _escalation_entries(self, name):
 		return frappe.get_all(
 			"Grievance Timeline",
@@ -119,8 +128,10 @@ class TestReopenWithEscalation(FrappeTestCase):
 		self.assertEqual(doc.escalated, 1)
 		rung_name = frappe.db.get_value("Grievance Role Level", to_level, "level_name")
 		self.assertIn(f"escalated to {rung_name}", self._escalation_entries(name)[-1])
-		self.assertTrue(self._notified(name, self.officer[to_level], C.EVENT_MANUAL_ESCALATION))
-		self.assertTrue(self._notified(name, self.officer[to_level], C.EVENT_REOPENED))
+		# One Grievance Reopened, to the officer the case landed on: not to the officer it left, and
+		# no second, Manual Escalation, message.
+		self.assertEqual(self._reopen_recipients(name), {self.officer[to_level]})
+		self.assertFalse(self._notified(name, self.officer[to_level], C.EVENT_MANUAL_ESCALATION))
 		versions = frappe.get_all(
 			"Version", filters={"ref_doctype": "Grievance", "docname": name}, pluck="data"
 		)
@@ -152,7 +163,7 @@ class TestReopenWithEscalation(FrappeTestCase):
 		self.assertEqual(doc.assigned_to, self.officer[L4])
 		self.assertEqual(doc.escalated, 1)
 		self.assertIn("no higher authority", self._escalation_entries(name)[-1])
-		self.assertTrue(self._notified(name, self.officer[L4], C.EVENT_MANUAL_ESCALATION))
+		self.assertEqual(self._reopen_recipients(name), {self.officer[L4]})
 
 	def test_l4_resolving_for_l1_keeps_the_case_with_l4(self):
 		"""The climb starts from the resolver, not the assignee, so the case never drops back to L1."""
@@ -180,6 +191,23 @@ class TestReopenWithEscalation(FrappeTestCase):
 		name = self._case(self.officer[L1])
 		self._resolve_as(name, self.officer[L1])
 		self.assertEqual(self._reopen(name).assigned_to, self.officer[L3])
+
+	def test_leave_on_a_retired_desk_does_not_count(self):
+		"""Only live desk rows say whether someone is on leave today."""
+		other = a_desk(a_unique_department("Old"), self.category, L2, (self.officer[L2], None))
+		frappe.db.set_value("Grievance RBAC Assignment Officer", {"parent": other}, "on_leave", 1)
+		frappe.db.set_value("Grievance RBAC Assignment", other, "active", 0)
+
+		name = self._case(self.officer[L1])
+		self._resolve_as(name, self.officer[L1])
+		self.assertEqual(self._reopen(name).assigned_to, self.officer[L2])
+
+	def test_breach_escalation_skips_the_same_officers(self):
+		"""SLA breach escalation shares the rule: an L2 on leave is passed over for L3."""
+		self._set_row(L2, on_leave=1)
+		doc = self._doc(self._case(self.officer[L1]))
+		self.assertEqual(sla.escalate(doc, reason="SLA breached"), self.officer[L3])
+		self.assertEqual(self._doc(doc.name).assigned_to, self.officer[L3])
 
 	def test_a_kebele_level_senior_is_skipped_on_a_sensitive_case(self):
 		region = region_of(a_leaf_area())["name"]
@@ -245,6 +273,31 @@ class TestReopenWithEscalation(FrappeTestCase):
 		name = self._case(self.officer[L1])
 		self._resolve_as(name, "Administrator")
 		self.assertEqual(self._reopen(name).assigned_to, self.officer[L2])
+
+	# Grievance Settings switch -------------------------------------------------
+
+	def test_with_the_setting_off_a_reopen_keeps_its_officer(self):
+		frappe.db.set_single_value("Grievance Settings", "reopen_escalation_enabled", 0)
+		name = self._case(self.officer[L1])
+		self._resolve_as(name, self.officer[L1])
+		doc = self._reopen(name)
+
+		self.assertEqual(doc.workflow_state, C.STATE_REOPENED)
+		self.assertEqual(doc.assigned_to, self.officer[L1])
+		self.assertFalse(doc.escalated)
+		self.assertEqual(self._escalation_entries(name), [])
+		# The reopen still notifies as it did before escalation existed.
+		self.assertTrue(self._reopen_recipients(name))
+
+	def test_a_setting_never_stored_means_on(self):
+		from oan_grievance_service.grievance_management.doctype.grievance_settings.grievance_settings import (
+			reopen_escalation_enabled,
+		)
+
+		frappe.db.delete("Singles", {"doctype": "Grievance Settings", "field": "reopen_escalation_enabled"})
+		self.assertTrue(reopen_escalation_enabled())
+		frappe.db.set_single_value("Grievance Settings", "reopen_escalation_enabled", 0)
+		self.assertFalse(reopen_escalation_enabled())
 
 	# Only a reopen escalates --------------------------------------------------
 
