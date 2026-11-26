@@ -142,6 +142,11 @@ class TestAdministrativeArea(FrappeTestCase):
 
 	def test_get_areas_endpoint(self):
 		from oan_grievance_service.api.v1.administrative_area import get_areas
+		from oan_grievance_service.services.administrative_area import external_area_id
+
+		# A parent is named by its internal id or its code, but the listing reports each area's
+		# parent by its external code (falling back to the id), as every area API now does.
+		et14, et07 = external_area_id("region-ET14"), external_area_id("region-ET07")
 
 		# Default root view returns regions
 		res = get_areas()
@@ -154,21 +159,21 @@ class TestAdministrativeArea(FrappeTestCase):
 		self.assertIn("data", res_child)
 		self.assertGreaterEqual(res_child["data"]["count"], 1)
 		for area in res_child["data"]["areas"]:
-			self.assertEqual(area["parent_administrative_area"], "region-ET14")
+			self.assertEqual(area["parent_administrative_area"], et14)
 
 		# Multi-parent drilldown as list
 		res_multi_list = get_areas(parent=["region-ET14", "region-ET07"])
 		self.assertIn("data", res_multi_list)
 		self.assertGreaterEqual(res_multi_list["data"]["count"], 1)
 		for area in res_multi_list["data"]["areas"]:
-			self.assertIn(area["parent_administrative_area"], ["region-ET14", "region-ET07"])
+			self.assertIn(area["parent_administrative_area"], [et14, et07])
 
 		# Multi-parent drilldown as comma-separated string
 		res_multi_csv = get_areas(parent="region-ET14, region-ET07")
 		self.assertIn("data", res_multi_csv)
 		self.assertGreaterEqual(res_multi_csv["data"]["count"], 1)
 		for area in res_multi_csv["data"]["areas"]:
-			self.assertIn(area["parent_administrative_area"], ["region-ET14", "region-ET07"])
+			self.assertIn(area["parent_administrative_area"], [et14, et07])
 
 		# Multi-parent drilldown with level_name filter (subtree intervals)
 		res_multi_tier = get_areas(parent=["region-ET14", "region-ET07"], level_name="Woreda")
