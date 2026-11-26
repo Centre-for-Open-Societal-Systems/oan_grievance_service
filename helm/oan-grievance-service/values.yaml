@@ -245,6 +245,7 @@ frappe:
       adminExistingSecret: oan-grievance-admin
       installApps:
       - oan_auth_service
+      - oan_messaging_connector
       - oan_grievance_service
 
 # ClamAV malware scanner daemon (clamd over TCP 3310) for attachment scanning.
