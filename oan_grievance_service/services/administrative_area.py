@@ -12,17 +12,36 @@ import frappe
 from oan_grievance_service.grievance_masters.doctype.grievance_administrative_area.grievance_administrative_area import (
 	is_in_area_subtree,
 )
+from oan_grievance_service.services.resolvers import resolve_administrative_area
+
+
+def external_area_id(area_name: str | None) -> str | None:
+	"""Return the external MDS code for an internal area name, falling back to `area_name`."""
+	if not area_name:
+		return None
+	return frappe.db.get_value("Grievance Administrative Area", area_name, "code") or area_name
+
+
+def external_area_ids(area_names) -> dict[str, str]:
+	"""Batch map internal area doc names to their external MDS codes (fallback: doc name)."""
+	names = {n for n in area_names if n}
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Grievance Administrative Area",
+		filters={"name": ["in", list(names)]},
+		fields=["name", "code"],
+		ignore_permissions=True,
+	)
+	return {r.name: (r.code or r.name) for r in rows}
 
 
 def get_ancestors(area_id_or_path):
 	"""Fetch ancestor chain from root down to the specified node."""
 	node = None
-	if frappe.db.exists("Grievance Administrative Area", area_id_or_path):
-		node = frappe.get_doc("Grievance Administrative Area", area_id_or_path)
-	else:
-		name = frappe.db.get_value("Grievance Administrative Area", {"path_code": area_id_or_path}, "name")
-		if name:
-			node = frappe.get_doc("Grievance Administrative Area", name)
+	resolved = resolve_administrative_area(area_id_or_path)
+	if resolved:
+		node = frappe.get_doc("Grievance Administrative Area", resolved)
 
 	if not node:
 		return {"breadcrumbs": [], "current": None}
@@ -34,14 +53,17 @@ def get_ancestors(area_id_or_path):
 			["rgt", ">=", node.rgt],
 			["depth", ">", 0],  # skip synthetic World root
 		],
-		fields=["name as area_id", "area_name", "code", "path_code", "level_name", "depth"],
+		fields=["name", "area_name", "code", "path_code", "level_name", "depth"],
 		order_by="lft asc",
 		ignore_permissions=True,
 	)
+	for row in ancestors:
+		row["area_id"] = row.get("code") or row.pop("name")
+		row.pop("name", None)
 
 	return {
 		"current": {
-			"area_id": node.name,
+			"area_id": node.code or node.name,
 			"area_name": node.area_name,
 			"path_code": node.path_code,
 			"level_name": node.level_name,
