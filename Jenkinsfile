@@ -48,7 +48,7 @@ pipeline {
                     def appsJson = """[
   {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_auth_service", "branch": "${branch}"},
   {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_grievance_service", "branch": "${branch}"},
-  {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_messaging_connector", "branch": "${branch}"}
+  {"url": "https://github.com/Centre-for-Open-Societal-Systems/oan_messaging_service", "branch": "${branch}"}
 ]
 """
                     writeFile file: 'apps.json', text: appsJson
@@ -77,7 +77,7 @@ pipeline {
                         .
 
                     # Never push or deploy an image that is missing the OAN apps
-                    docker run --rm "$FULL_IMAGE" bash -c "ls apps && test -d apps/oan_auth_service && test -d apps/oan_grievance_service && test -d apps/oan_messaging_connector"
+                    docker run --rm "$FULL_IMAGE" bash -c "ls apps && test -d apps/oan_auth_service && test -d apps/oan_grievance_service && test -d apps/oan_messaging_service"
                 '''
             }
         }
