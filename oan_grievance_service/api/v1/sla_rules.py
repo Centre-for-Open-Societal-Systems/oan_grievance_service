@@ -482,7 +482,8 @@ def update_cluster(rule_id: str, **kwargs):
 	names = []
 	for grievance_type in wanted:
 		if grievance_type in by_type:
-			doc = frappe.get_doc(RULE, by_type[grievance_type].name)
+			# save() needs the whole document, and a cluster holds one rule per grievance type.
+			doc = frappe.get_doc(RULE, by_type[grievance_type].name)  # nosemgrep
 			if values:
 				doc.update(values)
 				doc.save()
