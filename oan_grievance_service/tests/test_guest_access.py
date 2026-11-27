@@ -1,13 +1,12 @@
-"""Link-and-PIN access to a sensitive anonymous case (STG-518).
+"""Link-and-PIN view of a sensitive anonymous case (STG-518).
 
 Each acceptance criterion the backend owns is checked where it is enforced: issuing and the
-message in services/guest_access.py and services/notifications.py, the PIN check and sessions
-in services/guest_access.py, the guest's reach in permissions.py, and the routes through the
-JWT middleware and Frappe's router, as the portal's backend-for-frontend calls them.
+message in services/guest_access.py and services/notifications.py, the PIN check in
+services/guest_access.py, and the one read-only route through the JWT middleware and Frappe's
+router, as the portal's backend-for-frontend calls it.
 """
 
 import json
-import time
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -18,7 +17,6 @@ from frappe.utils.password import get_decrypted_password
 from oan_grievance_service import permissions
 from oan_grievance_service.api.v1 import attachment
 from oan_grievance_service.api.v1 import grievance as grievance_api
-from oan_grievance_service.api.v1 import guest_access as guest_api
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
 	GrievanceTimeline,
 )
@@ -26,21 +24,22 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services import guest_access, notifications
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.setup.install import seed_notifications
-from oan_grievance_service.setup.service_users import GUEST_USER_EMAIL, ensure_guest_service_user
 from oan_grievance_service.tests.fixtures import a_submitter_type, a_user_with_role
-from oan_grievance_service.tests.test_attachment_api import _jpeg, _Request, _Upload
+from oan_grievance_service.tests.test_attachment_api import _jpeg, _pdf, _Request, _Upload
 from oan_grievance_service.tests.test_category_assignment import _keep_transaction
 from oan_grievance_service.tests.test_sensitive_cases import OFFICER_NAME, SensitiveFixture
 
 PEPPER = "test-pepper-for-guest-access-0123456789abcdef"
 BASE_URL = "https://grievance.example.test"
+VIEW = "/api/v1/guest/grievance"
 # Rate limits high enough that the suite's own calls from 127.0.0.1 never trip them.
 CONF = {
 	"guest_access_pepper": PEPPER,
 	"guest_access_base_url": BASE_URL,
 	"guest_access_verify_ip_limit": 100000,
 	"guest_access_verify_ticket_limit": 100000,
-	"guest_access_message_limit": 100000,
+	# Off, as on a site that does not set it; the tests of the temporary toast turn it on.
+	"guest_access_show_on_submit": 0,
 }
 INVALID_MESSAGE = "Check the SMS/Email for the correct PIN."
 ALL_CANDIDATES = guest_access.backfill_candidates
@@ -69,7 +68,6 @@ class GuestAccessFixture(SensitiveFixture):
 	def setUpClass(cls):
 		super().setUpClass()
 		seed_notifications()
-		ensure_guest_service_user()
 
 	def setUp(self):
 		super().setUp()
@@ -107,33 +105,23 @@ class GuestAccessFixture(SensitiveFixture):
 			order_by="creation asc",
 		)
 
-	def call(self, method, path, json_body=None, query=None, session=None):
+	def call(self, method, path, json_body=None):
 		"""One request through the middleware and router, as the portal's backend sends it."""
 		from oan_auth_service.testing import api_request
 
 		from oan_grievance_service.api.router import ensure_routes_registered
 
 		ensure_routes_registered()
-		headers = {guest_access.SESSION_HEADER: session} if session else None
 		with _keep_transaction():
-			response = api_request(
-				frappe.api.handle, method, path, json=json_body, query=query, headers=headers
-			)
+			response = api_request(frappe.api.handle, method, path, json=json_body)
 		body = response.get_data(as_text=True)
 		return response.status_code, (json.loads(body) if body.startswith("{") else body)
 
 	def verify(self, case, token, pin):
+		"""The one guest call: the link's ticket and token and the PIN, answered with the case."""
 		return self.call(
-			"POST",
-			"/api/v1/guest-access/verify",
-			{"ticket_number": tn.display(case.ticket_number), "token": token, "pin": pin},
+			"POST", VIEW, {"ticket_number": tn.display(case.ticket_number), "token": token, "pin": pin}
 		)
-
-	def signed_in(self, case):
-		token, pin = self.issued(case)
-		status, body = self.verify(case, token, pin)
-		self.assertEqual(status, 200, body)
-		return body["data"]["session_token"]
 
 
 class TestIssuing(GuestAccessFixture):
@@ -334,7 +322,7 @@ class TestIssuing(GuestAccessFixture):
 				self.assertNotIn("status_pin", self.filed)
 
 
-class TestVerify(GuestAccessFixture):
+class TestGuestView(GuestAccessFixture):
 	def test_ac8_a_wrong_pin_answers_401_with_the_message(self):
 		case = self.an_open_case()
 		token, pin = self.issued(case)
@@ -343,24 +331,89 @@ class TestVerify(GuestAccessFixture):
 			(status, body["code"], body["message"]), (401, guest_access.CODE_INVALID, INVALID_MESSAGE)
 		)
 
-	def test_ac8_the_right_link_and_pin_open_a_session(self):
+	def test_ac11_the_right_link_and_pin_answer_with_the_case_and_nothing_identifying(self):
 		case = self.an_open_case()
+		for internal, body in ((True, "Internal: officer only"), (False, "We are looking into it.")):
+			GrievanceTimeline.record(
+				grievance=case.name,
+				entry_type="note" if internal else "message",
+				is_internal=internal,
+				body=body,
+				author_user=self.focal_officer,
+				author_type="officer",
+			)
 		token, pin = self.issued(case)
 		status, body = self.verify(case, token, pin)
 		self.assertEqual(status, 200, body)
-		self.assertEqual(body["data"]["ticket_number"], tn.display(case.ticket_number))
-		self.assertEqual(body["data"]["idle_timeout_seconds"], 15 * 60)
-		self.assertTrue(body["data"]["session_token"])
+		data = body["data"]
+		self.assertEqual(
+			(data["ticket_number"], data["description"]), (tn.display(case.ticket_number), case.description)
+		)
+		for hidden in (
+			"submitter",
+			"assignment",
+			"available_actions",
+			"is_sensitive",
+			"name",
+			"session_token",
+		):
+			self.assertNotIn(hidden, data)
+		bodies = [entry["body"] for entry in data["timeline"]]
+		self.assertIn("We are looking into it.", bodies)
+		self.assertNotIn("Internal: officer only", bodies)
+		for entry in data["timeline"]:
+			self.assertNotIn("author_name", entry)
+			self.assertNotIn("author_role", entry)
+		shown = json.dumps(data)
+		for leaked in ("Test Submitter", "+251911234567", self.focal_officer, OFFICER_NAME, self.department):
+			self.assertNotIn(leaked, shown)
+
+	def test_ac11_files_are_named_but_not_served_and_internal_evidence_stays_hidden(self):
+		case = self.an_open_case()
+		internal = GrievanceTimeline.record(
+			grievance=case.name, entry_type="note", is_internal=True, body="Evidence", author_type="officer"
+		)
+		saved = getattr(frappe.local, "request", None)
+		try:
+			frappe.local.request = _Request(_Upload("public.jpg", _jpeg()))
+			attachment.submit_documents(grievance=case.name)
+			frappe.local.request = _Request(_Upload("internal.pdf", _pdf()))
+			attachment.submit_documents(grievance=case.name, timeline_entry=internal.name)
+		finally:
+			frappe.local.request = saved
+		token, pin = self.issued(case)
+		data = self.verify(case, token, pin)[1]["data"]
+		self.assertEqual([row["file_name"] for row in data["attachments"]], ["public.jpg"])
+		self.assertNotIn("file_url", data["attachments"][0])
+
+	def test_the_view_is_audited_as_a_link_view(self):
+		case = self.an_open_case()
+		token, pin = self.issued(case)
+		self.verify(case, token, pin)
+		self.assertTrue(
+			frappe.db.exists(
+				"Grievance Access Audit Event",
+				{"grievance": case.name, "action": "view_detail", "scope_evaluated": "guest link"},
+			)
+		)
+
+	def test_only_the_read_only_route_exists(self):
+		from oan_auth_service.api.router import _rules
+
+		from oan_grievance_service.api.router import ensure_routes_registered
+
+		ensure_routes_registered()
+		paths = {rule.rule for rule in _rules}
+		self.assertIn(VIEW, paths)
+		self.assertEqual(
+			{p for p in paths if p.startswith(("/api/v1/guest-access", "/api/v1/guest/"))}, {VIEW}
+		)
 
 	def test_ac9_unknown_ticket_wrong_token_and_wrong_pin_answer_alike(self):
 		case = self.an_open_case()
 		token, pin = self.issued(case)
 		answers = [
-			self.call(
-				"POST",
-				"/api/v1/guest-access/verify",
-				{"ticket_number": "9-ZZZ-ZZZZ-Z", "token": token, "pin": pin},
-			),
+			self.call("POST", VIEW, {"ticket_number": "9-ZZZ-ZZZZ-Z", "token": token, "pin": pin}),
 			self.verify(case, "x" * 22, pin),
 			self.verify(case, token, _wrong(pin)),
 		]
@@ -392,6 +445,20 @@ class TestVerify(GuestAccessFixture):
 		access = self.access(case)
 		self.assertEqual((access.status, access.failed_attempts), ("Active", 0))
 
+	def test_a_wrong_pin_is_counted_in_the_database_not_written_back(self):
+		"""Parallel guesses each count: the count is incremented where it is stored."""
+		case = self.an_open_case()
+		token, pin = self.issued(case)
+		name = self.access(case).name
+		self.verify(case, token, _wrong(pin))
+		# Another request's guess lands in between; a read-then-write would overwrite it.
+		frappe.db.sql(
+			"update `tabGrievance Guest Access` set failed_attempts = failed_attempts + 1 where name = %s",
+			name,
+		)
+		self.verify(case, token, _wrong(pin))
+		self.assertEqual(self.access(case).failed_attempts, 3)
+
 	def test_a_wrong_token_does_not_count_toward_the_lock(self):
 		"""Ticket numbers are sequential: counting these would let anyone lock a submitter out."""
 		case = self.an_open_case()
@@ -402,14 +469,24 @@ class TestVerify(GuestAccessFixture):
 		access = self.access(case)
 		self.assertEqual((access.status, access.failed_attempts), ("Active", 0))
 
-	def test_verify_is_rate_limited_per_ticket(self):
+	def test_junk_requests_for_a_ticket_do_not_use_up_its_owners_limit(self):
+		"""Only attempts that hold the right link count against the ticket."""
 		case = self.an_open_case()
-		token, _pin = self.issued(case)
+		token, pin = self.issued(case)
+		frappe.cache.delete_value(f"grievance_guest:verify:ticket:{case.ticket_number}")
+		with patch.dict(frappe.conf, {"guest_access_verify_ticket_limit": 2}):
+			junk = [self.verify(case, "z" * 22, pin)[0] for _ in range(5)]
+			self.assertEqual(junk, [401] * 5)
+			self.assertEqual(self.verify(case, token, pin)[0], 200)
+
+	def test_attempts_with_the_right_link_are_rate_limited_per_ticket(self):
+		case = self.an_open_case()
+		token, pin = self.issued(case)
 		# Ticket numbers come from a counter the test rollback rewinds, so an earlier run's count
 		# for this number may still be in Redis.
 		frappe.cache.delete_value(f"grievance_guest:verify:ticket:{case.ticket_number}")
 		with patch.dict(frappe.conf, {"guest_access_verify_ticket_limit": 2}):
-			statuses = [self.verify(case, token, "123")[0] for _ in range(3)]
+			statuses = [self.verify(case, token, _wrong(pin))[0] for _ in range(3)]
 		self.assertEqual(statuses, [401, 401, 429])
 
 	def test_ac17_a_right_pin_on_a_closed_case_says_closed_and_anything_else_stays_generic(self):
@@ -429,171 +506,11 @@ class TestVerify(GuestAccessFixture):
 			status, body = self.verify(case, token, pin)
 		self.assertEqual((status, body["code"]), (503, guest_access.CODE_NOT_CONFIGURED))
 
-
-class TestGuestSession(GuestAccessFixture):
-	def test_ac11_the_guest_sees_the_case_without_identity_staff_data_or_internal_entries(self):
+	def test_the_view_reads_as_nobody_and_grants_nothing_to_guest(self):
 		case = self.an_open_case()
-		for internal, body in ((True, "Internal: officer only"), (False, "We are looking into it.")):
-			GrievanceTimeline.record(
-				grievance=case.name,
-				entry_type="note" if internal else "message",
-				is_internal=internal,
-				body=body,
-				author_user=self.focal_officer,
-				author_type="officer",
-			)
-		session = self.signed_in(case)
-		status, body = self.call("GET", "/api/v1/guest/grievance", session=session)
-		self.assertEqual(status, 200, body)
-		data = body["data"]
-		self.assertEqual(data["ticket_number"], tn.display(case.ticket_number))
-		for hidden in ("submitter", "assignment", "available_actions", "is_sensitive", "name"):
-			self.assertNotIn(hidden, data)
-		bodies = [entry["body"] for entry in data["timeline"]]
-		self.assertIn("We are looking into it.", bodies)
-		self.assertNotIn("Internal: officer only", bodies)
-		for entry in data["timeline"]:
-			self.assertNotIn("author_name", entry)
-			self.assertNotIn("author_role", entry)
-		shown = json.dumps(data)
-		for leaked in ("Test Submitter", "+251911234567", self.focal_officer, OFFICER_NAME, self.department):
-			self.assertNotIn(leaked, shown)
-
-	def test_ac12_the_session_reaches_its_own_case_whatever_the_client_names(self):
-		case = self.an_open_case()
-		other = self.an_open_case()
-		session = self.signed_in(case)
-		status, body = self.call(
-			"GET", "/api/v1/guest/grievance", query={"grievance": other.name}, session=session
-		)
-		self.assertEqual(status, 200, body)
-		self.assertEqual(body["data"]["ticket_number"], tn.display(case.ticket_number))
-
-	def test_ac12_the_guest_user_reaches_no_other_case(self):
-		case = self.an_open_case()
-		other = self.an_open_case()
-		frappe.local.guest_grievance = case.name
-		try:
-			for ptype in ("read", "write"):
-				self.assertTrue(permissions.has_grievance_permission(case, ptype, user=GUEST_USER_EMAIL))
-				self.assertFalse(permissions.has_grievance_permission(other, ptype, user=GUEST_USER_EMAIL))
-			self.assertEqual(
-				permissions.grievance_query_conditions(GUEST_USER_EMAIL),
-				f"`tabGrievance`.name = {frappe.db.escape(case.name)}",
-			)
-		finally:
-			frappe.local.guest_grievance = None
-		# Outside a guest request the user reaches nothing.
-		self.assertFalse(permissions.has_grievance_permission(case, "read", user=GUEST_USER_EMAIL))
-		self.assertEqual(permissions.grievance_query_conditions(GUEST_USER_EMAIL), "1 = 0")
-
-	def test_ac12_another_cases_file_is_not_found(self):
-		case = self.an_open_case()
-		other = self.an_open_case()
-		saved = getattr(frappe.local, "request", None)
-		frappe.local.request = _Request(_Upload("receipt.jpg", _jpeg()))
-		try:
-			stored = attachment.submit_documents(grievance=other.name)
-		finally:
-			frappe.local.request = saved
-		session = self.signed_in(case)
-		status, body = self.call(
-			"GET",
-			f"/api/v1/guest/grievance/attachments/{stored['data'][0]['attachment']}/view",
-			session=session,
-		)
-		self.assertEqual(status, 404, body)
-
-	def test_ac13_a_guest_reply_with_a_file_shows_as_the_submitters_and_is_scanned(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		saved = getattr(frappe.local, "request", None)
-		request = _Request(_Upload("receipt.jpg", _jpeg()))
-		request.headers = {guest_access.SESSION_HEADER: session}
-		frappe.local.request = request
-		published = []
-		try:
-			with (
-				_keep_transaction(),
-				patch.object(frappe, "publish_realtime", side_effect=lambda *a, **kw: published.append(a)),
-			):
-				result = guest_api.post_message(body="Here is the receipt.")
-		finally:
-			frappe.local.request = saved
-		self.assertEqual(result["status"], "success", result)
-		event = result["data"]["timeline_event"]
-		self.assertEqual((event["author_type"], event["body"]), ("submitter", "Here is the receipt."))
-		self.assertEqual(result["data"]["attachments"][0]["scan_status"], "Pending")
-		# Officers watching the case are told at once; the file is scanned before anyone opens it.
-		self.assertIn("timeline_updated", [args[0] for args in published])
-		entry = frappe.db.get_value(
-			"Grievance Timeline", result["data"]["name"], ["is_internal", "author_type"], as_dict=True
-		)
-		self.assertEqual((entry.is_internal, entry.author_type), (0, "submitter"))
-
-	def test_a_guest_cannot_post_an_internal_note(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		status, body = self.call(
-			"POST",
-			"/api/v1/guest/grievance/message",
-			{"body": "Sneaky note", "is_internal": True, "type": "internal"},
-			session=session,
-		)
-		self.assertEqual(status, 200, body)
-		self.assertEqual(frappe.db.get_value("Grievance Timeline", body["data"]["name"], "is_internal"), 0)
-
-	def test_ac14_the_session_ends_after_the_idle_limit_and_slides_on_each_call(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		key = frappe.cache.make_key(guest_access._session_key(session))
-		self.assertGreater(frappe.cache.ttl(key), 15 * 60 - 30)
-		self.assertLessEqual(frappe.cache.ttl(key), 15 * 60)
-		status, body = self.call("GET", "/api/v1/guest-access/session", session=session)
-		self.assertEqual((status, body["data"]["idle_timeout_seconds"]), (200, 15 * 60))
-		# The idle limit is the key's expiry in Redis; once it lapses the session is gone.
-		frappe.cache.delete_value(guest_access._session_key(session))
-		status, body = self.call("GET", "/api/v1/guest/grievance", session=session)
-		self.assertEqual((status, body["code"]), (401, guest_access.CODE_SESSION_EXPIRED))
-
-	def test_ac15_the_session_ends_at_the_absolute_limit_even_when_active(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		later = time.time() + 60 * 60 + 1
-		with patch.object(guest_access.time, "time", return_value=later):
-			status, body = self.call("GET", "/api/v1/guest/grievance", session=session)
-		self.assertEqual((status, body["code"]), (401, guest_access.CODE_SESSION_EXPIRED))
-
-	def test_ac15_the_idle_window_never_runs_past_the_absolute_limit(self):
-		self.assertLessEqual(
-			guest_access._session_ttl({"absolute_at": time.time() + 120}, guest_access.settings()), 120
-		)
-
-	def test_ac17_closing_the_case_ends_an_open_session(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		case.db_set("workflow_state", C.STATE_CLOSED, update_modified=False)
-		status, body = self.call("GET", "/api/v1/guest/grievance", session=session)
-		self.assertEqual((status, body["code"]), (410, guest_access.CODE_CLOSED))
-		self.assertEqual(self.access(case).status, "Closed")
-		self.assertEqual(self.call("GET", "/api/v1/guest/grievance", session=session)[0], 401)
-
-	def test_logout_ends_the_session_on_the_server(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		self.assertEqual(self.call("POST", "/api/v1/guest-access/logout", session=session)[0], 200)
-		self.assertEqual(self.call("GET", "/api/v1/guest/grievance", session=session)[0], 401)
-
-	def test_no_session_reaches_nothing(self):
-		for path in ("/api/v1/guest/grievance", "/api/v1/guest/grievance/attachments"):
-			status, body = self.call("GET", path, session="not-a-session")
-			self.assertEqual((status, body["code"]), (401, guest_access.CODE_SESSION_EXPIRED))
-
-	def test_the_request_user_and_binding_are_restored_after_a_guest_call(self):
-		case = self.an_open_case()
-		session = self.signed_in(case)
-		self.call("GET", "/api/v1/guest/grievance", session=session)
-		self.assertIsNone(permissions.guest_bound_case())
+		token, pin = self.issued(case)
+		self.verify(case, token, pin)
+		self.assertFalse(permissions.has_grievance_permission(case, "read", user="Guest"))
 
 
 class TestBackfill(GuestAccessFixture):

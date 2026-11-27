@@ -229,12 +229,10 @@ class TestReviewOfficer(FrappeTestCase):
 				"change_request.decide",
 				# Writes only the caller's own Submitter Profile.
 				"submitter.register_submitter",
-				# Link-and-PIN access (STG-518): public routes, no role at all. verify checks the
-				# link's token and the PIN; logout ends only the session it is sent; post_message runs
-				# as the guest user, which reaches only the case its session is bound to.
-				"guest_access.verify",
-				"guest_access.logout",
-				"guest_access.post_message",
+				# Link-and-PIN view (STG-518): a public, read-only route with no role at all. It checks
+				# the link's token and the PIN and reads that one case; it writes nothing but the
+				# failed-PIN count and the access audit row.
+				"guest_access.view_grievance",
 			},
 		)
 

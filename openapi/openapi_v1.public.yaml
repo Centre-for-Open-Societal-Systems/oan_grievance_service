@@ -1611,214 +1611,24 @@ paths:
         description: Administrative area ID to filter officer assignments
       security:
       - BearerAuth: []
-  /v1/guest-access/verify:
-    post:
-      tags:
-      - Guest Access
-      summary: Check a grievance link and PIN, and open a guest session
-      description: 'Check the ticket and token from the link and the PIN the submitter typed.
-
-
-        A wrong ticket, token or PIN all answer 401 `GUEST_ACCESS_INVALID`. With the right link,
-
-        too many wrong PINs answer 429 `GUEST_ACCESS_LOCKED` (with `retry_after_seconds`) until the
-
-        lock ends, and a closed case answers 410 `GUEST_ACCESS_CLOSED` once the PIN is right.
-
-        On success the session token goes back in the `X-Grievance-Guest-Session` header of every
-
-        guest call; it ends after the idle limit without a call, or at `expires_at` regardless.'
-      operationId: post_api_v1_guest_access_verify
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VerifyGuestAccessRequest'
-  /v1/guest-access/session:
-    get:
-      tags:
-      - Guest Access
-      summary: Keep a guest session alive
-      description: Slide the session's idle limit forward ("Stay signed in") and report what is left.
-      operationId: get_api_v1_guest_access_session
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      security: []
-  /v1/guest-access/logout:
-    post:
-      tags:
-      - Guest Access
-      summary: End a guest session
-      description: End the session now. Answers the same whether or not it was still open.
-      operationId: post_api_v1_guest_access_logout
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      security: []
   /v1/guest/grievance:
-    get:
-      tags:
-      - Guest Access
-      summary: View the grievance a guest session is bound to
-      description: The case, its public timeline and its files, as the submitter is shown them, less identity.
-      operationId: get_api_v1_guest_grievance
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      security: []
-  /v1/guest/grievance/message:
     post:
       tags:
       - Guest Access
-      summary: Reply on the grievance a guest session is bound to, with optional files
-      description: A public reply from the submitter. Files sent as multipart attach to it and are scanned.
-      operationId: post_api_v1_guest_grievance_message
+      summary: View a sensitive anonymous grievance with its link and PIN
+      description: 'Check the ticket and token from the link and the PIN typed, and return that one case.
+
+
+        Read-only and stateless: send all three on every view. A wrong ticket, token or PIN all answer
+
+        401 `GUEST_ACCESS_INVALID`. With the right link, too many wrong PINs answer 429
+
+        `GUEST_ACCESS_LOCKED` (with `retry_after_seconds`) until the lock ends, and a closed case
+
+        answers 410 `GUEST_ACCESS_CLOSED` once the PIN is right. 503 `GUEST_ACCESS_UNAVAILABLE` when
+
+        the site is not configured for it.'
+      operationId: post_api_v1_guest_grievance
       responses:
         '200':
           description: Success
@@ -1863,162 +1673,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuestMessageRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/GuestMessageRequest'
-  /v1/guest/grievance/attachments:
-    get:
-      tags:
-      - Guest Access
-      summary: List the grievance's files
-      description: Every file on the case with its scan verdict; only Clean ones can be opened.
-      operationId: get_api_v1_guest_grievance_attachments
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      security: []
-  /v1/guest/grievance/attachments/{attachment_id}/view:
-    get:
-      tags:
-      - Guest Access
-      summary: Open one of the grievance's files
-      description: The file's bytes, inline (`download=1` for a Save As), once it has been scanned clean.
-      operationId: get_api_v1_guest_grievance_attachments_attachment_id_view
-      responses:
-        '200':
-          description: Success
-          content:
-            '*/*':
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: attachment_id
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Attachment Id identifier
-      security: []
-  /v1/guest/grievance/attachments/{attachment_id}/download:
-    get:
-      tags:
-      - Guest Access
-      summary: Download one of the grievance's files
-      description: The file's bytes as a download, once it has been scanned clean.
-      operationId: get_api_v1_guest_grievance_attachments_attachment_id_download
-      responses:
-        '200':
-          description: Success
-          content:
-            '*/*':
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Validation or Bad Input Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '401':
-          description: Unauthorized / Authentication Required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '403':
-          description: Forbidden / Insufficient Role Scope
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '404':
-          description: Resource Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-        '500':
-          description: Internal Server Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardErrorResponse'
-      parameters:
-      - name: attachment_id
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Attachment Id identifier
-      security: []
+              $ref: '#/components/schemas/GuestGrievanceRequest'
   /v1/attachments/validate:
     post:
       tags:
@@ -12107,7 +11762,7 @@ components:
           default: null
           nullable: true
       type: object
-    VerifyGuestAccessRequest:
+    GuestGrievanceRequest:
       properties:
         ticket_number:
           maxLength: 32
@@ -12126,26 +11781,6 @@ components:
       - ticket_number
       - token
       - pin
-      type: object
-    GuestMessageRequest:
-      properties:
-        body:
-          minLength: 1
-          type: string
-        client_message_id:
-          maxLength: 64
-          type: string
-          default: null
-          description: Client-generated idempotency key (UUIDv4) to prevent duplicate submissions.
-          nullable: true
-        files:
-          type: array
-          items:
-            type: string
-            format: binary
-          description: Files, sent as multipart/form-data
-      required:
-      - body
       type: object
     ValidateUploadsRequest:
       additionalProperties: true

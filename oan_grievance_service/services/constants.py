@@ -156,10 +156,6 @@ ROLE_DASHBOARD_READER = "Grievance Dashboard Reader"
 # changes nothing. It holds read-only DocPerms and is never listed on a mutating
 # endpoint's require_role.
 ROLE_REVIEW_OFFICER = "Grievance Review Officer"
-# Held only by the guest service user (setup/service_users.py), whom a verified link-and-PIN
-# session runs as. It reads and writes the one case the session is bound to and nothing else
-# (permissions.py); nobody signs in with it.
-ROLE_GUEST = "Grievance Guest"
 
 # The submission channel (Grievance Submission Type) of the IVR helpline, and what the webhook
 # files a call under when the platform sends no more than the caller's number.

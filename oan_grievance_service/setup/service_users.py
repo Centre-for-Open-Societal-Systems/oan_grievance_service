@@ -51,59 +51,6 @@ def ensure_ivr_service_user():
 	return user.name
 
 
-# The user a verified link-and-PIN session runs as (STG-518, services/guest_access.py). It holds
-# only the guest role, which reaches the one case the session is bound to. Nobody signs in as it:
-# the password is random and never kept, no API key is ever made for it, and `restrict_ip` names
-# an address no client has, so Frappe's login refuses it even with a password.
-GUEST_USER_EMAIL = "grievance-guest-access@id.openagrinet.internal"
-GUEST_USER_FIRST_NAME = "Grievance Guest Access"
-GUEST_USER_ROLES = (C.ROLE_GUEST,)
-GUEST_USER_RESTRICT_IP = "0.0.0.0"
-
-
-def ensure_guest_service_user():
-	"""Create the guest service user, or bring an existing one back to the intended state.
-
-	Idempotent: runs on install and on every migrate. Roles other than the guest role are
-	removed, so the user can never reach more than one case.
-
-	The guest role is kept without desk access first. Frappe creates a role named in a DocPerm
-	row when it syncs the DocType, with desk access on, before `seed_roles` runs, and a user with
-	such a role is saved as a System User.
-	"""
-	for role in GUEST_USER_ROLES:
-		if not frappe.db.exists("Role", role):
-			frappe.get_doc({"doctype": "Role", "role_name": role, "desk_access": 0}).insert(
-				ignore_permissions=True
-			)
-		elif frappe.db.get_value("Role", role, "desk_access"):
-			frappe.db.set_value("Role", role, "desk_access", 0)
-
-	if frappe.db.exists("User", GUEST_USER_EMAIL):
-		user = frappe.get_doc("User", GUEST_USER_EMAIL)
-	else:
-		user = frappe.new_doc("User")
-		user.email = GUEST_USER_EMAIL
-		user.first_name = GUEST_USER_FIRST_NAME
-		user.user_type = "Website User"
-		user.send_welcome_email = 0
-		user.new_password = frappe.generate_hash(length=40)
-
-	user.enabled = 1
-	user.user_type = "Website User"
-	user.restrict_ip = GUEST_USER_RESTRICT_IP
-	# An API key would be a way in that skips the link and PIN.
-	user.api_key = None
-	user.set("roles", [row for row in user.roles if row.role in GUEST_USER_ROLES])
-	present = {row.role for row in user.roles}
-	for role in GUEST_USER_ROLES:
-		if role not in present:
-			user.append("roles", {"role": role})
-	user.flags.ignore_permissions = True
-	user.save()
-	return user.name
-
-
 def generate_ivr_keys():
 	"""Print the gateway token for the IVR user. Only creates a key pair if there is none."""
 	user = frappe.get_doc("User", IVR_USER_EMAIL)

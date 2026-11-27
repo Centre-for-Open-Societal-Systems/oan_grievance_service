@@ -1390,11 +1390,6 @@ spec:
       - /v1/administrative-areas/:area_id_or_path/ancestors
       - /v1/grievances/health
       - /v1/grievances/ping
-      - /v1/guest-access/session
-      - /v1/guest/grievance
-      - /v1/guest/grievance/attachments
-      - /v1/guest/grievance/attachments/:attachment_id/download
-      - /v1/guest/grievance/attachments/:attachment_id/view
       - /v1/submitters/options
       methods:
       - GET
@@ -1454,9 +1449,7 @@ spec:
 {{- end }}
 {{- end }}
       paths:
-      - /v1/guest-access/logout
-      - /v1/guest-access/verify
-      - /v1/guest/grievance/message
+      - /v1/guest/grievance
       methods:
       - POST
     plugins:
@@ -1534,8 +1527,6 @@ spec:
       - /v1/grievances
       - /v1/grievances/*
       - /v1/guest
-      - /v1/guest-access
-      - /v1/guest-access/*
       - /v1/guest/*
       - /v1/notification-templates
       - /v1/notification-templates/*

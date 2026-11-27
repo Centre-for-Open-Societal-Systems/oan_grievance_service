@@ -1477,7 +1477,7 @@ QP["DashboardCharts"] = [
 def _determine_tag(path: str, func_name: str) -> str:
 	if "/health" in path or "/ping" in path:
 		return "Health & Monitoring"
-	if path.startswith(("/api/v1/guest-access", "/api/v1/guest/")):
+	if path.startswith("/api/v1/guest/"):
 		return "Guest Access"
 	if path.startswith("/api/v1/submitters"):
 		return "Submitter Management"
@@ -1567,8 +1567,8 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
-	if path.startswith(("/api/v1/guest-access", "/api/v1/guest/")):
-		# Guest routes answer their own shapes, described in their docstrings, not a case action's.
+	if path.startswith("/api/v1/guest/"):
+		# The guest view answers its own shape, described in its docstring, not a case action's.
 		return None
 	return mapping.get(func_name, "GrievanceActionResultResponse" if method == "POST" else None)
 

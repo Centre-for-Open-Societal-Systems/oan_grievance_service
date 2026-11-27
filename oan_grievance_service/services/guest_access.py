@@ -14,14 +14,13 @@ What is kept, and where:
 - The Grievance Notification Log holds the message masked; `outbound_text` puts the link and PIN
   back only into the text that leaves the system, as `notifications._outbound_message` does for
   a sensitive case's status PIN.
-- A verified session lives in Redis under a hash of its token, with an idle and an absolute limit.
 
-A guest request runs as one service user that holds only the `Grievance Guest` role
-(setup/service_users.py), with `frappe.local.guest_grievance` naming the case its session is
-bound to. permissions.py lets that user reach that case and nothing else.
+Viewing is read-only and stateless: every view sends the ticket, token and PIN again, `verify`
+checks them, and the route answers with that one case. There is no session to keep, no guest
+user and no permission layer: the verified case is the only one the route ever reads.
 
-Undecided product values (Q2, Q3, Q5, Q8) are read from site_config with placeholder defaults,
-in `settings()` and `link_ending_states()`, so each is one place to change.
+Undecided product values (Q2, Q3, Q8) are read from site_config with placeholder defaults, in
+`settings()` and `link_ending_states()`, so each is one place to change.
 """
 
 import hashlib
@@ -29,9 +28,7 @@ import hmac
 import logging
 import math
 import secrets
-import time
 from dataclasses import dataclass
-from functools import wraps
 
 import frappe
 from frappe import _
@@ -65,18 +62,10 @@ TOKEN_BYTES = 16
 # What a stored message shows in place of the token and the PIN.
 MASK = "******"
 
-# The guest session travels in its own header, not `Authorization`: the auth middleware checks
-# any bearer token on a public path as a JWT and would refuse this one.
-SESSION_HEADER = "X-Grievance-Guest-Session"
-SESSION_KEY_PREFIX = "grievance_guest_session:"
-SESSION_TOKEN_BYTES = 32
-MAX_SESSION_TOKEN_LENGTH = 128
-
 # Error codes the frontend branches on.
 CODE_INVALID = "GUEST_ACCESS_INVALID"
 CODE_LOCKED = "GUEST_ACCESS_LOCKED"
 CODE_CLOSED = "GUEST_ACCESS_CLOSED"
-CODE_SESSION_EXPIRED = "GUEST_SESSION_EXPIRED"
 CODE_NOT_CONFIGURED = "GUEST_ACCESS_UNAVAILABLE"
 
 
@@ -87,13 +76,9 @@ class Settings:
 	pin_length: int
 	max_attempts: int
 	lock_minutes: int
-	idle_minutes: int
-	absolute_minutes: int
 	verify_ip_limit: int
 	verify_ticket_limit: int
 	verify_window_seconds: int
-	message_limit: int
-	message_window_seconds: int
 
 	@property
 	def ready(self) -> bool:
@@ -106,7 +91,7 @@ def settings() -> Settings:
 	`guest_access_pepper` (a long random secret) and `guest_access_base_url` (the portal's origin,
 	e.g. https://grievance.example.org) have no default: without them no link is issued and
 	verification refuses everything. Every other value is a PLACEHOLDER until product decides it:
-	PIN length and lockout (Q3), session timeouts (Q5, the portal's own idle defaults).
+	PIN length and lockout (Q3), and the rate limits.
 	"""
 	conf = frappe.conf
 	return Settings(
@@ -117,16 +102,11 @@ def settings() -> Settings:
 		# PLACEHOLDER (Q3): wrong PINs in a row before the link locks, and for how long.
 		max_attempts=cint(conf.get("guest_access_max_attempts")) or 5,
 		lock_minutes=cint(conf.get("guest_access_lock_minutes")) or 15,
-		# PLACEHOLDER (Q5): session idle and absolute limits.
-		idle_minutes=cint(conf.get("guest_access_idle_minutes")) or 15,
-		absolute_minutes=cint(conf.get("guest_access_absolute_minutes")) or 60,
-		# PLACEHOLDER: verify attempts per client address and per ticket, per window.
-		verify_ip_limit=cint(conf.get("guest_access_verify_ip_limit")) or 30,
-		verify_ticket_limit=cint(conf.get("guest_access_verify_ticket_limit")) or 10,
+		# PLACEHOLDER: views per client address, and PIN checks per ticket, per window. A view
+		# sends the PIN again each time, so these allow for a submitter reloading the page.
+		verify_ip_limit=cint(conf.get("guest_access_verify_ip_limit")) or 60,
+		verify_ticket_limit=cint(conf.get("guest_access_verify_ticket_limit")) or 30,
 		verify_window_seconds=cint(conf.get("guest_access_verify_window_seconds")) or 15 * 60,
-		# PLACEHOLDER: replies a guest session may post per window.
-		message_limit=cint(conf.get("guest_access_message_limit")) or 30,
-		message_window_seconds=cint(conf.get("guest_access_message_window_seconds")) or 60 * 60,
 	)
 
 
@@ -372,23 +352,37 @@ class VerifyResult:
 	ok: bool
 	code: str | None = None
 	status: int = 200
-	session_token: str | None = None
 	grievance: str | None = None
 	retry_after_seconds: int | None = None
-	expires_at: float | None = None
 
 
 def _security_event(event: str, **fields) -> None:
 	oplog.emit(f"security.guest_access.{event}", logging.WARNING, **fields)
 
 
+def _add_failed_attempt(access_name: str) -> int:
+	"""Count one wrong PIN in the database itself and return the new count.
+
+	An increment in SQL, not a read and a write back, so guesses sent in parallel are each counted
+	and cannot slip past `max_attempts` between them.
+	"""
+	access = frappe.qb.DocType(ACCESS)
+	(
+		frappe.qb.update(access)
+		.set(access.failed_attempts, access.failed_attempts + 1)
+		.where(access.name == access_name)
+	).run()
+	return cint(frappe.db.get_value(ACCESS, access_name, "failed_attempts"))
+
+
 def verify(ticket_number: str, token: str, pin: str, client_ip: str | None) -> VerifyResult:
-	"""Check a link's ticket and token and the PIN typed, and open a session on success.
+	"""Check a link's ticket and token and the PIN typed; on success name the case.
 
 	An unknown ticket, a wrong token and a wrong PIN all give the same answer, at the same cost.
-	Only a wrong PIN with the right link counts toward the lock: counting a wrong token would let
-	anyone who knows a ticket number (they are sequential) keep its submitter locked out.
-	Locked and closed are told only to a caller who holds the right link.
+	Only a caller who holds the right link reaches the PIN stage, and only there are the per-ticket
+	limit and the lock counted: ticket numbers are sequential, so counting a request with a wrong
+	token would let anyone keep a submitter out with junk. Locked and closed are told only to a
+	caller who holds the right link, and closed only once the PIN is right too.
 	"""
 	conf = settings()
 	invalid = VerifyResult(ok=False, code=CODE_INVALID, status=401)
@@ -397,34 +391,35 @@ def verify(ticket_number: str, token: str, pin: str, client_ip: str | None) -> V
 		oplog.emit("guest_access.not_configured", logging.WARNING, during="verify")
 		return VerifyResult(ok=False, code=CODE_NOT_CONFIGURED, status=503)
 
-	normalized = tn.normalize(ticket_number or "")
 	check_rate_limit(
 		f"grievance_guest:verify:ip:{client_ip or 'unknown'}",
 		conf.verify_ip_limit,
 		conf.verify_window_seconds,
 	)
-	check_rate_limit(
-		f"grievance_guest:verify:ticket:{normalized}", conf.verify_ticket_limit, conf.verify_window_seconds
-	)
 
+	normalized = tn.normalize(ticket_number or "")
 	grievance = frappe.db.get_value(
 		"Grievance", {"ticket_number": normalized}, ["name", "workflow_state"], as_dict=True
 	)
-	access = (
-		frappe.db.get_value(
-			ACCESS,
-			{"grievance": grievance.name},
-			["name", "token_hash", "pin_hash", "status", "failed_attempts", "locked_until"],
-			as_dict=True,
-		)
-		if grievance
-		else None
-	)
-	expected = (access.token_hash if access else None) or ""
-	if not (access and hmac.compare_digest(token_hash(conf.pepper, token or ""), expected)):
+	access_name = frappe.db.get_value(ACCESS, {"grievance": grievance.name}, "name") if grievance else None
+	expected = (frappe.db.get_value(ACCESS, access_name, "token_hash") if access_name else None) or ""
+	if not (access_name and hmac.compare_digest(token_hash(conf.pepper, token or ""), expected)):
 		_spend_a_pin_check(conf.pepper, pin)
 		_security_event("refused", reason="unknown_link", grievance=grievance.name if grievance else None)
 		return invalid
+
+	# The right link: from here on the attempt counts against this ticket.
+	check_rate_limit(
+		f"grievance_guest:verify:ticket:{normalized}", conf.verify_ticket_limit, conf.verify_window_seconds
+	)
+	# Held until the request commits, so two checks of one case never interleave.
+	access = frappe.db.get_value(
+		ACCESS,
+		access_name,
+		["name", "pin_hash", "status", "failed_attempts", "locked_until"],
+		as_dict=True,
+		for_update=True,
+	)
 
 	now = now_datetime()
 	if access.locked_until and get_datetime(access.locked_until) > now:
@@ -434,18 +429,21 @@ def verify(ticket_number: str, token: str, pin: str, client_ip: str | None) -> V
 		return VerifyResult(ok=False, code=CODE_LOCKED, status=429, retry_after_seconds=max(retry, 1))
 
 	if not pin_matches(conf.pepper, pin or "", access.pin_hash):
-		attempts = cint(access.failed_attempts) + 1
-		updates = {"failed_attempts": attempts}
+		attempts = _add_failed_attempt(access.name)
 		if attempts >= conf.max_attempts:
-			updates = {
-				"failed_attempts": 0,
-				"locked_until": add_to_date(now, minutes=conf.lock_minutes),
-				"status": STATUS_LOCKED,
-			}
+			frappe.db.set_value(
+				ACCESS,
+				access.name,
+				{
+					"failed_attempts": 0,
+					"locked_until": add_to_date(now, minutes=conf.lock_minutes),
+					"status": STATUS_LOCKED,
+				},
+				update_modified=False,
+			)
 			_security_event("locked", grievance=grievance.name, minutes=conf.lock_minutes)
 		else:
 			_security_event("refused", reason="wrong_pin", grievance=grievance.name, attempts=attempts)
-		frappe.db.set_value(ACCESS, access.name, updates, update_modified=False)
 		return invalid
 
 	if link_has_ended(grievance):
@@ -461,90 +459,8 @@ def verify(ticket_number: str, token: str, pin: str, client_ip: str | None) -> V
 			{"status": STATUS_ACTIVE, "failed_attempts": 0, "locked_until": None},
 			update_modified=False,
 		)
-	session_token, expires_at = _open_session(grievance.name, access.name, conf)
 	oplog.emit("guest_access.verified", grievance=grievance.name)
-	return VerifyResult(ok=True, session_token=session_token, grievance=grievance.name, expires_at=expires_at)
-
-
-# Sessions
-# --------
-
-
-def _session_key(session_token: str) -> str:
-	# Keyed by a hash, so a Redis dump holds no usable session.
-	return SESSION_KEY_PREFIX + hashlib.sha256(session_token.encode()).hexdigest()
-
-
-def _session_ttl(data: dict, conf: Settings) -> int:
-	remaining = data["absolute_at"] - time.time()
-	return max(1, math.ceil(min(conf.idle_minutes * 60, remaining)))
-
-
-def _open_session(grievance_name: str, access_name: str, conf: Settings) -> tuple[str, float]:
-	session_token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
-	data = {
-		"grievance": grievance_name,
-		"access": access_name,
-		"absolute_at": time.time() + conf.absolute_minutes * 60,
-	}
-	frappe.cache.set_value(_session_key(session_token), data, expires_in_sec=_session_ttl(data, conf))
-	return session_token, data["absolute_at"]
-
-
-def end_session(session_token: str | None) -> None:
-	if session_token and len(session_token) <= MAX_SESSION_TOKEN_LENGTH:
-		frappe.cache.delete_value(_session_key(session_token))
-
-
-def session_token_from_request() -> str | None:
-	raw = (frappe.get_request_header(SESSION_HEADER) or "").strip()
-	return raw if raw and len(raw) <= MAX_SESSION_TOKEN_LENGTH else None
-
-
-@dataclass
-class SessionCheck:
-	ok: bool
-	code: str | None = None
-	status: int = 200
-	grievance: str | None = None
-	expires_at: float | None = None
-	idle_seconds: int | None = None
-
-
-def touch_session(session_token: str | None) -> SessionCheck:
-	"""Check a session and slide its idle limit forward. Ends it when its case has closed.
-
-	The absolute limit never moves: the idle window is cut short so the key expires by then.
-	"""
-	expired = SessionCheck(ok=False, code=CODE_SESSION_EXPIRED, status=401)
-	if not session_token:
-		return expired
-	key = _session_key(session_token)
-	data = frappe.cache.get_value(key)
-	if not data or time.time() >= data.get("absolute_at", 0):
-		frappe.cache.delete_value(key)
-		return expired
-
-	grievance = frappe.db.get_value("Grievance", data["grievance"], ["name", "workflow_state"], as_dict=True)
-	access_status = frappe.db.get_value(ACCESS, data["access"], "status")
-	if not grievance or not access_status:
-		frappe.cache.delete_value(key)
-		return expired
-	if access_status == STATUS_CLOSED or link_has_ended(grievance):
-		frappe.cache.delete_value(key)
-		if access_status != STATUS_CLOSED:
-			frappe.db.set_value(ACCESS, data["access"], "status", STATUS_CLOSED, update_modified=False)
-		return SessionCheck(ok=False, code=CODE_CLOSED, status=410)
-
-	conf = settings()
-	ttl = _session_ttl(data, conf)
-	frappe.cache.set_value(key, data, expires_in_sec=ttl)
-	return SessionCheck(
-		ok=True,
-		grievance=grievance.name,
-		expires_at=data["absolute_at"],
-		idle_seconds=min(conf.idle_minutes * 60, ttl),
-	)
+	return VerifyResult(ok=True, grievance=grievance.name)
 
 
 def _error_message(code: str) -> str:
@@ -552,54 +468,15 @@ def _error_message(code: str) -> str:
 		return _("Too many wrong PINs. Try again later.")
 	if code == CODE_CLOSED:
 		return _("This grievance is closed, so this link no longer works.")
-	if code == CODE_SESSION_EXPIRED:
-		return _("Your session ended. Open the link again.")
 	if code == CODE_NOT_CONFIGURED:
 		return _("Viewing a grievance by link is not available right now.")
 	return _("Check the SMS/Email for the correct PIN.")
 
 
 def guest_error(code: str, status: int, details: dict | None = None) -> dict:
-	"""The error envelope of a guest route, with its HTTP status set."""
+	"""The error envelope of the guest route, with its HTTP status set."""
 	frappe.response["http_status_code"] = status
 	return error_response(message=_error_message(code), code=code, details=details)
-
-
-def as_guest(fn):
-	"""Run a guest route as the guest service user, bound to its session's case.
-
-	The wrapped function gets the case's name as `grievance`. A missing, expired or ended session
-	is answered here and the route never runs. The user and binding are restored afterwards.
-	"""
-	from oan_grievance_service.setup.service_users import GUEST_USER_EMAIL
-
-	@wraps(fn)
-	def wrapper(*args, **kwargs):
-		# The case is the session's. One the client names is dropped, never used.
-		kwargs.pop("grievance", None)
-		check = touch_session(session_token_from_request())
-		if not check.ok:
-			return guest_error(check.code, check.status)
-
-		previous_user = frappe.session.user
-		form_dict = frappe.local.form_dict
-		# The guest user holds one role, which reaches only the case named next.
-		frappe.set_user(GUEST_USER_EMAIL)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
-		frappe.local.form_dict = form_dict
-		frappe.local.guest_grievance = check.grievance
-		try:
-			return fn(*args, grievance=check.grievance, **kwargs)
-		finally:
-			frappe.local.guest_grievance = None
-			frappe.set_user(previous_user)  # nosemgrep: frappe-semgrep-rules.rules.security.frappe-setuser
-			frappe.local.form_dict = form_dict
-
-	return wrapper
-
-
-def bound_grievance() -> str | None:
-	"""The case the current guest session is bound to, or None outside a guest request."""
-	return getattr(frappe.local, "guest_grievance", None)
 
 
 # Backfill

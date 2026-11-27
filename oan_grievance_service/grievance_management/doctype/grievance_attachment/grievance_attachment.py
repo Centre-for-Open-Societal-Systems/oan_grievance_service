@@ -155,12 +155,4 @@ def has_permission(doc, ptype="read", user=None, debug=False):
 	if isinstance(doc, str):
 		doc = frappe.get_doc("Grievance Attachment", doc)
 
-	# A link-and-PIN session (STG-518) reaches the files of its own case only, and deletes none.
-	from oan_grievance_service.permissions import guest_bound_case, is_guest
-
-	if is_guest(frappe.get_roles(user or frappe.session.user)):
-		bound = guest_bound_case()
-		if ptype == "delete" or not bound or doc.grievance != bound:
-			return False
-
 	return bool(doc.is_servable())
