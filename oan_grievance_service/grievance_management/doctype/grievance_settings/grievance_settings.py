@@ -34,7 +34,7 @@ class GrievanceSettings(Document):
 				re.compile(pattern)
 			except re.error as exc:
 				frappe.throw(
-					_("National ID Pattern is not a valid regular expression: {0}").format(exc),
+					_("National ID Pattern is not a valid regular expression: {0}").format(str(exc)),
 					frappe.ValidationError,
 				)
 
