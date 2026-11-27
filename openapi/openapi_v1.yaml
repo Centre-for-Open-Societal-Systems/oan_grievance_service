@@ -8919,7 +8919,7 @@ components:
               description: Farmer Registry internal record ID
             fayda_id:
               type: string
-              description: 16-digit Fayda ID searched for
+              description: Fayda ID searched for
             submitter_name:
               type: string
               nullable: true
@@ -12737,7 +12737,7 @@ components:
         fayda_id:
           type: string
           default: null
-          description: Fayda National ID (16 digits)
+          description: Fayda National ID (12 or 16 digits by default, set in Grievance Settings)
           nullable: true
         registration_number:
           type: string

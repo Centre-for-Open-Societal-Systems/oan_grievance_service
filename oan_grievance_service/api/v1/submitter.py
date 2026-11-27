@@ -61,7 +61,9 @@ class RegisterSubmitterRequest(BaseModel):
 	administrative_unit: str | None = Field(default=None, description="Administrative unit / woreda / branch")
 	preferred_language: str | None = Field(default=None, description="Preferred notification language")
 	fayda_id: str | None = Field(
-		default=None, title=N_("Fayda ID"), description="Fayda National ID (16 digits)"
+		default=None,
+		title=N_("Fayda ID"),
+		description="Fayda National ID (12 or 16 digits by default, set in Grievance Settings)",
 	)
 	registration_number: str | None = Field(
 		default=None, description="Official organization registration/certificate number"

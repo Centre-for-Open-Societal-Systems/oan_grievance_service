@@ -260,33 +260,6 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	)
 
 
-def ensure_submitter_profile_from_claims(user: str) -> str | None:
-	"""JIT-provision a Grievance Submitter Profile from `frappe.local.oan_auth_claims` if missing.
-
-	When a farmer signs in through the mobile BFF and calls grievance-service with a bearer token,
-	the delegated login hook never ran on this site. Reuses `on_delegated_login_hook` with the
-	verified IAM principal already attached to the request.
-	"""
-	if getattr(frappe.local, "oan_auth_issuer_kind", None) != "iam":
-		return None
-	claims = getattr(frappe.local, "oan_auth_claims", None)
-	if not isinstance(claims, dict):
-		return None
-	login_option = (
-		getattr(frappe.local, "oan_auth_login_option", None)
-		or (
-			frappe.db.get_value("OAN IAM Service", {"issuer": claims.get("iss")}, "key")
-			if claims.get("iss")
-			else None
-		)
-		or claims.get("iss")
-		or "iam"
-	)
-	if not on_delegated_login_hook(user=user, principal=claims, login_option=str(login_option)):
-		return None
-	return frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
-
-
 def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bool:
 	"""Hook subscriber for oan_auth_service's `oan_auth_on_delegated_login`.
 

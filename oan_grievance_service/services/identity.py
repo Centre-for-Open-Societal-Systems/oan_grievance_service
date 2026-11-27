@@ -67,7 +67,7 @@ def is_valid_fayda_id(fayda_id: str) -> bool:
 		national_id_pattern,
 	)
 
-	return bool(national_id_pattern().match(fayda_id))
+	return bool(national_id_pattern().fullmatch(fayda_id))
 
 
 def _validate_fayda_id(fayda_id: str):

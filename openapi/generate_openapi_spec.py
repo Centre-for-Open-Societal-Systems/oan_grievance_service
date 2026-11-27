@@ -254,7 +254,7 @@ data(
 			"farmer": OBJ(
 				{
 					"registry_id": S(description="Farmer Registry internal record ID"),
-					"fayda_id": S(description="16-digit Fayda ID searched for"),
+					"fayda_id": S(description="Fayda ID searched for"),
 					"submitter_name": S(nullable=True, description="Farmer name in the registry"),
 				},
 				required=["registry_id", "fayda_id"],
