@@ -5,33 +5,45 @@ and token from the link and the PIN the submitter typed. Each call checks all th
 (`guest_access.verify`) and answers with that one case. Nothing is kept between calls, so the
 portal sends them again on every view, holding them in memory only.
 
-What the guest is shown is built here, from the case alone: its status, description and public
-timeline, and the names of the files on public entries. No submitter name or contact, no
-officer, department or internal entry, no actions, and no file contents.
+What the guest is shown is built from the submitter-safe parts the signed-in timeline shares
+(`_case_view.py`): its status, description and public timeline, and the names of the files on
+public entries. No submitter name or contact, no officer, department or internal entry, no
+actions, and no file contents.
 """
 
 import frappe
 from frappe import N_, _
 from oan_auth_service.api.router import prefixed
-from oan_auth_service.api.utils import handle_api_errors, success_response, to_tz_aware_iso, validate_request
+from oan_auth_service.api.utils import handle_api_errors, success_response, validate_request
 from pydantic import BaseModel, ConfigDict, Field
 
-from oan_grievance_service.api.v1._options import public_status
+from oan_grievance_service.api.v1 import _case_view as case_view
 from oan_grievance_service.services import audit, guest_access
-from oan_grievance_service.services import constants as C
-from oan_grievance_service.services import ticket_number as tn
 
 route = prefixed("/api/v1")
 
 # More public entries than any case gathers; the view has no paging to keep.
 MAX_ENTRIES = 500
 
+# What the guest is shown, field by field. Anything the shared parts carry that is not named here
+# (an author's name, a file's URL, the uploader) is never sent.
+CASE_FIELDS = (
+	"ticket_number",
+	"status",
+	"description",
+	"desired_outcome",
+	"service_category",
+	"grievance_type_name",
+	"location",
+)
+SLA_FIELDS = ("sla_due_date", "confirmation_deadline")
 ENTRY_FIELDS = (
 	"id",
 	"name",
 	"entry_type",
 	"body",
 	"author_type",
+	"author_role",
 	"created_on",
 	"from_status",
 	"to_status",
@@ -44,7 +56,7 @@ ATTACHMENT_FIELDS = (
 	"name",
 	"file_name",
 	"mime_type",
-	"size_bytes",
+	"file_size",
 	"document_type",
 	"scan_status",
 	"creation",
@@ -64,84 +76,27 @@ def _pick(row: dict, fields) -> dict:
 
 
 def _case_view(doc) -> dict:
-	"""The case as its submitter is shown it by link: public entries and their files' names only."""
-	from oan_grievance_service.api.v1 import grievance as grievance_api
-	from oan_grievance_service.services.administrative_area import (
-		format_administrative_location,
-		get_administrative_hierarchy,
-	)
+	"""The case as its submitter is shown it by link: public entries and their files' names only.
 
-	entries = frappe.get_all(
-		"Grievance Timeline",
-		filters={"grievance": doc.name, "is_internal": 0},
-		fields=[
-			"name",
-			"entry_type",
-			"is_internal",
-			"body",
-			"author_user",
-			"author_type",
-			"ref_doctype",
-			"ref_docname",
-			"created_on",
-		],
-		order_by="created_on asc, name asc",
-		limit=MAX_ENTRIES,
-		ignore_permissions=True,
-	)
-	public_entries = {entry.name for entry in entries}
-	# Only files on a public entry, or on none: evidence an officer put on an internal note stays hidden.
-	files = [
-		row
-		for row in frappe.get_all(
-			"Grievance Attachment",
-			filters={"grievance": doc.name},
-			fields=[*ATTACHMENT_FIELDS, "timeline_entry"],
-			order_by="creation asc",
-			ignore_permissions=True,
-		)
-		if not row.timeline_entry or row.timeline_entry in public_entries
-	]
-	files_by_entry = {}
-	for row in files:
-		files_by_entry.setdefault(row.timeline_entry, []).append(_pick(row, ATTACHMENT_FIELDS))
+	Built from the submitter-safe parts `timeline` shares (`_case_view.py`), never from `timeline`
+	itself, and only the fields named above leave.
+	"""
+	entries, _more, _cursor = case_view.timeline_entries(doc, include_internal=False, limit=MAX_ENTRIES)
+	files = case_view.case_attachments(doc, include_internal=False)
+	files_by_entry = case_view.attachments_by_entry(files)
+	summary = case_view.case_summary(doc)
 
-	context = {
-		"history_map": grievance_api._history_details_for(
-			{e.ref_docname for e in entries if e.ref_doctype == "Grievance Status History"}
-		),
-		"user_names": {},
-		"history_fetched": True,
-		"response_numbers": grievance_api._get_response_numbers(doc.name),
-		"change_requests": {},
-	}
 	timeline = []
 	for entry in entries:
-		event = grievance_api._format_timeline_event(entry, doc, context=context)
-		if not event:
-			continue
-		shown = _pick(event, ENTRY_FIELDS)
-		shown["attachments"] = files_by_entry.get(entry.name, [])
+		shown = _pick(entry, ENTRY_FIELDS)
+		shown["attachments"] = [
+			_pick(row, ATTACHMENT_FIELDS) for row in files_by_entry.get(entry["name"], [])
+		]
 		timeline.append(shown)
 
 	return {
-		"ticket_number": tn.display(doc.ticket_number),
-		"status": public_status(doc.status),
-		"description": doc.description,
-		"desired_outcome": doc.desired_outcome,
-		"service_category": doc.service_category,
-		"grievance_type_name": (
-			frappe.db.get_value("Grievance Type", doc.grievance_type, "type_name")
-			if doc.grievance_type
-			else None
-		),
-		"location": format_administrative_location(get_administrative_hierarchy(doc.administrative_area)),
-		"sla": {
-			"sla_due_date": to_tz_aware_iso(doc.sla_due_date),
-			"confirmation_deadline": (
-				to_tz_aware_iso(doc.state_deadline) if doc.workflow_state == C.STATE_RESOLVED else None
-			),
-		},
+		**_pick(summary, CASE_FIELDS),
+		"sla": _pick(summary["sla"], SLA_FIELDS),
 		"attachments": [_pick(row, ATTACHMENT_FIELDS) for row in files],
 		"timeline": timeline,
 	}

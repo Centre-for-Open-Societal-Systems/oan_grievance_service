@@ -15,6 +15,7 @@ from frappe.utils import add_to_date
 from frappe.utils.password import get_decrypted_password
 
 from oan_grievance_service import permissions
+from oan_grievance_service.api.v1 import _case_view as case_view
 from oan_grievance_service.api.v1 import attachment
 from oan_grievance_service.api.v1 import grievance as grievance_api
 from oan_grievance_service.grievance_management.doctype.grievance_timeline.grievance_timeline import (
@@ -116,6 +117,26 @@ class GuestAccessFixture(SensitiveFixture):
 			response = api_request(frappe.api.handle, method, path, json=json_body)
 		body = response.get_data(as_text=True)
 		return response.status_code, (json.loads(body) if body.startswith("{") else body)
+
+	def with_evidence(self, case):
+		"""A public file on the case and an officer's file on an internal note; their stored names.
+
+		Stored names, as Frappe suffixes a name already on disk from an earlier run.
+		"""
+		internal = GrievanceTimeline.record(
+			grievance=case.name, entry_type="note", is_internal=True, body="Evidence", author_type="officer"
+		)
+		saved = getattr(frappe.local, "request", None)
+		try:
+			frappe.local.request = _Request(_Upload("public.jpg", _jpeg()))
+			public = attachment.submit_documents(grievance=case.name)["data"][0]["file_name"]
+			frappe.local.request = _Request(_Upload("internal.pdf", _pdf()))
+			hidden = attachment.submit_documents(grievance=case.name, timeline_entry=internal.name)["data"][
+				0
+			]["file_name"]
+		finally:
+			frappe.local.request = saved
+		return public, hidden
 
 	def verify(self, case, token, pin):
 		"""The one guest call: the link's ticket and token and the PIN, answered with the case."""
@@ -363,28 +384,31 @@ class TestGuestView(GuestAccessFixture):
 		self.assertNotIn("Internal: officer only", bodies)
 		for entry in data["timeline"]:
 			self.assertNotIn("author_name", entry)
-			self.assertNotIn("author_role", entry)
+			self.assertNotIn("is_internal", entry)
+		# The officer's rung, as a signed-in submitter's /timeline shows it; never their name.
+		reply = next(entry for entry in data["timeline"] if entry["body"] == "We are looking into it.")
+		self.assertEqual(reply["author_type"], "officer")
+		self.assertTrue(reply["author_role"])
 		shown = json.dumps(data)
 		for leaked in ("Test Submitter", "+251911234567", self.focal_officer, OFFICER_NAME, self.department):
 			self.assertNotIn(leaked, shown)
 
 	def test_ac11_files_are_named_but_not_served_and_internal_evidence_stays_hidden(self):
 		case = self.an_open_case()
-		internal = GrievanceTimeline.record(
-			grievance=case.name, entry_type="note", is_internal=True, body="Evidence", author_type="officer"
-		)
-		saved = getattr(frappe.local, "request", None)
-		try:
-			frappe.local.request = _Request(_Upload("public.jpg", _jpeg()))
-			attachment.submit_documents(grievance=case.name)
-			frappe.local.request = _Request(_Upload("internal.pdf", _pdf()))
-			attachment.submit_documents(grievance=case.name, timeline_entry=internal.name)
-		finally:
-			frappe.local.request = saved
+		public, _hidden = self.with_evidence(case)
 		token, pin = self.issued(case)
 		data = self.verify(case, token, pin)[1]["data"]
-		self.assertEqual([row["file_name"] for row in data["attachments"]], ["public.jpg"])
-		self.assertNotIn("file_url", data["attachments"][0])
+		self.assertEqual([row["file_name"] for row in data["attachments"]], [public])
+		# The same name and meaning as /timeline's: `file_size`, and nothing to fetch it by.
+		self.assertGreater(data["attachments"][0]["file_size"], 0)
+		for hidden in (
+			"file_url",
+			"size_bytes",
+			"timeline_entry",
+			"uploaded_by_user",
+			"uploaded_by_submitter",
+		):
+			self.assertNotIn(hidden, data["attachments"][0])
 
 	def test_the_view_is_audited_as_a_link_view(self):
 		case = self.an_open_case()
@@ -511,6 +535,70 @@ class TestGuestView(GuestAccessFixture):
 		token, pin = self.issued(case)
 		self.verify(case, token, pin)
 		self.assertFalse(permissions.has_grievance_permission(case, "read", user="Guest"))
+
+
+class TestSharedCaseView(GuestAccessFixture):
+	"""The submitter-safe parts the guest view and /timeline share (api/v1/_case_view.py)."""
+
+	def test_files_on_internal_entries_are_for_those_who_see_internal_entries(self):
+		case = self.an_open_case()
+		public, hidden = self.with_evidence(case)
+
+		def files(include):
+			return sorted(row.file_name for row in case_view.case_attachments(case, include_internal=include))
+
+		self.assertEqual(files(True), sorted([public, hidden]))
+		self.assertEqual(files(False), [public])
+
+	def test_a_submitters_timeline_no_longer_lists_files_from_internal_notes(self):
+		farmer = a_user_with_role("Grievance Submitter", "farmer")
+		profile = frappe.get_doc(
+			{
+				"doctype": "Grievance Submitter Profile",
+				"submitter_name": "Registered Farmer",
+				"submitter_type": a_submitter_type(),
+				"contact_mobile": "+251911234567",
+				"user": farmer,
+			}
+		).insert(ignore_permissions=True)
+		case = self.an_open_case(submitter=profile.name)
+		public, hidden = self.with_evidence(case)
+
+		frappe.set_user(farmer)
+		try:
+			as_submitter = grievance_api.timeline(ticket_number=case.ticket_number)
+		finally:
+			frappe.set_user("Administrator")
+		as_staff = grievance_api.timeline(ticket_number=case.ticket_number)
+
+		self.assertEqual([a["file_name"] for a in as_submitter["data"]["attachments"]], [public])
+		self.assertEqual(
+			sorted(a["file_name"] for a in as_staff["data"]["attachments"]), sorted([public, hidden])
+		)
+
+	def test_the_guest_view_names_its_fields_as_the_timeline_does(self):
+		case = self.an_open_case()
+		self.with_evidence(case)
+		GrievanceTimeline.record(
+			grievance=case.name,
+			entry_type="message",
+			is_internal=False,
+			body="We are looking into it.",
+			author_user=self.focal_officer,
+			author_type="officer",
+		)
+		token, pin = self.issued(case)
+		guest = self.verify(case, token, pin)[1]["data"]
+		staff = grievance_api.timeline(ticket_number=case.ticket_number)["data"]
+
+		self.assertLessEqual(set(guest["attachments"][0]), set(staff["attachments"][0]))
+
+		def reply(view):
+			return next(e for e in view["timeline"] if e["body"] == "We are looking into it.")
+
+		self.assertLessEqual(set(reply(guest)) - {"attachments"}, set(reply(staff)))
+		for field in ("ticket_number", "status", "description", "location", "grievance_type_name"):
+			self.assertEqual(guest[field], staff[field], field)
 
 
 class TestBackfill(GuestAccessFixture):
