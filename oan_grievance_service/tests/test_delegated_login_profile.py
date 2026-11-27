@@ -12,7 +12,11 @@ import secrets
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1.profile import on_delegated_login_hook, resolve_user_profile_hook
+from oan_grievance_service.api.v1.profile import (
+	ensure_submitter_profile_from_claims,
+	on_delegated_login_hook,
+	resolve_user_profile_hook,
+)
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
 
@@ -248,3 +252,31 @@ class TestDelegatedLoginProfile(FrappeTestCase):
 		)
 		self.assertTrue(g.administrative_area)
 		self.assertNotEqual(g.administrative_area, profile.administrative_area)
+
+	def test_jit_profile_is_provisioned_for_iam_claims(self):
+		user = self._user("Grievance Submitter")
+		principal = _principal()
+		self.addCleanup(lambda: setattr(frappe.local, "oan_auth_claims", None))
+		self.addCleanup(lambda: setattr(frappe.local, "oan_auth_issuer_kind", None))
+		self.addCleanup(lambda: setattr(frappe.local, "oan_auth_login_option", None))
+
+		frappe.local.oan_auth_claims = principal
+		frappe.local.oan_auth_issuer_kind = "iam"
+		frappe.local.oan_auth_login_option = LOGIN_OPTION
+
+		profile_name = ensure_submitter_profile_from_claims(user)
+		self.assertTrue(profile_name)
+		profile = self._profile(user)
+		self.assertEqual(profile.name, profile_name)
+		self.assertEqual(profile.dedupe_key, f"fayda:{principal['individual_id']}")
+
+	def test_jit_profile_is_skipped_for_non_iam_claims(self):
+		user = self._user("Grievance Submitter")
+		self.addCleanup(lambda: setattr(frappe.local, "oan_auth_claims", None))
+		self.addCleanup(lambda: setattr(frappe.local, "oan_auth_issuer_kind", None))
+
+		frappe.local.oan_auth_claims = _principal()
+		frappe.local.oan_auth_issuer_kind = "local"
+
+		self.assertIsNone(ensure_submitter_profile_from_claims(user))
+		self.assertIsNone(self._profile(user))

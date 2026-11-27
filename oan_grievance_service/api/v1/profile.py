@@ -267,11 +267,14 @@ def ensure_submitter_profile_from_claims(user: str) -> str | None:
 	the delegated login hook never ran on this site. Reuses `on_delegated_login_hook` with the
 	verified IAM principal already attached to the request.
 	"""
+	if getattr(frappe.local, "oan_auth_issuer_kind", None) != "iam":
+		return None
 	claims = getattr(frappe.local, "oan_auth_claims", None)
 	if not isinstance(claims, dict):
 		return None
 	login_option = (
-		(
+		getattr(frappe.local, "oan_auth_login_option", None)
+		or (
 			frappe.db.get_value("OAN IAM Service", {"issuer": claims.get("iss")}, "key")
 			if claims.get("iss")
 			else None
