@@ -56,6 +56,7 @@ EDITABLE = (
 )
 # `priority` is read only: Urgent for an urgent rule, null otherwise (the only value it has).
 RECORD_FIELDS = ["name", "service_category", "is_base", *EDITABLE, "priority", "modified"]
+ORDER = "service_category asc, creation asc, name asc"
 
 RULE_NOTE = (
 	"Every rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent "
@@ -84,6 +85,7 @@ class SlaRuleRecord(BaseModel):
 	)
 	grievance_type: str | None = None
 	administrative_area: str | None = None
+	administrative_area_name: str | None = Field(None, description="The area's name. Read only")
 	start_month: int | None = None
 	start_day: int | None = None
 	end_month: int | None = None
@@ -102,6 +104,27 @@ class SlaRuleData(BaseModel):
 
 class SlaRuleListData(BaseModel):
 	rules: list[SlaRuleRecord]
+	pagination: dict
+
+
+class SlaRuleCluster(BaseModel):
+	cluster_id: str = Field(
+		description="The id of the cluster's oldest rule; any member's id names the cluster"
+	)
+	grievance_types: list[str] = Field(
+		description="The types its rules are for. Empty: one rule for every type"
+	)
+	rules: list[SlaRuleRecord] = Field(
+		description="Oldest first. All share every field but name, grievance_type and modified"
+	)
+
+
+class SlaRuleClusterData(BaseModel):
+	cluster: SlaRuleCluster
+
+
+class SlaRuleClusterListData(BaseModel):
+	clusters: list[SlaRuleCluster]
 	pagination: dict
 
 
@@ -168,13 +191,53 @@ class ListSlaRules(PageParams, Body):
 	_blank = field_validator("is_urgent", "is_base", mode="before")(blank_to_none)
 
 
+class UpdateSlaRuleCluster(_RuleScope):
+	"""Partial update of a whole cluster. Omitted fields stay as they are; null clears a scope field."""
+
+	rule_id: NonBlank
+	grievance_types: list[NonBlank] | None = Field(
+		None,
+		description="The cluster's new set of types: kept types' rules change, new types get a rule "
+		+ "and dropped types lose theirs. Empty: one rule for every type. Omitted or null: the types stay",
+	)
+	sla_days: int | None = Field(None, ge=1)
+	is_urgent: bool | None = Field(None, description="true: Urgent handling and priority Urgent")
+
+
+class ListSlaRuleClusters(PageParams, Body):
+	"""Unknown query parameters are rejected, so a mistyped filter cannot return an unfiltered list."""
+
+	service_category: str | None = None
+	role_level: str | None = None
+	administrative_area: str | None = None
+	is_urgent: bool | None = None
+	is_base: bool | None = None
+
+	_blank = field_validator("is_urgent", "is_base", mode="before")(blank_to_none)
+
+
 def _records(rows: list) -> list[dict]:
 	scope = ("rule_label", "role_level", "grievance_type", "administrative_area", *WINDOW_FIELDS)
 	ext_areas = external_area_ids(row.get("administrative_area") for row in rows)
+	area_ids = {row.get("administrative_area") for row in rows if row.get("administrative_area")}
+	area_names = (
+		dict(
+			frappe.get_all(
+				"Grievance Administrative Area",
+				filters={"name": ["in", list(area_ids)]},
+				fields=["name", "area_name"],
+				as_list=True,
+				ignore_permissions=True,
+			)
+		)
+		if area_ids
+		else {}
+	)
 	out = []
 	for row in rows:
 		fields = {field: row.get(field) or None for field in scope}
 		if fields.get("administrative_area"):
+			fields["administrative_area_name"] = area_names.get(fields["administrative_area"])
 			fields["administrative_area"] = ext_areas.get(
 				fields["administrative_area"], fields["administrative_area"]
 			)
@@ -222,6 +285,68 @@ def _values(kwargs: dict) -> dict:
 	return values
 
 
+def _cluster_key(row) -> tuple:
+	"""What a cluster's rules share: every stored field but the type, and whether they name one,
+	so a rule for every type never joins the rules for named types."""
+	shared = ("service_category", "is_base", *(field for field in EDITABLE if field != "grievance_type"))
+	# Int columns store a blank as 0.
+	return (*(row.get(field) or None for field in shared), bool(row.get("grievance_type")))
+
+
+def _clusters(rows: list) -> list[list]:
+	"""Group rows (oldest first) into clusters, in the order of each cluster's oldest rule."""
+	clusters: dict[tuple, list] = {}
+	for row in rows:
+		clusters.setdefault(_cluster_key(row), []).append(row)
+	return list(clusters.values())
+
+
+def _cluster_records(clusters: list[list]) -> list[dict]:
+	records = iter(_records([row for cluster in clusters for row in cluster]))
+	out = []
+	for cluster in clusters:
+		rules = [next(records) for _row in cluster]
+		out.append(
+			SlaRuleCluster(
+				cluster_id=rules[0]["name"],
+				grievance_types=[rule["grievance_type"] for rule in rules if rule["grievance_type"]],
+				rules=rules,
+			).model_dump()
+		)
+	return out
+
+
+def _cluster_of(rule_id: str) -> list:
+	"""The rows of the cluster the rule belongs to, oldest first."""
+	rule = _get_rule(rule_id)
+	rows = frappe.get_all(
+		RULE, filters={"service_category": rule.service_category}, fields=RECORD_FIELDS, order_by=ORDER
+	)
+	key = _cluster_key(next(row for row in rows if row.name == rule.name))
+	return [row for row in rows if _cluster_key(row) == key]
+
+
+def _list_filters(
+	service_category, role_level, grievance_type, administrative_area, is_urgent, is_base
+) -> dict:
+	filters: dict = {}
+	if service_category:
+		filters["service_category"] = resolve_service_category(service_category)
+	if role_level:
+		filters["role_level"] = role_level
+	if grievance_type:
+		filters["grievance_type"] = grievance_type
+	if administrative_area:
+		filters["administrative_area"] = (
+			resolve_administrative_area(administrative_area) or administrative_area
+		)
+	if is_urgent is not None:
+		filters["is_urgent"] = 1 if is_urgent else 0
+	if is_base is not None:
+		filters["is_base"] = 1 if is_base else 0
+	return filters
+
+
 @route("", methods=("GET",), summary="List SLA rules", tier="officer-core")
 @handle_api_errors
 @require_role(ADMIN_READ_ROLES)
@@ -251,26 +376,14 @@ def list_rules(
 	validate_request runs, and a bare int would turn a bad value into its own type error.
 	"""
 	params = PageParams(page=page, page_size=page_size)
-	filters: dict = {}
-	if service_category:
-		filters["service_category"] = resolve_service_category(service_category)
-	if role_level:
-		filters["role_level"] = role_level
-	if grievance_type:
-		filters["grievance_type"] = grievance_type
-	if administrative_area:
-		filters["administrative_area"] = (
-			resolve_administrative_area(administrative_area) or administrative_area
-		)
-	if is_urgent is not None:
-		filters["is_urgent"] = 1 if is_urgent else 0
-	if is_base is not None:
-		filters["is_base"] = 1 if is_base else 0
+	filters = _list_filters(
+		service_category, role_level, grievance_type, administrative_area, is_urgent, is_base
+	)
 	rows = frappe.get_all(
 		RULE,
 		filters=filters,
 		fields=RECORD_FIELDS,
-		order_by="service_category asc, creation asc, name asc",
+		order_by=ORDER,
 		offset=params.start,
 		limit_page_length=params.page_size,
 	)
@@ -281,6 +394,135 @@ def list_rules(
 		},
 		message=_("SLA rules retrieved"),
 	)
+
+
+CLUSTER_NOTE = (
+	"A cluster is the rules that differ only by grievance type: the ones one create request with "
+	"several grievance_types makes. A rule for every type is never in a cluster with rules for named "
+	"types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule's. "
+)
+
+
+@route("/clusters", methods=("GET",), summary="List SLA rule clusters", tier="officer-core")
+@handle_api_errors
+@require_role(ADMIN_READ_ROLES)
+@validate_request(ListSlaRuleClusters)
+@api_doc(
+	summary="List SLA rule clusters",
+	description=CLUSTER_NOTE
+	+ "The clusters, by service category and then by their oldest rule; a page counts clusters, not "
+	+ "rules, so a cluster is never split across pages. Filter by service_category (id, name or "
+	+ "code), role_level, administrative_area, is_urgent or is_base. "
+	+ RULE_NOTE,
+	tags=["Administration"],
+	response_model=SlaRuleClusterListData,
+)
+def list_clusters(
+	service_category: str | None = None,
+	role_level: str | None = None,
+	administrative_area: str | None = None,
+	is_urgent: bool | str | None = None,
+	is_base: bool | str | None = None,
+	page: int | str = 1,
+	page_size: int | str = 20,
+	**kwargs,
+):
+	"""List clusters. Parameters accept str for the reason `list_rules` gives."""
+	params = PageParams(page=page, page_size=page_size)
+	filters = _list_filters(service_category, role_level, None, administrative_area, is_urgent, is_base)
+	# Every matching rule, since a cluster's members are only known once all are read. A category
+	# holds tens of rules, not thousands.
+	clusters = _clusters(frappe.get_all(RULE, filters=filters, fields=RECORD_FIELDS, order_by=ORDER))
+	return success_response(
+		data={
+			"clusters": _cluster_records(clusters[params.start : params.start + params.page_size]),
+			"pagination": page_meta(len(clusters), params.page, params.page_size),
+		},
+		message=_("SLA rule clusters retrieved"),
+	)
+
+
+@route("/clusters/<rule_id>", methods=("PATCH",), summary="Update an SLA rule cluster", tier="officer-core")
+@handle_api_errors
+@require_permission(RULE, "write")
+@validate_request(UpdateSlaRuleCluster, exclude_unset=True)
+@api_doc(
+	summary="Update an SLA rule cluster",
+	description=CLUSTER_NOTE
+	+ "Change every rule of the cluster at once, in one transaction: if any rule is refused, nothing "
+	+ "changes. Omitted fields stay as they are; null clears a scope field. grievance_types is the "
+	+ "cluster's new set of types: rules of kept types change, each new type gets a rule and dropped "
+	+ "types lose theirs; empty makes the cluster one rule for every type, omitted or null keeps its types. "
+	+ "The base rule's cluster is the base rule alone: only its sla_days and is_urgent change. "
+	+ RULE_NOTE,
+	tags=["Administration"],
+	response_model=SlaRuleClusterData,
+)
+def update_cluster(rule_id: str, **kwargs):
+	"""Bring a cluster to the fields and types sent. `kwargs` holds only the fields the client sent."""
+	members = _cluster_of(rule_id)
+	values = _values(kwargs)
+	picked = kwargs.get("grievance_types")
+	if not values and picked is None:
+		frappe.throw(_("No fields to update."), frappe.ValidationError)
+	first = members[0]
+	if picked is None:
+		picked = [row.grievance_type for row in members if row.grievance_type]
+	if first.is_base and picked:
+		frappe.throw(_("The base rule is for every grievance type."), frappe.ValidationError)
+
+	by_type = {row.grievance_type or None: row for row in members}
+	wanted = list(dict.fromkeys(picked)) or [None]
+	# Dropped rules go first, so they cannot tie with the rules that change or replace them.
+	for grievance_type, row in by_type.items():
+		if grievance_type not in wanted:
+			frappe.delete_doc(RULE, row.name)
+	# Int columns store a blank as 0.
+	shared = {field: first.get(field) or None for field in EDITABLE if field != "grievance_type"}
+	names = []
+	for grievance_type in wanted:
+		if grievance_type in by_type:
+			doc = frappe.get_doc(RULE, by_type[grievance_type].name)
+			if values:
+				doc.update(values)
+				doc.save()
+		else:
+			doc = frappe.get_doc(
+				{
+					"doctype": RULE,
+					"service_category": first.service_category,
+					**shared,
+					**values,
+					"grievance_type": grievance_type,
+				}
+			)
+			doc.insert()
+		names.append(doc.name)
+	return success_response(
+		data={"cluster": _cluster_records([_cluster_of(names[0])])[0]},
+		message=_("SLA rule cluster updated"),
+	)
+
+
+@route("/clusters/<rule_id>", methods=("DELETE",), summary="Delete an SLA rule cluster", tier="officer-core")
+@handle_api_errors
+@require_permission(RULE, "delete")
+@validate_request(RuleRef)
+@api_doc(
+	summary="Delete an SLA rule cluster",
+	description=CLUSTER_NOTE
+	+ "Remove every rule of the cluster, in one transaction. The base rule cannot be deleted "
+	+ "(VALIDATION_ERROR). Cases already filed keep the SLA and class a rule gave them.",
+	tags=["Administration"],
+	response_model=SlaRuleClusterData,
+)
+def delete_cluster(rule_id: str, **kwargs):
+	"""Delete a cluster's rules and return the cluster as it was."""
+	members = _cluster_of(rule_id)
+	record = _cluster_records([members])[0]
+	for row in members:
+		frappe.delete_doc(RULE, row.name)
+	return success_response(data={"cluster": record}, message=_("SLA rule cluster deleted"))
 
 
 @route("/<rule_id>", methods=("GET",), summary="Get an SLA rule", tier="officer-core")
