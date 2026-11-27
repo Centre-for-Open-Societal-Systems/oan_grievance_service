@@ -341,6 +341,10 @@ def _resolve_submitter_identity(kwargs):
 	else:
 		profile_name = frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
 		if not profile_name:
+			from oan_grievance_service.api.v1.profile import ensure_submitter_profile_from_claims
+
+			profile_name = ensure_submitter_profile_from_claims(user)
+		if not profile_name:
 			frappe.throw(
 				_("No submitter profile associated with your user account."),
 				title=_("Profile Not Found"),

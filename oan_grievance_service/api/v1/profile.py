@@ -260,6 +260,30 @@ def on_user_registered_hook(user_doc, role=None, roles=None, **kwargs) -> None:
 	)
 
 
+def ensure_submitter_profile_from_claims(user: str) -> str | None:
+	"""JIT-provision a Grievance Submitter Profile from `frappe.local.oan_auth_claims` if missing.
+
+	When a farmer signs in through the mobile BFF and calls grievance-service with a bearer token,
+	the delegated login hook never ran on this site. Reuses `on_delegated_login_hook` with the
+	verified IAM principal already attached to the request.
+	"""
+	claims = getattr(frappe.local, "oan_auth_claims", None)
+	if not isinstance(claims, dict):
+		return None
+	login_option = (
+		(
+			frappe.db.get_value("OAN IAM Service", {"issuer": claims.get("iss")}, "key")
+			if claims.get("iss")
+			else None
+		)
+		or claims.get("iss")
+		or "iam"
+	)
+	if not on_delegated_login_hook(user=user, principal=claims, login_option=str(login_option)):
+		return None
+	return frappe.db.get_value("Grievance Submitter Profile", {"user": user}, "name")
+
+
 def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bool:
 	"""Hook subscriber for oan_auth_service's `oan_auth_on_delegated_login`.
 
@@ -296,12 +320,12 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 			return _refresh_identity(profile_name, identity)
 
 		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
-		from oan_grievance_service.services.identity import FAYDA_PATTERN
+		from oan_grievance_service.services.identity import is_valid_fayda_id
 
-		# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
-		# anything else (a VID, a pairwise `sub`) is left out.
+		# eSignet's `individual_id` is the national ID. Only a value matching Grievance Settings'
+		# National ID Pattern is stored as a Fayda ID; anything else (e.g. a pairwise `sub`) is left out.
 		individual_id = str(principal.get("individual_id") or "").strip()
-		fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
+		fayda_id = individual_id if is_valid_fayda_id(individual_id) else None
 		mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
 
 		profile = _create_or_update_submitter_profile(

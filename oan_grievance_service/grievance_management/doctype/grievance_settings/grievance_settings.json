@@ -80,7 +80,10 @@
   "duplicate_high_threshold",
   "sec_farmer_registry",
   "farmer_registry_url",
-  "farmer_register_id"
+  "farmer_register_id",
+  "sec_identity",
+  "national_id_pattern",
+  "national_id_format_hint"
  ],
  "fields": [
   {
@@ -172,6 +175,25 @@
    "fieldname": "farmer_register_id",
    "fieldtype": "Data",
    "label": "Farmer Register ID"
+  },
+  {
+   "fieldname": "sec_identity",
+   "fieldtype": "Section Break",
+   "label": "National ID"
+  },
+  {
+   "default": "^\\d{12}(\\d{4})?$",
+   "description": "Regular expression that a national / Fayda ID must match. Defaults to 12 or 16 digits.",
+   "fieldname": "national_id_pattern",
+   "fieldtype": "Data",
+   "label": "National ID Pattern"
+  },
+  {
+   "default": "a 12- or 16-digit number",
+   "description": "Human-readable format shown in validation errors when a national / Fayda ID does not match.",
+   "fieldname": "national_id_format_hint",
+   "fieldtype": "Data",
+   "label": "National ID Format Hint"
   }
  ]
 }

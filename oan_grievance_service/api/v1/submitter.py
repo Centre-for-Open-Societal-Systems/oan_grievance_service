@@ -33,11 +33,11 @@ from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.constants import ASSISTED_FILER_ROLES, STAFF_ROLES
 from oan_grievance_service.services.farmer_registry import farmer_contact_details, find_farmer
 from oan_grievance_service.services.identity import (
-	FAYDA_PATTERN,
 	SCHEME_FAYDA,
 	SCHEME_ORG,
 	SCHEME_USER,
 	SUBMITTER_TYPE_RULES,
+	_validate_fayda_id,
 	derive_dedupe_key,
 	validate_mobile,
 )
@@ -505,8 +505,7 @@ def block_submitter(profile_id: str, reason: str, **kwargs):
 def search_farmer(fayda_id: str = "", **kwargs):
 	"""Registry ID and name of the farmer with this Fayda ID."""
 	fayda_id = fayda_id.strip()
-	if not FAYDA_PATTERN.match(fayda_id):
-		frappe.throw(_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id), frappe.ValidationError)
+	_validate_fayda_id(fayda_id)
 
 	return success_response(
 		data={"farmer": find_farmer(fayda_id)},
