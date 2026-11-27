@@ -399,7 +399,8 @@ def list_rules(
 CLUSTER_NOTE = (
 	"A cluster is the rules that differ only by grievance type: the ones one create request with "
 	"several grievance_types makes. A rule for every type is never in a cluster with rules for named "
-	"types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule's. "
+	"types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule's, so it "
+	"changes when that rule's type is dropped: use the cluster_id the response returns, not the one sent. "
 )
 
 
@@ -412,7 +413,8 @@ CLUSTER_NOTE = (
 	description=CLUSTER_NOTE
 	+ "The clusters, by service category and then by their oldest rule; a page counts clusters, not "
 	+ "rules, so a cluster is never split across pages. Filter by service_category (id, name or "
-	+ "code), role_level, administrative_area, is_urgent or is_base. "
+	+ "code), role_level, administrative_area, is_urgent or is_base. Without a service_category every "
+	+ "rule is read to build the clusters, so pass one on a site with many rules. "
 	+ RULE_NOTE,
 	tags=["Administration"],
 	response_model=SlaRuleClusterListData,
@@ -431,7 +433,7 @@ def list_clusters(
 	params = PageParams(page=page, page_size=page_size)
 	filters = _list_filters(service_category, role_level, None, administrative_area, is_urgent, is_base)
 	# Every matching rule, since a cluster's members are only known once all are read. A category
-	# holds tens of rules, not thousands.
+	# holds tens of rules, so filter by service_category on a site with many categories.
 	clusters = _clusters(frappe.get_all(RULE, filters=filters, fields=RECORD_FIELDS, order_by=ORDER))
 	return success_response(
 		data={
@@ -453,7 +455,8 @@ def list_clusters(
 	+ "changes. Omitted fields stay as they are; null clears a scope field. grievance_types is the "
 	+ "cluster's new set of types: rules of kept types change, each new type gets a rule and dropped "
 	+ "types lose theirs; empty makes the cluster one rule for every type, omitted or null keeps its types. "
-	+ "The base rule's cluster is the base rule alone: only its sla_days and is_urgent change. "
+	+ "The base rule's cluster is the base rule alone: its grievance_types cannot change. A change that "
+	+ "would make the cluster match another existing cluster is refused (VALIDATION_ERROR). "
 	+ RULE_NOTE,
 	tags=["Administration"],
 	response_model=SlaRuleClusterData,
@@ -473,6 +476,11 @@ def update_cluster(rule_id: str, **kwargs):
 
 	by_type = {row.grievance_type or None: row for row in members}
 	wanted = list(dict.fromkeys(picked)) or [None]
+	# The route checks `write`; adding or dropping types also creates and deletes rules.
+	if any(grievance_type not in by_type for grievance_type in wanted):
+		frappe.has_permission(RULE, "create", throw=True)
+	if any(grievance_type not in wanted for grievance_type in by_type):
+		frappe.has_permission(RULE, "delete", throw=True)
 	# Dropped rules go first, so they cannot tie with the rules that change or replace them.
 	for grievance_type, row in by_type.items():
 		if grievance_type not in wanted:
@@ -499,8 +507,15 @@ def update_cluster(rule_id: str, **kwargs):
 			)
 			doc.insert()
 		names.append(doc.name)
+	cluster = _cluster_of(names[0])
+	if len(cluster) != len(names):
+		# Rolled back with everything above: the cluster is worked out from shared fields.
+		frappe.throw(
+			_("These changes would make the cluster match another existing cluster."),
+			frappe.ValidationError,
+		)
 	return success_response(
-		data={"cluster": _cluster_records([_cluster_of(names[0])])[0]},
+		data={"cluster": _cluster_records([cluster])[0]},
 		message=_("SLA rule cluster updated"),
 	)
 

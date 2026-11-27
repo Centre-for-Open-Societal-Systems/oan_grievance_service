@@ -6922,19 +6922,22 @@ paths:
       summary: List SLA rule clusters
       description: 'A cluster is the rules that differ only by grievance type: the ones one create request
         with several grievance_types makes. A rule for every type is never in a cluster with rules for
-        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s.
-        The clusters, by service category and then by their oldest rule; a page counts clusters, not rules,
-        so a cluster is never split across pages. Filter by service_category (id, name or code), role_level,
-        administrative_area, is_urgent or is_base. Every rule sets sla_days and is_urgent for the cases
-        it matches on their filing date; an urgent rule gives the case priority Urgent, any other rule
-        no priority (priority is read only). A rule may name a grievance_type of its category, an administrative_area
-        (covering the areas inside it) and a recurring window (start_month, start_day, end_month, end_day:
-        all four, or none for all year; a start after the end wraps the year end, for example 10/1 to
-        4/30). The category''s base rule (is_base) names none of them: it is the category''s SLA wherever
-        no narrower rule matches, a category needs it before any other rule, and it cannot be deleted
-        or narrowed. The most specific matching rule wins: a type''s rule before the category''s, a narrower
-        area before a wider one, a windowed rule before an all-year one. Two windowed rules, or two all-year
-        rules, for the same type and area may not share a day. A change applies to cases filed afterwards.'
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. The clusters, by service category and then by their oldest rule; a page counts clusters,
+        not rules, so a cluster is never split across pages. Filter by service_category (id, name or code),
+        role_level, administrative_area, is_urgent or is_base. Without a service_category every rule is
+        read to build the clusters, so pass one on a site with many rules. Every rule sets sla_days and
+        is_urgent for the cases it matches on their filing date; an urgent rule gives the case priority
+        Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type of
+        its category, an administrative_area (covering the areas inside it) and a recurring window (start_month,
+        start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the
+        year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none of them: it
+        is the category''s SLA wherever no narrower rule matches, a category needs it before any other
+        rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type''s rule
+        before the category''s, a narrower area before a wider one, a windowed rule before an all-year
+        one. Two windowed rules, or two all-year rules, for the same type and area may not share a day.
+        A change applies to cases filed afterwards.'
       operationId: get_api_v1_sla_rules_clusters
       responses:
         '200':
@@ -7035,16 +7038,18 @@ paths:
       summary: Update an SLA rule cluster
       description: 'A cluster is the rules that differ only by grievance type: the ones one create request
         with several grievance_types makes. A rule for every type is never in a cluster with rules for
-        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s.
-        Change every rule of the cluster at once, in one transaction: if any rule is refused, nothing
-        changes. Omitted fields stay as they are; null clears a scope field. grievance_types is the cluster''s
-        new set of types: rules of kept types change, each new type gets a rule and dropped types lose
-        theirs; empty makes the cluster one rule for every type, omitted or null keeps its types. The
-        base rule''s cluster is the base rule alone: only its sla_days and is_urgent change. Every rule
-        sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule gives
-        the case priority Urgent, any other rule no priority (priority is read only). A rule may name
-        a grievance_type of its category, an administrative_area (covering the areas inside it) and a
-        recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. Change every rule of the cluster at once, in one transaction: if any rule is refused,
+        nothing changes. Omitted fields stay as they are; null clears a scope field. grievance_types is
+        the cluster''s new set of types: rules of kept types change, each new type gets a rule and dropped
+        types lose theirs; empty makes the cluster one rule for every type, omitted or null keeps its
+        types. The base rule''s cluster is the base rule alone: its grievance_types cannot change. A change
+        that would make the cluster match another existing cluster is refused (VALIDATION_ERROR). Every
+        rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule
+        gives the case priority Urgent, any other rule no priority (priority is read only). A rule may
+        name a grievance_type of its category, an administrative_area (covering the areas inside it) and
+        a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
         a start after the end wraps the year end, for example 10/1 to 4/30). The category''s base rule
         (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches, a category
         needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching
@@ -7110,9 +7115,10 @@ paths:
       summary: Delete an SLA rule cluster
       description: 'A cluster is the rules that differ only by grievance type: the ones one create request
         with several grievance_types makes. A rule for every type is never in a cluster with rules for
-        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s.
-        Remove every rule of the cluster, in one transaction. The base rule cannot be deleted (VALIDATION_ERROR).
-        Cases already filed keep the SLA and class a rule gave them.'
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. Remove every rule of the cluster, in one transaction. The base rule cannot be deleted
+        (VALIDATION_ERROR). Cases already filed keep the SLA and class a rule gave them.'
       operationId: delete_api_v1_sla_rules_clusters_rule_id
       responses:
         '200':
