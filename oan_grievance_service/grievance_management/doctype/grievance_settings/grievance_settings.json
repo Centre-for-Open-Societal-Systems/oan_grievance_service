@@ -186,14 +186,16 @@
    "description": "Regular expression that a national / Fayda ID must match. Defaults to 12 or 16 digits.",
    "fieldname": "national_id_pattern",
    "fieldtype": "Data",
-   "label": "National ID Pattern"
+   "label": "National ID Pattern",
+   "reqd": 1
   },
   {
    "default": "a 12- or 16-digit number",
    "description": "Human-readable format shown in validation errors when a national / Fayda ID does not match.",
    "fieldname": "national_id_format_hint",
    "fieldtype": "Data",
-   "label": "National ID Format Hint"
+   "label": "National ID Format Hint",
+   "reqd": 1
   }
  ]
 }

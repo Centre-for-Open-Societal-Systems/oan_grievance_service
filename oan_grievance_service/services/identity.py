@@ -62,22 +62,15 @@ SUBMITTER_TYPE_RULES = {
 
 
 def is_valid_fayda_id(fayda_id: str) -> bool:
-	"""True when `fayda_id` matches the configured National ID Pattern in Grievance Settings."""
-	from oan_grievance_service.grievance_management.doctype.grievance_settings.grievance_settings import (
-		national_id_pattern,
-	)
-
-	return bool(national_id_pattern().fullmatch(fayda_id))
+	"""True when `fayda_id` matches the National ID Pattern in Grievance Settings."""
+	return bool(re.fullmatch(frappe.get_cached_doc("Grievance Settings").national_id_pattern, fayda_id))
 
 
 def _validate_fayda_id(fayda_id: str):
 	if not is_valid_fayda_id(fayda_id):
-		from oan_grievance_service.grievance_management.doctype.grievance_settings.grievance_settings import (
-			national_id_format_hint,
-		)
-
+		hint = frappe.get_cached_doc("Grievance Settings").national_id_format_hint
 		frappe.throw(
-			_("Fayda ID '{0}' must be {1}.").format(fayda_id, national_id_format_hint()),
+			_("Fayda ID '{0}' must be {1}.").format(fayda_id, hint),
 			title=_("Invalid Fayda ID"),
 		)
 
