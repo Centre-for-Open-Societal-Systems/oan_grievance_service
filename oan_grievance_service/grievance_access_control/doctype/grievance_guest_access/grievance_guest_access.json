@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-26 10:00:00.000000",
+ "description": "The link and PIN a sensitive anonymous case's submitter opens it with (STG-518). One per case. The token and PIN are held only as hashes; pending_secret holds them encrypted until the message is sent, then is cleared.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "grievance",
+  "status",
+  "source",
+  "col_state",
+  "failed_attempts",
+  "locked_until",
+  "sec_credentials",
+  "token_hash",
+  "pin_hash",
+  "pending_secret"
+ ],
+ "fields": [
+  {
+   "fieldname": "grievance",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Grievance",
+   "options": "Grievance",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nLocked\nClosed",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "default": "Filing",
+   "description": "Filing: sent when the case was filed. Backfill: sent to a case filed before the feature.",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "label": "Source",
+   "options": "Filing\nBackfill",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "col_state",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Wrong PINs in a row with the right link. Reset by a correct PIN.",
+   "fieldname": "failed_attempts",
+   "fieldtype": "Int",
+   "label": "Failed Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "locked_until",
+   "fieldtype": "Datetime",
+   "label": "Locked Until",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sec_credentials",
+   "fieldtype": "Section Break",
+   "label": "Credentials"
+  },
+  {
+   "description": "HMAC-SHA256 of the link token with the site's pepper. The token itself is never stored.",
+   "fieldname": "token_hash",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Token Hash",
+   "length": 64,
+   "read_only": 1
+  },
+  {
+   "description": "PBKDF2-SHA256 (salted) of the PIN keyed with the site's pepper. The PIN itself is never stored.",
+   "fieldname": "pin_hash",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "PIN Hash",
+   "read_only": 1
+  },
+  {
+   "description": "The token and PIN, encrypted, only until the message that carries them is sent.",
+   "fieldname": "pending_secret",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "Pending Secret",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-26 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Grievance Access Control",
+ "name": "Grievance Guest Access",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 0,
+   "create": 0,
+   "delete": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "report": 0,
+   "export": 0,
+   "share": 0,
+   "print": 0,
+   "email": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

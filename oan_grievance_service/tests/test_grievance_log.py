@@ -109,6 +109,8 @@ class TestSlaAndEscalationEvents(LogCase):
 		with (
 			CapturedLog() as captured,
 			mock.patch.object(sla, "higher_authority_of", return_value=("boss@example.com", rung)),
+			# The made-up senior has no user or desk; whether they may take the case is not tested here.
+			mock.patch.object(sla, "can_take_escalation", return_value=True),
 			mock.patch.object(sla.audit, "record_version"),
 			mock.patch.object(sla.GrievanceTimeline, "record"),
 			mock.patch("oan_grievance_service.services.notifications.queue"),
