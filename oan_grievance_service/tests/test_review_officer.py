@@ -229,6 +229,10 @@ class TestReviewOfficer(FrappeTestCase):
 				"change_request.decide",
 				# Writes only the caller's own Submitter Profile.
 				"submitter.register_submitter",
+				# Link-and-PIN view (STG-518): a public, read-only route with no role at all. It checks
+				# the link's token and the PIN and reads that one case; it writes nothing but the
+				# failed-PIN count and the access audit row.
+				"guest_access.view_grievance",
 			},
 		)
 

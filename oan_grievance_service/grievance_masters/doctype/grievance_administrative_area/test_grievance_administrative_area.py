@@ -142,6 +142,11 @@ class TestAdministrativeArea(FrappeTestCase):
 
 	def test_get_areas_endpoint(self):
 		from oan_grievance_service.api.v1.administrative_area import get_areas
+		from oan_grievance_service.services.administrative_area import external_area_id
+
+		# A parent is named by its internal id or its code, but the listing reports each area's
+		# parent by its external code (falling back to the id), as every area API now does.
+		et14, et07 = external_area_id("region-ET14"), external_area_id("region-ET07")
 
 		# Default root view returns regions
 		res = get_areas()

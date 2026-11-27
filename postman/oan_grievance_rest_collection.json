@@ -8099,6 +8099,59 @@
           "response": []
         }
       ]
+    },
+    {
+      "name": "Guest Access",
+      "item": [
+        {
+          "name": "View a sensitive anonymous grievance with its link and PIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains success envelope\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.eql('success');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/v1/guest/grievance",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "guest",
+                "grievance"
+              ]
+            },
+            "description": "Check the ticket and token from the link and the PIN typed, and return that one case.\n\nRead-only and stateless: send all three on every view. A wrong ticket, token or PIN all answer\n401 `GUEST_ACCESS_INVALID`. With the right link, too many wrong PINs answer 429\n`GUEST_ACCESS_LOCKED` (with `retry_after_seconds`) until the lock ends, and a closed case\nanswers 410 `GUEST_ACCESS_CLOSED` once the PIN is right. 503 `GUEST_ACCESS_UNAVAILABLE` when\nthe site is not configured for it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ticket_number\": \"Sample value\",\n  \"token\": \"Sample value\",\n  \"pin\": \"Sample value\"\n}"
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

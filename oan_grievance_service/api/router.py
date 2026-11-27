@@ -93,6 +93,7 @@ def _register() -> None:
 		change_request,
 		charts,
 		grievance,
+		guest_access,
 		notification_template,
 		officer,
 		officer_statistics,
