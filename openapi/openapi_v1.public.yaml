@@ -6978,6 +6978,257 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSlaRule'
+  /v1/sla-rules/clusters:
+    get:
+      tags:
+      - Administration
+      summary: List SLA rule clusters
+      description: 'A cluster is the rules that differ only by grievance type: the ones one create request
+        with several grievance_types makes. A rule for every type is never in a cluster with rules for
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. The clusters, by service category and then by their oldest rule; a page counts clusters,
+        not rules, so a cluster is never split across pages. Filter by service_category (id, name or code),
+        role_level, administrative_area, is_urgent or is_base. Without a service_category every rule is
+        read to build the clusters, so pass one on a site with many rules. Every rule sets sla_days and
+        is_urgent for the cases it matches on their filing date; an urgent rule gives the case priority
+        Urgent, any other rule no priority (priority is read only). A rule may name a grievance_type of
+        its category, an administrative_area (covering the areas inside it) and a recurring window (start_month,
+        start_day, end_month, end_day: all four, or none for all year; a start after the end wraps the
+        year end, for example 10/1 to 4/30). The category''s base rule (is_base) names none of them: it
+        is the category''s SLA wherever no narrower rule matches, a category needs it before any other
+        rule, and it cannot be deleted or narrowed. The most specific matching rule wins: a type''s rule
+        before the category''s, a narrower area before a wider one, a windowed rule before an all-year
+        one. Two windowed rules, or two all-year rules, for the same type and area may not share a day.
+        A change applies to cases filed afterwards.'
+      operationId: get_api_v1_sla_rules_clusters
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleClusterListResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          default: 1
+          minimum: 1
+          type: integer
+        description: Page number, 1-indexed
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          default: 20
+          maximum: 100
+          minimum: 1
+          type: integer
+        description: Items per page
+      - name: service_category
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: role_level
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: administrative_area
+        in: query
+        required: false
+        schema:
+          type: string
+          default: null
+          nullable: true
+      - name: is_urgent
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+      - name: is_base
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: null
+          nullable: true
+      security:
+      - BearerAuth: []
+  /v1/sla-rules/clusters/{rule_id}:
+    patch:
+      tags:
+      - Administration
+      summary: Update an SLA rule cluster
+      description: 'A cluster is the rules that differ only by grievance type: the ones one create request
+        with several grievance_types makes. A rule for every type is never in a cluster with rules for
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. Change every rule of the cluster at once, in one transaction: if any rule is refused,
+        nothing changes. Omitted fields stay as they are; null clears a scope field. grievance_types is
+        the cluster''s new set of types: rules of kept types change, each new type gets a rule and dropped
+        types lose theirs; empty makes the cluster one rule for every type, omitted or null keeps its
+        types. The base rule''s cluster is the base rule alone: its grievance_types cannot change. A change
+        that would make the cluster match another existing cluster is refused (VALIDATION_ERROR). Every
+        rule sets sla_days and is_urgent for the cases it matches on their filing date; an urgent rule
+        gives the case priority Urgent, any other rule no priority (priority is read only). A rule may
+        name a grievance_type of its category, an administrative_area (covering the areas inside it) and
+        a recurring window (start_month, start_day, end_month, end_day: all four, or none for all year;
+        a start after the end wraps the year end, for example 10/1 to 4/30). The category''s base rule
+        (is_base) names none of them: it is the category''s SLA wherever no narrower rule matches, a category
+        needs it before any other rule, and it cannot be deleted or narrowed. The most specific matching
+        rule wins: a type''s rule before the category''s, a narrower area before a wider one, a windowed
+        rule before an all-year one. Two windowed rules, or two all-year rules, for the same type and
+        area may not share a day. A change applies to cases filed afterwards.'
+      operationId: patch_api_v1_sla_rules_clusters_rule_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleClusterResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Rule Id identifier
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSlaRuleCluster'
+    delete:
+      tags:
+      - Administration
+      summary: Delete an SLA rule cluster
+      description: 'A cluster is the rules that differ only by grievance type: the ones one create request
+        with several grievance_types makes. A rule for every type is never in a cluster with rules for
+        named types. A cluster is named by the id of any of its rules; its cluster_id is its oldest rule''s,
+        so it changes when that rule''s type is dropped: use the cluster_id the response returns, not
+        the one sent. Remove every rule of the cluster, in one transaction. The base rule cannot be deleted
+        (VALIDATION_ERROR). Cases already filed keep the SLA and class a rule gave them.'
+      operationId: delete_api_v1_sla_rules_clusters_rule_id
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SlaRuleClusterResponse'
+        '400':
+          description: Validation or Bad Input Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '401':
+          description: Unauthorized / Authentication Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '403':
+          description: Forbidden / Insufficient Role Scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '404':
+          description: Resource Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardErrorResponse'
+      parameters:
+      - name: rule_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Rule Id identifier
+      security:
+      - BearerAuth: []
   /v1/sla-rules/{rule_id}:
     get:
       tags:
@@ -11177,6 +11428,11 @@ components:
           type: string
           default: null
           nullable: true
+        administrative_area_name:
+          type: string
+          default: null
+          description: The area's name. Read only
+          nullable: true
         start_month:
           type: integer
           default: null
@@ -11227,6 +11483,46 @@ components:
       required:
       - rules
       - pagination
+      type: object
+    SlaRuleCluster:
+      properties:
+        cluster_id:
+          description: The id of the cluster's oldest rule; any member's id names the cluster
+          type: string
+        grievance_types:
+          description: 'The types its rules are for. Empty: one rule for every type'
+          items:
+            type: string
+          type: array
+        rules:
+          description: Oldest first. All share every field but name, grievance_type and modified
+          items:
+            $ref: '#/components/schemas/SlaRuleRecord'
+          type: array
+      required:
+      - cluster_id
+      - grievance_types
+      - rules
+      type: object
+    SlaRuleClusterListData:
+      properties:
+        clusters:
+          items:
+            $ref: '#/components/schemas/SlaRuleCluster'
+          type: array
+        pagination:
+          additionalProperties: true
+          type: object
+      required:
+      - clusters
+      - pagination
+      type: object
+    SlaRuleClusterData:
+      properties:
+        cluster:
+          $ref: '#/components/schemas/SlaRuleCluster'
+      required:
+      - cluster
       type: object
     SlaRuleData:
       properties:
@@ -12427,6 +12723,76 @@ components:
           nullable: true
         is_active:
           type: boolean
+      type: object
+    UpdateSlaRuleCluster:
+      additionalProperties: false
+      description: Partial update of a whole cluster. Omitted fields stay as they are; null clears a scope
+        field.
+      properties:
+        rule_label:
+          maxLength: 140
+          type: string
+          default: null
+          description: A name for administrators
+          nullable: true
+        role_level:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Role level code of the rung these days are for, e.g. nodal_officer. Blank: the
+            days for the whole case, the ones the SLA clock runs on'
+          nullable: true
+        administrative_area:
+          minLength: 1
+          type: string
+          default: null
+          description: 'Covers the areas inside it. Blank: everywhere'
+          nullable: true
+        start_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        start_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_month:
+          maximum: 12
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        end_day:
+          maximum: 31
+          minimum: 1
+          type: integer
+          default: null
+          description: All four window fields, or none for all year
+          nullable: true
+        grievance_types:
+          items:
+            minLength: 1
+            type: string
+          type: array
+          default: null
+          description: 'The cluster''s new set of types: kept types'' rules change, new types get a rule
+            and dropped types lose theirs. Empty: one rule for every type. Omitted or null: the types
+            stay'
+          nullable: true
+        sla_days:
+          minimum: 1
+          type: integer
+          default: null
+          nullable: true
+        is_urgent:
+          type: boolean
+          default: null
+          description: 'true: Urgent handling and priority Urgent'
+          nullable: true
       type: object
     CreateSlaRule:
       additionalProperties: false
@@ -14206,6 +14572,56 @@ components:
       - status
       - data
       description: SlaRuleListData response
+    SlaRuleClusterListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SlaRuleClusterListData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: SlaRuleClusterListData response
+    SlaRuleClusterResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+          enum:
+          - success
+        message:
+          type: string
+          nullable: true
+          description: Optional response message
+        data:
+          $ref: '#/components/schemas/SlaRuleClusterData'
+        meta:
+          $ref: '#/components/schemas/ApiMeta'
+        request_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tracing correlation ID
+      required:
+      - status
+      - data
+      description: SlaRuleClusterData response
     SlaRuleResponse:
       type: object
       properties:
