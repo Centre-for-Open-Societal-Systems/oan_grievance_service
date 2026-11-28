@@ -259,6 +259,10 @@ class TestCorruptPdf(FrappeTestCase):
 		# A JPEG never goes near the PDF reader.
 		self.assertEqual(scanning.validate_upload("photo.jpg", _real_jpeg()).mime_type, "image/jpeg")
 
+	def test_a_wav_upload_passes(self):
+		wav_bytes = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00"
+		self.assertEqual(scanning.validate_upload("statement.wav", wav_bytes).mime_type, "audio/x-wav")
+
 
 def _pdf_with_signature_field(signed: bool = True, sig_flags: int | None = None) -> bytes:
 	"""A real PDF carrying a signature form field, filled with a signature when `signed`."""

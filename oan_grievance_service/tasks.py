@@ -301,6 +301,13 @@ def enqueue_service_provider_syncs():
 	return service_provider_sync.enqueue_scheduled_syncs()
 
 
+def enqueue_mds_geo_sync():
+	"""Daily: sync Grievance Administrative Area when MDS publishes a new geography version."""
+	from oan_grievance_service.services import mds_geo_sync
+
+	return mds_geo_sync.enqueue_scheduled_sync()
+
+
 def refresh_dashboard_rollup():
 	"""Every 15 minutes: bring the dashboard rollups up to date (last few days).
 

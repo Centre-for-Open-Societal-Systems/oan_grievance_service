@@ -84,7 +84,12 @@
   "farmer_register_id",
   "sec_identity",
   "national_id_pattern",
-  "national_id_format_hint"
+  "national_id_format_hint",
+  "sec_mds_geography",
+  "mds_base_url",
+  "mds_geo_sync_enabled",
+  "mds_geo_version",
+  "mds_last_synced_at"
  ],
  "fields": [
   {
@@ -204,6 +209,38 @@
    "fieldtype": "Data",
    "label": "National ID Format Hint",
    "reqd": 1
+  },
+  {
+   "fieldname": "sec_mds_geography",
+   "fieldtype": "Section Break",
+   "label": "Master Data Service (Geography)"
+  },
+  {
+   "description": "Base URL of the Master Data Service API, e.g. https://master-data.development.oanstaging.com. Leave blank to disable MDS geography sync.",
+   "fieldname": "mds_base_url",
+   "fieldtype": "Data",
+   "label": "MDS API Base URL",
+   "options": "URL"
+  },
+  {
+   "default": "0",
+   "description": "When ticked, the daily scheduler checks /public/geography for a new published version and syncs Grievance Administrative Area.",
+   "fieldname": "mds_geo_sync_enabled",
+   "fieldtype": "Check",
+   "label": "Sync Geography Automatically"
+  },
+  {
+   "description": "Last published MDS geography version synced into Grievance Administrative Area.",
+   "fieldname": "mds_geo_version",
+   "fieldtype": "Int",
+   "label": "Synced MDS Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mds_last_synced_at",
+   "fieldtype": "Datetime",
+   "label": "Last MDS Sync",
+   "read_only": 1
   }
  ]
 }

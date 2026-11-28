@@ -21,6 +21,8 @@ ALLOWED_MIME_TYPES = {
 	"image/png",
 	"application/pdf",
 	"audio/mpeg",
+	"audio/wav",
+	"audio/x-wav",
 }
 
 EXTENSION_FOR_MIME = {
@@ -28,6 +30,8 @@ EXTENSION_FOR_MIME = {
 	"image/png": (".png",),
 	"application/pdf": (".pdf",),
 	"audio/mpeg": (".mp3",),
+	"audio/wav": (".wav",),
+	"audio/x-wav": (".wav",),
 }
 
 SCAN_PENDING = "Pending"
@@ -94,7 +98,7 @@ class GrievanceAttachment(Document):
 
 		if self.mime_type not in ALLOWED_MIME_TYPES:
 			frappe.throw(
-				_("{0} files are not accepted. Allowed: JPG, PNG, PDF and MP3.").format(self.mime_type),
+				_("{0} files are not accepted. Allowed: JPG, PNG, PDF, MP3 and WAV.").format(self.mime_type),
 				title=_("Unsupported File Type"),
 			)
 
@@ -109,19 +113,12 @@ class GrievanceAttachment(Document):
 			)
 
 	def on_trash(self):
-		"""The row owns its object: deleting the attachment deletes the File.
-
-		Every other path used to find the File by its URL string and delete it.
-		Core reuses one URL for identical uploads, so that lookup could pick another
-		attachment's File. The Link makes the pairing exact. Core's File.on_trash
-		still unlinks the bytes on disk at once, not at commit, so a failure after
-		this point leaves a File row without an object; that window is core's own,
-		the same one every File delete has, and deleting the right File is the fix.
-		"""
+		"""The row owns its object: deleting the attachment deletes its stored object."""
 		if self.flags.keep_file:
 			return  # the caller removes the File once its own delete can no longer be refused
-		if self.file and frappe.db.exists("File", self.file):
-			frappe.delete_doc("File", self.file, force=True, ignore_permissions=True)
+		from oan_grievance_service.services import storage
+
+		storage.delete_stored_object(self.file, self.file_url)
 
 	def is_servable(self):
 		"""Whether this file may be handed to a reader.

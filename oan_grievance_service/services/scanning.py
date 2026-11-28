@@ -67,6 +67,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	MAX_SIZE_BYTES,
 )
 from oan_grievance_service.services import constants as C
+from oan_grievance_service.services import storage
 
 CLAMAV_DEFAULT_PORT = 3310
 CLAMAV_TIMEOUT_SECONDS = 30
@@ -149,7 +150,7 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 	mime = sniff_mime(content)
 	if mime is None:
 		frappe.throw(
-			_("{0} is not a file type we recognise. Allowed: JPG, PNG, PDF and MP3.").format(
+			_("{0} is not a file type we recognise. Allowed: JPG, PNG, PDF, MP3 and WAV.").format(
 				frappe.bold(file_name)
 			),
 			title=_("Unrecognised File"),
@@ -158,7 +159,7 @@ def validate_upload(file_name: str, content: bytes) -> ValidatedUpload:
 
 	if mime not in ALLOWED_MIME_TYPES:
 		frappe.throw(
-			_("{0} files are not accepted. Allowed: JPG, PNG, PDF and MP3.").format(mime),
+			_("{0} files are not accepted. Allowed: JPG, PNG, PDF, MP3 and WAV.").format(mime),
 			title=_("Unsupported File Type"),
 		)
 
@@ -434,7 +435,8 @@ def scan_attachment(name: str) -> str:
 	if row.scan_status != SCAN_PENDING:
 		return row.scan_status
 
-	file_name = row.file or _file_name_for(row.file_url)
+	file_name = row.file or storage.frappe_file_name_for(row.file_url)
+	object_ref = row.file or row.file_url
 
 	# The same bytes already found infected on another row need no second scan,
 	# and must not be served meanwhile.
@@ -442,7 +444,7 @@ def scan_attachment(name: str) -> str:
 	if twin:
 		status, detail = SCAN_INFECTED, f"Identical to {twin}, which was found infected."
 	else:
-		content = read_object(file_name)
+		content = storage.read_attachment_bytes(object_ref)
 		if content is None:
 			return _settle(name, SCAN_FAILED, "File object could not be read.")
 		status, detail = scan_bytes(content)
@@ -459,7 +461,7 @@ def scan_attachment(name: str) -> str:
 
 	settled = _settle(name, status, detail)
 	if status == SCAN_INFECTED and settled == SCAN_INFECTED:
-		_discard_infected(name, file_name, row.checksum_sha256)
+		_discard_infected(name, file_name, row.checksum_sha256, file_url=row.file_url)
 	return settled
 
 
@@ -579,19 +581,21 @@ def _infected_twin(checksum: str | None, exclude: str) -> str | None:
 	)
 
 
-def _discard_infected(name: str, file_name: str | None, checksum: str | None) -> None:
+def _discard_infected(
+	name: str, file_name: str | None, checksum: str | None, file_url: str | None = None
+) -> None:
 	"""Remove the infected object, and every other attachment's copy of the same bytes.
 
 	Core's File keeps one object per content hash and only deletes it from disk
 	once no File row shares the hash. Deleting this row's File alone would leave
 	the bytes on disk behind any identical upload, served under that row's Clean
 	verdict. So every attachment with the same SHA-256 is marked Infected and
-	loses its File too. A sharing File that belongs to some other doctype cannot
+	loses its object too. A sharing File that belongs to some other doctype cannot
 	be removed from here; it is reported instead.
 	"""
 	content_hash = frappe.db.get_value("File", file_name, "content_hash") if file_name else None
 
-	_drop_object(name, file_name)
+	_drop_object(name, file_name, file_url=file_url)
 	if not checksum:
 		return
 
@@ -601,7 +605,7 @@ def _discard_infected(name: str, file_name: str | None, checksum: str | None) ->
 		fields=["name", "file", "file_url"],
 	)
 	for twin in twins:
-		twin_file = twin.file or _file_name_for(twin.file_url)
+		twin_file = twin.file or storage.frappe_file_name_for(twin.file_url)
 		frappe.db.set_value(
 			"Grievance Attachment",
 			twin.name,
@@ -612,7 +616,7 @@ def _discard_infected(name: str, file_name: str | None, checksum: str | None) ->
 			},
 			update_modified=False,
 		)
-		_drop_object(twin.name, twin_file)
+		_drop_object(twin.name, twin_file, file_url=twin.file_url)
 		publish_scan_status(twin.name, SCAN_INFECTED)
 
 	if content_hash:
@@ -630,10 +634,9 @@ def _discard_infected(name: str, file_name: str | None, checksum: str | None) ->
 			)
 
 
-def _drop_object(attachment_name: str, file_name: str | None) -> None:
-	"""Delete an attachment's File and unlink it, keeping the row and its trail."""
-	if file_name and frappe.db.exists("File", file_name):
-		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
+def _drop_object(attachment_name: str, file_name: str | None, file_url: str | None = None) -> None:
+	"""Delete an attachment's stored object and unlink it, keeping the row and its trail."""
+	storage.delete_stored_object(file_name, file_url)
 	frappe.db.set_value("Grievance Attachment", attachment_name, "file", None, update_modified=False)
 
 
@@ -642,41 +645,3 @@ def _record(attachment, status: str, detail: str) -> None:
 		{"scan_status": status, "scan_detail": detail[:500], "scanned_at": now_datetime()},
 		update_modified=False,
 	)
-
-
-def read_object(file_name: str | None) -> bytes | None:
-	"""The stored bytes behind a File, or None if there is no object to read.
-
-	Takes the File name that `Grievance Attachment.file` links to. A file URL is
-	still accepted for rows that predate the link, and resolved the old way.
-
-	Used by the scanner and by the view endpoint, so both serve the same bytes
-	the checksum was taken over.
-	"""
-	name = _file_name_for(file_name)
-	if not name:
-		return None
-	try:
-		file_doc = frappe.get_doc("File", name)
-	except Exception:
-		return None
-
-	# Core's File.get_content() tries a list of text encodings and hands back str
-	# for anything that decodes, so an all-ASCII upload came back as text and the
-	# INSTREAM send failed on it -- which left the file Pending forever, never
-	# scanned. An empty encodings list skips that step and returns the stored
-	# bytes, while still going through core's own file-path validation.
-	try:
-		content = file_doc.get_content(encodings=[])
-	except Exception:
-		return None
-	return content.encode("utf-8") if isinstance(content, str) else content
-
-
-def _file_name_for(value: str | None) -> str | None:
-	"""A File name from either a File name or, for rows without the link, a file URL."""
-	if not value:
-		return None
-	if value.startswith("/"):
-		return frappe.db.get_value("File", {"file_url": value}, "name")
-	return value if frappe.db.exists("File", value) else None

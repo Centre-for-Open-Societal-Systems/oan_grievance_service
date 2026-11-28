@@ -33,6 +33,12 @@ class GrievanceSettings(Document):
 				frappe.ValidationError,
 			)
 
+	def on_update(self):
+		if cint(self.mds_geo_sync_enabled) and (self.mds_base_url or "").strip():
+			from oan_grievance_service.services import mds_geo_sync
+
+			mds_geo_sync.enqueue_sync(after_commit=True)
+
 
 def auto_routing_enabled() -> bool:
 	"""Whether cases go to the matching desk's officer; off sends every case to Unrouted."""

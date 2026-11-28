@@ -149,7 +149,7 @@ from oan_grievance_service.grievance_management.doctype.grievance_attachment.gri
 	SCAN_CLEAN,
 	SCAN_PENDING,
 )
-from oan_grievance_service.services import audit, scanning, sla
+from oan_grievance_service.services import audit, scanning, sla, storage
 
 route = prefixed("/api/v1/attachments")
 
@@ -247,14 +247,9 @@ def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> li
 	results = []
 	attachment_names = []
 	for idx, item in enumerate(prepared):
-		stored = frappe.get_doc(
-			{
-				"doctype": "File",
-				"file_name": item["file_name"],
-				"content": item["content"],
-				"is_private": 1,
-			}
-		).insert(ignore_permissions=True)
+		stored = storage.store_attachment_bytes(
+			case.name, item["file_name"], item["content"], item["mime_type"]
+		)
 
 		doc_type = (
 			document_type[idx]
@@ -268,7 +263,7 @@ def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> li
 				"grievance": case.name,
 				"timeline_entry": timeline_entry,
 				"document_type": doc_type,
-				"file": stored.name,
+				"file": stored.file,
 				"file_name": stored.file_name,
 				"file_url": stored.file_url,
 				"mime_type": item["mime_type"],
@@ -280,12 +275,7 @@ def store_uploads(case, prepared, timeline_entry=None, document_type=None) -> li
 			}
 		).insert(ignore_permissions=True)
 
-		frappe.db.set_value(
-			"File",
-			stored.name,
-			{"attached_to_doctype": "Grievance Attachment", "attached_to_name": attachment.name},
-			update_modified=False,
-		)
+		storage.link_stored_file(stored.file, attachment.name)
 
 		attachment_names.append(attachment.name)
 		results.append(
@@ -533,7 +523,7 @@ def view(
 	`download=1` for a Save As.
 	"""
 	doc = _servable(attachment_id or attachment)
-	content = scanning.read_object(doc.file or doc.file_url)
+	content = storage.read_attachment_bytes(doc.file or doc.file_url)
 	if content is None:
 		frappe.throw(
 			_("{0} has no stored object.").format(frappe.bold(doc.file_name)),
