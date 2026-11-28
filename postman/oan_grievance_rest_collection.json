@@ -1779,7 +1779,7 @@
                 "register"
               ]
             },
-            "description": "Registers an Individual Farmer account. fayda_id (16 digits, unique across profiles) is required for an Individual Farmer and becomes the dedupe_key 'fayda:<fayda_id>'. submitter_type must be an existing Grievance Submitter Type (default Individual Farmer). Registration takes no channel: the profile is filed under Web Portal. An invalid type or Fayda ID returns 400, a duplicate Fayda ID returns 409, and no user is created. Initializes the Submitter Profile and issues access/refresh tokens."
+            "description": "Registers an Individual Farmer account. fayda_id (12 or 16 digits by default, unique across profiles) is required for an Individual Farmer and becomes the dedupe_key 'fayda:<fayda_id>'. submitter_type must be an existing Grievance Submitter Type (default Individual Farmer). Registration takes no channel: the profile is filed under Web Portal. An invalid type or Fayda ID returns 400, a duplicate Fayda ID returns 409, and no user is created. Initializes the Submitter Profile and issues access/refresh tokens."
           },
           "response": []
         },

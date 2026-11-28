@@ -3,6 +3,8 @@
 
 """Installation-wide grievance settings, as a Single."""
 
+import re
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -22,6 +24,14 @@ class GrievanceSettings(Document):
 			flt(self.duplicate_threshold),
 			flt(self.duplicate_high_threshold),
 		)
+
+		try:
+			re.compile(self.national_id_pattern)
+		except re.error as exc:
+			frappe.throw(
+				_("National ID Pattern is not a valid regular expression: {0}").format(str(exc)),
+				frappe.ValidationError,
+			)
 
 
 def auto_routing_enabled() -> bool:

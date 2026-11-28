@@ -296,12 +296,12 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 			return _refresh_identity(profile_name, identity)
 
 		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
-		from oan_grievance_service.services.identity import FAYDA_PATTERN
+		from oan_grievance_service.services.identity import is_valid_fayda_id
 
-		# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
-		# anything else (a VID, a pairwise `sub`) is left out.
+		# eSignet's `individual_id` is the national ID. Only a value matching Grievance Settings'
+		# National ID Pattern is stored as a Fayda ID; anything else (e.g. a pairwise `sub`) is left out.
 		individual_id = str(principal.get("individual_id") or "").strip()
-		fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
+		fayda_id = individual_id if is_valid_fayda_id(individual_id) else None
 		mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
 
 		profile = _create_or_update_submitter_profile(

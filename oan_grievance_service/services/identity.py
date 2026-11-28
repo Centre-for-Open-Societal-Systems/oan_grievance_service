@@ -15,7 +15,6 @@ SCHEME_USER = "user"
 COMMON_REQUIRED = ("submitter_name", "contact_mobile")
 
 # Format rules for profile/dedupe identity values — not Grievance DocType fields.
-FAYDA_PATTERN = re.compile(r"^\d{16}$")
 REGISTRATION_PATTERN = re.compile(r"^(?=.{3,60}$)[A-Za-z0-9]+(?:[-/][A-Za-z0-9]+)*$")
 
 
@@ -62,10 +61,16 @@ SUBMITTER_TYPE_RULES = {
 }
 
 
+def is_valid_fayda_id(fayda_id: str) -> bool:
+	"""True when `fayda_id` matches the National ID Pattern in Grievance Settings."""
+	return bool(re.fullmatch(frappe.get_cached_doc("Grievance Settings").national_id_pattern, fayda_id))
+
+
 def _validate_fayda_id(fayda_id: str):
-	if not FAYDA_PATTERN.match(fayda_id):
+	if not is_valid_fayda_id(fayda_id):
+		hint = frappe.get_cached_doc("Grievance Settings").national_id_format_hint
 		frappe.throw(
-			_("Fayda ID '{0}' must be a 16-digit number.").format(fayda_id),
+			_("Fayda ID '{0}' must be {1}.").format(fayda_id, hint),
 			title=_("Invalid Fayda ID"),
 		)
 
