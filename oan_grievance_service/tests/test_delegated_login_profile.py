@@ -12,7 +12,10 @@ import secrets
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oan_grievance_service.api.v1.profile import on_delegated_login_hook, resolve_user_profile_hook
+from oan_grievance_service.api.v1.profile import (
+	on_delegated_login_hook,
+	resolve_user_profile_hook,
+)
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
 

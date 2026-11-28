@@ -12,6 +12,7 @@ from oan_grievance_service.grievance_access_control.doctype.grievance_rbac_assig
 from oan_grievance_service.permissions import ROLE_OFFICER
 from oan_grievance_service.services import constants as C
 from oan_grievance_service.services.administrative_area import (
+	external_area_id,
 	match_administrative_area,
 	refreshed_administrative_area,
 )
@@ -41,7 +42,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 				or level
 				or ROLE_OFFICER,
 				"department": primary_scope.get("department_scope"),
-				"administrative_area": primary_scope.get("administrative_area_scope"),
+				"administrative_area": external_area_id(primary_scope.get("administrative_area_scope")),
 				"category": primary_scope.get("category_scope"),
 			}
 
@@ -104,7 +105,7 @@ def resolve_user_profile_hook(user_doc, roles=None) -> tuple[str, dict | None]:
 			"phone_number": contact["phone_number"],
 			"contact_email": contact["contact_email"],
 			"identities": identities,
-			"administrative_area": profile.get("administrative_area"),
+			"administrative_area": external_area_id(profile.get("administrative_area")),
 			"administrative_unit": profile.get("administrative_unit"),
 			"id_source": profile.get("id_source"),
 			"address": {
@@ -295,12 +296,12 @@ def on_delegated_login_hook(user: str, principal: dict, login_option: str) -> bo
 			return _refresh_identity(profile_name, identity)
 
 		from oan_grievance_service.api.v1.submitter import _create_or_update_submitter_profile
-		from oan_grievance_service.services.identity import FAYDA_PATTERN
+		from oan_grievance_service.services.identity import is_valid_fayda_id
 
-		# eSignet's `individual_id` is the national ID. Only a 16-digit value is a Fayda ID;
-		# anything else (a VID, a pairwise `sub`) is left out.
+		# eSignet's `individual_id` is the national ID. Only a value matching Grievance Settings'
+		# National ID Pattern is stored as a Fayda ID; anything else (e.g. a pairwise `sub`) is left out.
 		individual_id = str(principal.get("individual_id") or "").strip()
-		fayda_id = individual_id if FAYDA_PATTERN.match(individual_id) else None
+		fayda_id = individual_id if is_valid_fayda_id(individual_id) else None
 		mobile = frappe.db.get_value("User", user, "mobile_no") or principal.get("phone_number")
 
 		profile = _create_or_update_submitter_profile(

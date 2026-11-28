@@ -116,7 +116,7 @@ class TestSlaRulesApi(ApiFixture):
 		fields = {"sla_days": 3, **fields}
 		result = create_rule(service_category=self.category, **fields)
 		self.assertEqual(result["status"], "success", msg=result)
-		return result["data"]["rule"]
+		return result["data"]["rules"][0]
 
 	def base(self):
 		return list_rules(service_category=self.category, is_base=True)["data"]["rules"][0]
@@ -131,7 +131,7 @@ class TestSlaRulesApi(ApiFixture):
 		kind = a_type(self.category)
 		rule = self.create(
 			rule_label="Dry season",
-			grievance_type=kind,
+			grievance_types=[kind],
 			administrative_area=woreda,
 			**IRRIGATION,
 			sla_days=3,
@@ -196,13 +196,13 @@ class TestSlaRulesApi(ApiFixture):
 	def test_the_category_may_be_named_by_its_code(self):
 		code = frappe.db.get_value("Grievance Service Category", self.category, "code")
 		result = create_rule(service_category=code, **IRRIGATION, sla_days=3)
-		self.assertEqual(result["data"]["rule"]["service_category"], self.category, msg=result)
+		self.assertEqual(result["data"]["rules"][0]["service_category"], self.category, msg=result)
 
 	def test_the_list_filters_by_category_urgency_and_base(self):
 		base = self.base()
 		urgent = self.create(**IRRIGATION, is_urgent=True)
 		high = self.create(start_month=5, start_day=1, end_month=6, end_day=30)
-		elsewhere = create_rule(service_category=a_category(), **IRRIGATION, sla_days=3)["data"]["rule"]
+		elsewhere = create_rule(service_category=a_category(), **IRRIGATION, sla_days=3)["data"]["rules"][0]
 
 		listed = list_rules(service_category=self.category)["data"]
 		self.assertEqual(
@@ -311,7 +311,7 @@ class TestSlaRulesApi(ApiFixture):
 
 	def test_a_type_of_another_category_is_a_validation_error(self):
 		other = a_type(a_category())
-		self.refused(lambda: create_rule(service_category=self.category, grievance_type=other, sla_days=3))
+		self.refused(lambda: create_rule(service_category=self.category, grievance_types=[other], sla_days=3))
 
 	def test_an_officer_neither_reads_nor_writes_rules(self):
 		rule = self.create(**IRRIGATION)

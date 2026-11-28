@@ -214,7 +214,7 @@ Sign-up payload for an organization. The same fields as any sign-up, with `submi
 }
 ```
 
-- `submitter_type` is `NGO`, `FPO` or `Cooperative`. `fayda_id` is required, as for an Individual Farmer: 16 digits, and one account per Fayda ID.
+- `submitter_type` is `NGO`, `FPO` or `Cooperative`. `fayda_id` is required, as for an Individual Farmer: it must match the National ID Pattern in Grievance Settings (12 or 16 digits by default), and one account per Fayda ID.
 - The profile is keyed by that Fayda ID, and `GET /auth/me` returns it as `fayda_id` (and in `identities`) for `type` `NGO`, `FPO` or `Cooperative`, before and after the organization is registered.
 - `POST /orgs` keeps the Fayda key, so the organization's registration number lives on the organization, not on the profile. The representative's name is sent as `representative_name`, which is required, so the account's name is not assumed to be it.
 - A sign-up that already carries a `registration_number` takes the earlier path (a profile keyed by that number, with no Fayda ID, blocked until an administrator verifies it), but it creates no organization record. The registration screen does not send one. The user still completes `POST /orgs`, with the same registration number.

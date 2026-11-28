@@ -254,7 +254,7 @@ data(
 			"farmer": OBJ(
 				{
 					"registry_id": S(description="Farmer Registry internal record ID"),
-					"fayda_id": S(description="16-digit Fayda ID searched for"),
+					"fayda_id": S(description="Fayda ID searched for"),
 					"submitter_name": S(nullable=True, description="Farmer name in the registry"),
 				},
 				required=["registry_id", "fayda_id"],
@@ -361,6 +361,18 @@ data(
 			"workflow_state": S(nullable=True),
 			"client_submission_uuid": S(nullable=True),
 			"routing_rule": S(nullable=True),
+			"guest_access": OBJ(
+				{
+					"link": S(
+						example="https://grievance.example.org/g/3001002A0#k=Xk3pQ9vT2mLr8WzA1bNc4e",
+						description="The case link, its token after #k=",
+					),
+					"pin": S(example="482913", description="The PIN the link is opened with"),
+				},
+				description="TEMPORARY, while SMS and email are not delivering: the link and PIN of a "
+				"sensitive anonymous case, for the submitter who filed it themselves. Present only when "
+				"site_config sets guest_access_show_on_submit.",
+			),
 			"can_request_more_info": B(description="Whether the submitter can be contacted"),
 			"attachments": ARR(REF("AttachmentItem"), description="Files stored with the submission"),
 			"current_state": REF("GrievanceCurrentState"),
@@ -1465,6 +1477,8 @@ QP["DashboardCharts"] = [
 def _determine_tag(path: str, func_name: str) -> str:
 	if "/health" in path or "/ping" in path:
 		return "Health & Monitoring"
+	if path.startswith("/api/v1/guest/"):
+		return "Guest Access"
 	if path.startswith("/api/v1/submitters"):
 		return "Submitter Management"
 	if path.startswith("/api/v1/administrative-areas"):
@@ -1553,6 +1567,9 @@ def _determine_response(func_name: str, path: str, method: str) -> str | None:
 	}
 	if func_name.startswith("get_public_chart_"):
 		return "DashboardChartResponse"
+	if path.startswith("/api/v1/guest/"):
+		# The guest view answers its own shape, described in its docstring, not a case action's.
+		return None
 	return mapping.get(func_name, "GrievanceActionResultResponse" if method == "POST" else None)
 
 
@@ -1564,6 +1581,7 @@ API_MODULES = [
 		for name in (
 			"administrative_area",
 			"grievance",
+			"guest_access",
 			"attachment",
 			"category_assignment",
 			"change_request",

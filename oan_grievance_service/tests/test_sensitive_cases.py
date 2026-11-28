@@ -147,7 +147,13 @@ class TestSensitiveRouting(SensitiveFixture):
 		from oan_grievance_service.services import sla
 
 		case = self.a_case(assigned_to=self.focal_officer)
-		with patch.object(sla, "higher_authority_of", return_value=(self.kebele_officer, object())):
+		# The Kebele officer is passed over for the rung above, where nobody is left.
+		rung = frappe._dict(
+			name="senior_nodal_officer", level_name="Woreda Nodal Officer", escalation_hours=24
+		)
+		with patch.object(
+			sla, "higher_authority_of", side_effect=[(self.kebele_officer, rung), (None, None)]
+		):
 			sla.escalate(case, reason="test")
 		case.reload()
 		self.assertEqual(case.assigned_to, self.focal_officer)

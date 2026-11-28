@@ -26,8 +26,19 @@ secrets:
   jwt:
     create: true
     name: oan-grievance-jwt
+  # Token of the Grievance IVR Integration user (created by oan_grievance_service install).
+  # frappe.apiCredential below sets it on that user, so the gateway and Frappe share one value.
+  ivr:
+    create: true
+    name: oan-grievance-ivr-frappe-credential
 
 frappe:
+  apiCredential:
+    enabled: true
+    users:
+      - user: grievance-ivr-integration@id.openagrinet.internal
+        secretName: oan-grievance-ivr-frappe-credential
+
   image:
     # Set per environment. package_chart.py needs both keys to exist.
     repository: ""
@@ -59,6 +70,9 @@ frappe:
       jwt_self_registerable_roles:
       - Grievance Submitter
       jwt_issuer: oan-grievance
+      # Points to the in-chart ClamAV Service (clamav.serviceName). Set to "" only if scanning is disabled or external.
+      grievance_clamav_host: oan-grievance-clamav
+      grievance_clamav_port: 3310
     secretValues:
       secret_key:
         secretName: oan-grievance-secret-key
@@ -231,7 +245,34 @@ frappe:
       adminExistingSecret: oan-grievance-admin
       installApps:
       - oan_auth_service
+      - oan_messaging_connector
       - oan_grievance_service
+
+# ClamAV malware scanner daemon (clamd over TCP 3310) for attachment scanning.
+# Keep clamav.serviceName in sync with frappe.siteConfig.values.grievance_clamav_host.
+clamav:
+  enabled: true
+  serviceName: oan-grievance-clamav
+  port: 3310
+  image:
+    repository: clamav/clamav
+    tag: stable
+    pullPolicy: IfNotPresent
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    fsGroup: 100
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+  resources:
+    requests:
+      cpu: 50m
+      memory: 1536Mi
+    limits:
+      memory: 2560Mi
 
 # Public base domain of the environment, used to build the hosts in iamServices. Set per environment.
 global:
@@ -255,7 +296,7 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
-  application: oan-client
+  application: grievance-service
 # Staff Login: the same identity provider as `agent`, listed after it. The login page picks the provider by
 # `key`, and `staff` is the key of its Staff Login option.
 - key: staff
@@ -266,7 +307,19 @@ iamServices:
   provider_id: 1
   issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
   client_id: staff-portal
-  application: oan-client
+  application: grievance-service
+# Operators of central RBAC (oan_identitygovernance_service) call the admin API with the token they logged in
+# with. It comes from the central-rbac client of the staff realm, so this option accepts that client only and
+# reads the operator's roles under the same application as the options above.
+- key: rbac
+  label: RBAC
+  enabled: 1
+  sort_order: 90
+  base_url: "https://staff-iam.{{ .Values.global.baseDomain }}"
+  provider_id: 1
+  issuer: "https://keycloak.{{ .Values.global.baseDomain }}/realms/staff"
+  client_id: central-rbac
+  application: grievance-service
 - key: beneficiary
   label: National ID (eSignet)
   enabled: 1

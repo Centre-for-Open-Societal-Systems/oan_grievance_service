@@ -328,6 +328,27 @@ NOTIFICATION_EVENTS = [
 		},
 		(),
 	),
+	# The link and PIN of a sensitive anonymous case (STG-518). The record decides only whether a
+	# channel is on: the text, which carries the link and PIN, is built by services/guest_access.py
+	# and the template below is never sent, as no template is for a sensitive case's submitter.
+	(
+		C.EVENT_GUEST_ACCESS_ISSUED,
+		"Grievance Access Link",
+		"Submitter",
+		("SMS", "Email"),
+		"Sensitive anonymous case filed",
+		"Grievance {0}: link and PIN to view it.",
+		("doc.ticket_number",),
+	),
+	(
+		C.EVENT_GUEST_ACCESS_BACKFILL,
+		"Grievance Access Link (Existing Case)",
+		"Submitter",
+		("SMS", "Email"),
+		"One-time backfill for cases filed before the access link",
+		"Grievance {0}: link and PIN to view it.",
+		("doc.ticket_number",),
+	),
 	(
 		C.EVENT_DUPLICATE_DETECTED,
 		"Duplicate Detected",

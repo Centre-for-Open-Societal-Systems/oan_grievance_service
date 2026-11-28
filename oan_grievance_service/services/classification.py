@@ -364,9 +364,9 @@ def set_base_days(service_category: str, sla_days: int):
 # ---
 
 
-def new_pin() -> str:
+def new_pin(length: int = PIN_LENGTH) -> str:
 	"""A random numeric PIN. `secrets`, not `random`: it is a credential."""
-	return "".join(secrets.choice("0123456789") for _ in range(PIN_LENGTH))
+	return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
 def issue_pin(doc) -> None:

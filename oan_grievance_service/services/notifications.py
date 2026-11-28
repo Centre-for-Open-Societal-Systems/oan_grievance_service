@@ -657,8 +657,13 @@ def _outbound_message(row, grievance) -> str:
 	"""The text a queued row sends: its logged message, with a sensitive case's PIN put back.
 
 	Only the exact masked message `queue` wrote for the case's submitter is unmasked, so no other
-	row, and no template text, ever gets the PIN.
+	row, and no template text, ever gets the PIN. A link row (STG-518) gets its link and PIN from
+	services/guest_access.py, which raises once they are gone, so it is never sent masked.
 	"""
+	if row.get("event") in C.GUEST_ACCESS_EVENTS:
+		from oan_grievance_service.services import guest_access
+
+		return guest_access.outbound_text(row, grievance)
 	if not grievance.get("is_sensitive"):
 		return row.message
 	with print_language(row.language):
@@ -680,14 +685,27 @@ def _render_template(template: str | None, context: dict) -> str:
 	return frappe.render_template(template, context) if template else ""
 
 
-def queue(grievance, event_code, recipient_override=None):
+def _has_address(recipient, grievance, channel) -> bool:
+	"""Whether a row on `channel` would have somewhere to go."""
+	try:
+		if channel == CHANNEL_SMS:
+			_deliverable_mobile(recipient, grievance)
+		elif channel == CHANNEL_EMAIL:
+			_deliverable_email(recipient, grievance)
+	except ValueError:
+		return False
+	return True
+
+
+def queue(grievance, event_code, recipient_override=None, dispatch_now=True):
 	"""Write a Grievance Notification Log row for an event.
 
 	Returns the log rows created, which is an empty list when every matching
 	Notification is disabled, fails its condition, or has already been sent for this
-	grievance.
+	grievance. `dispatch_now=False` leaves the rows to the sweep, which paces a large batch.
 	"""
 	rows = []
+	guest_link = event_code in C.GUEST_ACCESS_EVENTS
 
 	# Events use core's "Method" trigger rather than Save/Value Change: the lifecycle
 	# fires them explicitly, so there is one Notification per (event, channel).
@@ -743,13 +761,24 @@ def queue(grievance, event_code, recipient_override=None):
 		if _already_queued(grievance.name, event_code, recipient, notification.channel):
 			continue
 
+		# The link goes only where it can arrive: a case with an email address and no mobile
+		# number is not left with a Failed SMS row.
+		if guest_link and not _has_address(recipient, grievance, notification.channel):
+			continue
+
 		language = _recipient_language(recipient)
 
 		# The only reason delivery is ours rather than core's: one render per recipient,
 		# with the recipient's language in scope. print_language also clears the cached
 		# jenv, so _() inside the template resolves against the right dictionary.
 		with print_language(language):
-			if sensitive and to_submitter:
+			if guest_link:
+				# Never the template: the text carries the link and PIN, masked here and put
+				# in only on the way out (`_outbound_message`).
+				from oan_grievance_service.services import guest_access
+
+				message, subject = guest_access.message_text(grievance, event_code)
+			elif sensitive and to_submitter:
 				# Never the template: it may name the officer, the office, the category or the
 				# deadline. A sensitive case tells its submitter the reference and PIN, nothing else.
 				message, subject = sensitive_submitter_text(grievance)
@@ -774,7 +803,7 @@ def queue(grievance, event_code, recipient_override=None):
 			).insert(ignore_permissions=True)
 		)
 
-	if rows:
+	if rows and dispatch_now:
 		# Send as soon as the event commits instead of waiting for the sweep, which stays
 		# on as the backstop for rows this job skips or loses.
 		try:
@@ -870,7 +899,9 @@ def _deliverable_mobile(recipient, grievance):
 	"""The number a queued SMS row actually goes to, same precedence as email."""
 	candidates = _address_candidates(recipient, grievance, "contact_mobile", ("mobile_no",), "contact_mobile")
 	for mobile in candidates:
-		if mobile and mobile.strip():
+		# A submitter with no account and only an email address is addressed by that address,
+		# which is a candidate here too; it is no number to text.
+		if mobile and mobile.strip() and "@" not in mobile:
 			return mobile.strip()
 	raise ValueError(f"No mobile number for {recipient}")
 
@@ -979,7 +1010,7 @@ def _next_queued_row(grievance=None):
 	"""
 	rows = frappe.db.sql(
 		"""
-		select name, grievance, channel, recipient, message, subject
+		select name, grievance, event, channel, recipient, language, message, subject
 		from `tabGrievance Notification Log`
 		where status = 'Queued' and (%(grievance)s is null or grievance = %(grievance)s)
 		order by creation asc, name asc
@@ -1022,6 +1053,11 @@ def dispatch_queued(limit=100, grievance=None):
 			update = {"status": "Failed", "error": frappe.get_traceback(with_context=False)}
 
 		frappe.db.set_value("Grievance Notification Log", row.name, update, update_modified=False)
+		if row.event in C.GUEST_ACCESS_EVENTS:
+			# The plain link and PIN are kept only until nothing is left to carry them.
+			from oan_grievance_service.services import guest_access
+
+			guest_access.clear_pending_secret_when_sent(row.grievance)
 		# Commit per row: it releases this row's lock and records the send before the next.
 		frappe.db.commit()  # nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 		handled += 1

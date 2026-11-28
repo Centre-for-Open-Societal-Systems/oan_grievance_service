@@ -10,7 +10,7 @@
  "issingle": 1,
  "track_changes": 1,
  "links": [],
- "modified": "2026-11-10 12:00:00.000000",
+ "modified": "2026-11-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Grievance Management",
  "name": "Grievance Settings",
@@ -71,6 +71,7 @@
   "auto_routing_enabled",
   "sec_escalation",
   "auto_escalation_enabled",
+  "reopen_escalation_enabled",
   "change_request_hours",
   "sec_duplicates",
   "ask_before_filing_duplicate",
@@ -80,7 +81,10 @@
   "duplicate_high_threshold",
   "sec_farmer_registry",
   "farmer_registry_url",
-  "farmer_register_id"
+  "farmer_register_id",
+  "sec_identity",
+  "national_id_pattern",
+  "national_id_format_hint"
  ],
  "fields": [
   {
@@ -102,6 +106,13 @@
    "fieldname": "auto_escalation_enabled",
    "fieldtype": "Check",
    "label": "Escalate Overdue Cases Automatically"
+  },
+  {
+   "default": "1",
+   "description": "When ticked, a case the submitter reopens goes to the officer one level above whoever resolved it last. Untick to leave a reopened case with its officer.",
+   "fieldname": "reopen_escalation_enabled",
+   "fieldtype": "Check",
+   "label": "Escalate Reopened Cases"
   },
   {
    "default": "24",
@@ -172,6 +183,27 @@
    "fieldname": "farmer_register_id",
    "fieldtype": "Data",
    "label": "Farmer Register ID"
+  },
+  {
+   "fieldname": "sec_identity",
+   "fieldtype": "Section Break",
+   "label": "National ID"
+  },
+  {
+   "default": "^\\d{12}(\\d{4})?$",
+   "description": "Regular expression that a national / Fayda ID must match. Defaults to 12 or 16 digits.",
+   "fieldname": "national_id_pattern",
+   "fieldtype": "Data",
+   "label": "National ID Pattern",
+   "reqd": 1
+  },
+  {
+   "default": "a 12- or 16-digit number",
+   "description": "Human-readable format shown in validation errors when a national / Fayda ID does not match.",
+   "fieldname": "national_id_format_hint",
+   "fieldtype": "Data",
+   "label": "National ID Format Hint",
+   "reqd": 1
   }
  ]
 }

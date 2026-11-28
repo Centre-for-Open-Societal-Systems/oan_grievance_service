@@ -3,6 +3,8 @@
 
 """Installation-wide grievance settings, as a Single."""
 
+import re
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -23,6 +25,14 @@ class GrievanceSettings(Document):
 			flt(self.duplicate_high_threshold),
 		)
 
+		try:
+			re.compile(self.national_id_pattern)
+		except re.error as exc:
+			frappe.throw(
+				_("National ID Pattern is not a valid regular expression: {0}").format(str(exc)),
+				frappe.ValidationError,
+			)
+
 
 def auto_routing_enabled() -> bool:
 	"""Whether cases go to the matching desk's officer; off sends every case to Unrouted."""
@@ -32,6 +42,16 @@ def auto_routing_enabled() -> bool:
 def auto_escalation_enabled() -> bool:
 	"""Site-wide switch for escalating overdue cases; a desk can still opt out for the cases it routes."""
 	return bool(frappe.get_cached_doc("Grievance Settings").auto_escalation_enabled)
+
+
+def reopen_escalation_enabled() -> bool:
+	"""Site-wide switch for sending a reopened case one level above its last resolver (STG-521).
+
+	Read raw: a site that saved its settings before this field existed has no value stored for it,
+	and that means the field's default, on. A loaded Check would read it as 0.
+	"""
+	value = frappe.db.get_singles_dict("Grievance Settings").get("reopen_escalation_enabled")
+	return True if value is None else bool(cint(value))
 
 
 def change_request_hours() -> int:
