@@ -7,7 +7,13 @@ from frappe.model.document import Document
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
-from oan_grievance_service.services import classification, hooks_handlers, identity, ticket_number
+from oan_grievance_service.services import (
+	classification,
+	hooks_handlers,
+	identity,
+	storage,
+	ticket_number,
+)
 from oan_grievance_service.services import constants as C
 
 MIN_DESCRIPTION_LENGTH = 20
@@ -495,11 +501,10 @@ class Grievance(Document):
 		do not: a File's bytes leave the disk at once and a rollback cannot bring them back, so
 		the Files are collected and removed in after_delete, once the delete can no longer be refused.
 		"""
-		self.flags.files_to_remove = []
+		self.flags.objects_to_remove = []
 		for name in frappe.get_all("Grievance Attachment", filters={"grievance": self.name}, pluck="name"):
 			attachment = frappe.get_doc("Grievance Attachment", name)
-			if attachment.file:
-				self.flags.files_to_remove.append(attachment.file)
+			self.flags.objects_to_remove.append((attachment.file, attachment.file_url))
 			attachment.flags.keep_file = True
 			attachment.delete(ignore_permissions=True, force=True)
 		for doctype in ("Grievance Feedback", "Grievance Change Request"):
@@ -513,9 +518,8 @@ class Grievance(Document):
 			frappe.delete_doc("Grievance Duplicate", name, force=True, ignore_permissions=True)
 
 	def after_delete(self):
-		for file in self.flags.files_to_remove or []:
-			if frappe.db.exists("File", file):
-				frappe.delete_doc("File", file, force=True, ignore_permissions=True)
+		for file, file_url in self.flags.objects_to_remove or []:
+			storage.delete_stored_object(file, file_url)
 
 	def on_update(self):
 		if self.flags.change_request:

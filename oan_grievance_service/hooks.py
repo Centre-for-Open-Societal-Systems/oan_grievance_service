@@ -128,6 +128,7 @@ scheduler_events = {
 		# The bank list changes rarely, so once a day keeps the directory current without
 		# calling A2C more than needed. The job only queues the work, on the long queue.
 		"oan_grievance_service.tasks.enqueue_service_provider_syncs",
+		"oan_grievance_service.tasks.enqueue_mds_geo_sync",
 	],
 }
 

@@ -15,7 +15,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oan_grievance_service.api.v1 import attachment
-from oan_grievance_service.services import scanning
+from oan_grievance_service.services import scanning, storage
 from oan_grievance_service.services import ticket_number as tn
 from oan_grievance_service.tests.fixtures import a_grievance
 
@@ -469,7 +469,9 @@ class TestTheRowOwnsItsFile(AttachmentAPITestCase):
 		name = self._send("receipt.jpg", _jpeg())["data"][0]["attachment"]
 		file_name = frappe.db.get_value("Grievance Attachment", name, "file")
 
-		self.assertEqual(scanning.read_object(file_name), scanning.read_object(self._file_of_url(name)))
+		self.assertEqual(
+			storage.read_attachment_bytes(file_name), storage.read_attachment_bytes(self._file_of_url(name))
+		)
 
 	def _file_of_url(self, name):
 		return frappe.db.get_value("Grievance Attachment", name, "file_url")
@@ -686,7 +688,7 @@ class TestLegacyFilesGoThroughTheGate(AttachmentAPITestCase):
 		)
 		self.assertNotEqual(row.file, stored.name)
 		self.assertFalse(frappe.db.exists("File", stored.name))
-		self.assertEqual(scanning.read_object(row.file), clean)
+		self.assertEqual(storage.read_attachment_bytes(row.file), clean)
 		self.assertEqual(row.checksum_sha256, scanning.sha256_of(clean))
 
 

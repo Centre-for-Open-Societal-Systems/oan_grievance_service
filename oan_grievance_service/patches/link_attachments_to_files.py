@@ -24,7 +24,7 @@ import frappe
 
 
 def execute():
-	from oan_grievance_service.services import scanning
+	from oan_grievance_service.services import scanning, storage
 
 	linked, unlinked = 0, []
 	for row in frappe.get_all(
@@ -52,7 +52,7 @@ def execute():
 	for stored in legacy:
 		if not frappe.db.exists("Grievance", stored.attached_to_name):
 			continue
-		content = scanning.read_object(stored.name)
+		content = storage.read_attachment_bytes(stored.name)
 		status, detail, mime, checksum = scanning.SCAN_PENDING, None, None, None
 		file_name, file_url = stored.name, stored.file_url
 		if content is None:

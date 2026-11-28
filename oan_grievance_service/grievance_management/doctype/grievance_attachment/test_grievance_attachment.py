@@ -70,6 +70,12 @@ class TestGrievanceAttachment(FrappeTestCase):
 		).insert(ignore_permissions=True)
 		self.assertEqual(doc.mime_type, "audio/mpeg")
 
+	def test_a_wav_voice_note_is_accepted(self):
+		doc = self._attachment(
+			file_name="statement.wav", mime_type="audio/x-wav", size_bytes=2_400_000
+		).insert(ignore_permissions=True)
+		self.assertEqual(doc.mime_type, "audio/x-wav")
+
 	def test_nothing_is_servable_until_it_has_been_scanned(self):
 		doc = self._attachment().insert(ignore_permissions=True)
 		self.assertFalse(doc.is_servable())
